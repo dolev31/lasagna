@@ -1,7 +1,7 @@
 [project]
 name = "lasagna-rag"
 version = "0.1.0a1"
-description = "Composable RAG framework and evaluation harness: swap any of seven pipeline stages with one config key, then benchmark the change against a fixed baseline."
+description = "Composable RAG framework and evaluation harness: change one of seven pipeline stages, hold the rest fixed, and benchmark the change against a baseline."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
