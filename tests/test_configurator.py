@@ -18,7 +18,6 @@ Sections:
 import re
 
 import pytest
-from unittest.mock import patch
 
 # ── Schema & Validation (no external dependencies) ──────────────────────
 from lasagna.configurator.schema import (
@@ -34,6 +33,25 @@ from lasagna.configurator.validation import (
     validate_config,
     ValidationResult,
 )
+
+
+@pytest.fixture
+def fresh_config_store(tmp_path):
+    """A profile and session store of this test's own.
+
+    Profiles and each session's active profile persist in the process-wide
+    database behind ``get_rag_database()``, and these tests share one session
+    id. Without a store per test, ``set_active_profile("speed")`` in one test
+    leaked into the next, so the outcome depended on test order. Patching
+    ``_resolve_user_data_path`` (what these fixtures used to do) isolates
+    nothing: that path feeds only the legacy JSON migration.
+    """
+    from lasagna.core.database import get_rag_database, reset_rag_database
+
+    reset_rag_database()
+    get_rag_database(str(tmp_path / "rag.db"))
+    yield
+    reset_rag_database()
 
 
 # =========================================================================
@@ -473,21 +491,16 @@ class TestReindexDetection:
 class TestProfileLifecycle:
     """Full lifecycle tests: create, read, modify, delete, rename profiles.
 
-    Uses a fresh KnowledgeConfigManager with mocked persistence so tests
-    don't touch the filesystem.
+    Each test gets a fresh KnowledgeConfigManager over a store of its own
+    (``fresh_config_store``), so no test sees another's profiles.
     """
 
     @pytest.fixture
-    def manager(self, tmp_path):
-        """Create a KnowledgeConfigManager with temp storage."""
-        with patch(
-            "lasagna.core.session_config.KnowledgeConfigManager._resolve_user_data_path",
-            return_value=str(tmp_path),
-        ):
-            from lasagna.core.session_config import KnowledgeConfigManager
+    def manager(self, fresh_config_store):
+        """A KnowledgeConfigManager over a store of this test's own."""
+        from lasagna.core.session_config import KnowledgeConfigManager
 
-            mgr = KnowledgeConfigManager()
-            return mgr
+        return KnowledgeConfigManager()
 
     @pytest.fixture
     def session_id(self):
@@ -740,14 +753,11 @@ class TestProfileStats:
     """Test profile statistics and global profile management."""
 
     @pytest.fixture
-    def manager(self, tmp_path):
-        with patch(
-            "lasagna.core.session_config.KnowledgeConfigManager._resolve_user_data_path",
-            return_value=str(tmp_path),
-        ):
-            from lasagna.core.session_config import KnowledgeConfigManager
+    def manager(self, fresh_config_store):
+        """A KnowledgeConfigManager over a store of this test's own."""
+        from lasagna.core.session_config import KnowledgeConfigManager
 
-            return KnowledgeConfigManager()
+        return KnowledgeConfigManager()
 
     def test_profile_stats_structure(self, manager):
         """get_profile_stats() should return expected fields."""
@@ -1015,16 +1025,11 @@ class TestValidationEnforcement:
     """
 
     @pytest.fixture
-    def manager(self, tmp_path):
-        """Create a KnowledgeConfigManager with temp storage."""
-        with patch(
-            "lasagna.core.session_config.KnowledgeConfigManager._resolve_user_data_path",
-            return_value=str(tmp_path),
-        ):
-            from lasagna.core.session_config import KnowledgeConfigManager
+    def manager(self, fresh_config_store):
+        """A KnowledgeConfigManager over a store of this test's own."""
+        from lasagna.core.session_config import KnowledgeConfigManager
 
-            mgr = KnowledgeConfigManager()
-            return mgr
+        return KnowledgeConfigManager()
 
     @pytest.fixture
     def session_id(self):
