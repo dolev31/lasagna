@@ -29,7 +29,16 @@ from lasagna.knowledge_evaluation_sdk.stages import (
 
 @pytest.mark.parametrize(
     "stage",
-    ["reranker", "query_enhancer", "chunker", "embedder", "document_processor", "retriever"],
+    [
+        "reranker",
+        "query_enhancer",
+        "chunker",
+        "embedder",
+        "document_processor",
+        "retriever",
+        "agentic_pipeline",
+        "generator",
+    ],
 )
 def test_every_listed_built_in_implements_its_stage(stage):
     abc = _get_expected_abc(stage)

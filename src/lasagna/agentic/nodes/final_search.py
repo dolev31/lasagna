@@ -19,6 +19,7 @@ from loguru import logger
 from lasagna.agentic.graph_state import RAGGraphState
 from lasagna.agentic.agentic_rag import (
     _should_use_hyde_for_agentic,
+    arm_query_overrides,
 )
 from lasagna.agentic.citation_manager import extract_highlight_ranges
 
@@ -90,6 +91,7 @@ async def final_search_node(state: RAGGraphState) -> Dict[str, Any]:
             use_hyde=use_hyde_final,
             trace_id=trace_id,
             _from_routing=True,
+            query_config_overrides=arm_query_overrides(session_config),
         )
     except Exception:
         logger.exception("[FinalSearch] Final search failed")

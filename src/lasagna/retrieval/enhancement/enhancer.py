@@ -10,6 +10,7 @@ import asyncio
 import atexit
 import concurrent.futures
 import contextvars
+import re
 import threading
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
@@ -534,20 +535,26 @@ def _expand_query_sync(
 
 
 class QueryDecomposer:
-    """Query decomposition for complex questions.
+    """Least-to-most decomposition of a question into the sub-questions it needs first.
 
-    Breaks down complex queries into simpler sub-queries for
-    more targeted retrieval.
+    Zhou et al. 2022, "Least-to-Most Prompting Enables Complex Reasoning in
+    Large Language Models" (arXiv:2205.10625): the decomposition stage, with
+    the paper's few-shot format ('To answer the question "Q", we need to know:
+    "q1", "q2".') and two of its DROP exemplars (Appendix 9.2.4), verbatim.
+    The paper then answers the sub-questions in order; for retrieval, each
+    sub-question is searched alongside the question and the lists are fused.
+
+    This replaced a zero-shot "break it into simpler sub-questions" prompt
+    with no source, so results recorded before the change came from a
+    different method under this name.
     """
 
-    DECOMPOSITION_PROMPT = """Analyze this question and break it down into simpler sub-questions
-that would need to be answered to fully address the original question.
-If the question is already simple, just return the original question.
-Return only the questions, one per line.
-
-Question: {query}
-
-Sub-questions:"""
+    DECOMPOSITION_PROMPT = """Q: The median age in the city was 22.1 years. 10.1% of residents were under the age of 18; 56.2% were between the ages of 18 and 24; 16.1% were from 25 to 44; 10.5% were from 45 to 64; and 7% were 65 years of age or older. Which age group is larger: under the age of 18 or 18 and 24?
+A: To answer the question "Which age group is larger: under the age of 18 or 18 and 24?", we need to know: "How many percent were under the age of 18?", "How many percent were between the ages of 18 and 24?".
+Q: Non-nationals make up more than half of the population of Bahrain. According to government statistics dated between 2005-2009 roughly 290,000 Indians, 125,000 Bangladeshis, 45,000 Pakistanis, 45,000 Filipinos, and 8,000 Indonesians. How many Pakistanis and Indonesians are in Bahrain?
+A: To answer the question "How many Pakistanis and Indonesians are in Bahrain?", we need to know: "How many Pakistanis are in Bahrain?", "How many Indonesians are in Bahrain?".
+Q: {query}
+A:"""
 
     def __init__(self, model: Optional[str] = None):
         """Initialize query decomposer.
@@ -606,18 +613,7 @@ Sub-questions:"""
             prompt = self.DECOMPOSITION_PROMPT.format(query=query)
             response = await llm.ainvoke([{"role": "user", "content": prompt}])
             content = response.content if hasattr(response, "content") else str(response)
-
-            sub_queries = []
-            for line in content.strip().split("\n"):
-                line = line.strip()
-                if line and len(line) > 5:
-                    # Remove numbering
-                    if line[0].isdigit() and line[1] in ".):":
-                        line = line[2:].strip()
-                    elif line[:2].isdigit() and line[2] in ".):":
-                        line = line[3:].strip()
-                    if line and line != query:
-                        sub_queries.append(line)
+            sub_queries = _sub_questions(content, query)
 
             logger.debug(f"Decomposed into {len(sub_queries)} sub-queries")
             return sub_queries
@@ -625,6 +621,27 @@ Sub-questions:"""
         except Exception as e:
             logger.error(f"Query decomposition failed: {e}")
             return []
+
+
+#: The sub-question list of a least-to-most decomposition, after its lead-in.
+_NEED_TO_KNOW = re.compile(r"we need to (?:know|first solve)\s*:(.*)", re.IGNORECASE | re.DOTALL)
+_QUOTED = re.compile(r'["\u201c]([^"\u201d]+)["\u201d]')
+
+
+def _sub_questions(content: str, query: str) -> List[str]:
+    """The sub-questions a least-to-most decomposition lists, in order, without the question."""
+    match = _NEED_TO_KNOW.search(content)
+    if match:
+        found = _QUOTED.findall(match.group(1))
+    else:
+        # A model that ignored the format: one sub-question per line.
+        found = _numbered_lines(content)
+    out: List[str] = []
+    for sub in found:
+        sub = sub.strip()
+        if sub and sub != query.strip() and sub not in out:
+            out.append(sub)
+    return out
 
 
 def _decompose_query_sync(
@@ -641,7 +658,7 @@ def _decompose_query_sync(
     if not llm:
         raise RuntimeError("query_decomposition needs an LLM, and none is configured")
     content = _invoke_sync(llm, decomposer.DECOMPOSITION_PROMPT.format(query=query))
-    return _numbered_lines(content, exclude=query)
+    return _sub_questions(content, query)
 
 
 class QueryEnhancer:
@@ -1020,7 +1037,11 @@ class QueryExpansionAdapter(BaseQueryEnhancer):
 
 
 class QueryDecompositionAdapter(BaseQueryEnhancer):
-    """Sub-question decomposition behind the public ``BaseQueryEnhancer`` contract."""
+    """Least-to-most decomposition behind the public ``BaseQueryEnhancer`` contract.
+
+    Returns the question and the sub-questions it needs first (see
+    ``QueryDecomposer``), at most ``n`` of them once the pipeline caps them.
+    """
 
     # The pipeline passes the session config.
     _forwards_session_config = True

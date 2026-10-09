@@ -241,6 +241,19 @@ def _should_auto_refine(
     return False, "; ".join(skip_reasons)
 
 
+def arm_query_overrides(session_config: Any) -> Optional[Dict[str, Any]]:
+    """The per-query overrides an agentic search must carry, or None.
+
+    The orchestrator hands an agentic pipeline the session config with the
+    arm's per-query overrides applied. A search the pipeline makes with
+    ``_from_routing=True`` re-reads the config for its session, so without
+    these it searched under the shared session store, which concurrent arms
+    of a sweep overwrite, rather than under its own arm's settings.
+    """
+    overrides = getattr(session_config, "_query_overrides", None)
+    return dict(overrides) if overrides else None
+
+
 # =============================================================================
 # DATA STRUCTURES FOR MULTI-HOP TRACKING
 # =============================================================================
@@ -374,6 +387,10 @@ class AgenticRAGMetrics:
     crag_web_fallback_triggered: bool = False
     crag_grading_latency_ms: float = 0.0
 
+    # What a published loop (lasagna.agentic.loops) did on this question: its
+    # queries, its stopping reason and, for FLARE, which confidence signal ran.
+    loop_trace: Dict[str, Any] = field(default_factory=dict)
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for logging/API responses."""
         return {
@@ -426,6 +443,7 @@ class AgenticRAGMetrics:
                 "web_fallback_triggered": self.crag_web_fallback_triggered,
                 "grading_latency_ms": round(self.crag_grading_latency_ms, 2),
             },
+            **({"loop_trace": self.loop_trace} if self.loop_trace else {}),
         }
 
 

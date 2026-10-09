@@ -267,6 +267,7 @@ class ComponentRegistry:
         _r = "lasagna.retrieval.search.ranker:"
         _e = "lasagna.retrieval.enhancement.enhancer:"
         _c = "lasagna.processing.chunker.semantic:"
+        _a = "lasagna.retrieval.enhancement.augmentation:"
         builtins = [
             # (stage, name, "module:Class", description, paper, aliases)
             (
@@ -337,8 +338,8 @@ class ComponentRegistry:
                 "query_enhancer",
                 "query_decomposition",
                 _e + "QueryDecompositionAdapter",
-                "Sub-questions of a complex query, searched and fused",
-                None,
+                "Least-to-most decomposition: the sub-questions a question needs, searched and fused",
+                "arxiv:2205.10625",
                 [],
             ),
             (
@@ -493,6 +494,38 @@ class ComponentRegistry:
                 "Yu et al. 2023, Chain-of-Note: Enhancing Robustness in Retrieval-Augmented LMs",
                 [],
             ),
+            (
+                "query_enhancer",
+                "step_back",
+                _a + "StepBackEnhancer",
+                "Step-back prompting: the question and a more generic step-back question",
+                "arxiv:2310.06117",
+                [],
+            ),
+            (
+                "query_enhancer",
+                "query2doc",
+                _a + "Query2DocEnhancer",
+                "Query2doc: the query followed by an LLM-written pseudo-document",
+                "arxiv:2303.07678",
+                [],
+            ),
+            (
+                "query_enhancer",
+                "rewrite",
+                _a + "RewriteEnhancer",
+                "Rewrite-Retrieve-Read: search queries rewritten by an LLM",
+                "arxiv:2305.14283",
+                [],
+            ),
+            (
+                "query_enhancer",
+                "multi_query",
+                _a + "MultiQueryEnhancer",
+                "RAG-Fusion: LLM-generated search queries, fused by reciprocal rank",
+                "arxiv:2402.03367",
+                [],
+            ),
         ]
         for stage, name, factory, description, paper, aliases in builtins:
             try:
@@ -522,6 +555,43 @@ class ComponentRegistry:
         self._builtin_names.update(
             {("agentic_pipeline", "default"), ("agentic_pipeline", "legacy_react")}
         )
+        _l = "lasagna.agentic.loops."
+        for name, factory, description, paper in [
+            (
+                "self_ask",
+                _l + "self_ask:SelfAskPipeline",
+                "Self-Ask: follow-up questions answered by retrieval until the final answer",
+                "arxiv:2210.03350",
+            ),
+            (
+                "ircot",
+                _l + "ircot:IRCoTPipeline",
+                "IRCoT: chain-of-thought sentences interleaved with retrieval, each the next query",
+                "arxiv:2212.10509",
+            ),
+            (
+                "flare",
+                _l + "flare:FLAREPipeline",
+                "FLARE: retrieve when the tentative next sentence has low-confidence tokens",
+                "arxiv:2305.06983",
+            ),
+            (
+                "adaptive",
+                _l + "adaptive:AdaptiveRAGPipeline",
+                "Adaptive-RAG: a complexity classifier picks no, single-step or multi-step retrieval",
+                "arxiv:2403.14403",
+            ),
+            (
+                "self_rag",
+                _l + "self_rag:SelfRAGPipeline",
+                "Self-RAG (prompted critic): retrieve on demand, critique each passage's answer",
+                "arxiv:2310.11511",
+            ),
+        ]:
+            self._components["agentic_pipeline"][name] = _Registration(
+                description=description, paper=paper, _factory=factory
+            )
+            self._builtin_names.add(("agentic_pipeline", name))
 
         # --- Built-in Graph Nodes (deferred) ---
         _node_factories = [

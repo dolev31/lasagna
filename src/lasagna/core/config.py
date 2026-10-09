@@ -370,6 +370,24 @@ class RAGConfig:
             "enable_speculative_rag": False,  # Speculative RAG: parallel drafts + verification
             "speculative_n_drafts": 3,  # Number of parallel draft answers
             "speculative_subset_size": 3,  # Context chunks per draft
+            # Published agentic loops (lasagna.agentic.loops), with their papers'
+            # defaults; each loop's own budget, not max_agent_iterations.
+            "self_ask_max_follow_ups": 5,  # Self-Ask: follow-up questions before concluding
+            "ircot_paragraphs_per_step": 6,  # IRCoT: K paragraphs retrieved per step
+            "ircot_max_steps": 8,  # IRCoT: reasoning steps before stopping
+            "ircot_max_paragraphs": 15,  # IRCoT: cap on paragraphs collected
+            "flare_retrieval_threshold": 0.8,  # FLARE theta: retrieve if any token is below
+            "flare_mask_threshold": 0.4,  # FLARE beta: mask tokens below this in the query
+            "flare_max_sentences": 8,  # FLARE: sentences generated before stopping
+            "flare_docs_per_retrieval": 2,  # FLARE: documents per retrieval
+            "flare_confidence_source": "auto",  # 'auto' | 'logprobs' | 'self_reported'
+            "adaptive_rag_classifier_model": "",  # Adaptive-RAG classifier (empty = loop's LLM)
+            "adaptive_rag_single_step_docs": 5,  # Adaptive-RAG: documents for the single-step route
+            "self_rag_passages": 5,  # Self-RAG: passages retrieved and critiqued
+            "self_rag_weight_rel": 1.0,  # Self-RAG critique weights (ISREL, ISSUP, ISUSE)
+            "self_rag_weight_sup": 1.0,
+            "self_rag_weight_use": 0.5,
+            "self_rag_retrieval": "adaptive",  # 'adaptive' (Retrieve judgement) | 'always'
             "enable_mmr": True,
             "mmr_lambda": 0.5,  # SOTA default (LangChain, LlamaIndex). Pre-MMR filter ensures only relevant items.
             "mmr_score_normalization": "sigmoid",  # Options: 'sigmoid', 'minmax', 'sigmoid_minmax', 'none'. Plain sigmoid preserves cross-encoder calibration.
@@ -388,6 +406,12 @@ class RAGConfig:
             "enable_contextual_retrieval": False,  # Anthropic-style chunk enrichment at index time
             "enable_rag_fusion": False,  # Multi-query generation + RRF fusion
             "rag_fusion_n_queries": 3,  # Number of query variations for RAG Fusion
+            # Query2doc (arXiv:2303.07678): the expansion form ('dense': q [SEP] d';
+            # 'sparse': q repeated n times, then d'), n, and the pseudo-document's
+            # token budget, all at the paper's values.
+            "query2doc_format": "dense",
+            "query2doc_query_repeats": 5,
+            "query2doc_max_tokens": 128,
             "enable_crag": False,  # Corrective RAG: LLM grades retrieval quality
             "crag_web_search_fallback": False,  # Fall back to web search if retrieval quality is low
             # =================================================================
@@ -1346,6 +1370,27 @@ class RAGConfig:
         )
 
     @property
+    def query2doc_format(self) -> str:
+        """Query2doc: 'dense' (q [SEP] d') or 'sparse' (q repeated, then d')."""
+        return self._get_knowledge_setting(
+            "rag", "query2doc_format", default=self._config["query2doc_format"]
+        )
+
+    @property
+    def query2doc_query_repeats(self) -> int:
+        """Query2doc: how many times the query precedes its pseudo-document (sparse form)."""
+        return self._get_knowledge_setting(
+            "rag", "query2doc_query_repeats", default=self._config["query2doc_query_repeats"]
+        )
+
+    @property
+    def query2doc_max_tokens(self) -> int:
+        """Query2doc: token budget for the generated pseudo-document."""
+        return self._get_knowledge_setting(
+            "rag", "query2doc_max_tokens", default=self._config["query2doc_max_tokens"]
+        )
+
+    @property
     def enable_crag(self) -> bool:
         """Enable Corrective RAG: LLM grades retrieval quality post-search.
 
@@ -2081,6 +2126,122 @@ class RAGConfig:
     def speculative_subset_size(self) -> int:
         """Number of context chunks per draft in speculative RAG."""
         return self._get_knowledge_setting("rag", "speculative_subset_size", default=3)
+
+    @property
+    def self_ask_max_follow_ups(self) -> int:
+        """Self-Ask: follow-up questions searched before the model must conclude."""
+        return self._get_knowledge_setting(
+            "rag", "self_ask_max_follow_ups", default=self._config["self_ask_max_follow_ups"]
+        )
+
+    @property
+    def ircot_paragraphs_per_step(self) -> int:
+        """IRCoT: paragraphs retrieved per step (K)."""
+        return self._get_knowledge_setting(
+            "rag", "ircot_paragraphs_per_step", default=self._config["ircot_paragraphs_per_step"]
+        )
+
+    @property
+    def ircot_max_steps(self) -> int:
+        """IRCoT: reasoning steps before the loop stops."""
+        return self._get_knowledge_setting(
+            "rag", "ircot_max_steps", default=self._config["ircot_max_steps"]
+        )
+
+    @property
+    def ircot_max_paragraphs(self) -> int:
+        """IRCoT: cap on the paragraphs collected across steps."""
+        return self._get_knowledge_setting(
+            "rag", "ircot_max_paragraphs", default=self._config["ircot_max_paragraphs"]
+        )
+
+    @property
+    def flare_retrieval_threshold(self) -> float:
+        """FLARE theta: retrieve when any token of the next sentence is below it."""
+        return self._get_knowledge_setting(
+            "rag", "flare_retrieval_threshold", default=self._config["flare_retrieval_threshold"]
+        )
+
+    @property
+    def flare_mask_threshold(self) -> float:
+        """FLARE beta: tokens below it are masked out of the retrieval query."""
+        return self._get_knowledge_setting(
+            "rag", "flare_mask_threshold", default=self._config["flare_mask_threshold"]
+        )
+
+    @property
+    def flare_max_sentences(self) -> int:
+        """FLARE: sentences generated before the loop stops."""
+        return self._get_knowledge_setting(
+            "rag", "flare_max_sentences", default=self._config["flare_max_sentences"]
+        )
+
+    @property
+    def flare_docs_per_retrieval(self) -> int:
+        """FLARE: documents retrieved per retrieval."""
+        return self._get_knowledge_setting(
+            "rag", "flare_docs_per_retrieval", default=self._config["flare_docs_per_retrieval"]
+        )
+
+    @property
+    def flare_confidence_source(self) -> str:
+        """FLARE: 'auto', 'logprobs' or 'self_reported' confidence."""
+        return self._get_knowledge_setting(
+            "rag", "flare_confidence_source", default=self._config["flare_confidence_source"]
+        )
+
+    @property
+    def adaptive_rag_classifier_model(self) -> str:
+        """Adaptive-RAG: model for the complexity classifier (empty = the loop's)."""
+        return self._get_knowledge_setting(
+            "rag",
+            "adaptive_rag_classifier_model",
+            default=self._config["adaptive_rag_classifier_model"],
+        )
+
+    @property
+    def adaptive_rag_single_step_docs(self) -> int:
+        """Adaptive-RAG: documents retrieved on the single-step route."""
+        return self._get_knowledge_setting(
+            "rag",
+            "adaptive_rag_single_step_docs",
+            default=self._config["adaptive_rag_single_step_docs"],
+        )
+
+    @property
+    def self_rag_passages(self) -> int:
+        """Self-RAG: passages retrieved, each answered from and critiqued."""
+        return self._get_knowledge_setting(
+            "rag", "self_rag_passages", default=self._config["self_rag_passages"]
+        )
+
+    @property
+    def self_rag_weight_rel(self) -> float:
+        """Self-RAG: weight of the relevance critique (ISREL)."""
+        return self._get_knowledge_setting(
+            "rag", "self_rag_weight_rel", default=self._config["self_rag_weight_rel"]
+        )
+
+    @property
+    def self_rag_weight_sup(self) -> float:
+        """Self-RAG: weight of the support critique (ISSUP)."""
+        return self._get_knowledge_setting(
+            "rag", "self_rag_weight_sup", default=self._config["self_rag_weight_sup"]
+        )
+
+    @property
+    def self_rag_weight_use(self) -> float:
+        """Self-RAG: weight of the utility critique (ISUSE)."""
+        return self._get_knowledge_setting(
+            "rag", "self_rag_weight_use", default=self._config["self_rag_weight_use"]
+        )
+
+    @property
+    def self_rag_retrieval(self) -> str:
+        """Self-RAG: 'adaptive' (the model judges) or 'always' retrieve."""
+        return self._get_knowledge_setting(
+            "rag", "self_rag_retrieval", default=self._config["self_rag_retrieval"]
+        )
 
     @property
     def coverage_scorer_mode(self) -> str:
