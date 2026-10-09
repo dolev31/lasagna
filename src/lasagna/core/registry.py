@@ -463,6 +463,12 @@ class ComponentRegistry:
                 "arxiv:2212.10509",
             ),
             (
+                "flare",
+                _l + "flare:FLAREPipeline",
+                "FLARE: retrieve when the tentative next sentence has low-confidence tokens",
+                "arxiv:2305.06983",
+            ),
+            (
                 "adaptive",
                 _l + "adaptive:AdaptiveRAGPipeline",
                 "Adaptive-RAG: a complexity classifier picks no, single-step or multi-step retrieval",

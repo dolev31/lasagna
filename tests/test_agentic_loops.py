@@ -21,6 +21,7 @@ from tests._loop_stubs import (
     hit,
     install_backend,
     pipeline_input,
+    with_logprobs,
 )
 
 #: Each loop's settings and one short scripted run that reaches a search;
@@ -203,6 +204,111 @@ async def test_ircot_caps_the_paragraphs_it_reasons_over(monkeypatch):
 
 LOOP_SETTINGS["ircot"] = ["ircot_paragraphs_per_step", "ircot_max_steps", "ircot_max_paragraphs"]
 SHORT_RUNS["ircot"] = ["So the answer is: Ada.", "So the answer is: Ada."]
+
+
+# ---------------------------------------------------------------------------
+# FLARE
+# ---------------------------------------------------------------------------
+
+UNSURE = "Joe Biden attended Penn Law School."
+SURE = "Joe Biden attended Syracuse University College of Law."
+DONE = "So the answer is Syracuse University College of Law."
+
+
+async def test_flare_keeps_a_confident_sentence_without_searching_again(monkeypatch):
+    backend = install_backend(monkeypatch, {Q_BIDEN: [hit("d1", "Biden studied law at Syracuse.")]})
+    llm = ScriptedLLM([with_logprobs(SURE, [0.9] * 8), with_logprobs(DONE, [0.9] * 9)])
+    result = await _loop("flare").run(pipeline_input(Q_BIDEN, llm))
+
+    assert [c["query"] for c in backend.calls] == [Q_BIDEN]  # the question only
+    assert result.agent_summary == "Syracuse University College of Law"
+    assert result.metrics.loop_trace["confidence_source"] == "logprobs"
+    assert result.metrics.stop_reason == "answer"
+    # The paper's layout: exemplars, the search results, then the test case.
+    assert "Search results:\n[1] Biden studied law at Syracuse.\nQuestion: " in llm.prompts[0]
+    assert llm.prompts[1].endswith(f"Answer: {SURE}")
+    assert llm.bound and llm.bound[0] == {"logprobs": True}
+
+
+async def test_flare_searches_with_the_masked_sentence_when_a_token_is_unsure(monkeypatch):
+    masked = "Joe Biden attended School."
+    backend = install_backend(
+        monkeypatch,
+        {Q_BIDEN: [hit("d1", "Biden bio.")], masked: [hit("d2", "Biden: Syracuse Law, 1968.")]},
+    )
+    llm = ScriptedLLM(
+        [
+            # "Penn" and "Law" are below theta (0.8) and beta (0.4): retrieve, masking them.
+            with_logprobs(UNSURE, [0.9, 0.9, 0.9, 0.1, 0.3, 0.9]),
+            SURE,  # written again with what the masked query found
+            with_logprobs(DONE, [0.9] * 9),
+        ]
+    )
+    result = await _loop("flare").run(pipeline_input(Q_BIDEN, llm))
+
+    assert [c["query"] for c in backend.calls] == [Q_BIDEN, masked]
+    # The new documents replace the old ones.
+    assert "Syracuse Law, 1968" in llm.prompts[1] and "Biden bio." not in llm.prompts[1]
+    assert result.metrics.loop_trace["generation"] == f"{SURE} {DONE}"
+    assert result.metrics.loop_trace["retrievals_triggered"] == 1
+
+
+async def test_flare_without_logprobs_asks_the_model_which_spans_it_is_unsure_of(monkeypatch):
+    masked = "Joe Biden attended Law School."
+    backend = install_backend(
+        monkeypatch,
+        {Q_BIDEN: [hit("d1", "Biden bio.")], masked: [hit("d2", "Biden: Syracuse Law, 1968.")]},
+    )
+    llm = ScriptedLLM([UNSURE, "Penn", SURE, DONE, "NONE"])  # no logprobs on any reply
+    result = await _loop("flare").run(pipeline_input(Q_BIDEN, llm))
+
+    assert "not confident" in llm.prompts[1]
+    assert [c["query"] for c in backend.calls] == [Q_BIDEN, masked]
+    assert result.agent_summary == "Syracuse University College of Law"
+    assert result.metrics.loop_trace["confidence_source"] == "self_reported"
+
+
+async def test_flare_falls_back_when_the_model_refuses_the_logprobs_request(monkeypatch):
+    install_backend(monkeypatch, {Q_BIDEN: [hit("d1", "Biden bio.")]})
+
+    class Refuses(ScriptedLLM):
+        def bind(self, **kwargs):
+            outer = self
+
+            class Bound:
+                async def ainvoke(self, messages, stop=None, **kw):
+                    raise ValueError("logprobs is not supported")
+
+            outer.bound.append(kwargs)
+            return Bound()
+
+    llm = Refuses([DONE, "NONE"])
+    result = await _loop("flare").run(pipeline_input(Q_BIDEN, llm))
+    assert result.metrics.loop_trace["confidence_source"] == "self_reported"
+    assert result.metrics.loop_trace["logprobs_refused"] == "ValueError"
+    assert len(llm.bound) == 1  # asked once, not on every sentence
+
+
+async def test_flare_stops_at_its_sentence_limit(monkeypatch):
+    install_backend(monkeypatch, {Q_BIDEN: [hit("d1", "Biden bio.")]})
+    llm = ScriptedLLM(
+        [with_logprobs(SURE, [0.9] * 8), with_logprobs("He graduated in 1968.", [0.9] * 4)]
+    )
+    result = await _loop("flare").run(
+        pipeline_input(Q_BIDEN, llm, ArmConfig(flare_max_sentences=2))
+    )
+    assert result.metrics.stop_reason == "max_sentences" and len(llm.prompts) == 2
+    assert result.agent_summary == f"{SURE} He graduated in 1968."  # no stated answer: the text
+
+
+LOOP_SETTINGS["flare"] = [
+    "flare_retrieval_threshold",
+    "flare_mask_threshold",
+    "flare_max_sentences",
+    "flare_docs_per_retrieval",
+    "flare_confidence_source",
+]
+SHORT_RUNS["flare"] = ["So the answer is Ada.", "NONE"]
 
 
 # ---------------------------------------------------------------------------

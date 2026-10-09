@@ -357,6 +357,11 @@ class RAGConfig:
             "ircot_paragraphs_per_step": 6,  # IRCoT: K paragraphs retrieved per step
             "ircot_max_steps": 8,  # IRCoT: reasoning steps before stopping
             "ircot_max_paragraphs": 15,  # IRCoT: cap on paragraphs collected
+            "flare_retrieval_threshold": 0.8,  # FLARE theta: retrieve if any token is below
+            "flare_mask_threshold": 0.4,  # FLARE beta: mask tokens below this in the query
+            "flare_max_sentences": 8,  # FLARE: sentences generated before stopping
+            "flare_docs_per_retrieval": 2,  # FLARE: documents per retrieval
+            "flare_confidence_source": "auto",  # 'auto' | 'logprobs' | 'self_reported'
             "adaptive_rag_classifier_model": "",  # Adaptive-RAG classifier (empty = loop's LLM)
             "adaptive_rag_single_step_docs": 5,  # Adaptive-RAG: documents for the single-step route
             "enable_mmr": True,
@@ -2054,6 +2059,41 @@ class RAGConfig:
         """IRCoT: cap on the paragraphs collected across steps."""
         return self._get_knowledge_setting(
             "rag", "ircot_max_paragraphs", default=self._config["ircot_max_paragraphs"]
+        )
+
+    @property
+    def flare_retrieval_threshold(self) -> float:
+        """FLARE theta: retrieve when any token of the next sentence is below it."""
+        return self._get_knowledge_setting(
+            "rag", "flare_retrieval_threshold", default=self._config["flare_retrieval_threshold"]
+        )
+
+    @property
+    def flare_mask_threshold(self) -> float:
+        """FLARE beta: tokens below it are masked out of the retrieval query."""
+        return self._get_knowledge_setting(
+            "rag", "flare_mask_threshold", default=self._config["flare_mask_threshold"]
+        )
+
+    @property
+    def flare_max_sentences(self) -> int:
+        """FLARE: sentences generated before the loop stops."""
+        return self._get_knowledge_setting(
+            "rag", "flare_max_sentences", default=self._config["flare_max_sentences"]
+        )
+
+    @property
+    def flare_docs_per_retrieval(self) -> int:
+        """FLARE: documents retrieved per retrieval."""
+        return self._get_knowledge_setting(
+            "rag", "flare_docs_per_retrieval", default=self._config["flare_docs_per_retrieval"]
+        )
+
+    @property
+    def flare_confidence_source(self) -> str:
+        """FLARE: 'auto', 'logprobs' or 'self_reported' confidence."""
+        return self._get_knowledge_setting(
+            "rag", "flare_confidence_source", default=self._config["flare_confidence_source"]
         )
 
     @property

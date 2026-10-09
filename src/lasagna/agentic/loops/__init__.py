@@ -6,6 +6,8 @@ Registered in the core registry under the ``agentic_pipeline`` stage:
   answered from retrieval, until the model states its final answer.
 * ``ircot`` -- IRCoT (Trivedi et al. 2023): one chain-of-thought sentence per
   step, each sentence the next retrieval query, up to a step limit.
+* ``flare`` -- FLARE (Jiang et al. 2023): forward-looking generation that
+  retrieves when the tentative next sentence is not confident.
 * ``adaptive`` -- Adaptive-RAG (Jeong et al. 2024): a complexity classifier
   routes each question to no retrieval, one retrieval or IRCoT.
 
