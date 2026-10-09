@@ -111,23 +111,35 @@ class TestPValueIsNeverExactlyZero:
     """`p = 0.0` claims certainty a finite resample cannot provide."""
 
     def test_a_wildly_separated_effect_still_reports_a_floor(self):
-        boot = np.full(10_000, 5.0)
-        p = BenchmarkResults._bootstrap_p_value(boot, 5.0)
-        assert p > 0.0
+        from lasagna.knowledge_evaluation_sdk.results import _sign_flip_p_value
+
+        p, method = _sign_flip_p_value([5.0] * 200, n_resamples=10_000)
+        assert method == "monte_carlo"
         assert p == pytest.approx(1 / 10_001, rel=1e-6), (
             "the floor should be 1/(n+1), i.e. 'smaller than one resample in n'"
         )
 
+    def test_an_enumerated_effect_counts_the_observed_pattern(self):
+        """Exact: the observed signs and their mirror image, 2 of 2**10."""
+        from lasagna.knowledge_evaluation_sdk.results import _sign_flip_p_value
+
+        assert _sign_flip_p_value([5.0] * 10)[0] == pytest.approx(2 / 1024)
+
     def test_a_null_effect_reports_a_large_p(self):
+        from lasagna.knowledge_evaluation_sdk.results import _sign_flip_p_value
+
         rng = np.random.RandomState(1)
-        boot = rng.normal(0.0, 1.0, size=10_000)
-        assert BenchmarkResults._bootstrap_p_value(boot, 0.0) > 0.5
+        diffs = rng.normal(0.0, 1.0, size=40)
+        assert _sign_flip_p_value(diffs - diffs.mean())[0] > 0.5
 
     def test_p_is_a_probability(self):
+        from lasagna.knowledge_evaluation_sdk.results import _sign_flip_p_value
+
         rng = np.random.RandomState(2)
-        for observed in (-2.0, -0.1, 0.0, 0.1, 2.0):
-            p = BenchmarkResults._bootstrap_p_value(rng.normal(0, 1, 2_000), observed)
-            assert 0.0 < p <= 1.0
+        for shift in (-2.0, -0.1, 0.0, 0.1, 2.0):
+            for n in (8, 60):
+                p, _ = _sign_flip_p_value(rng.normal(shift, 1, n), n_resamples=2_000)
+                assert 0.0 < p <= 1.0
 
 
 class TestBothTestsUseTheSameConstruction:
@@ -137,14 +149,14 @@ class TestBothTestsUseTheSameConstruction:
         import inspect
 
         src = inspect.getsource(BenchmarkResults.significance_test)
-        assert "_bootstrap_p_value" in src
+        assert "_sign_flip_p_value" in src
         assert "np.mean(np.abs(" not in src, "an inline p-value re-appeared"
 
     def test_stratified_test_uses_the_shared_helpers(self):
         import inspect
 
         src = inspect.getsource(BenchmarkResults.domain_stratified_significance_test)
-        assert "_bootstrap_p_value" in src
+        assert "_sign_flip_p_value" in src
         assert "_cohens_dz" in src
 
     def test_stratified_effect_size_is_computed_over_domains(self):
