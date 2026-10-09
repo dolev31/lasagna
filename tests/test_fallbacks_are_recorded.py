@@ -34,3 +34,12 @@ def test_a_bundle_with_fallbacks_says_so():
 
 def test_capture_records_the_list():
     assert isinstance(provenance.capture(include_git=False)["active_fallbacks"], list)
+
+
+def test_missing_sentence_tokenizer_data_is_named(monkeypatch):
+    from lasagna.processing.chunker import semantic
+
+    monkeypatch.setattr(semantic, "punkt_available", lambda: False)
+    assert "sentence_split_without_punkt" in provenance._active_fallbacks()
+    monkeypatch.setattr(semantic, "punkt_available", lambda: True)
+    assert "sentence_split_without_punkt" not in provenance._active_fallbacks()
