@@ -149,6 +149,31 @@ class TestVerifiedMeansReproduced:
         mark_verified(rows)
         assert not any(r["verified"] for r in rows)
 
+    def test_an_exact_reproduction_of_a_deterministic_run_verifies(self):
+        """Two submitters with bit-identical scifact results (0.6684 ± 0.0000,
+        two runs each) got no verified row: the rule required std > 0, so a
+        deterministic retrieval pipeline could never be verified."""
+        rows = collect_rows(
+            [
+                _bundle("lab-a", "k", values=(0.6684, 0.6684)),
+                _bundle("lab-b", "k", config="c2", values=(0.6684, 0.6684)),
+            ],
+            "ndcg@10",
+        )
+        mark_verified(rows)
+        assert all(r["verified"] for r in rows)
+
+    def test_a_deterministic_run_is_not_verified_by_a_different_number(self):
+        rows = collect_rows(
+            [
+                _bundle("lab-a", "k", values=(0.6684, 0.6684)),
+                _bundle("lab-b", "k", config="c2", values=(0.6685, 0.6685)),
+            ],
+            "ndcg@10",
+        )
+        mark_verified(rows)
+        assert not any(r["verified"] for r in rows)
+
     def test_a_different_configuration_does_not_verify(self):
         """Same number, different held-fixed config, is not a reproduction."""
         rows = collect_rows(

@@ -64,7 +64,7 @@ links to its bundle. Nobody is claiming to have rerun anyone's experiment.
 ### Reproduction by collision
 
 A row is marked `verified` when a **different** submitter publishes a bundle
-with the same comparability key whose mean lands inside the row's mean ± std.
+with the same comparability key whose mean lands inside the row's mean ± std (or equals the mean, when its runs show no spread).
 No coordination, no extra compute, no trusted third party — it falls out of data
 the hub already has, and it is a real reproduction signal rather than a badge.
 
