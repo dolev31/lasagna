@@ -416,7 +416,7 @@ Claude Desktop, Cursor — can search your documents as a tool call.
 
 ```bash
 pip install lasagna-rag
-lasagna configure --profile speed          # 80 MB model instead of 5.4 GB
+lasagna configure --profile speed -s my-corpus   # 80 MB model instead of 5.4 GB
 for f in ./docs/*.md; do lasagna upload "$f" -s my-corpus; done
 ```
 

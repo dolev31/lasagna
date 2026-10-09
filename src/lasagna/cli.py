@@ -71,6 +71,9 @@ def _cli(
     from loguru import logger
 
     logger.enable("lasagna")
+    # Profiles and settings saved by one command must apply in the next process
+    # (`configure` then `upload`, `search`, `serve`): keep sessions on disk.
+    os.environ.setdefault("RAG_SESSION_BACKEND", "persistent")
     _configure_cli_logging(verbose)
 
 

@@ -22,8 +22,8 @@ are the first-run model download, which this names explicitly.
 
 ```bash
 pip install lasagna-rag
-lasagna configure --profile speed     # 80 MB model; skip for the 5 GB default
-lasagna upload ./docs/*.md -s my-corpus
+lasagna configure --profile speed -s my-corpus   # 80 MB model; skip for the 5 GB default
+for f in ./docs/*.md; do lasagna upload "$f" -s my-corpus; done
 ```
 
 Then register the server. **Claude Code** (`.mcp.json` in the project):
@@ -33,6 +33,7 @@ Then register the server. **Claude Code** (`.mcp.json` in the project):
   "mcpServers": {
     "lasagna": {
       "command": "lasagna-mcp",
+      "args": ["--transport", "stdio"],
       "env": { "RAG_SESSION_ID": "my-corpus" }
     }
   }

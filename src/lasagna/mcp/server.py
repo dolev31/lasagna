@@ -519,7 +519,7 @@ def _check_suspicious_citations(
     missing_page_count: int,
     total_chunks: int,
     query: str,
-    session_id: str,
+    session_id: str = "",
 ):
     """Check for suspicious citation patterns and emit warnings.
 
@@ -791,7 +791,7 @@ def _calling_tool_name(default: str = "this tool") -> str:
 
 
 def _resolve_session(
-    session_id: str,
+    session_id: str = "",
     session_token: Optional[str] = None,
     *,
     tool: Optional[str] = None,
@@ -828,7 +828,13 @@ def _resolve_session(
             f"{tool or _calling_tool_name()}: the supplied session_token is invalid or expired."
         )
     if not session_id:
-        raise ValueError("Either session_id or session_token is required")
+        # The documented way to point an MCP client at one corpus.
+        session_id = os.environ.get("RAG_SESSION_ID", "").strip()
+    if not session_id:
+        raise ValueError(
+            "Either session_id or session_token is required (or set RAG_SESSION_ID "
+            "in the MCP server's environment)"
+        )
 
     if transport_guard.enforcement_active():
         transport_guard.guard_identity(
@@ -853,7 +859,7 @@ def _resolve_session(
 @mcp.tool()
 async def search(
     query: str,
-    session_id: str,
+    session_id: str = "",
     top_k: Optional[int] = None,
     document_ids: Optional[str] = None,
     allow_broaden: bool = False,
@@ -1072,7 +1078,7 @@ def _append_search_metadata(formatted_context: str, citations: list, chunks: lis
 @mcp.tool()
 async def search_knowledge(
     query: str,
-    session_id: str,
+    session_id: str = "",
     top_k: int = 5,
     min_score: float = 0.0,
     document_ids: Optional[str] = None,
@@ -1107,7 +1113,7 @@ async def search_knowledge(
 @mcp.tool()
 async def search_with_context(
     query: str,
-    session_id: str,
+    session_id: str = "",
     document_ids: Optional[str] = None,
     allow_broaden: bool = False,
     trace_id: Optional[str] = None,
@@ -1139,7 +1145,7 @@ async def search_with_context(
 
 @mcp.tool()
 async def get_document_context(
-    session_id: str,
+    session_id: str = "",
     rag_search_count: int = 0,
     session_token: Optional[str] = None,
 ) -> str:
@@ -1190,7 +1196,7 @@ async def get_document_context(
 
 
 @mcp.tool()
-def list_documents(session_id: str, session_token: Optional[str] = None) -> str:
+def list_documents(session_id: str = "", session_token: Optional[str] = None) -> str:
     """List all documents in the knowledge base for a session.
 
     Returns document metadata including processing status, file type, size,
@@ -1242,7 +1248,7 @@ def list_documents(session_id: str, session_token: Optional[str] = None) -> str:
 @mcp.tool()
 def upload_document(
     file_path: str,
-    session_id: str,
+    session_id: str = "",
     filename: Optional[str] = None,
     wait: bool = True,
     session_token: Optional[str] = None,
@@ -1363,7 +1369,9 @@ def upload_document(
 
 
 @mcp.tool()
-def delete_document(document_id: str, session_id: str, session_token: Optional[str] = None) -> str:
+def delete_document(
+    document_id: str, session_id: str = "", session_token: Optional[str] = None
+) -> str:
     """Delete a document and all its indexed chunks from the knowledge base.
 
     The document must belong to the provided session_id. Both the vector index
@@ -1526,7 +1534,7 @@ def get_document_info(
 @mcp.tool()
 def get_document_chunks(
     document_id: str,
-    session_id: str,
+    session_id: str = "",
     offset: int = 0,
     limit: int = 10,
     session_token: Optional[str] = None,
@@ -1721,7 +1729,7 @@ def get_system_status() -> str:
 
 @mcp.tool()
 def rebuild_collection(
-    session_id: str,
+    session_id: str = "",
     session_token: Optional[str] = None,
     admin_token: Optional[str] = None,
     confirm: bool = False,
@@ -1795,7 +1803,7 @@ def rebuild_collection(
 @mcp.tool()
 def reindex_document(
     document_id: str,
-    session_id: str,
+    session_id: str = "",
     force_rebuild: bool = False,
     session_token: Optional[str] = None,
 ) -> str:
@@ -2194,7 +2202,7 @@ def list_profiles(
 
 
 @mcp.tool()
-def get_active_profile(session_id: str, session_token: Optional[str] = None) -> str:
+def get_active_profile(session_id: str = "", session_token: Optional[str] = None) -> str:
     """Get the active RAG profile for a session.
 
     Returns the currently active profile name and its configuration
@@ -2385,7 +2393,7 @@ def set_focused_documents(
 
 
 @mcp.tool()
-def get_focused_documents(session_id: str, session_token: Optional[str] = None) -> str:
+def get_focused_documents(session_id: str = "", session_token: Optional[str] = None) -> str:
     """Get the currently focused document IDs for a session.
 
     :param session_id: Session identifier.
@@ -2425,7 +2433,7 @@ def get_focused_documents(session_id: str, session_token: Optional[str] = None) 
 
 
 @mcp.tool()
-def get_rag_config(session_id: str, session_token: Optional[str] = None) -> str:
+def get_rag_config(session_id: str = "", session_token: Optional[str] = None) -> str:
     """Get the current RAG configuration for a session.
 
     Returns the active profile and all configuration settings including
@@ -2638,7 +2646,7 @@ def reset_rag_config(
 @mcp.tool()
 def archive_document(
     document_id: str,
-    session_id: str,
+    session_id: str = "",
     session_token: Optional[str] = None,
 ) -> str:
     """Soft-delete (archive) a document.
@@ -2674,7 +2682,7 @@ def archive_document(
 @mcp.tool()
 def restore_document(
     document_id: str,
-    session_id: str,
+    session_id: str = "",
     session_token: Optional[str] = None,
 ) -> str:
     """Restore a soft-deleted (archived) document to READY status.
@@ -2706,7 +2714,7 @@ def restore_document(
 
 @mcp.tool()
 def bulk_delete_session(
-    session_id: str,
+    session_id: str = "",
     confirm: bool = False,
     session_token: Optional[str] = None,
     admin_token: Optional[str] = None,
@@ -3643,9 +3651,13 @@ def main():
     )
     parser.add_argument(
         "--session-backend",
-        default=None,
+        # Persistent by default: `lasagna configure --profile ...` saves the
+        # profile to disk, and an in-memory backend in this new process never
+        # saw it, so search ran the defaults (agentic, LLM-only) while every
+        # tool reported the saved profile as active.
+        default=os.environ.get("RAG_SESSION_BACKEND") or "persistent",
         choices=["memory", "persistent"],
-        help="Session backend (default: memory)",
+        help="Session backend (default: persistent, so profiles saved by the CLI apply)",
     )
     args = parser.parse_args()
 
