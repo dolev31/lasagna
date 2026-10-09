@@ -660,12 +660,21 @@ class ComponentRegistry:
                     f"{canonical.title()} '{name}' is already registered. "
                     f"Use override=True to replace it."
                 )
+            replaces_builtin = (canonical, name) in self._builtin_names
             store[name] = _Registration(
                 cls=cls,
                 description=description,
                 paper=paper,
                 claims=claims,
                 version=version,
+            )
+            # The name now holds the caller's class, so it is no longer the
+            # package's: the sweep checks its contract and records it as what ran.
+            self._builtin_names.discard((canonical, name))
+        if replaces_builtin:
+            logger.warning(
+                f"{canonical} '{name}' replaced the built-in of that name; every sweep "
+                f"in this process that names '{name}' now runs {cls.__name__}"
             )
         logger.debug(f"Registered {canonical} '{name}' -> {cls.__name__}")
 

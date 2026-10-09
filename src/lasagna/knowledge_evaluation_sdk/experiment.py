@@ -990,11 +990,13 @@ class Experiment:
         if unsweepable:
             raise ValueError(
                 f"Experiments cannot swap {unsweepable}: ingestion always uses the "
-                f"built-in chunker and document processor, so every arm would measure "
-                f"the same corpus. Sweep the ingestion settings instead "
-                f"(chunking_strategy, chunk_size, chunk_overlap, enable_hierarchical), "
-                f"which re-ingest per arm, or compare your chunker with "
-                f"`lasagna component validate`."
+                f"built-in chunker, document processor and embedder, so a swapped "
+                f"component would touch the queries only, or nothing, while the "
+                f"corpus kept the profile's. Sweep the ingestion settings instead, "
+                f"which re-ingest per arm: chunking_strategy, chunk_size, "
+                f"chunk_overlap and enable_hierarchical for chunking, embedding_model "
+                f"and embedding_dim for the embedder. Check a component on its own "
+                f"with `lasagna component validate`."
             )
         if "agentic_pipeline" in all_override_keys:
             logger.warning(
@@ -1555,7 +1557,10 @@ _COMPONENT_KEYS = frozenset(
 
 #: Component slots the harness cannot swap: ingestion always runs the built-in
 #: chunker and document processor, so an arm naming one measured the default.
-_UNSWEEPABLE_COMPONENTS = frozenset({"chunker", "document_processor"})
+#: Ingestion-time stages. The corpus is ingested once per ingestion setting,
+#: always with the built-ins, so an arm swapping one of these would measure
+#: queries embedded (or nothing changed) against the profile's corpus.
+_UNSWEEPABLE_COMPONENTS = frozenset({"chunker", "document_processor", "embedder"})
 
 # Defined in `runner`, beside `BenchmarkTask.config_hash`, which must exclude
 # the same keys: a setting that steers reporting rather than the pipeline must

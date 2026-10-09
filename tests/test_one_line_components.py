@@ -114,13 +114,124 @@ def test_every_function_component_passes_its_stage_contract():
 
 
 def test_two_functions_never_share_an_identity():
+    # The identity keys the search cache: two lambdas, or two functions one
+    # factory made, share module:qualname, and the second was served the
+    # first's results.
     lasagna.reranker("t_id_a", lambda q, t: 1.0)
     lasagna.reranker("t_id_b", lambda q, t: 2.0)
     a = registry.get("reranker", "t_id_a").model_name
     b = registry.get("reranker", "t_id_b").model_name
-    assert (
-        a != b or registry.get("reranker", "t_id_a").name != registry.get("reranker", "t_id_b").name
+    assert a != b
+
+    def make(sign):
+        def embed(texts):
+            return [[sign * len(t), 1.0] for t in texts]
+
+        return embed
+
+    lasagna.embedder("t_id_pos", make(1.0))
+    lasagna.embedder("t_id_neg", make(-1.0))
+    pos = registry.get("embedder", "t_id_pos").model_name
+    neg = registry.get("embedder", "t_id_neg").model_name
+    assert pos != neg
+
+    # Same name, different closure value (a notebook cell run again with an
+    # edit): the identity changes too, so a shared cache cannot serve the old.
+    lasagna.embedder("t_id_rerun", make(1.0))
+    first = registry.get("embedder", "t_id_rerun").model_name
+    lasagna.embedder("t_id_rerun", make(2.0))
+    assert registry.get("embedder", "t_id_rerun").model_name != first
+
+
+def test_a_built_in_name_is_refused():
+    # Registering `cross_encoder` replaced the control arm of every sweep in
+    # the process, under the built-in's name and its model's provenance.
+    with pytest.raises(ValueError, match="built-in reranker"):
+
+        @lasagna.reranker("cross_encoder")
+        def longer_first(query, text):
+            return len(text.split())
+
+    assert registry.is_builtin("reranker", "cross_encoder")
+    assert registry.get_class("reranker", "cross_encoder").__name__ != "cross_encoder"
+
+
+def test_overriding_a_built_in_through_the_registry_drops_its_built_in_status(monkeypatch):
+    from lasagna.core.registry import ComponentRegistry
+
+    monkeypatch.setattr(ComponentRegistry, "_instance", None)
+    fresh = ComponentRegistry()
+
+    class Mine(BaseReranker):
+        def rerank(self, query, documents, top_k=5, **kwargs):
+            return list(documents)[:top_k]
+
+    assert fresh.is_builtin("reranker", "cross_encoder")
+    fresh.register_class("reranker", "cross_encoder", Mine, override=True)
+    assert not fresh.is_builtin("reranker", "cross_encoder")
+
+
+def test_a_listwise_function_with_the_interfaces_own_signature_is_listwise():
+    # top_k has a default, as in BaseReranker.rerank; counting only required
+    # parameters called it with one passage's text and blamed correct code.
+    @lasagna.reranker("t_listwise_default")
+    def by_length(query, documents, top_k=5):
+        return sorted(documents, key=lambda d: len(d.content))[:top_k]
+
+    out = registry.get("reranker", "t_listwise_default").rerank("q", _docs(), top_k=2)
+    assert [d.chunk_id for d in out] == ["c2", "c3"]
+
+
+def test_a_pointwise_function_with_an_option_stays_pointwise():
+    @lasagna.reranker("t_pointwise_option")
+    def overlap(query, text, lowercase=True):
+        return len(set(query.split()) & set(text.split()))
+
+    out = registry.get("reranker", "t_pointwise_option").rerank("alpha beta", _docs(), top_k=2)
+    assert [d.chunk_id for d in out] == ["c1", "c3"]
+
+
+def test_an_ambiguous_reranker_shape_is_refused_with_the_fix():
+    with pytest.raises(TypeError, match=r"\(query, documents, top_k\)"):
+        lasagna.reranker("t_ambiguous", lambda q, x, y=1: 0.0)
+
+
+def test_an_agentic_pipeline_class_can_be_named_by_reference(tmp_path):
+    from lasagna.core.base_components import BaseAgenticPipeline
+
+    (tmp_path / "t_pipes.py").write_text(
+        "from lasagna.core.base_components import BaseAgenticPipeline\n"
+        "class Mine(BaseAgenticPipeline):\n"
+        "    async def run(self, input):\n"
+        "        return None\n"
     )
+    name = load("agentic_pipeline", "t_pipes:Mine", [tmp_path])
+    assert issubclass(registry.get_class("agentic_pipeline", name), BaseAgenticPipeline)
+
+    with pytest.raises(TypeError, match="is a class, not a function"):
+        lasagna.components.register("agentic_pipeline", lambda q: q, "t_fn_pipeline")
+
+
+def test_a_reference_means_one_file(tmp_path):
+    # Two sweep folders each holding my_ideas.py: the second sweep silently
+    # ran the first folder's function.
+    one, two = tmp_path / "one", tmp_path / "two"
+    one.mkdir()
+    two.mkdir()
+    (one / "t_same_name.py").write_text("def f(query, text):\n    return 1.0\n")
+    (two / "t_same_name.py").write_text("def f(query, text):\n    return 2.0\n")
+    load("reranker", "t_same_name:f", [one])
+    assert load("reranker", "t_same_name:f", [one]) == "t_same_name:f"
+    with pytest.raises(ImportError, match="already"):
+        load("reranker", "t_same_name:f", [two])
+
+
+def test_a_file_reference_does_not_take_over_a_module_name(tmp_path):
+    import sys
+
+    (tmp_path / "t_shadow_json.py").write_text("def v(query):\n    return [query]\n")
+    load("query_enhancer", f"{tmp_path / 't_shadow_json.py'}:v")
+    assert "t_shadow_json" not in sys.modules
 
 
 def test_a_class_that_skips_the_interface_is_refused_with_the_fix():
@@ -197,3 +308,28 @@ def test_a_sweep_refuses_a_component_that_skips_the_interface():
             _check_components_conform([{"name": "x", "overrides": {"reranker": "t_duck_sweep"}}])
     finally:
         registry.unregister_reranker("t_duck_sweep")
+
+
+def test_a_sweep_refuses_an_embedder_component(tmp_path):
+    # The corpus is ingested with the built-in embedder, so an embedder arm
+    # embedded only its queries: it measured two models against each other.
+    from lasagna.knowledge_evaluation_sdk.experiment import Experiment
+
+    (tmp_path / "t_emb_ideas.py").write_text(
+        "def e(texts):\n    return [[1.0, 0.0] for _ in texts]\n"
+    )
+    sweep = tmp_path / "sweep.yaml"
+    sweep.write_text(
+        textwrap.dedent(
+            """
+            name: embedder arm
+            benchmarks: [{name: smoke}]
+            tracks: [retrieval]
+            pipeline:
+              base_profile: speed
+              embedders: [default, "t_emb_ideas:e"]
+            """
+        )
+    )
+    with pytest.raises(ValueError, match="embedding_model"):
+        Experiment.from_file(str(sweep)).generate_tasks()
