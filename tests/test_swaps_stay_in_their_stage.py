@@ -44,13 +44,35 @@ def test_old_adapted_names_still_resolve_but_are_not_listed():
     )
 
 
-def test_llm_enhancers_without_an_llm_return_the_query_alone(monkeypatch):
+def test_llm_enhancers_without_an_llm_say_so(monkeypatch):
+    # Returning the query alone made a keyless HyDE or expansion arm score the
+    # control's number with Failed: 0. They raise, and the pipeline decides:
+    # fall back when serving, fail the task when evaluating.
     from lasagna.retrieval.enhancement import enhancer
 
     for cls in ("QueryExpander", "QueryDecomposer", "HyDEGenerator"):
         monkeypatch.setattr(getattr(enhancer, cls), "_get_llm", lambda self, *a, **k: None)
     for name in ("hyde", "query_expansion", "query_decomposition"):
-        assert registry.get("query_enhancer", name).enhance("what is rag") == ["what is rag"]
+        with pytest.raises(RuntimeError, match="LLM"):
+            registry.get("query_enhancer", name).enhance("what is rag")
+
+
+def test_built_in_enhancers_read_the_arms_settings(monkeypatch):
+    from types import SimpleNamespace
+
+    from lasagna.api._search_orchestrator import _query_variations
+    from lasagna.retrieval.enhancement import enhancer
+
+    seen = {}
+
+    def fake_expand(e, q, n, max_tokens=300, model_ref=None):
+        seen.update(n=n, model=model_ref)
+        return [f"{q} {i}" for i in range(n)]
+
+    monkeypatch.setattr(enhancer, "_expand_query_sync", fake_expand)
+    arm = SimpleNamespace(max_query_variations=5, hyde_model="arm-model")
+    out = _query_variations(registry.get("query_enhancer", "query_expansion"), "q", 5, arm)
+    assert len(out) == 5 and seen == {"n": 5, "model": "arm-model"}
 
 
 def test_settings_map_to_their_stage():

@@ -515,18 +515,22 @@ Alternative questions:"""
 
 
 def _expand_query_sync(
-    expander: "QueryExpander", query: str, n: int, max_tokens: int = 300
+    expander: "QueryExpander",
+    query: str,
+    n: int,
+    max_tokens: int = 300,
+    model_ref: Optional[str] = None,
 ) -> List[str]:
-    """``QueryExpander.expand_query`` without an event loop, ungated by config."""
-    llm = expander._get_llm(expander.model or rag_config.hyde_model, max_tokens)
+    """``QueryExpander.expand_query`` without an event loop, ungated by config.
+
+    Raises when there is no LLM or the call fails; the caller decides whether
+    that falls back (serving) or fails the task (evaluation).
+    """
+    llm = expander._get_llm(model_ref or expander.model or rag_config.hyde_model, max_tokens)
     if not llm:
-        return []
-    try:
-        content = _invoke_sync(llm, expander.EXPANSION_PROMPT.format(query=query, n=n))
-        return _numbered_lines(content)[:n]
-    except Exception as e:
-        logger.error(f"Query expansion failed: {e}")
-        return []
+        raise RuntimeError("query_expansion needs an LLM, and none is configured")
+    content = _invoke_sync(llm, expander.EXPANSION_PROMPT.format(query=query, n=n))
+    return _numbered_lines(content)[:n]
 
 
 class QueryDecomposer:
@@ -624,18 +628,20 @@ Sub-questions:"""
 
 
 def _decompose_query_sync(
-    decomposer: "QueryDecomposer", query: str, max_tokens: int = 300
+    decomposer: "QueryDecomposer",
+    query: str,
+    max_tokens: int = 300,
+    model_ref: Optional[str] = None,
 ) -> List[str]:
-    """``QueryDecomposer.decompose_query`` without an event loop, ungated by config."""
-    llm = decomposer._get_llm(decomposer.model or rag_config.hyde_model, max_tokens)
+    """``QueryDecomposer.decompose_query`` without an event loop, ungated by config.
+
+    Raises when there is no LLM or the call fails.
+    """
+    llm = decomposer._get_llm(model_ref or decomposer.model or rag_config.hyde_model, max_tokens)
     if not llm:
-        return []
-    try:
-        content = _invoke_sync(llm, decomposer.DECOMPOSITION_PROMPT.format(query=query))
-        return _numbered_lines(content, exclude=query)
-    except Exception as e:
-        logger.error(f"Query decomposition failed: {e}")
-        return []
+        raise RuntimeError("query_decomposition needs an LLM, and none is configured")
+    content = _invoke_sync(llm, decomposer.DECOMPOSITION_PROMPT.format(query=query))
+    return _numbered_lines(content, exclude=query)
 
 
 class QueryEnhancer:
@@ -942,11 +948,14 @@ class QueryEnhancerAdapter(BaseQueryEnhancer):
     any generated variations.
     """
 
+    # The pipeline passes the session config and the variation count.
+    _forwards_session_config = True
+
     def __init__(self, **kwargs):
         self._inner = QueryEnhancer()
 
     def enhance(self, query: str, **kwargs) -> List[str]:
-        n = kwargs.get("n", 3)
+        n = kwargs.get("n") or 3
         variations = self._inner.generate_query_variations(query, n=n)
         # ABC contract: "may include the original" — always include it
         # so callers can rely on at least one result
@@ -957,39 +966,71 @@ class HyDEEnhancerAdapter(BaseQueryEnhancer):
     """HyDE behind the public ``BaseQueryEnhancer`` contract.
 
     Returns the query and one hypothetical passage written to answer it; the
-    pipeline searches both and fuses the lists. Without an LLM it returns the
-    query alone, and search runs unchanged.
+    pipeline searches both and fuses the lists. Raises when no passage can be
+    generated (no LLM): returning the query alone made a HyDE arm the control.
     """
+
+    # The pipeline passes the session config (hyde_model) to built-in adapters.
+    _forwards_session_config = True
 
     def __init__(self, model: Optional[str] = None, **kwargs):
         self._inner = HyDEGenerator(model=model)
 
     def enhance(self, query: str, **kwargs) -> List[str]:
-        doc = self._inner.generate_hypothetical_document_sync(query) if query.strip() else None
-        return [query] + ([doc] if doc else [])
+        if not query.strip():
+            return [query]
+        config = kwargs.get("config")
+        doc = self._inner.generate_hypothetical_document_sync(
+            query, model_ref=getattr(config, "hyde_model", None)
+        )
+        if not doc:
+            raise RuntimeError("HyDE produced no hypothetical passage (is an LLM configured?)")
+        return [query, doc]
 
 
 class QueryExpansionAdapter(BaseQueryEnhancer):
     """LLM paraphrasing behind the public ``BaseQueryEnhancer`` contract.
 
     Naming the component is the request, so it runs whatever
-    ``enable_query_expansion`` says. Without an LLM it returns the query alone.
+    ``enable_query_expansion`` says. Raises without an LLM.
     """
+
+    # The pipeline passes the session config and the variation count.
+    _forwards_session_config = True
 
     def __init__(self, model: Optional[str] = None, n: Optional[int] = None, **kwargs):
         self._inner = QueryExpander(model=model)
         self._n = n
 
     def enhance(self, query: str, **kwargs) -> List[str]:
-        n = int(kwargs.get("n") or self._n or rag_config.max_query_variations or 3)
-        return [query] + (_expand_query_sync(self._inner, query, n) if query.strip() else [])
+        config = kwargs.get("config")
+        n = int(
+            kwargs.get("n")
+            or self._n
+            or getattr(config, "max_query_variations", None)
+            or rag_config.max_query_variations
+            or 3
+        )
+        if not query.strip():
+            return [query]
+        return [query] + _expand_query_sync(
+            self._inner, query, n, model_ref=getattr(config, "hyde_model", None)
+        )
 
 
 class QueryDecompositionAdapter(BaseQueryEnhancer):
     """Sub-question decomposition behind the public ``BaseQueryEnhancer`` contract."""
 
+    # The pipeline passes the session config.
+    _forwards_session_config = True
+
     def __init__(self, model: Optional[str] = None, **kwargs):
         self._inner = QueryDecomposer(model=model)
 
     def enhance(self, query: str, **kwargs) -> List[str]:
-        return [query] + (_decompose_query_sync(self._inner, query) if query.strip() else [])
+        if not query.strip():
+            return [query]
+        config = kwargs.get("config")
+        return [query] + _decompose_query_sync(
+            self._inner, query, model_ref=getattr(config, "hyde_model", None)
+        )
