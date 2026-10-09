@@ -1,8 +1,9 @@
-"""RAG Knowledge Base Service.
+"""Lasagna: a framework for controlled RAG evaluation.
 
-A production-ready RAG (Retrieval-Augmented Generation) service designed for use
-by multiple AI agents. Provides document ingestion, vector search, and retrieval
-with state-of-the-art features.
+Each stage of a retrieval-augmented generation pipeline sits behind a fixed
+interface, so one component can be swapped while everything else is held fixed
+and the measured difference is attributable to the change. The same pipeline
+serves documents to agents through an SDK, a REST API and an MCP server.
 
 Architecture:
     ┌─────────────────────────────────────────────────────────────────┐
@@ -38,9 +39,11 @@ Quick Start (Standalone/External agents):
         upload_dir=Path("/data/rag/uploads"),
         llm_provider="openai",
     )
-    backend.add_document("/path/to/doc.pdf")
-    results = backend.search("query")
+    backend.upload_document("/path/to/doc.pdf", session_id="my_session")
+    results = backend.search("query", session_id="my_session")
     ```
+
+For most uses, prefer the async SDK: ``from lasagna.sdk import KnowledgeClient``.
 
 Lazy imports: All public names are lazily loaded on first access to avoid
 pulling heavy dependencies (langchain, sentence-transformers, pymilvus, etc.)

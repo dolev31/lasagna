@@ -917,9 +917,11 @@ class RAGBackend:
             ``run_id``, ``phase``, ``started_at``, ``completed_at``,
             ``docs_scanned``, ``docs_cleaned``, ``bytes_freed``, ``errors``.
         """
+        from lasagna.core.database import get_rag_database
+
         try:
-            return self._rag_db.get_gc_audit_log(limit=limit)
-        except (AttributeError, NotImplementedError):
+            return get_rag_database().get_gc_audit_log(limit=limit)
+        except NotImplementedError:
             # DB backend doesn't implement get_gc_audit_log yet — return empty.
             return []
 

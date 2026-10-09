@@ -64,13 +64,13 @@ class MCPKnowledgeServer:
                 "mcp package is required for MCP server. Install with: pip install mcp"
             )
 
-        self._server = FastMCP(self._name)
+        self._server = FastMCP(self._name, host=host, port=port)
 
         # Register tools
         @self._server.tool()
         async def search(query: str, top_k: int = 5) -> str:
             """Search the knowledge base."""
-            return await self._client.get_context(query)
+            return await self._client.get_context(query, max_chunks=top_k)
 
         @self._server.tool()
         async def list_documents() -> str:
@@ -91,8 +91,9 @@ class MCPKnowledgeServer:
             success = await self._client.delete_document(document_id)
             return "Deleted" if success else "Not found"
 
-        # Run server
-        await self._server.run(host=host, port=port)
+        # Serve over streamable HTTP until cancelled (FastMCP.run is
+        # synchronous and takes no host/port; those are server settings).
+        await self._server.run_streamable_http_async()
 
     async def stop(self) -> None:
         """Stop the MCP server."""

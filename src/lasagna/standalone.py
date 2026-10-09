@@ -164,7 +164,9 @@ def create_agentic_rag(
     """Create a standalone Agentic RAG instance.
 
     This provides the full agentic RAG experience with query refinement,
-    HyDE, and iterative search.
+    HyDE, and iterative search. It configures the same providers as
+    :func:`create_rag_backend` and returns an agent bound to the configured
+    LLM; documents are managed through the backend.
 
     Args:
         db_dir: Directory for databases
@@ -176,30 +178,29 @@ def create_agentic_rag(
         Configured AgenticRAG instance
 
     Example:
-        agentic = create_agentic_rag(
-            llm_provider="anthropic",
-            rag_settings={"max_agent_iterations": 5},
-        )
+        import asyncio
 
-        # Upload documents
-        agentic.backend.add_document("/path/to/doc.pdf")
+        backend = create_rag_backend(llm_provider="ollama")
+        doc = backend.upload_document("/path/to/doc.pdf", session_id="my_session")
 
-        # Search with agentic enhancements
-        results = agentic.search(
-            "What are the key findings?",
-            session_id="my_session",
+        agentic = create_agentic_rag(llm_provider="ollama")
+        result = asyncio.run(
+            agentic.retrieve(question="What are the key findings?", session_id="my_session")
         )
+        print(result.agent_summary)
     """
     from lasagna.agentic.agentic_rag import AgenticRAG
+    from lasagna.providers import get_llm_provider
 
-    backend = create_rag_backend(
+    create_rag_backend(
         db_dir=db_dir,
         upload_dir=upload_dir,
         llm_provider=llm_provider,
         rag_settings=rag_settings,
     )
 
-    return AgenticRAG(backend)
+    max_iterations = int((rag_settings or {}).get("max_agent_iterations", 3))
+    return AgenticRAG(llm=get_llm_provider().get_llm(), max_iterations=max_iterations)
 
 
 def reset_standalone():

@@ -16,7 +16,7 @@ Example:
     ```
 """
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from loguru import logger
 
@@ -100,6 +100,17 @@ class CitationManager:
     # Citation Retrieval
     # =========================================================================
 
+    def _session_citation(self, manager: Any, citation_id: str) -> Optional[Dict[str, Any]]:
+        """The stored citation row, only if it belongs to this client's session.
+
+        The store is keyed by citation id alone; scoping here keeps one session
+        from reading another's citations by guessing ids.
+        """
+        row = manager.get_citation(citation_id)
+        if row is None or row.get("session_id") != self._client.session_id:
+            return None
+        return row
+
     async def get(self, citation_id: str) -> Citation:
         """Get citation details by ID.
 
@@ -132,27 +143,22 @@ class CitationManager:
         try:
             from ...agentic.citation_manager import get_citation_manager
 
-            manager = get_citation_manager()
-            raw_citation = manager.get_citation(
-                citation_id=citation_id,
-                session_id=self._client.session_id,
-            )
-
-            if raw_citation is None:
+            row = self._session_citation(get_citation_manager(), citation_id)
+            if row is None:
                 raise CitationNotFoundError(
                     f"Citation not found: {citation_id}",
                     citation_id=citation_id,
                 )
 
             return Citation(
-                citation_id=raw_citation.citation_id,
-                chunk_id=str(raw_citation.chunk_id),
-                document_id=raw_citation.document_id,
-                filename=raw_citation.document_name,
-                page_number=raw_citation.page_number,
-                content_preview=raw_citation.content_preview,
-                score=raw_citation.score,
-                hop_index=getattr(raw_citation, "hop_index", 0),
+                citation_id=row.get("citation_id", citation_id),
+                chunk_id=str(row.get("chunk_id", "")),
+                document_id=row.get("document_id", ""),
+                filename=row.get("document_name", ""),
+                page_number=row.get("page_number"),
+                content_preview=row.get("content_preview", ""),
+                score=row.get("score", 0.0),
+                hop_index=row.get("hop_index") or 0,
             )
 
         except CitationNotFoundError:
@@ -195,11 +201,13 @@ class CitationManager:
         try:
             from ...agentic.citation_manager import get_citation_manager
 
-            manager = get_citation_manager()
-            return manager.verify_citation(
-                citation_id=citation_id,
-                session_id=self._client.session_id,
-            )
+            row = self._session_citation(get_citation_manager(), citation_id)
+            if row is None:
+                return False
+            # Valid while the cited document still exists in this session.
+            backend = await self._client._get_backend()
+            document = backend.get_document_by_id(row.get("document_id", ""), self._client.session_id)
+            return document is not None
 
         except Exception as e:
             logger.error(f"Could not verify citation {citation_id}: {e}")

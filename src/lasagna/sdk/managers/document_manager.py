@@ -376,7 +376,7 @@ class DocumentManager:
         session_id = self._client.session_id
 
         # Get document from backend
-        raw_doc = await self._run_sync(backend.get_document, document_id, session_id)
+        raw_doc = await self._run_sync(backend.get_document_by_id, document_id, session_id)
         if raw_doc is None:
             return None
 
