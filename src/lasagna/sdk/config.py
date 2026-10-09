@@ -670,6 +670,8 @@ def config_for_speed() -> KnowledgeConfig:
     return KnowledgeConfig(
         # Disable all expensive features
         enable_reranking=False,
+        # The small one, for when reranking is turned on for this preset.
+        reranker_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
         enable_hyde=False,
         enable_mmr=False,
         enable_hybrid_search=False,
