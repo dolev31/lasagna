@@ -307,6 +307,35 @@ def _mean_by_sample(tasks: List[TaskResult], metric: str) -> Dict[Any, float]:
     return {sid: sum(vals) / len(vals) for sid, vals in collected.items() if vals}
 
 
+#: Metrics where the smaller value is the better result: costs, failure counts,
+#: and RAGAS noise sensitivity (the share of claims the retrieved noise led the
+#: generator to get wrong). Every other metric ranks higher-is-better.
+LOWER_IS_BETTER = frozenset(
+    {
+        "noise_sensitivity",
+        "latency_ms",
+        "input_tokens",
+        "output_tokens",
+        "llm_calls",
+        "input_tokens_per_query",
+        "output_tokens_per_query",
+        "llm_calls_per_query",
+        "generations_failed",
+        "short_lists",
+        "agentic_fallback_count",
+        "agentic_fallback_rate",
+    }
+)
+
+
+def lower_is_better(metric: str) -> bool:
+    """Whether a smaller ``metric`` ranks first (``noise_sensitivity_regen`` too)."""
+    for suffix in ("_regen", "_agentic"):
+        if metric.endswith(suffix):
+            metric = metric[: -len(suffix)]
+    return metric in LOWER_IS_BETTER or metric.endswith("latency_ms")
+
+
 @dataclass
 class AggregatedMetrics:
     """Mean +/- std for a metric across multiple runs."""
@@ -1190,7 +1219,7 @@ class BenchmarkResults:
         annotated, so its absence cannot pass for a result.
         """
         lines = [
-            f"Leaderboard — {metric}",
+            f"Leaderboard — {metric}" + (" (lower is better)" if lower_is_better(metric) else ""),
             "=" * 50,
             "Ranked within each benchmark, over configs that scored the same queries.",
         ]
@@ -1230,7 +1259,9 @@ class BenchmarkResults:
                         ranked.append((agg.mean, config, cell))
 
             lines += ["", bench]
-            ranked.sort(key=lambda r: r[0], reverse=True)
+            # Ranking latency or noise sensitivity descending put the worst
+            # config first.
+            ranked.sort(key=lambda r: r[0], reverse=not lower_is_better(metric))
             for rank, (_, config, cell) in enumerate(ranked, 1):
                 lines.append(f"  {rank}. {config:{width}s}  {cell}")
             lines += unranked

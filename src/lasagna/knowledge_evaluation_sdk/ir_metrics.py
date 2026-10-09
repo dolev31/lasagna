@@ -13,7 +13,7 @@ All functions follow the same convention:
 
 Example:
     from lasagna.knowledge_evaluation_sdk.ir_metrics import (
-        ndcg_at_k, precision_at_k, recall_at_k, mrr, map_score,
+        ndcg_at_k, precision_at_k, recall_at_k, mrr, map_score, r_precision,
     )
 
     relevance = {"doc1": 2, "doc2": 1, "doc3": 1}
@@ -24,6 +24,7 @@ Example:
     print(f"Recall@5:    {recall_at_k(relevance, retrieved, k=5):.4f}")
     print(f"MRR:         {mrr(relevance, retrieved):.4f}")
     print(f"MAP:         {map_score(relevance, retrieved):.4f}")
+    print(f"R-Prec:      {r_precision(relevance, retrieved):.4f}")
 """
 
 from __future__ import annotations
@@ -77,6 +78,12 @@ def ndcg_at_k(
     Pass ``exponential_gain=True`` for the Burges form if you are comparing
     against work that uses it. The choice is recorded, not silent.
 
+    A negative grade (TREC's "spam" or "harmful" judgements) gains nothing, as
+    in ``trec_eval``. Counted as a negative gain it lowered the DCG of every
+    list that retrieved the document and lowered the ideal DCG of every query
+    with fewer than *k* positive judgements: ``{a: 2, b: -1, c: 1}`` ranked
+    ``[b, a, c]`` scored 0.358 where ``trec_eval`` gives 0.670.
+
     Args:
         relevance: Ground-truth relevance map (doc_id → relevance score).
         retrieved: Ordered list of retrieved document IDs.
@@ -90,6 +97,8 @@ def ndcg_at_k(
         return 0.0
 
     def _gain(rel: float) -> float:
+        if rel <= 0:
+            return 0.0
         return (2**rel - 1) if exponential_gain else rel
 
     # DCG of the retrieved list
@@ -258,6 +267,60 @@ def hit_rate_at_k(
     return 0.0
 
 
+def r_precision(
+    relevance: RelevanceMap,
+    retrieved: Sequence[str],
+) -> float:
+    """R-precision: precision at rank R, where R is the number of relevant docs.
+
+    ``R-Prec = |{relevant docs in top-R}| / R``, ``trec_eval``'s ``Rprec`` and
+    KILT's page-level retrieval metric. The cutoff adapts to the query, so a
+    query with one relevant document is scored at rank 1 and a multi-hop query
+    with four at rank 4, which a fixed P@k cannot do: P@10 of a one-document
+    query is at most 0.1. At rank R precision equals recall.
+
+    Over a list cut at *k* with R > k the ranks past *k* hold nothing, so the
+    value is a lower bound on the uncut one (at most k / R).
+
+    Args:
+        relevance: Ground-truth relevance map.
+        retrieved: Ordered list of retrieved document IDs.
+
+    Returns:
+        R-Prec in [0, 1]. Returns 0.0 when there are no relevant documents.
+    """
+    total_relevant = sum(1 for v in relevance.values() if v > 0)
+    if total_relevant == 0:
+        return 0.0
+    top_r = _unique(retrieved)[:total_relevant]
+    return sum(1 for doc_id in top_r if relevance.get(doc_id, 0) > 0) / total_relevant
+
+
+def complete_recall_at_k(
+    relevance: RelevanceMap,
+    retrieved: Sequence[str],
+    k: int = 10,
+) -> float:
+    """All-gold recall: 1.0 if *every* relevant document is in the top *k*.
+
+    The retrieval measure multi-hop QA needs (HotpotQA, MuSiQue, 2Wiki,
+    MultiHop-RAG): a question that needs two supporting documents cannot be
+    answered from one of them, but Recall@k gives that query 0.5 and Hit@k
+    gives it 1.0. This is 1.0 only when Recall@k is, the document-level form
+    of the "paragraph EM" multi-hop retrievers report. With one relevant
+    document it equals Hit@k; with more than *k* it is always 0.0.
+
+    Args:
+        relevance: Ground-truth relevance map.
+        retrieved: Ordered list of retrieved document IDs.
+        k: Cut-off rank.
+
+    Returns:
+        1.0 or 0.0. Returns 0.0 when there are no relevant documents.
+    """
+    return 1.0 if recall_at_k(relevance, retrieved, k) == 1.0 else 0.0
+
+
 # ---------------------------------------------------------------------------
 # Batch (corpus-level) helpers
 # ---------------------------------------------------------------------------
@@ -280,7 +343,9 @@ def corpus_metrics(
 
     Returns:
         Dict with keys: ``ndcg@{k}``, ``precision@{k}``, ``recall@{k}``,
-        ``f1@{k}``, ``mrr@{k}``, ``map@{k}``, ``hit_rate@{k}``.
+        ``f1@{k}``, ``mrr@{k}``, ``map@{k}``, ``hit_rate@{k}``,
+        ``r_precision@{k}`` (R-precision over the top-*k* list) and
+        ``complete_recall@{k}``.
     """
     n = len(relevances)
     if n == 0:
@@ -299,6 +364,8 @@ def corpus_metrics(
         f"mrr@{k}": 0.0,
         f"map@{k}": 0.0,
         f"hit_rate@{k}": 0.0,
+        f"r_precision@{k}": 0.0,
+        f"complete_recall@{k}": 0.0,
     }
 
     for rel, ret in zip(relevances, retrieved_lists):
@@ -309,5 +376,7 @@ def corpus_metrics(
         sums[f"mrr@{k}"] += mrr(rel, ret, k)
         sums[f"map@{k}"] += map_score(rel, ret, k)
         sums[f"hit_rate@{k}"] += hit_rate_at_k(rel, ret, k)
+        sums[f"r_precision@{k}"] += r_precision(rel, _unique(ret)[:k])
+        sums[f"complete_recall@{k}"] += complete_recall_at_k(rel, ret, k)
 
     return {metric: total / n for metric, total in sums.items()}

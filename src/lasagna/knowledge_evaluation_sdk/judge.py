@@ -3,7 +3,7 @@
 Uses the provider abstraction for consistent model loading.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Callable, Dict, Optional
 from loguru import logger
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -242,3 +242,50 @@ class LLMJudge:
                     return None
 
         return await asyncio.gather(*[eval_one(c) for c in cases])
+
+
+ENTAILMENT_PROMPT = """You are checking whether a passage supports a statement.
+
+Passage:
+{premise}
+
+Statement:
+{hypothesis}
+
+Answer entailed=true only if the passage, read on its own, states or directly
+implies everything the statement says. Answer entailed=false if any part of the
+statement is missing from the passage, contradicts it, or needs outside
+knowledge."""
+
+
+def entailment_judge(llm: Any) -> Callable[[str, str], Optional[bool]]:
+    """``premise, hypothesis -> entailed`` backed by the evaluation judge.
+
+    The NLI step of ALCE's citation metrics, which ALCE runs with the TRUE
+    T5-11B model; here it is the judge that scores RAGAS, so one model and one
+    set of credentials measure the run. ``llm`` is what ``_build_judge_llm``
+    returns (a RAGAS ``llm_factory`` model, called with a response schema) or a
+    LangChain chat model.
+
+    A call that fails returns None, so the citation metric is left out rather
+    than counted as unsupported: a 429 is not evidence that a citation was
+    wrong.
+    """
+    from pydantic import BaseModel
+
+    class Verdict(BaseModel):
+        entailed: bool
+
+    def entails(premise: str, hypothesis: str) -> Optional[bool]:
+        prompt = ENTAILMENT_PROMPT.format(premise=premise, hypothesis=hypothesis)
+        try:
+            if hasattr(llm, "with_structured_output"):
+                verdict = llm.with_structured_output(Verdict).invoke(prompt)
+            else:
+                verdict = llm.generate(prompt, Verdict)
+            return bool(verdict.entailed)
+        except Exception as exc:
+            logger.warning(f"Entailment judgement failed [{type(exc).__name__}]: {exc}")
+            return None
+
+    return entails

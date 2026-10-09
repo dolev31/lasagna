@@ -11,7 +11,7 @@ unaffected.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 
 
 def build_bm25_docs(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -48,6 +48,7 @@ def filter_nonempty_agentic_indices(
 def apply_canonical_metric_mapping(
     per_sample_scores: List[Dict[str, Any]],
     metrics: Dict[str, Any],
+    base_keys: Sequence[str] = ("faithfulness", "context_recall", "context_precision"),
 ) -> None:
     """Emit canonical unsuffixed metric keys for agentic configs.
 
@@ -58,16 +59,20 @@ def apply_canonical_metric_mapping(
     ``faithfulness_agentic`` (which may cover fewer samples when some
     agentic answers are empty).
 
+    *base_keys* are the judged metrics the run requested; a metric missing
+    from it got ``_regen``/``_agentic`` scores and no canonical one, so a
+    significance test on it found nothing to compare.
+
     Mutates *per_sample_scores* and *metrics* in place.
     """
     for ps in per_sample_scores:
-        for base_key in ("faithfulness", "context_recall", "context_precision"):
+        for base_key in base_keys:
             if f"{base_key}_agentic" in ps:
                 ps[base_key] = ps[f"{base_key}_agentic"]
             elif f"{base_key}_regen" in ps:
                 ps[base_key] = ps[f"{base_key}_regen"]
 
-    for base_key in ("faithfulness", "context_recall", "context_precision"):
+    for base_key in base_keys:
         vals = [ps[base_key] for ps in per_sample_scores if base_key in ps]
         if vals:
             metrics[base_key] = sum(vals) / len(vals)
