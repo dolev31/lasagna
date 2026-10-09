@@ -397,20 +397,19 @@ class RAGConfig:
             # =================================================================
             # File Types
             # =================================================================
+            # Only formats DocumentProcessor can identify and extract. .doc,
+            # .rtf and .epub have no extractor, and .pptx and .xlsx are refused
+            # by the upload type check before Docling could convert them, so
+            # listing them advertised uploads that always failed.
             "supported_extensions": [
                 ".pdf",
                 ".docx",
-                ".doc",
                 ".txt",
                 ".md",
                 ".csv",
                 ".json",
                 ".html",
                 ".xml",
-                ".pptx",
-                ".xlsx",
-                ".rtf",
-                ".epub",
             ],
             # =================================================================
             # Storage
