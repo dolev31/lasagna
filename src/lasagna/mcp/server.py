@@ -31,6 +31,8 @@ Tools exposed:
 
 import os
 import sys
+import functools
+import inspect
 import json
 import logging
 import time
@@ -88,6 +90,75 @@ _root_state = (list(_root_logger.handlers), _root_logger.level)
 mcp = FastMCP("rag_knowledge", host=_server_host, port=_server_port)
 _root_logger.handlers[:] = _root_state[0]
 _root_logger.setLevel(_root_state[1])
+
+#: Keys a tool's JSON error reply may carry; any other key makes it a report.
+_ERROR_ONLY_KEYS = frozenset({"error", "hint", "detail"})
+
+
+def _tool_failure(reply: Any) -> Optional[str]:
+    """The message when a tool's reply follows this module's error convention."""
+    if not isinstance(reply, str):
+        return None
+    if reply.startswith(("Search failed:", "Failed to ")):
+        return reply
+    if reply.lstrip().startswith("{"):
+        try:
+            data = json.loads(reply)
+        except ValueError:
+            return None
+        if isinstance(data, dict) and data.get("error") and set(data) <= _ERROR_ONLY_KEYS:
+            return reply
+    return None
+
+
+def _flag_failures(fn):
+    """Register ``fn`` so a failure reaches the client as an MCP tool error.
+
+    Tools return failures as text ("Search failed: ...") or ``{"error": ...}``,
+    which went out with isError=False: an agent read "EMBEDDING DIMENSION
+    MISMATCH" or "No LLMProvider configured" as retrieved knowledge. Only the
+    registered copy raises; the module function keeps returning the text, so
+    Python callers see what they always did.
+    """
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    if inspect.iscoroutinefunction(fn):
+
+        @functools.wraps(fn)
+        async def flagged(*args, **kwargs):
+            reply = await fn(*args, **kwargs)
+            message = _tool_failure(reply)
+            if message is not None:
+                raise ToolError(message)
+            return reply
+
+    else:
+
+        @functools.wraps(fn)
+        def flagged(*args, **kwargs):
+            reply = fn(*args, **kwargs)
+            message = _tool_failure(reply)
+            if message is not None:
+                raise ToolError(message)
+            return reply
+
+    return flagged
+
+
+_register_tool = mcp.tool
+
+
+def _tool(*args, **kwargs):
+    register = _register_tool(*args, **kwargs)
+
+    def decorator(fn):
+        register(_flag_failures(fn))
+        return fn
+
+    return decorator
+
+
+mcp.tool = _tool
 
 # Shared backend factory — both MCP and REST API use the same RAGBackend
 # singleton via get_rag_backend(). Mutable state uses thread-safe locking.
@@ -3534,41 +3605,41 @@ def create_mcp_server(host: str = "0.0.0.0", port: int = 8005) -> FastMCP:
     server = FastMCP("rag_knowledge", host=host, port=port)
 
     # Search
-    server.add_tool(search)
-    server.add_tool(search_knowledge)  # deprecated alias
-    server.add_tool(search_with_context)  # deprecated alias
-    server.add_tool(list_documents)
-    server.add_tool(upload_document)
-    server.add_tool(delete_document)
-    server.add_tool(get_document_status)
-    server.add_tool(get_document_info)
-    server.add_tool(get_document_chunks)
-    server.add_tool(get_system_status)
-    server.add_tool(rebuild_collection)
-    server.add_tool(reindex_document)
-    server.add_tool(clear_session)
-    server.add_tool(get_document_context)
+    server.add_tool(_flag_failures(search))
+    server.add_tool(_flag_failures(search_knowledge))  # deprecated alias
+    server.add_tool(_flag_failures(search_with_context))  # deprecated alias
+    server.add_tool(_flag_failures(list_documents))
+    server.add_tool(_flag_failures(upload_document))
+    server.add_tool(_flag_failures(delete_document))
+    server.add_tool(_flag_failures(get_document_status))
+    server.add_tool(_flag_failures(get_document_info))
+    server.add_tool(_flag_failures(get_document_chunks))
+    server.add_tool(_flag_failures(get_system_status))
+    server.add_tool(_flag_failures(rebuild_collection))
+    server.add_tool(_flag_failures(reindex_document))
+    server.add_tool(_flag_failures(clear_session))
+    server.add_tool(_flag_failures(get_document_context))
     # Focus / scoping
-    server.add_tool(set_focused_documents)
-    server.add_tool(get_focused_documents)
+    server.add_tool(_flag_failures(set_focused_documents))
+    server.add_tool(_flag_failures(get_focused_documents))
     # Profile management
-    server.add_tool(list_profiles)
-    server.add_tool(get_active_profile)
-    server.add_tool(set_active_profile)
-    server.add_tool(get_profile_stats)
+    server.add_tool(_flag_failures(list_profiles))
+    server.add_tool(_flag_failures(get_active_profile))
+    server.add_tool(_flag_failures(set_active_profile))
+    server.add_tool(_flag_failures(get_profile_stats))
     # Runtime config
-    server.add_tool(get_rag_config)
-    server.add_tool(patch_rag_config)
-    server.add_tool(save_rag_profile)
-    server.add_tool(delete_rag_profile)
-    server.add_tool(reset_rag_config)
+    server.add_tool(_flag_failures(get_rag_config))
+    server.add_tool(_flag_failures(patch_rag_config))
+    server.add_tool(_flag_failures(save_rag_profile))
+    server.add_tool(_flag_failures(delete_rag_profile))
+    server.add_tool(_flag_failures(reset_rag_config))
     # Lifecycle (soft-delete, restore, bulk-delete, GC status, policy management)
-    server.add_tool(archive_document)
-    server.add_tool(restore_document)
-    server.add_tool(bulk_delete_session)
-    server.add_tool(get_gc_status)
-    server.add_tool(get_lifecycle_policy)
-    server.add_tool(set_lifecycle_policy)
+    server.add_tool(_flag_failures(archive_document))
+    server.add_tool(_flag_failures(restore_document))
+    server.add_tool(_flag_failures(bulk_delete_session))
+    server.add_tool(_flag_failures(get_gc_status))
+    server.add_tool(_flag_failures(get_lifecycle_policy))
+    server.add_tool(_flag_failures(set_lifecycle_policy))
 
     # Custom HTTP routes (welcome, docs, health, api/call)
     _register_custom_routes(server, host, port)
