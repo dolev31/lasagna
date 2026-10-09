@@ -214,5 +214,5 @@ output_formats:              # markdown, json, latex
 - **faithfulness**: LLM-judged answer fidelity to context
 - **context_precision**: Relevance of retrieved context
 
-Statistical tests use paired bootstrap resampling with Holm-Bonferroni
-correction for multiple comparisons (>2 configs).
+Statistical tests use a paired sign-flip randomization test with t intervals,
+and Holm-Bonferroni correction for multiple comparisons (>2 configs).

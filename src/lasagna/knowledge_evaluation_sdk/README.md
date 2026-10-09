@@ -8,7 +8,7 @@ The Knowledge Evaluation SDK provides three complementary evaluation workflows f
 
 2. **IR benchmark evaluation** -- Evaluate retrieval quality against 31 standard academic benchmarks (BEIR, SQuAD, HotpotQA, TriviaQA, MS MARCO, Natural Questions, PopQA, MuSiQue, Bamboogle, KILT, FEVER, and more) via a unified benchmark adapter registry. Computes NDCG@k, MAP, MRR, Precision, Recall, F1, and Hit Rate using pure-Python IR metric implementations.
 
-3. **Ablation / grid-search research** -- Sweep pipeline components (reranker, embedder, query enhancer) across variant lists, collect per-sample scores, and run paired bootstrap significance tests with Holm--Bonferroni correction. Export results to Markdown tables, LaTeX (publication-ready), pandas DataFrames, and matplotlib plots (radar, heatmap).
+3. **Ablation / grid-search research** -- Sweep pipeline components (rerankers, query enhancers and retrievers as components; embedding models and chunking through their settings, which re-ingest per arm) across variant lists, collect per-sample scores, and run paired sign-flip significance tests with t intervals and Holm--Bonferroni correction. Export results to Markdown tables, LaTeX (publication-ready), pandas DataFrames, and matplotlib plots (radar, heatmap).
 
 ---
 
@@ -134,7 +134,7 @@ ExperimentConfig --> Experiment
                        +--> ReportGenerator.save_all(output_dir)
 ```
 
-`Experiment` loads config from YAML/TOML, generates the Cartesian product of (benchmarks x pipeline configurations x run indices), and delegates execution to `BenchmarkRunner`. Each task loads samples from the benchmark registry, runs either offline (gold-label scoring) or live (corpus ingestion + real retrieval + IR metrics) evaluation, and checkpoints results atomically. `BenchmarkResults` aggregates across dimensions with mean/std, produces leaderboards, and supports paired bootstrap significance testing.
+`Experiment` loads config from YAML/TOML, generates the Cartesian product of (benchmarks x pipeline configurations x run indices), and delegates execution to `BenchmarkRunner`. Each task loads samples from the benchmark registry, runs either offline (gold-label scoring) or live (corpus ingestion + real retrieval + IR metrics) evaluation, and checkpoints results atomically. `BenchmarkResults` aggregates across dimensions with mean/std, produces leaderboards, and supports paired sign-flip significance testing.
 
 ---
 
@@ -156,7 +156,7 @@ ExperimentConfig --> Experiment
 | `datasets` | HuggingFace benchmark dataset loading | `pip install datasets` |
 | `pandas` | `AblationResults.to_dataframe()`, `BenchmarkResults.to_dataframe()` | `pip install lasagna-rag[eval]` |
 | `matplotlib` | `AblationResults.plot()`, `ReportGenerator.radar_plot()`, `ReportGenerator.heatmap()` | `pip install lasagna-rag[eval]` |
-| `numpy` | Bootstrap significance tests, vectorized metric computation | `pip install lasagna-rag[eval]` |
+| `numpy` | Sign-flip significance tests, vectorized metric computation | `pip install lasagna-rag[eval]` |
 | `seaborn` | Enhanced heatmap rendering (falls back to matplotlib if absent) | `pip install seaborn` |
 | `pyyaml` | YAML experiment config loading | `pip install pyyaml` |
 

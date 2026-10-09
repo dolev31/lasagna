@@ -197,37 +197,43 @@ Default metrics (when none are specified):
 Implemented in
 `src/lasagna/knowledge_evaluation_sdk/results.py`.
 
-### Paired Bootstrap Significance Test
+### Paired Sign-Flip Significance Test
 
 `BenchmarkResults.significance_test(config_a, config_b, metric, benchmark)`
 
 Compares two pipeline configurations on the same benchmark using per-query
-paired scores.
+paired scores. It is a sign-flip randomization test with a t interval, because
+both hold their stated level at the 10 to 50 queries RAG evaluations use. The
+paired bootstrap it replaced did not: at 12 to 20 queries it rejected a true
+null 8 to 9 percent of the time at alpha 0.05.
 
 **Procedure:**
 
-1. Compute per-query differences: `d_i = score_a_i - score_b_i`.
+1. Average each query's score across every run of each config, then compute
+   the per-query differences: `d_i = score_a_i - score_b_i`.
 2. Compute the observed mean difference: `observed_diff = mean(d)`.
-3. For each of `n_bootstrap` resamples (default 10,000):
-   - Draw `n` indices with replacement.
-   - Compute the bootstrap mean difference `boot_diff`.
-4. Compute the two-tailed p-value using null-centered resampling:
+3. Compute the two-sided p-value. If the two configs were equivalent, each
+   difference would be as likely to come out with either sign, so all `2^n`
+   sign patterns are equally likely:
 
 ```
-p = proportion of |boot_diff - observed_diff| >= |observed_diff|
+p = share of sign patterns s with |sum(s_i * d_i)| >= |sum(d_i)|
 ```
 
-This shifts the bootstrap distribution to center on the null hypothesis (zero
-difference), then counts how often the shifted values exceed the observed
-effect in magnitude.
+   Differences of exactly zero cannot change sign and drop out. With at most 30
+   non-zero differences every pattern is enumerated, so the p-value is exact.
+   Above that, `n_bootstrap` random patterns are drawn (default 10,000) and
+   `p = (count + 1) / (n_bootstrap + 1)`, which is never exactly 0. The `test`
+   key says which was used.
 
-5. Compute the 95% confidence interval from bootstrap percentiles:
+4. Compute the `1 - alpha` confidence interval for the mean difference (95% at
+   the default alpha):
 
 ```
-CI_95 = [percentile(boot_diffs, 2.5), percentile(boot_diffs, 97.5)]
+CI = mean(d) +/- t(1 - alpha/2, n - 1) * std(d, ddof=1) / sqrt(n)
 ```
 
-6. Compute Cohen's d_z for paired design:
+5. Compute Cohen's d_z for paired design:
 
 ```
 d_z = mean(diffs) / std(diffs, ddof=1)
@@ -235,14 +241,16 @@ d_z = mean(diffs) / std(diffs, ddof=1)
 
 **Parameters:**
 
-| Parameter     | Default | Description                          |
-|---------------|---------|--------------------------------------|
-| `n_bootstrap` | 10,000  | Number of bootstrap resamples        |
-| `alpha`       | 0.05    | Significance level                   |
-| `seed`        | 42      | Random seed for reproducibility      |
+| Parameter     | Default | Description                                                    |
+|---------------|---------|----------------------------------------------------------------|
+| `n_bootstrap` | 10,000  | Random sign patterns drawn above 30 non-zero differences (the name is kept for compatibility) |
+| `alpha`       | 0.05    | Significance level; the interval is at `1 - alpha`             |
+| `seed`        | 42      | Random seed for the sampled patterns                           |
 
-**Returns** a dict with keys: `p_value`, `significant`, `confidence_interval_95`,
-`effect_size` (Cohen's d_z), `mean_a`, `mean_b`, `difference`, `n_samples`.
+**Returns** a dict with keys: `p_value`, `significant`, `confidence_interval`
+(at `confidence_level`; also as `confidence_interval_95`), `ci_method` (`"t"`),
+`test`, `effect_size` (Cohen's d_z), `mean_a`, `mean_b`, `difference`,
+`n_samples`, `n_paired`, `n_dropped_a`, `n_dropped_b`.
 
 **Requirements:**
 
@@ -260,7 +268,7 @@ inflates. The Holm-Bonferroni step-down procedure controls it.
 
 **Procedure:**
 
-1. Run pairwise bootstrap significance tests for all config pairs.
+1. Run the paired sign-flip test above for every config pair.
 2. Sort the `m` resulting p-values in ascending order: `p_1 <= p_2 <= ... <= p_m`.
 3. For each test `i` (1-indexed), compute the corrected threshold:
 

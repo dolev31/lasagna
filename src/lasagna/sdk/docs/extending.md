@@ -574,7 +574,7 @@ results.plot()  # Generates a grouped bar chart
 results.best("faithfulness")
 # 'mxbai-rerank-large'
 
-# Paired bootstrap significance test
+# Paired sign-flip significance test, with a t interval
 test = results.significance_test(
     "mxbai-rerank-large", "bge-reranker-v2",
     metric="faithfulness",

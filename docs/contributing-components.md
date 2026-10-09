@@ -140,8 +140,10 @@ lasagna results significance "<output>/results.json" -m ndcg@10 --all
 Every listed built-in implements its stage's interface, so `cross_encoder` is a
 like-for-like control. Naming a reranker turns reranking on for that arm, even
 on `speed`. Before ingesting anything the run checks that each named component
-passes its stage's contract, and when it finishes it confirms that the arms
-differed only at the reranker (or says which other stage moved). The second
+passes its stage's contract, and when it finishes it confirms that the
+configuration reaching each stage differed only at the reranker (or says which
+other stage moved), and flags your arm as inert if its ranked lists never moved.
+The second
 command prints each pair with the difference, the effect size and both the raw
 and the Holm-adjusted p:
 

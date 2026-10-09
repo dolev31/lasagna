@@ -101,12 +101,13 @@ generation metrics. It is a layer for measuring, not a replacement for building.
 `BaseNodePostprocessor`, LangChain has `BaseDocumentCompressor` and `Embeddings`;
 both are real ABCs enforced at instantiation. What we add on top is that a
 function is enough (one decorator wraps it in the stage's interface) and that a
-sweep checks, from what actually ran, that its arms differed only in the stage
-they name.
+sweep checks, from what actually ran, that the configuration reaching each stage
+differs between arms only in the stages they name, and flags an arm whose ranked
+lists never moved as inert.
 
-**What is genuinely different is the measurement apparatus.** Paired bootstrap
-with confidence intervals, Holm–Bonferroni correction across a sweep (with
-adjusted p-values), a 2×2 interaction test with a bootstrap CI, per-sample
+**What is genuinely different is the measurement apparatus.** A paired sign-flip
+test with t intervals, Holm–Bonferroni correction across a sweep (with
+adjusted p-values), a 2×2 interaction test with a t interval, per-sample
 scores joined by sample identity, comparability keys that record what was held
 fixed, and integrity-checked result bundles. None of LangChain, LlamaIndex,
 Haystack or RAGAS ships significance testing; RAGAS scores a run, and we depend
@@ -124,7 +125,7 @@ proven absent.
 
 | | **Lasagna** | **FlashRAG** | **BERGEN** | **UltraRAG** | **AutoRAG** | **PyTerrier / ranx** |
 |---|---|---|---|---|---|---|
-| Significance tests | Paired bootstrap, Holm, power | Not found | Not found | Paired permutation, no correction | Not found | Yes, IR runs only |
+| Significance tests | Paired sign-flip test, Holm, power | Not found | Not found | Paired permutation, no correction | Not found | Yes, IR runs only |
 | Interaction between components | 2×2 test with CI | Not found | Not found | Not found | Greedy search assumes none | Not found |
 | Result provenance | Bundles with a validator | Saved configs and scores | Experiment folders | Not found | Trial folders | Not found |
 | Published methods | 17 components | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
@@ -298,7 +299,9 @@ lasagna results significance "<output>/results.json" -m ndcg@10 --all
 Before any corpus is ingested, the run checks that each named component
 implements its stage and passes its behavioural contract (return types, `top_k`,
 empty input, no mutation of its input). It then runs both arms on the same
-queries and ends by confirming that the arms differed only at the reranker.
+queries and ends by confirming that the configuration reaching each stage
+differed only at the reranker, and that the reranker arm's ranked lists moved:
+an arm whose lists never moved is flagged inert.
 [The guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md#8-measure-it-on-a-benchmark)
 covers the 31 benchmarks.
 
@@ -385,9 +388,10 @@ cross-encoder.
   redundant (they overlap; the second buys less than it does alone)
 ```
 
-The statistic is `(AB − neither) − (A − neither) − (B − neither)`, bootstrapped
-over queries with all four cells of a query resampled together. Positive means
-they compound; negative means they overlap.
+The statistic is `(AB − neither) − (A − neither) − (B − neither)`, tested by
+sign-flipping each query's interaction contrast (all four cells of a query move
+together), with a t interval. Positive means they compound; negative means they
+overlap.
 
 Factors are boolean flags, not component names — a component slot has no *off*
 level for the `neither` cell to use, and swapping a component does not enable
@@ -444,7 +448,7 @@ Bamboogle, MultiHop-RAG, RAGBench, KILT, 2WikiMultihop.
 | Generation | faithfulness, answer relevancy, context precision, context recall, factual correctness (RAGAS) |
 | Operational | p50/p95 latency, cost per query |
 
-Plus multi-objective tradeoff analysis, significance testing, and bootstrap
+Plus multi-objective tradeoff analysis, paired significance testing, and t
 confidence intervals.
 
 ### Interfaces
