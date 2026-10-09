@@ -818,6 +818,10 @@ _NO_RESULTS_MSG = (
 )
 
 
+#: The REST API's bound for the same argument (`SearchRequest.top_k`).
+_MAX_TOP_K = 100
+
+
 def _store_citations(
     user_id: str,
     session_id: str,
@@ -992,6 +996,13 @@ async def search(
             "trace_id": trace_id,
         },
     )
+
+    # REST refuses these with a 422; here an empty query returned a knowledge
+    # block and a negative top_k "no results", both read as answers.
+    if not query or not query.strip():
+        return "Search failed: the query is empty."
+    if top_k is not None and not 1 <= top_k <= _MAX_TOP_K:
+        return f"Search failed: top_k must be between 1 and {_MAX_TOP_K}, got {top_k}."
 
     try:
         backend, config, doc_id_filter = _prepare_search(
@@ -1279,7 +1290,8 @@ async def get_document_context(
         duration_ms = (time.time() - start_time) * 1000
         logger.exception(f"get_document_context failed: {e}")
         _log_tool_result("get_document_context", False, str(e), duration_ms)
-        return ""
+        # "" is also the answer for "no documents"; a failure must not read as that.
+        return f"Failed to get document context: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -1425,15 +1437,21 @@ def upload_document(
 
         duration_ms = (time.time() - start_time) * 1000
 
-        result = json.dumps(
-            {
-                "document_id": doc.document_id,
-                "filename": doc.filename,
-                "status": status_value,
-                "chunks_count": doc.chunks_count,
-                "file_size_kb": doc.file_size // 1024,
-            }
-        )
+        report = {
+            "document_id": doc.document_id,
+            "filename": doc.filename,
+            "status": status_value,
+            "chunks_count": doc.chunks_count,
+            "file_size_kb": doc.file_size // 1024,
+        }
+        if status_value == "error":
+            # A failed ingest went back as an ordinary report with isError=False.
+            _log_tool_result("upload_document", False, f"status={status_value}", duration_ms)
+            reason = getattr(doc, "error_message", None) or "no reason was recorded"
+            return json.dumps(
+                {"error": f"'{doc.filename}' could not be indexed: {reason}", "detail": report}
+            )
+        result = json.dumps(report)
 
         _log_tool_result(
             "upload_document",
@@ -1489,7 +1507,8 @@ def delete_document(
         else:
             _log_tool_result("delete_document", False, "Not found or unauthorized", duration_ms)
             return (
-                f"Document '{document_id}' not found or does not belong to session '{session_id}'."
+                f"Failed to delete document: '{document_id}' was not found or does not "
+                f"belong to session '{session_id}'."
             )
 
     except Exception as e:
@@ -1591,7 +1610,10 @@ def get_document_info(
 
         if not doc:
             _log_tool_result("get_document_info", False, "Not found", duration_ms)
-            return f"Document '{document_id}' not found in session '{session_id}'."
+            return (
+                f"Failed to get document info: '{document_id}' was not found in "
+                f"session '{session_id}'."
+            )
 
         info = {
             "document_id": doc.document_id,
@@ -1623,6 +1645,10 @@ def get_document_info(
 # ---------------------------------------------------------------------------
 
 
+#: The REST API's bound for a page of chunks.
+_MAX_CHUNK_PAGE = 500
+
+
 @mcp.tool()
 def get_document_chunks(
     document_id: str,
@@ -1649,9 +1675,19 @@ def get_document_chunks(
         {"document_id": document_id, "session_id": session_id, "offset": offset, "limit": limit},
     )
 
+    if offset < 0 or not 1 <= limit <= _MAX_CHUNK_PAGE:
+        return (
+            f"Failed to get document chunks: offset must be >= 0 and limit between 1 "
+            f"and {_MAX_CHUNK_PAGE} (got offset={offset}, limit={limit})."
+        )
+
     try:
         backend = _get_backend()
-        _config = _get_config()
+        if not any(d.document_id == document_id for d in backend.get_documents(session_id)):
+            return (
+                f"Failed to get document chunks: '{document_id}' was not found in "
+                f"session '{session_id}'."
+            )
 
         # Use the session-aware backend via public API (BYOVDB support).
         # We fetch all chunks (up to 10k) so that total_chunks in the response
@@ -1663,10 +1699,6 @@ def get_document_chunks(
         )
 
         duration_ms = (time.time() - start_time) * 1000
-
-        if not results:
-            _log_tool_result("get_document_chunks", True, "No chunks found", duration_ms)
-            return f"No chunks found for document '{document_id}'."
 
         # Sort by chunk_index and apply pagination
         sorted_results = sorted(results, key=lambda x: x.get("metadata", {}).get("chunk_index", 0))
@@ -1687,7 +1719,11 @@ def get_document_chunks(
         result = {
             "document_id": document_id,
             "total_chunks": len(sorted_results),
-            "showing": f"{offset + 1}-{offset + len(paginated)} of {len(sorted_results)}",
+            "showing": (
+                f"{offset + 1}-{offset + len(paginated)} of {len(sorted_results)}"
+                if paginated
+                else f"none of {len(sorted_results)}"
+            ),
             "chunks": chunks_info,
         }
 
@@ -1929,14 +1965,20 @@ def reindex_document(
         if not doc:
             duration_ms = (time.time() - start_time) * 1000
             _log_tool_result("reindex_document", False, "Not found", duration_ms)
-            return f"Document '{document_id}' not found in session '{session_id}'."
+            return (
+                f"Failed to reindex document: '{document_id}' was not found in "
+                f"session '{session_id}'."
+            )
 
         # Get file path
         file_path = backend.get_document_file_path(document_id, session_id)
         if not file_path or not os.path.exists(file_path):
             duration_ms = (time.time() - start_time) * 1000
             _log_tool_result("reindex_document", False, "File not found", duration_ms)
-            return f"Source file for document '{document_id}' not found on disk."
+            return (
+                f"Failed to reindex document: the source file for '{document_id}' "
+                f"is no longer on disk."
+            )
 
         # Delete existing chunks from Milvus
         config = backend.get_session_config(session_id)
@@ -2066,7 +2108,14 @@ def clear_session(
     if not confirm:
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("clear_session", False, "Not confirmed", duration_ms)
-        return "Operation cancelled. Set confirm=True to delete all documents in the session."
+        return json.dumps(
+            {
+                "error": (
+                    "confirm must be true. Nothing was deleted; this deletes every "
+                    f"document in session {session_id!r}."
+                )
+            }
+        )
 
     try:
         backend = _get_backend()
@@ -2488,6 +2537,17 @@ def set_focused_documents(
         if document_ids and document_ids.strip():
             doc_id_list = [d.strip() for d in document_ids.split(",") if d.strip()]
 
+        if doc_id_list:
+            # An unknown id was accepted with "Focused on 2 document(s)", and
+            # every later search in the session then quietly returned nothing.
+            known = {d.document_id for d in _get_backend().get_documents(session_id)}
+            unknown = [d for d in doc_id_list if d not in known]
+            if unknown:
+                return (
+                    f"Failed to set focused documents: not in session '{session_id}': "
+                    f"{', '.join(unknown)}. Focus was not changed."
+                )
+
         manager.set_focused_document_ids(doc_id_list, session_id)
 
         duration_ms = (time.time() - start_time) * 1000
@@ -2717,7 +2777,14 @@ def delete_rag_profile(
         from lasagna.core.session_config import get_knowledge_config_manager
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        _result = manager.delete_profile(profile_name, session_id, user_id=_profile_owner(user_id))
+        owner = _profile_owner(user_id)
+        if not any(
+            p["name"] == profile_name
+            for p in manager.list_profiles(session_id=session_id, user_id=owner)
+        ):
+            # Deleting nothing answered "deleted successfully".
+            return json.dumps({"error": f"Profile {profile_name!r} not found."})
+        _result = manager.delete_profile(profile_name, session_id, user_id=owner)
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("delete_rag_profile", True, f"profile={profile_name}", duration_ms)
