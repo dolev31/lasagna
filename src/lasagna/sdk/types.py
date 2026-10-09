@@ -200,6 +200,7 @@ class DocumentStatus(_StrValueEnum):
         INDEXING: Chunks being indexed in vector database
         READY: Document fully indexed and searchable
         FAILED: Processing failed (check error_message)
+        SOFT_DELETED: Archived; recoverable until garbage collection removes it
     """
 
     PENDING = "pending"
@@ -207,6 +208,9 @@ class DocumentStatus(_StrValueEnum):
     INDEXING = "indexing"
     READY = "ready"
     FAILED = "failed"
+    # The backend reports it for archived documents. Without it, archive()
+    # archived the document and then failed converting the result.
+    SOFT_DELETED = "soft_deleted"
 
     # Backward compatibility with legacy status names
     @classmethod

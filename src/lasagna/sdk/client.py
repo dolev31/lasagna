@@ -300,6 +300,26 @@ class KnowledgeClient:
         return self._citation_manager
 
     @property
+    def config_manager(self) -> "ConfigManager":
+        """Profile and session configuration operations.
+
+        The client reserved this manager and its documentation used it, but no
+        property returned it, so ``client.config_manager`` raised
+        AttributeError.
+
+        Example:
+            ```python
+            await client.config_manager.set_profile("speed")
+            profiles = await client.config_manager.list_profiles()
+            ```
+        """
+        if self._config_manager is None:
+            from .managers.config_manager import ConfigManager
+
+            self._config_manager = ConfigManager(self)
+        return self._config_manager
+
+    @property
     def focused_document_ids(self) -> Optional[List[str]]:
         """Currently focused document IDs, if any."""
         return self._focused_document_ids
