@@ -26,7 +26,7 @@ keywords = [
     "mcp",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     # No "License ::" classifier: PEP 639 supersedes it with the SPDX
@@ -62,18 +62,21 @@ classifiers = [
 # Lasagna was extracted out of (playwright, browsergym, e2b, tavily, langfuse,
 # langchain-ibm) are deliberately absent.
 dependencies = [
+    # Every direct dependency is capped at its next major: pymilvus 3, mcp 2 and a
+    # langchain-community minor each broke installs that resolved the newest
+    # release. constraints/ pins the exact set the release was tested with.
     # LLM orchestration.
     # `langchain>=1.0` is a real floor, not caution: `agentic/agentic_rag.py`
     # imports `create_agent` from `langchain.agents` at module scope, which is a
     # 1.x API. Unbounded, a resolver was free to pick 0.3.x and break the import
     # of a core module.
-    "langchain>=1.0",
-    "langchain-core>=0.3",
-    "langchain-openai>=0.2",
-    "langgraph",                          # agentic pipeline graph
+    "langchain>=1.0,<2",
+    "langchain-core>=0.3,<2",
+    "langchain-openai>=0.2,<2",
+    "langgraph<2",                        # agentic pipeline graph
     # Service surfaces
-    "fastapi[standard]",
-    "uvicorn",
+    "fastapi[standard]<1",
+    "uvicorn<1",
     # Pinned below 2.0: mcp 2.0.0 removed `mcp.server.fastmcp`, which both
     # lasagna/mcp/server.py and sdk/integrations/mcp.py import. With an
     # unbounded range a fresh `pip install lasagna-rag` resolved to 2.0.0 and
@@ -82,7 +85,7 @@ dependencies = [
     # version saw nothing wrong. Migrating to the 2.x API is tracked separately;
     # until then the bound is what makes installs work.
     "mcp[cli]>=1.23.0,<2",
-    "fastmcp",
+    "fastmcp<4",
     "typer>=0.15.3",
     # `lasagna init` is the first command in the README's shell quickstart and
     # imports this at 24 call sites. It was never declared, so that command
@@ -95,19 +98,19 @@ dependencies = [
     # with no change on our side. Declared because we use it.
     "rich>=13.0",
     # Configuration and runtime
-    "dynaconf",
+    "dynaconf<4",
     "python-dotenv",
     "loguru",
     "pyyaml>=6.0.3",
     "psutil>=7.0.0",
     "httpx",
     # Default vector store (embedded; no server required)
-    "pymilvus[milvus-lite]>=2.6.4",
+    "pymilvus[milvus-lite]>=2.6.4,<4",
     # Embedding and reranking. Kept in core so the quickstart works on a bare
     # install; a slim client distribution for remote-backend-only use is
     # tracked as future work.
-    "torch>=2.9.1",
-    "sentence-transformers>=5.1.2",
+    "torch>=2.9.1,<3",
+    "sentence-transformers>=5.1.2,<7",
     # Document processing
     "pypdf>=4.0.0",
     "python-docx>=1.2.0",
@@ -119,6 +122,10 @@ dependencies = [
     # the dependency tree, not the import graph.
     # Lexical retrieval for hybrid search
     "rank-bm25>=0.2.2",
+    # Imported directly; they arrived only through other packages before.
+    "numpy>=1.24,<3",
+    "pydantic>=2,<3",
+    "pyjwt>=2.8,<3",  # REST session tokens (api/rest/session_token.py)
 ]
 
 [project.optional-dependencies]
@@ -136,7 +143,7 @@ flag-embedding = ["FlagEmbedding>=1.3.0"]
 graphrag = ["networkx>=3.0"]
 # Evaluation harness: RAGAS metrics, benchmark loaders, statistics, plots
 eval = [
-    "ragas>=0.4.0",
+    "ragas>=0.4.0,<0.5",
     # Not a lasagna import: ragas 0.4.3 (the newest release) imports
     # `langchain_community.chat_models.vertexai` at `import ragas`, and
     # langchain-community 0.4.2 removed that module. ragas declares the
@@ -145,9 +152,9 @@ eval = [
     # lasagna-rag[eval]" while ragas was installed. 0.4.1 still ships the
     # module. Lift this once a ragas release stops importing it.
     "langchain-community<0.4.2",
-    "datasets>=2.0.0",
-    "pandas>=2.0.0",
-    "scipy>=1.10",
+    "datasets>=2.0.0,<6",
+    "pandas>=2.0.0,<4",
+    "scipy>=1.10,<2",
     "matplotlib>=3.7",
     "seaborn>=0.12",
     "jinja2>=3.0",

@@ -467,6 +467,12 @@ lasagna doctor --issue        # a redacted block to paste into a bug report
 pip install lasagna-rag                    # core: ingest, embed, search, serve
 ```
 
+To reproduce a result exactly, install the versions the release was tested with:
+
+```bash
+pip install "lasagna-rag[eval]==0.1.0a1" -c https://raw.githubusercontent.com/dolev31/lasagna/main/constraints/0.1.0a1.txt
+```
+
 | Extra | Adds |
 |---|---|
 | `eval` | RAGAS metrics, benchmark loaders, statistics, plots |
