@@ -41,6 +41,7 @@ from ._data_models import (
     MAX_CHUNK_CONTENT_LENGTH,
     RAGProfile,
     KnowledgeConfigState,
+    UnknownProfileError,
     _deep_merge,
 )
 from ._profiles import ProfileMixin
@@ -203,6 +204,7 @@ __all__ = [
     "KnowledgeConfigManager",
     "KnowledgeConfigState",
     "RAGProfile",
+    "UnknownProfileError",
     "get_knowledge_config_manager",
     # Constants (for consumers that import them directly)
     "SCHEMA_VERSION",

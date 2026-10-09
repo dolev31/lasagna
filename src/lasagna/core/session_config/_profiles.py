@@ -28,7 +28,9 @@ from ._data_models import (
     SESSION_TTL_SECONDS,
     MAX_CACHED_SESSIONS,
     RAGProfile,
+    UnknownProfileError,
     _deep_merge,
+    _resolve,
 )
 
 
@@ -514,8 +516,14 @@ class ProfileMixin:
         profile_name: str,
         config: Optional[Dict[str, Any]] = None,
         session_id: Optional[str] = None,
+        *,
+        force: bool = False,
     ) -> Dict[str, Any]:
-        """Set the active profile and optionally update its config."""
+        """Set the active profile and optionally update its config.
+
+        Refused, with nothing changed, when the switch would embed at another
+        size than the stored documents (``force`` skips that check).
+        """
         if config:
             self._validate_or_raise(config, session_id)
 
@@ -523,33 +531,44 @@ class ProfileMixin:
 
         with self._lock:
             previous = state.get_active_profile()
-            profile_found = False
-            for profile in state.profiles:
-                if profile.name == profile_name:
-                    profile_found = True
-                    if config:
-                        state.session_overrides = config
-                    elif previous is not None and previous.name != profile_name:
-                        state.session_overrides = _without_echoes(
-                            state.session_overrides, previous.config
-                        )
-                    break
-
-            if not profile_found:
-                if not config:
-                    # Recording a name no profile has made `configure --profile
-                    # bogus` print "Applied profile: bogus" and change nothing.
-                    known = sorted(p.name for p in state.profiles)
-                    raise ValueError(
-                        f"Unknown profile {profile_name!r}. Available: {', '.join(known)}"
-                    )
-                new_profile = RAGProfile(
-                    name=profile_name,
-                    description=f"Custom profile: {profile_name}",
-                    config=config,
+            profile = next((p for p in state.profiles if p.name == profile_name), None)
+            if profile is None and not config:
+                # Recording a name no profile has made `configure --profile
+                # bogus` print "Applied profile: bogus" and change nothing.
+                known = sorted(p.name for p in state.profiles)
+                raise UnknownProfileError(
+                    f"Unknown profile {profile_name!r}. Available: {', '.join(known)}"
                 )
-                state.profiles.append(new_profile)
 
+            # Everything the switch would leave in force, worked out before any
+            # of it is applied, so a refusal changes nothing. The old order
+            # switched, checked, and switched back, and the way back dropped the
+            # user's overrides or kept the refused request's.
+            if profile is None:
+                profile_config, overrides = config, state.session_overrides
+            elif config:
+                profile_config, overrides = profile.config, config
+            elif previous is not None and previous.name != profile_name:
+                profile_config = profile.config
+                overrides = _without_echoes(state.session_overrides, previous.config)
+            else:
+                profile_config, overrides = profile.config, state.session_overrides
+            self._refuse_unsearchable(
+                state,
+                _resolve(profile_config, overrides),
+                change=f"Profile {profile_name!r}",
+                force=force,
+            )
+
+            if profile is None:
+                state.profiles.append(
+                    RAGProfile(
+                        name=profile_name,
+                        description=f"Custom profile: {profile_name}",
+                        config=config,
+                    )
+                )
+            state.session_overrides = overrides
             state.active_profile = profile_name
             self._persist_session_states()
 
@@ -565,6 +584,8 @@ class ProfileMixin:
         session_id: Optional[str] = None,
         set_active: bool = True,
         user_id: str = "__anonymous__",
+        *,
+        force: bool = False,
     ) -> Dict[str, Any]:
         """Save or update a named profile.
 
@@ -606,6 +627,17 @@ class ProfileMixin:
                     and existing_global.user_id != user_id
                 ):
                     raise ValueError(f"Profile '{profile_name}' is owned by another user.")
+
+            # Saving as (or over) the active profile changes what this session
+            # embeds with, exactly as switching to it would.
+            if set_active or state.active_profile == profile_name:
+                overrides = {} if set_active else state.session_overrides
+                self._refuse_unsearchable(
+                    state,
+                    _resolve(config, overrides),
+                    change=f"Profile {profile_name!r}",
+                    force=force,
+                )
 
             new_profile = RAGProfile(
                 name=profile_name,
@@ -740,6 +772,15 @@ class ProfileMixin:
             )
             if existing and existing.user_id != "__anonymous__" and existing.user_id != user_id:
                 raise ValueError(f"Profile '{profile_name}' is owned by another user.")
+            if state.active_profile == profile_name:
+                # The session falls back to default, which may embed at another size.
+                fallback = next((p for p in state.profiles if p.name == "default"), None)
+                self._refuse_unsearchable(
+                    state,
+                    _resolve(fallback.config if fallback else {}, {}),
+                    change=f"Deleting the active profile {profile_name!r} falls back to 'default', which",
+                    force=False,
+                )
             state.profiles = [p for p in state.profiles if p.name != profile_name]
             if state.active_profile == profile_name:
                 state.active_profile = "default"

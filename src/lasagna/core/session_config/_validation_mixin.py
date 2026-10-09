@@ -57,3 +57,28 @@ class ValidationMixin:
         if not result.valid:
             messages = "; ".join(f"{e['key']}: {e['message']}" for e in result.errors)
             raise ValueError(f"Invalid configuration: {messages}")
+
+    def _refuse_unsearchable(
+        self,
+        state: Any,
+        after: Dict[str, Any],
+        *,
+        change: str,
+        force: bool = False,
+    ) -> None:
+        """Raise before a write that would embed at another size than what is stored.
+
+        Called by every write that can change the session's resolved config,
+        before anything is applied, with ``after`` the config it would leave.
+        Raises ``EmbeddingSizeConflict`` (a ``ValueError``).
+        """
+        if force:
+            return
+        from lasagna.api._profile_guard import refuse_embedding_change
+
+        refuse_embedding_change(
+            before=state.get_resolved_config(),
+            after=after,
+            change=change,
+            kept=state.active_profile,
+        )

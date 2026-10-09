@@ -15,6 +15,7 @@ from ._data_models import (
     RAGProfile,
     KnowledgeConfigState,
     _deep_merge,
+    _resolve,
 )
 
 
@@ -167,12 +168,23 @@ class SessionStateMixin:
         self,
         patch: Dict[str, Any],
         session_id: Optional[str] = None,
+        *,
+        force: bool = False,
     ) -> Dict[str, Any]:
         """Apply a patch to the session overrides."""
         state = self.get_session_state(session_id)
 
         with self._lock:
             self._validate_or_raise(patch, session_id, is_patch=True)
+            # A patch of embedding_dim is a profile switch by another name, and
+            # was the route by which a tenant set up the drop of the shared
+            # collection.
+            self._refuse_unsearchable(
+                state,
+                _resolve(state.get_resolved_config(), patch),
+                change="This change",
+                force=force,
+            )
             _deep_merge(state.session_overrides, patch)
             self._persist_session_states()
 
@@ -188,6 +200,13 @@ class SessionStateMixin:
         state = self.get_session_state(session_id)
 
         with self._lock:
+            if scope == "all":
+                default = next((p for p in self._default_profiles if p.name == "default"), None)
+                after = _resolve(default.config if default else {}, {})
+            else:
+                active = state.get_active_profile()
+                after = _resolve(active.config if active else {}, {})
+            self._refuse_unsearchable(state, after, change="Resetting the configuration")
             if scope == "all":
                 state.profiles = [copy.deepcopy(p) for p in self._default_profiles]
                 state.active_profile = "default"
@@ -213,11 +232,19 @@ class SessionStateMixin:
         import_data: Dict[str, Any],
         session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Import configuration from uploaded JSON."""
+        """Import configuration from uploaded JSON.
+
+        Everything is checked before anything is applied: every value, and
+        what the session would embed with afterwards. Session overrides used
+        to be stored as they came, so ``{"chunk_size": "lots"}`` answered 200
+        and every later read of the session's config failed with a 500.
+        """
         schema_version = import_data.get("schema_version")
         if not schema_version:
             raise ValueError("Missing schema_version in import data")
 
+        if not isinstance(schema_version, int) or isinstance(schema_version, bool):
+            raise ValueError("schema_version must be an integer")
         if schema_version > SCHEMA_VERSION:
             raise ValueError(
                 f"Import schema version {schema_version} is newer than supported version {SCHEMA_VERSION}"
@@ -229,6 +256,8 @@ class SessionStateMixin:
         profiles_data = import_data["profiles"]
         if not isinstance(profiles_data, list):
             raise ValueError("'profiles' must be an array")
+        if not all(isinstance(p, dict) for p in profiles_data):
+            raise ValueError("Each profile must be an object")
 
         profile_names = [p.get("name") for p in profiles_data]
         if len(profile_names) != len(set(profile_names)):
@@ -236,7 +265,7 @@ class SessionStateMixin:
 
         imported_profiles = []
         for p_data in profiles_data:
-            if not p_data.get("name"):
+            if not p_data.get("name") or not isinstance(p_data["name"], str):
                 raise ValueError("Each profile must have a 'name'")
             if not isinstance(p_data.get("config", {}), dict):
                 raise ValueError(f"Profile '{p_data['name']}' config must be an object")
@@ -245,29 +274,46 @@ class SessionStateMixin:
                 self._validate_or_raise(profile_config)
             imported_profiles.append(RAGProfile.from_dict(p_data))
 
+        overrides = import_data.get("session_overrides")
+        if overrides is not None and not isinstance(overrides, dict):
+            raise ValueError("'session_overrides' must be an object")
+
+        active_profile = import_data.get("active_profile")
+        if active_profile is not None and not isinstance(active_profile, str):
+            raise ValueError("'active_profile' must be a string")
+
         state = self.get_session_state(session_id)
 
         with self._lock:
-            existing_names = {p.name for p in state.profiles}
+            profiles = [copy.deepcopy(p) for p in state.profiles]
             for imported in imported_profiles:
-                if imported.name in existing_names:
-                    for i, p in enumerate(state.profiles):
-                        if p.name == imported.name:
-                            state.profiles[i] = imported
-                            break
+                for i, p in enumerate(profiles):
+                    if p.name == imported.name:
+                        profiles[i] = imported
+                        break
                 else:
-                    state.profiles.append(imported)
+                    profiles.append(imported)
 
-            active_profile = import_data.get("active_profile")
-            if active_profile:
-                valid_names = {p.name for p in state.profiles}
-                if active_profile in valid_names:
-                    state.active_profile = active_profile
+            active = state.active_profile
+            if active_profile and active_profile in {p.name for p in profiles}:
+                active = active_profile
+            new_overrides = state.session_overrides if overrides is None else overrides
 
-            if "session_overrides" in import_data:
-                state.session_overrides = import_data["session_overrides"]
+            target = next((p for p in profiles if p.name == active), None)
+            after = _resolve(target.config if target else {}, new_overrides)
+            if overrides:
+                # Against the profile they will apply to, so cross-field rules
+                # see what search will see.
+                self._validate_or_raise(after)
+            self._refuse_unsearchable(state, after, change="The imported configuration")
+
+            state.profiles = profiles
+            state.active_profile = active
+            state.session_overrides = new_overrides
             self._persist_session_states()
 
+        # Without this an import was recorded and search kept the old settings.
+        self._publish_to_search(session_id)
         return state.to_dict()
 
     def set_rag_enabled(

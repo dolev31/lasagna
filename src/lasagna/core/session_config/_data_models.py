@@ -27,6 +27,11 @@ MAX_CACHED_SESSIONS = 100
 # Maximum number of global custom profiles
 MAX_GLOBAL_PROFILES = 50
 
+
+class UnknownProfileError(ValueError):
+    """No profile of that name exists for the caller."""
+
+
 # MEDIUM PRIORITY FIX: Memory limits for session state
 # Without these limits, a malicious or buggy client could cause OOM by storing
 # unlimited citations/chunks. These limits are generous for normal use but
@@ -132,3 +137,10 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> None:
             _deep_merge(base[key], value)
         else:
             base[key] = value
+
+
+def _resolve(profile_config: Optional[Dict[str, Any]], overrides: Dict[str, Any]) -> Dict[str, Any]:
+    """The resolved config a profile and overrides would give, without applying them."""
+    resolved = copy.deepcopy(profile_config or {})
+    _deep_merge(resolved, copy.deepcopy(overrides or {}))
+    return resolved

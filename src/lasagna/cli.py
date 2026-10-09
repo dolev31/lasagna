@@ -641,12 +641,14 @@ def configure(
         _error(f"Failed to initialize config manager: {exc}")
 
     if profile:
-        from lasagna.api._profile_guard import set_profile_checked
+        from lasagna.api._profile_guard import EmbeddingSizeConflict
 
         try:
-            set_profile_checked(mgr, profile, session_id, force=force)
+            mgr.set_active_profile(profile, session_id=session_id, force=force)
+        except EmbeddingSizeConflict as exc:
+            _error(f"{exc} Or pass --force to switch anyway.")
         except ValueError as exc:
-            _error(str(exc).replace("switch with force", "pass --force to switch anyway"))
+            _error(str(exc))
         console.print(f"[green]Applied profile: {profile}[/green]")
         return
 

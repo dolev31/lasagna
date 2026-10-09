@@ -14,6 +14,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 
+from lasagna.api._profile_guard import EmbeddingSizeConflict
 from lasagna.core.session_config import get_knowledge_config_manager
 from ..dependencies import get_session_id, get_user_id
 from ..models import (
@@ -77,10 +78,10 @@ async def set_active_profile(
 ):
     """Set the active profile and optionally apply config overrides."""
     try:
-        from lasagna.api._profile_guard import EmbeddingSizeConflict, set_profile_checked
-
         mgr = get_knowledge_config_manager(session_id=session_id)
-        data = set_profile_checked(mgr, body.active_profile, session_id, config=body.config or None)
+        data = mgr.set_active_profile(
+            body.active_profile, config=body.config or None, session_id=session_id
+        )
         return _to_response(data)
     except EmbeddingSizeConflict as conflict:
         raise HTTPException(status_code=409, detail=str(conflict))
@@ -108,6 +109,8 @@ async def save_profile(
             user_id=user_id,
         )
         return _to_response(data)
+    except EmbeddingSizeConflict as conflict:
+        raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
@@ -130,6 +133,8 @@ async def delete_profile(
             user_id=user_id,
         )
         return _to_response(data)
+    except EmbeddingSizeConflict as conflict:
+        raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
@@ -174,6 +179,8 @@ async def reset_config(
         mgr = get_knowledge_config_manager(session_id=session_id)
         data = mgr.reset_config(scope=body.scope, session_id=session_id)
         return _to_response(data)
+    except EmbeddingSizeConflict as conflict:
+        raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
@@ -207,6 +214,8 @@ async def import_config(
             import_data=data.model_dump(exclude_none=True), session_id=session_id
         )
         return _to_response(result)
+    except EmbeddingSizeConflict as conflict:
+        raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:

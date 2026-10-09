@@ -2337,10 +2337,8 @@ def set_active_profile(
     try:
         from lasagna.core.session_config import get_knowledge_config_manager
 
-        from lasagna.api._profile_guard import set_profile_checked
-
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        _result = set_profile_checked(manager, profile_name, session_id)
+        manager.set_active_profile(profile_name, session_id=session_id)
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("set_active_profile", True, f"activated={profile_name}", duration_ms)
