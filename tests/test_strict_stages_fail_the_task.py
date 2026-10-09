@@ -39,7 +39,13 @@ def orchestrator(monkeypatch):
 
 class NoLLM:
     def generate_query_variations(self, query, n):
-        return []  # what the internal enhancer returns when no LLM is configured
+        # What the internal enhancer does when no LLM is configured.
+        raise RuntimeError("query variations need an LLM, and none is configured")
+
+
+class NothingToAdd:
+    def enhance(self, query):
+        return [query]  # a technique with nothing to change for this query
 
 
 def test_serving_falls_back_to_plain_search(orchestrator):
@@ -52,8 +58,26 @@ def test_serving_falls_back_to_plain_search(orchestrator):
 
 def test_evaluation_fails_instead(orchestrator):
     with strict():
-        with pytest.raises(RuntimeError, match="no variations"):
+        with pytest.raises(RuntimeError, match="needs? an LLM"):
             orchestrator.search_multi_query(
                 "q", "s", top_k=5, n_variations=3, _enhancer_override=NoLLM()
             )
     assert not strict_stages(), "strict mode must not outlive the evaluation"
+
+
+def test_an_enhancer_with_nothing_to_add_is_not_a_failure(orchestrator):
+    # A keyless function enhancer (drop stopwords) failed its whole task on
+    # the first query that had no stopwords.
+    with strict():
+        out = orchestrator.search_multi_query(
+            "photosynthesis", "s", top_k=5, n_variations=3, _enhancer_override=NothingToAdd()
+        )
+    assert out
+
+
+def test_the_internal_enhancer_says_when_it_has_no_llm(monkeypatch):
+    from lasagna.retrieval.enhancement import enhancer
+
+    monkeypatch.setattr(enhancer.QueryExpander, "_get_llm", lambda self, *a, **k: None)
+    with pytest.raises(RuntimeError, match="LLM"):
+        enhancer.QueryEnhancer().generate_query_variations("what is rag", 3)

@@ -1545,14 +1545,15 @@ class SearchOrchestrator:
             logger.warning(f"Query expansion failed [{type(e).__name__}]: {e}")
             logger.exception("Query expansion failed; falling back to single query")
             variations = []
-        if not variations and strict_stages():
-            # Under evaluation an arm that asked for query variations and got
-            # none is the control under another name, not a result.
-            raise RuntimeError("Query enhancement produced no variations (is an LLM configured?)")
-
         if not variations:
             # Nothing to fuse: the plain search is the answer. Fusing a single
             # query used to come back empty and score 0.0.
+            #
+            # Not a failure, even under evaluation: a technique may have nothing
+            # to add for a query ("photosynthesis" has no stopwords to drop).
+            # An enhancer that cannot run at all (no LLM) raises above, and an
+            # arm whose enhancer never changed a ranking is flagged by the
+            # isolation check from its ranked lists.
             return self.search(
                 query,
                 session_id,

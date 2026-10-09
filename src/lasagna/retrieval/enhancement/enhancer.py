@@ -809,6 +809,12 @@ class QueryEnhancer:
 
         Returns:
             List of alternative query strings (may be fewer than n)
+
+        Raises:
+            RuntimeError: When no LLM is configured or the call fails. It used
+                to return ``[]``, so a fusion arm with no LLM searched the plain
+                query and scored as the control; the caller decides whether to
+                fall back (serving) or fail the task (evaluation).
         """
         prompt = (
             f"Generate {n} alternative search queries for the following question. "
@@ -818,30 +824,25 @@ class QueryEnhancer:
             f"Alternative queries:"
         )
 
-        try:
-            model_ref = self.expander.model or rag_config.hyde_model
-            llm = self.expander._get_llm(model_ref, max_tokens=300)
-            if not llm:
-                logger.warning("Query variation generation failed: could not initialize LLM")
-                return []
+        model_ref = self.expander.model or rag_config.hyde_model
+        llm = self.expander._get_llm(model_ref, max_tokens=300)
+        if not llm:
+            raise RuntimeError("query variations need an LLM, and none is configured")
 
-            response = llm.invoke([{"role": "user", "content": prompt}])
-            content = response.content if hasattr(response, "content") else str(response)
+        response = llm.invoke([{"role": "user", "content": prompt}])
+        content = response.content if hasattr(response, "content") else str(response)
 
-            lines = [line.strip() for line in content.strip().split("\n") if line.strip()]
-            # Filter out numbering patterns
-            variations = []
-            for line in lines[:n]:
-                # Remove common numbering patterns like "1.", "1)", "1 -", etc.
-                cleaned = line.lstrip("0123456789.-) ").strip()
-                if cleaned and cleaned != query:
-                    variations.append(cleaned)
+        lines = [line.strip() for line in content.strip().split("\n") if line.strip()]
+        # Filter out numbering patterns
+        variations = []
+        for line in lines[:n]:
+            # Remove common numbering patterns like "1.", "1)", "1 -", etc.
+            cleaned = line.lstrip("0123456789.-) ").strip()
+            if cleaned and cleaned != query:
+                variations.append(cleaned)
 
-            logger.debug(f"RAG Fusion: generated {len(variations)} query variations")
-            return variations
-        except Exception as e:
-            logger.warning(f"Query variation generation failed: {e}")
-            return []
+        logger.debug(f"RAG Fusion: generated {len(variations)} query variations")
+        return variations
 
     async def enhance_query(self, query: str) -> EnhancedQuery:
         """Enhance a query with all available techniques.
