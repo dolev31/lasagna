@@ -24,6 +24,16 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+def _check_max_attempts(max_attempts: int) -> None:
+    """Refuse a count that cannot make even one call.
+
+    With 0 the loop never ran and the wrapper ended in ``raise None``, which
+    surfaced at the first call as "exceptions must derive from BaseException".
+    """
+    if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or max_attempts < 1:
+        raise ValueError(f"max_attempts must be an integer of at least 1, got {max_attempts!r}")
+
+
 def with_retry(
     max_attempts: int = 3,
     delay: float = 1.0,
@@ -63,6 +73,7 @@ def with_retry(
             return await api.get_data()
         ```
     """
+    _check_max_attempts(max_attempts)
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @wraps(func)
@@ -126,6 +137,8 @@ def with_retry_sync(
         Decorated sync function with retry logic
     """
     import time
+
+    _check_max_attempts(max_attempts)
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @wraps(func)
@@ -191,6 +204,7 @@ class RetryConfig:
             max_delay: Maximum delay between retries
             exceptions: Tuple of exception types to retry on
         """
+        _check_max_attempts(max_attempts)
         self.max_attempts = max_attempts
         self.delay = delay
         self.backoff = backoff

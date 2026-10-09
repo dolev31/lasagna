@@ -16,6 +16,32 @@ from typing import Any, Dict, Optional
 from loguru import logger
 
 
+def message_text(message: Any) -> str:
+    """The text of a chat model's reply, whatever shape its content has.
+
+    ``content`` is a string for most providers but a list of blocks for
+    Anthropic models with thinking or tool use, and for OpenAI's Responses
+    API: ``[{"type": "thinking", ...}, {"type": "text", "text": "Paris"}]``.
+    Code that called ``.strip()`` on it crashed, or, inside a ``try``, quietly
+    took its fallback on every call. Only text blocks are kept; a plain string
+    is returned as it is.
+    """
+    content = getattr(message, "content", message)
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        return "".join(parts)
+    return str(content)
+
+
 def get_default_model_name(fallback: str = "gpt-4o-mini") -> str:
     """Get the default model name from environment or config.
 

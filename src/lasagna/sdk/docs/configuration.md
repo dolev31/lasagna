@@ -148,29 +148,31 @@ client.session_id = "new_session"  # New session gets current config
 
 ### Profile Management
 
-Profiles persist across sessions. Save custom configurations and switch between them.
+Profiles persist across sessions. Save custom configurations and switch between them. Profile operations live on `client.config_manager`.
 
 ```python
+config_manager = client.config_manager
+
 # List all profiles (built-in + custom)
-profiles = await client.config_manager.list_profiles()
+profiles = await config_manager.list_profiles()
 for p in profiles:
     print(f"{p['name']}: {p['description']}")
 # Output:
 #   default: Default configuration from settings.lasagna.toml
 #   speed: Fast, pure vector search - no reranking/MMR/HyDE
-#   standard: SOTA features with lightweight embedding model
-#   balanced: SOTA features with best embedding model
-#   max_quality: All features enabled for maximum quality
+#   standard: SOTA features with BGE-M3 embedding model (recommended starter)
+#   balanced: SOTA features with BGE-M3, hierarchical chunking, structured graph
+#   max_quality: All features enabled - HyDE, query expansion, max recall
 
 # Get active profile
-active = await client.config_manager.get_active_profile()
+active = await config_manager.get_active_profile()
 print(f"Active: {active}")  # "default"
 
 # Save current config as a custom profile
-await client.config_manager.save_profile("my_research_profile")
+await config_manager.save_profile("my_research_profile")
 
 # Save a specific config as a custom profile
-await client.config_manager.save_profile(
+await config_manager.save_profile(
     "deep_analysis",
     config={
         "enable_hyde": True,
@@ -181,14 +183,14 @@ await client.config_manager.save_profile(
 )
 
 # Switch to a saved profile
-await client.config_manager.set_profile("balanced")
+await config_manager.set_profile("balanced")
 
 # Delete a custom profile (built-in profiles cannot be deleted)
-await client.config_manager.delete_profile("deep_analysis")
+await config_manager.delete_profile("deep_analysis")
 
-# Reset to default
-await client.config_manager.reset()         # Clear session overrides
-await client.config_manager.reset("all")    # Full reset
+# Reset the client's config to the standard preset. The scope argument
+# ("session" or "all") is accepted, but both currently do the same thing.
+await config_manager.reset()
 ```
 
 ### All Configuration Options
@@ -360,21 +362,22 @@ from lasagna.sdk.processing import (
 from lasagna.sdk.retrieval import EmbeddingModel
 
 async def custom_ingest(file_path: str):
-    # Extract
+    # Extract (returns the text as a string)
     extractor = DocumentExtractor()
-    text, metadata = extractor.extract(file_path)
+    text = extractor.extract_text(file_path)
 
     # Custom preprocessing
     text = text.replace("\n\n\n", "\n\n")  # Clean extra newlines
 
-    # Chunk
-    chunker = SemanticChunker(chunk_size=1000)
-    chunks = chunker.chunk(text)
+    # Chunk: semantic splitting needs the embedding model
+    model = EmbeddingModel()
+    chunker = SemanticChunker(embedding_manager=model)
+    chunks = chunker.chunk_semantic(text, max_size=1000)
+    # Or fixed-size: chunker.chunk_fixed(text, chunk_size=1000, overlap=100)
 
     # Generate embeddings
-    model = EmbeddingModel()
-    texts = [c[0] for c in chunks]
-    embeddings = model.encode(texts)
+    texts = [c.content for c in chunks]
+    embeddings = model.encode_documents_batch(texts)
 
     # Store in backend...
     return len(chunks)
@@ -382,13 +385,19 @@ async def custom_ingest(file_path: str):
 
 ### Monitoring and Metrics
 
-```python
-from lasagna.sdk.utils import METRICS
+`METRICS` records counters and histograms but has no read API. Turn on Prometheus to collect them. A REST server started with `enable_prometheus` on serves them at `/metrics`. Search-cache statistics can be read in process.
 
-# Access metrics
-print(METRICS.search_count)
-print(METRICS.avg_search_latency)
-print(METRICS.cache_hit_rate)
+```python
+from lasagna.sdk.utils import METRICS, get_search_cache
+from lasagna.utils import configure_metrics
+
+# Record metrics in Prometheus (needs prometheus-client, from pip install "lasagna-rag[production]")
+configure_metrics(enable_prometheus=True)
+print(METRICS.is_prometheus_enabled)
+
+# Search cache hit rate and size
+stats = get_search_cache().stats()
+print(stats["hits"], stats["misses"], stats["hit_rate"])
 ```
 
 ---
@@ -506,8 +515,10 @@ client = KnowledgeClient(config=config)
 ### Saving Custom Profiles
 
 ```python
+config_manager = client.config_manager
+
 # Save your custom configuration as a reusable profile
-await client.config_manager.save_profile(
+await config_manager.save_profile(
     "my_production_profile",
     config={
         "enable_reranking": True,
@@ -520,11 +531,11 @@ await client.config_manager.save_profile(
 )
 
 # Switch between profiles
-await client.config_manager.set_profile("my_production_profile")
-await client.config_manager.set_profile("speed")  # Switch back
+await config_manager.set_profile("my_production_profile")
+await config_manager.set_profile("speed")  # Switch back
 
 # List all available profiles
-profiles = await client.config_manager.list_profiles()
+profiles = await config_manager.list_profiles()
 ```
 
 ---

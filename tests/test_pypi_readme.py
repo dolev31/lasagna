@@ -171,7 +171,10 @@ class TestMeasuredClaimsMatchTheReports:
                 for metric in phase.get("metrics", []):
                     runs.setdefault(metric["name"], []).append(float(metric["value"]))
         if not runs.get("time_to_first_search"):
-            pytest.skip("no committed cold-start measurements in this checkout")
+            pytest.skip(
+                "no cold-start measurements here: `python -m e2e.run` writes them to "
+                "e2e/reports/, which is not committed"
+            )
         return runs
 
     def test_the_stated_range_contains_every_measurement(self, readme, measured):

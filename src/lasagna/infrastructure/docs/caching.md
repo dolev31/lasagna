@@ -28,12 +28,12 @@ The infrastructure layer provides two complementary cache layers:
 
 ```python
 class CacheBackend(Protocol):
-    def get(key: str) -> Optional[bytes]
-    def set(key: str, value: bytes, ttl: int = 300) -> None
-    def delete(key: str) -> bool
-    def delete_pattern(pattern: str) -> int
-    def exists(key: str) -> bool
-    def flush() -> None
+    def get(self, key: str) -> Optional[bytes]: ...
+    def set(self, key: str, value: bytes, ttl: int = 300) -> None: ...
+    def delete(self, key: str) -> bool: ...
+    def delete_pattern(self, pattern: str) -> int: ...
+    def exists(self, key: str) -> bool: ...
+    def flush(self) -> None: ...
 ```
 
 ### InMemoryCacheBackend
@@ -152,7 +152,7 @@ This is O(k) where k = number of cached queries for that session, instead of O(n
 
 ### Statistics
 
-```python
+```text
 cache.stats() → {
     "size": 42,            # Current entries
     "max_size": 1000,      # Capacity

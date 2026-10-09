@@ -16,7 +16,7 @@
 ### Creating a Client
 
 ```python
-from lasagna.sdk import KnowledgeClient, KnowledgeConfig
+from lasagna.sdk import ChunkingStrategy, KnowledgeClient, KnowledgeConfig
 
 # Default configuration
 client = KnowledgeClient()
@@ -562,6 +562,7 @@ from lasagna.sdk import (
 from lasagna.sdk import (
     KnowledgeClient,
     DocumentNotFoundError,
+    QueryError,
     SearchError,
     KnowledgeError,
 )
@@ -591,11 +592,15 @@ Exceptions include contextual attributes:
 
 ```python
 try:
-    await client.upload("./missing.pdf")
+    await client.upload("./report.pdf")
+except FileNotFoundError as e:
+    # A missing file is caught before upload starts, as a plain FileNotFoundError
+    print(f"No such file: {e}")
 except UploadError as e:
+    # The backend refused the file (for example, an unsupported file type)
     print(f"Upload failed: {e}")
     print(f"File: {e.file_path}")
-    print(f"Stage: {e.stage}")  # 'extraction', 'chunking', 'indexing'
+    print(f"Stage: {e.stage}")  # 'processing'
 
 try:
     await client.citations.get("invalid_id")
@@ -604,9 +609,13 @@ except CitationNotFoundError as e:
 
 try:
     await client.config_manager.set_profile("nonexistent")
-except ProfileNotFoundError as e:
-    print(f"Profile {e.profile_name} not found")
+except ConfigurationError as e:
+    # An unknown profile name currently raises ConfigurationError, the parent
+    # of ProfileNotFoundError, so catch the parent
+    print(f"Could not switch profile: {e}")
 ```
+
+`upload()` returns as soon as the document is queued. Extraction, chunking and indexing run afterward, so a failure in those steps does not raise here. It shows up as `DocumentStatus.FAILED` on the document that `client.documents.wait_for_processing(document_id)` returns.
 
 ### Catching All SDK Errors
 

@@ -524,31 +524,15 @@ class TestBadgesAreNotDecorative:
         assert "Apache_2.0" in _read(README), f"badge does not match license {declared!r}"
         assert declared == "Apache-2.0"
 
-    def test_coverage_badge_is_not_above_the_enforced_floor_by_much(self):
-        """Catches a badge left behind after coverage moved.
+    def test_the_readme_states_no_coverage_number(self):
+        """No coverage figure for anyone to keep up to date.
 
-        Deliberately loose: the badge is rounded and coverage drifts test to
-        test. It fails only when the badge has clearly stopped tracking
-        reality, which is the failure that misleads.
+        A badge and a limitations bullet both printed a percentage, and a
+        number a reader cannot see re-measured goes stale. The README now says
+        only that coverage is measured and floored in CI; the floor itself
+        lives in pyproject.toml (``fail_under``), where CI enforces it.
         """
-        cfg = tomllib.loads(_read(PYPROJECT))["tool"]["coverage"]["report"]
-        floor = cfg["fail_under"]
-        # The badge used to read "branch coverage", which named a metric it did
-        # not carry: 34% is coverage.py's combined statement+branch TOTAL, and
-        # `fail_under` gates on that same total. Branch coverage alone is
-        # materially lower, so the label was inflating one number by ~1.8x.
-        badge = re.search(r"badge/coverage-(\d+)%25", _read(README))
-        assert badge, "coverage badge missing or renamed"
-        assert "branch%20coverage-" not in _read(README), (
-            "the badge names branch coverage but prints the combined total"
-        )
-        claimed = int(badge.group(1))
-        assert claimed >= floor, (
-            f"badge claims {claimed}% but the enforced floor is {floor}% — "
-            f"the badge is below what CI guarantees"
-        )
-        assert claimed - floor <= 15, (
-            f"badge claims {claimed}% against a {floor}% floor. If coverage "
-            f"really is {claimed}%, raise fail_under to match; a floor that "
-            f"far below the badge guarantees nothing."
-        )
+        text = _read(README)
+        assert not re.search(r"badge/coverage-\d+", text), "a coverage badge is back"
+        assert not re.search(r"[Cc]overage is \d+%", text), "a coverage percentage is back"
+        assert tomllib.loads(_read(PYPROJECT))["tool"]["coverage"]["report"]["fail_under"] > 0

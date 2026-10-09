@@ -297,7 +297,7 @@ config = KnowledgeConfig(
     tenant_isolation="partition",
     quota_enabled=True,
     rate_limiting_enabled=True,
-    rate_limiting_strategy="adaptive",
+    # The strategy is a server setting: RAG_RATE_LIMITING_STRATEGY=adaptive
 
     # Database
     database_backend="postgresql",
@@ -315,7 +315,7 @@ config = KnowledgeConfig(
     # Observability
     enable_prometheus=True,
     enable_tracing=True,
-    tracing_endpoint="http://jaeger:4317",
+    # The collector address is a server setting: RAG_TRACING_ENDPOINT=http://jaeger:4317
 
     # Connection pooling
     connection_pool_size=10,
@@ -425,9 +425,13 @@ print(f"Current session: {client.session_id}")
 
 ### Debug Mode
 
+Lasagna logs through loguru, not the standard `logging` module, so `logging.getLogger("lasagna")` has no effect. As a library it is silent by default: importing it turns its logs off. Turn them on after the import:
+
 ```python
-import logging
-logging.getLogger("lasagna").setLevel(logging.DEBUG)
+import lasagna
+from loguru import logger
+
+logger.enable("lasagna")  # loguru's default sink prints DEBUG and above to stderr
 ```
 
 ### Performance Tips

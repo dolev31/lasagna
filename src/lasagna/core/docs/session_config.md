@@ -34,7 +34,7 @@ Each mixin expects the host class to provide:
 | `self._global_profile_names` (set) | ProfileMixin | Fast name lookup |
 | `self._default_profiles` (list) | ProfileMixin | Built-in profiles from TOML |
 | `self.get_session_state()` | CitationStoreMixin | Access session state |
-| `self._persist_session_states()` | CitationStoreMixin, SessionStateMixin | Trigger persistence |
+| `self._persist_single_session(session_id)` | CitationStoreMixin, SessionStateMixin, ProfileMixin | Save the one session that changed. Writing every cached session put this process's stale copies over sessions another process had changed; sessions are read through from the store when accessed. |
 | `self._state_from_dict()` | PersistenceMixin | Deserialize state |
 
 ## Persistence Backends
@@ -85,7 +85,8 @@ Selected at import time via `RAG_DATABASE_BACKEND` env var:
 |---|---|---|
 | `SESSION_TTL_SECONDS` | 86400 (24h) | Expired session cleanup threshold |
 | `MAX_CACHED_SESSIONS` | 100 | In-memory session cache limit |
-| `MAX_GLOBAL_PROFILES` | 50 | Max custom profiles per user |
+| `MAX_GLOBAL_PROFILES` | 50 | Max saved profiles per owner (one shared count let one tenant lock everyone else out); built-in profiles are visible to all and not counted |
+| `MAX_PROFILE_CONFIG_BYTES` | 10000 | Max size of one saved profile's config, as JSON (about 10 KB) |
 | `MAX_CITATIONS_PER_SESSION` | 500 | In-memory citation cap |
 | `MAX_CHUNKS_PER_SESSION` | 500 | In-memory chunk cap |
 | `MAX_CHUNK_CONTENT_LENGTH` | 10000 | Per-chunk content truncation |
@@ -107,6 +108,8 @@ Loaded from `settings.lasagna.toml` via `_load_defaults()`:
 ### Profile Lifecycle
 
 ```python
+from lasagna.core.session_config import get_knowledge_config_manager
+
 mgr = get_knowledge_config_manager()
 
 # List all profiles (built-in + custom)
@@ -116,7 +119,7 @@ profiles = mgr.list_profiles()
 mgr.set_active_profile("balanced", session_id="sess_123")
 
 # Create custom profile
-mgr.save_profile("my_profile", config={"top_k": 10, "reranking_enabled": True})
+mgr.save_profile("my_profile", config={"default_top_k": 10, "enable_reranking": True})
 
 # Delete custom profile (cannot delete built-in)
 mgr.delete_profile("my_profile")
@@ -129,7 +132,7 @@ mgr.delete_profile("my_profile")
 config = mgr.get_resolved_config(session_id="sess_123")
 
 # Apply session-level overrides
-mgr.patch_config({"top_k": 20}, session_id="sess_123")
+mgr.patch_config({"default_top_k": 20}, session_id="sess_123")
 
 # Reset session to profile defaults
 mgr.reset_config(session_id="sess_123")

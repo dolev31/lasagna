@@ -11,7 +11,6 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/dolev31/lasagna/blob/main/LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12%20|%203.13-blue.svg)](https://www.python.org/downloads/)
 [![Tests](https://github.com/dolev31/lasagna/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/dolev31/lasagna/actions/workflows/tests.yml)
-[![Coverage](https://img.shields.io/badge/coverage-38%25-yellow.svg)](#testing)
 
 [Guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md) · [Quickstart](#quickstart) · [Why](#the-problem) · [Compare components](#compare-a-component) · [What's inside](#whats-inside) · [Docs](#documentation)
 
@@ -72,9 +71,13 @@ Lasagna exists to make that question answerable.
 **All eight stages take effect.** Five at query time — `reranker`,
 `query_enhancer`, `embedder`, `retriever`, `agentic_pipeline` — two at
 ingest, `chunker` and `document_processor`, and `generator`, which writes the
-answer from what retrieval returned. Swap one with a single config key
-and the rest hold still, so the difference you measure belongs to the thing you
-changed.
+answer from what retrieval returned. In a sweep, every stage but the document
+processor swaps as a component with a single config key; a chunker or embedder
+component gets a corpus of its own, chunked or embedded by it. Settings
+(`chunking_strategy`, `chunk_size`, `embedding_model` and so on) swap the same
+way and re-ingest per arm. Benchmark corpora are loaded as text, so a document
+processor is checked on your own files instead. Either way the rest hold still,
+so the difference you measure belongs to the thing you changed.
 
 A swapped stage *replaces* the built-in rather than layering on top of it. A
 retriever owns how candidates are found; a chunker owns how text is split.
@@ -99,12 +102,13 @@ generation metrics. It is a layer for measuring, not a replacement for building.
 `BaseNodePostprocessor`, LangChain has `BaseDocumentCompressor` and `Embeddings`;
 both are real ABCs enforced at instantiation. What we add on top is that a
 function is enough (one decorator wraps it in the stage's interface) and that a
-sweep checks, from what actually ran, that its arms differed only in the stage
-they name.
+sweep checks, from what actually ran, that the configuration reaching each stage
+differs between arms only in the stages they name, and flags an arm whose ranked
+lists never moved as inert.
 
-**What is genuinely different is the measurement apparatus.** Paired bootstrap
-with confidence intervals, Holm–Bonferroni correction across a sweep (with
-adjusted p-values), a 2×2 interaction test with a bootstrap CI, per-sample
+**What is genuinely different is the measurement apparatus.** A paired sign-flip
+test with t intervals, Holm–Bonferroni correction across a sweep (with
+adjusted p-values), a 2×2 interaction test with a t interval, per-sample
 scores joined by sample identity, comparability keys that record what was held
 fixed, and integrity-checked result bundles. None of LangChain, LlamaIndex,
 Haystack or RAGAS ships significance testing; RAGAS scores a run, and we depend
@@ -122,10 +126,10 @@ proven absent.
 
 | | **Lasagna** | **FlashRAG** | **BERGEN** | **UltraRAG** | **AutoRAG** | **PyTerrier / ranx** |
 |---|---|---|---|---|---|---|
-| Significance tests | Paired bootstrap, Holm, power | Not found | Not found | Paired permutation, no correction | Not found | Yes, IR runs only |
+| Significance tests | Paired sign-flip test, Holm, power | Not found | Not found | Paired permutation, no correction | Not found | Yes, IR runs only |
 | Interaction between components | 2×2 test with CI | Not found | Not found | Not found | Greedy search assumes none | Not found |
 | Result provenance | Bundles with a validator | Saved configs and scores | Experiment folders | Not found | Trial folders | Not found |
-| Published methods | 21 components | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
+| Published methods | 39 components | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
 | Ready corpora and indexes | Benchmark loaders, no prebuilt index | Wikipedia + prebuilt index | KILT + prebuilt index | Not found | Not found | Via ir_datasets |
 | License | Apache-2.0 | MIT | CC BY-NC-SA 4.0 | Apache-2.0 | MIT (badge) | MPL-2.0 / MIT |
 
@@ -194,8 +198,11 @@ what this library is actually for, and it is where we suggest you start.
 > about 1.3 GB on macOS; see [Install](#install) for Linux.
 >
 > To get the 80 MB model instead, run `lasagna init` and choose the speed
-> profile. It writes a settings file and points `RAG_SETTINGS_FILE` at it, which
-> is what the config loader actually reads.
+> profile. It writes `settings.lasagna.toml` and adds `RAG_SETTINGS_FILE` to
+> `./.env`, which is what the config loader actually reads. The `lasagna`
+> commands run in that directory read that one key from `./.env` (never API
+> keys). Python does not read `.env`, so from your own code
+> `export RAG_SETTINGS_FILE="$PWD/settings.lasagna.toml"` first.
 >
 > Or from Python, which now works for the embedding model too:
 >
@@ -290,13 +297,15 @@ n_runs: 3
 
 ```bash
 lasagna benchmark experiment sweep.yaml
-lasagna results significance <output>/results.json -m ndcg@10 --all
+lasagna results significance "<output>/results.json" -m ndcg@10 --all
 ```
 
 Before any corpus is ingested, the run checks that each named component
 implements its stage and passes its behavioural contract (return types, `top_k`,
 empty input, no mutation of its input). It then runs both arms on the same
-queries and ends by confirming that the arms differed only at the reranker.
+queries and ends by confirming that the configuration reaching each stage
+differed only at the reranker, and that the reranker arm's ranked lists moved:
+an arm whose lists never moved is flagged inert.
 [The guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md#8-measure-it-on-a-benchmark)
 covers the 31 benchmarks.
 
@@ -326,7 +335,8 @@ nowhere else. Lasagna checks that rather than assuming it.
   declared types, and function components get copies of what they are handed.
   A conformance suite checks that every registered component subclasses its
   stage's contract, does not mutate its input, and does not hand out chunks that
-  share one metadata dict:
+  share one metadata dict. From a source checkout (the tests are not in the
+  wheel), run
   `pytest tests/test_abc_conformance.py tests/test_stage_isolation_behavioural.py`.
 - **A stage manifest per task.** Each run records what reached each of the eight
   stages: every setting, from the configuration the search actually resolved,
@@ -349,6 +359,12 @@ Answering it needs all four cells measured on the same queries. Declare the 2×2
 and the harness builds them:
 
 ```yaml
+# compose.yaml
+name: hyde with reranking
+benchmarks:
+  - name: beir/scifact
+    n_samples: 100
+tracks: [retrieval]
 pipeline:
   base_profile: standard
   factorial:
@@ -357,8 +373,15 @@ pipeline:
 ```
 
 ```bash
-lasagna results interaction results.json --metric ndcg@10
+lasagna benchmark experiment compose.yaml
+lasagna results interaction "<output>/results.json" --metric ndcg@10
 ```
+
+Unlike the sweep above, this one is neither keyless nor small. HyDE writes a
+hypothetical answer with an LLM, so it needs an API key: without one the HyDE
+cells fail rather than report the control's number. The `standard` profile
+embeds with `BAAI/bge-m3` (about 2.3 GB on first use) and reranks with a large
+cross-encoder.
 
 ```
   expected if additive : +0.1000
@@ -369,9 +392,10 @@ lasagna results interaction results.json --metric ndcg@10
   redundant (they overlap; the second buys less than it does alone)
 ```
 
-The statistic is `(AB − neither) − (A − neither) − (B − neither)`, bootstrapped
-over queries with all four cells of a query resampled together. Positive means
-they compound; negative means they overlap.
+The statistic is `(AB − neither) − (A − neither) − (B − neither)`, tested by
+sign-flipping each query's interaction contrast (all four cells of a query move
+together), with a t interval. Positive means they compound; negative means they
+overlap.
 
 Factors are boolean flags, not component names — a component slot has no *off*
 level for the `neither` cell to use, and swapping a component does not enable
@@ -386,13 +410,14 @@ boolean setting, before the first corpus is ingested.
 
 | Stage | Registered | Notes |
 |---|---:|---|
-| `reranker` | 9 | cross-encoder, ColBERT, MMR, LLM listwise, ensemble |
-| `query_enhancer` | 5 | HyDE, expansion, decomposition, combined |
+| `retriever` | 5 | dense, BM25, SPLADE, hybrid RRF, hybrid convex (normalized score fusion) |
+| `reranker` | 10 | cross-encoder (any Hugging Face reranker, e.g. bge-reranker-v2-m3), ColBERT, monoT5, RankGPT listwise, LLM pointwise, FlashRank, Cohere Rerank, MMR, ensemble, combined |
+| `query_enhancer` | 8 | HyDE, Query2doc, step-back, Rewrite-Retrieve-Read, RAG-Fusion multi-query, expansion, least-to-most decomposition, combined |
+| `agentic_pipeline` | 7 | default graph (CRAG grading, Self-RAG-style gates, multi-hop planning), Self-Ask, IRCoT, FLARE, Adaptive-RAG, Self-RAG, legacy ReAct |
+| `generator` | 4 | concise, cited (ALCE), chain-of-thought, chain-of-note |
 | `chunker` | 3 | semantic, hierarchical, structure-aware |
-| `agentic_pipeline` | 2 | default graph, legacy ReAct |
 | `embedder` | 1 | pluggable via the same interface |
 | `document_processor` | 1 | pluggable via the same interface |
-| `retriever` | 0 | interface defined; bring your own |
 
 ### Retrieval: hybrid search, reranking, MMR
 
@@ -428,7 +453,7 @@ Bamboogle, MultiHop-RAG, RAGBench, KILT, 2WikiMultihop.
 | Generation | faithfulness, answer relevancy, context precision, context recall, factual correctness (RAGAS) |
 | Operational | p50/p95 latency, cost per query |
 
-Plus multi-objective tradeoff analysis, significance testing, and bootstrap
+Plus multi-objective tradeoff analysis, paired significance testing, and t
 confidence intervals.
 
 ### Interfaces
@@ -500,9 +525,16 @@ lasagna doctor --issue        # a redacted block to paste into a bug report
 
 ```bash
 pip install lasagna-rag                    # core: ingest, embed, search, serve
+python -m nltk.downloader punkt_tab        # once: nltk's sentence tokenizer data
 ```
 
-To reproduce a result exactly, install the versions the release was tested with:
+Lasagna never downloads the tokenizer data by itself. Without it, sentences are
+split with a regular expression, which can move chunk boundaries, and run
+bundles record that as the `sentence_split_without_punkt` fallback.
+
+To reproduce a result exactly, install the versions the release was tested with.
+The constraints file was resolved on Python 3.12 and does not install on 3.10 or
+3.11 (its numpy needs 3.12 or later):
 
 ```bash
 pip install "lasagna-rag[eval]==0.1.0a1" -c https://raw.githubusercontent.com/dolev31/lasagna/main/constraints/0.1.0a1.txt
@@ -511,7 +543,7 @@ pip install "lasagna-rag[eval]==0.1.0a1" -c https://raw.githubusercontent.com/do
 | Extra | Adds |
 |---|---|
 | `eval` | RAGAS metrics, benchmark loaders, statistics, plots |
-| `ingest` | OCR and semantic chunking |
+| `ingest` | EasyOCR for scanned documents |
 | `docling` | structure-aware document conversion |
 | `vector-backends` | Pinecone, Qdrant, Weaviate clients |
 | `opensearch` / `pgvector` | those backends |
@@ -519,6 +551,11 @@ pip install "lasagna-rag[eval]==0.1.0a1" -c https://raw.githubusercontent.com/do
 | `graphrag` | entity-linked retrieval |
 | `storage-all` | S3, GCS, Azure document storage |
 | `local` | local LLM inference (HF, Ollama) |
+| `providers` | LLM providers beyond OpenAI: Anthropic, Google, Mistral, Cohere, NVIDIA |
+| `ocr` | Tesseract and PaddleOCR engines (Tesseract also needs the `tesseract` program) |
+| `web` | web search fallback for corrective RAG |
+| `lifecycle` | scheduled document expiry and cleanup |
+| `production` | Redis, Celery, Prometheus, OpenTelemetry and PostgreSQL: what `settings.lasagna_production.toml` turns on |
 | `all` | everything above |
 
 > **`pip` cannot resolve `eval` together with `storage-all`**, and so cannot
@@ -541,6 +578,10 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install lasagna-rag
 ```
 
+On Apple Silicon, model calls on the GPU (MPS) run one at a time, because two at
+once crash Metal; concurrent sweep arms wait for each other there. To run
+everything on the CPU instead, set `RAG_USE_GPU=false`.
+
 > **Name collision.** `pip install lasagna` installs a different project
 > (`lasagna-ai`, an LLM-agent framework), which also provides a top-level
 > `lasagna` import package. Installing both in one environment makes them
@@ -549,6 +590,14 @@ pip install lasagna-rag
 `import lasagna` deliberately loads no torch, transformers, sentence-transformers
 or pymilvus — those arrive only when something needs them, so a remote-backend
 client stays light.
+
+**No usage telemetry.** Lasagna collects none. ragas, the library behind the
+generation metrics, sends its authors a usage event (its version, the LLM
+provider and model name, and a random id) each time a judge is built. Importing
+`lasagna` turns that off by setting `RAGAS_DO_NOT_TRACK=true`, unless you have
+already set it. To send ragas those events, set `RAGAS_DO_NOT_TRACK=false`
+before importing `lasagna`. ragas still writes its random id to a file in your
+user data folder, but with tracking off it sends nothing.
 
 ---
 
@@ -581,12 +630,15 @@ official sources and carry their own terms.
 pytest tests/ --ignore=tests/live --ignore=tests/stress
 ```
 
-Hermetic by default: no network, no external services, and the suite never
-touches your real `~/.rag_knowledge` store. `tests/live/` needs a running stack;
-`tests/stress/` is long-running.
+Hermetic by default: no network, no external services, and the suite runs in a
+throwaway home directory, so it never touches your real `~/.rag_knowledge` store.
+CI enforces it: sockets are blocked except loopback, and test order is shuffled
+on every run (pytest-randomly prints the seed). `tests/live/` needs a running
+stack; `tests/stress/` is long-running.
 
-Branch coverage is measured and floored in CI — branches rather than statements,
-because this package's bugs have lived overwhelmingly in error paths.
+Coverage is measured with branches on and floored in CI. The floor is on the
+combined statement and branch total, because this package's bugs have lived
+overwhelmingly in error paths.
 
 ---
 
@@ -627,61 +679,6 @@ Reference material for each subsystem sits in that subsystem's directory, next
 to the code it describes. Only the guide, this README and `CONTRIBUTING.md` have
 their examples executed by the gate — treat the rest as reference that may
 drift, and report anything that does not work.
-
----
-
-## Honest limitations
-
-A framework that hides its gaps wastes your time. As of this release:
-
-- **Three of six vector backends** (pgvector, Weaviate, OpenSearch) have a
-  conformance suite but need their service running to execute it. Pinecone is
-  excluded from conformance entirely — it is SaaS-only.
-- **The behavioural contract is deeper for some stages than others.** Every
-  listed built-in implements its stage's interface, and rerankers, chunkers,
-  query enhancers and embedders are checked behaviourally (types, `top_k`, empty
-  input, no mutation). Retrievers and document processors are checked for their
-  interface and output types only, since a real check needs a collection or a
-  file; agentic pipelines need an LLM and are not run by the pre-flight.
-  **`retriever` has no built-in component**: the default search is not
-  registered as one, so a retriever sweep compares yours against search with no
-  retriever override.
-- **Stage isolation is verified for live tasks.** `generation_only` tasks
-  never build the pipeline, record no stage manifest, and are reported as
-  unverified rather than passed.
-- **`list_document_ids` fails past ~16k chunks on Milvus** — the backend
-  emulates offset as `limit + offset`, which exceeds Milvus's cap. Affects
-  iteration speed, not correctness. See [CHANGELOG](https://github.com/dolev31/lasagna/blob/main/CHANGELOG.md).
-- **Coverage is 38%.** That is coverage.py's combined statement+branch TOTAL,
-  which is what `fail_under` gates on; branch coverage alone is lower.
-  Measured, floored, and ratcheting up — but not yet
-  where it should be. The evaluation SDK and MCP server are the thinnest.
-- **Pooled-gold corpora are an easier task than the benchmarks they come from.**
-  SQuAD v2, HotpotQA, MuSiQue and RAGBench ship no corpus, so one is assembled
-  from the samples' own gold context. HotpotQA and MuSiQue drop their distractor
-  paragraphs at conversion, so the pool has no hard negatives and recall reads
-  higher than against a real corpus. Runs are stamped
-  `corpus_provenance: pooled_gold`, which is in the comparability key — but the
-  number itself is still easier than BEIR's. Natural Questions and TriviaQA
-  cannot be pooled at all and stay generation-only.
-- **Large BEIR corpora are capped unless you raise the limit.** `max_corpus_docs`
-  defaults to 0, which now genuinely means unlimited — but 8 of the 13 BEIR
-  corpora exceed 100,000 documents, and the largest is 8.8M, which is hours of
-  embedding and tens of GB of index. If you set a cap instead, a run that leaves
-  documents behind is stamped `corpus_truncated` and `lasagna results validate`
-  blocks the bundle: a metric computed against part of a corpus is not that
-  benchmark's metric, and it simply comes out lower with nothing else to show
-  for it. Where more than half the judged documents fall outside the cap the run
-  aborts rather than reporting a number.
-- **No dataset revisions are pinned.** `pin_dataset_revision()` and
-  `LASAGNA_DATASET_REVISIONS` exist and are recorded on every result, but the
-  catalogue ships no SHAs — writing ones not resolved against the Hub would be
-  a fabricated provenance record. Until you pin, `UNPINNED_DATASET` is warned
-  and `--strict` will refuse to publish.
-- **Token counts, not dollars.** Every LLM call is counted at the provider and
-  split system-vs-judge. There is no price table, deliberately: a rate frozen
-  into a published bundle is indistinguishable from a measurement to whoever
-  reads it next year.
 
 ---
 

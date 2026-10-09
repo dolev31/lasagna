@@ -15,7 +15,7 @@ Five steps. Each is one command, and each is a checkpoint that can fail.
 | # | Step | Command | What it rules out |
 |---|---|---|---|
 | 1 | Write it | one decorator on a function | — |
-| 2 | Check the contract | `lasagna component validate mod:Class` | it does not satisfy the ABC |
+| 2 | Check the contract | `lasagna component validate my_ideas:keyword_overlap` | it does not satisfy its stage's contract (types, `top_k`, empty input, no mutation of its input) |
 | 3 | Check it runs | `lasagna benchmark run smoke --reranker my_ideas:keyword_overlap ...` | it breaks inside the pipeline |
 | 4 | Check it helps | `lasagna benchmark experiment sweep.yaml` | the gain is noise, or was never measured |
 | 5 | Publish | `lasagna results bundle` → `validate` | nobody can tell what produced the number |
@@ -67,8 +67,13 @@ changing them.
 ## 2. Check the contract
 
 ```bash
-lasagna component validate my_package.reranker:MyReranker
+lasagna component validate my_ideas:keyword_overlap
 ```
+
+It imports from the working directory, as a sweep does. A function registered
+with `@lasagna.<stage>` is checked as the wrapper a sweep would run; a plain,
+undecorated function needs `--stage <stage>`; a class is named the same way,
+`my_package.reranker:MyReranker`.
 
 Registration and conformance are different things, and the difference is
 load-bearing. A component can register successfully and still not satisfy its
@@ -129,14 +134,16 @@ n_runs: 3
 
 ```bash
 lasagna benchmark experiment sweep.yaml
-lasagna results significance <output>/results.json -m ndcg@10 --all
+lasagna results significance "<output>/results.json" -m ndcg@10 --all
 ```
 
 Every listed built-in implements its stage's interface, so `cross_encoder` is a
 like-for-like control. Naming a reranker turns reranking on for that arm, even
 on `speed`. Before ingesting anything the run checks that each named component
-passes its stage's contract, and when it finishes it confirms that the arms
-differed only at the reranker (or says which other stage moved). The second
+passes its stage's contract, and when it finishes it confirms that the
+configuration reaching each stage differed only at the reranker (or says which
+other stage moved), and flags your arm as inert if its ranked lists never moved.
+The second
 command prints each pair with the difference, the effect size and both the raw
 and the Holm-adjusted p:
 
@@ -250,12 +257,16 @@ Stated rather than hidden, because you will hit these.
 
 - **`agentic_pipeline` is registrable but `lasagna component validate` rejects
   it.** The type is real and documented; the validator has no case for it yet.
-- **Only BEIR benchmarks support live mode.** 18 of 31 cannot measure retrieval.
-  `lasagna benchmark list` marks which can; the rest score generation against
-  gold context.
-- **`lasagna component validate` does not check for input mutation**, despite
-  that being the property most likely to silently corrupt a measurement. Copy
-  defensively; the plugin template's tests cover it.
+- **Not every benchmark has a corpus of its own.** BEIR benchmarks run live
+  against their own corpus. SQuAD v2, HotpotQA, MuSiQue and RAGBench also run
+  live, against a corpus pooled from the samples' gold passages: an easier task
+  than the original, stamped `pooled_gold` (see
+  [the guide, section 8](guide.md#8-measure-it-on-a-benchmark)). The rest score
+  generation against gold context only.
+- **`lasagna component validate` checks input mutation for rerankers (the
+  documents) and embedders (the list of texts).** The other stages are handed
+  strings or a file path, which cannot be changed in place. A class component
+  that keeps state should still copy what it is handed before changing it.
 - **`judge_model` is `None` in the comparability key for retrieval-only runs.**
   That is accurate rather than a gap — there is no judge — but it means two runs
   scored by *different* judges group together if neither recorded one. Pin a

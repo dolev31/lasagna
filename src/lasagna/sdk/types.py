@@ -32,7 +32,24 @@ from datetime import datetime
 # =============================================================================
 
 
-class ChunkingStrategy(str, Enum):
+class _StrValueEnum(str, Enum):
+    """A string enum that prints as its value on every supported Python.
+
+    Python 3.11 changed how a ``(str, Enum)`` member formats: on 3.10
+    ``f"{DocumentStatus.READY}"`` gave ``ready`` and on 3.12 it gives
+    ``DocumentStatus.READY``, so the same code printed differently by
+    interpreter. Defining both methods makes ``str()`` and f-strings give the
+    value everywhere, as ``enum.StrEnum`` (3.11+) does.
+    """
+
+    def __str__(self) -> str:
+        return str(self.value)
+
+    def __format__(self, format_spec: str) -> str:
+        return format(str(self.value), format_spec)
+
+
+class ChunkingStrategy(_StrValueEnum):
     """Available chunking strategies for document processing.
 
     Attributes:
@@ -48,7 +65,7 @@ class ChunkingStrategy(str, Enum):
     SENTENCE_WINDOW = "sentence_window"
 
 
-class EmbeddingProvider(str, Enum):
+class EmbeddingProvider(_StrValueEnum):
     """Supported embedding model providers.
 
     Attributes:
@@ -60,7 +77,7 @@ class EmbeddingProvider(str, Enum):
     OPENAI = "openai"
 
 
-class OCREngine(str, Enum):
+class OCREngine(_StrValueEnum):
     """Available OCR engines for scanned document processing.
 
     Attributes:
@@ -74,7 +91,7 @@ class OCREngine(str, Enum):
     PADDLEOCR = "paddleocr"
 
 
-class HyDEStrategy(str, Enum):
+class HyDEStrategy(_StrValueEnum):
     """HyDE (Hypothetical Document Embeddings) strategies.
 
     HyDE generates hypothetical answers to improve retrieval quality.
@@ -92,7 +109,7 @@ class HyDEStrategy(str, Enum):
     ALWAYS = "always"
 
 
-class ChunkRetrievalStrategy(str, Enum):
+class ChunkRetrievalStrategy(_StrValueEnum):
     """Strategies for determining how many chunks to retrieve.
 
     Attributes:
@@ -108,7 +125,7 @@ class ChunkRetrievalStrategy(str, Enum):
     AGENT_DECIDES = "agent_decides"
 
 
-class EnrichmentStrategy(str, Enum):
+class EnrichmentStrategy(_StrValueEnum):
     """Document awareness enrichment strategies.
 
     Attributes:
@@ -122,7 +139,7 @@ class EnrichmentStrategy(str, Enum):
     HYBRID = "hybrid"
 
 
-class CitationFormat(str, Enum):
+class CitationFormat(_StrValueEnum):
     """Citation formatting styles.
 
     Attributes:
@@ -138,7 +155,7 @@ class CitationFormat(str, Enum):
     NONE = "none"
 
 
-class CitationScoreMethod(str, Enum):
+class CitationScoreMethod(_StrValueEnum):
     """Score normalization methods for citations.
 
     Attributes:
@@ -152,7 +169,7 @@ class CitationScoreMethod(str, Enum):
     CLAMP = "clamp"
 
 
-class VectorBackend(str, Enum):
+class VectorBackend(_StrValueEnum):
     """Supported vector database backends.
 
     Attributes:
@@ -174,7 +191,7 @@ class VectorBackend(str, Enum):
     MEMORY = "memory"
 
 
-class DocumentStatus(str, Enum):
+class DocumentStatus(_StrValueEnum):
     """Document processing status.
 
     Attributes:
@@ -183,6 +200,7 @@ class DocumentStatus(str, Enum):
         INDEXING: Chunks being indexed in vector database
         READY: Document fully indexed and searchable
         FAILED: Processing failed (check error_message)
+        SOFT_DELETED: Archived; recoverable until garbage collection removes it
     """
 
     PENDING = "pending"
@@ -190,6 +208,9 @@ class DocumentStatus(str, Enum):
     INDEXING = "indexing"
     READY = "ready"
     FAILED = "failed"
+    # The backend reports it for archived documents. Without it, archive()
+    # archived the document and then failed converting the result.
+    SOFT_DELETED = "soft_deleted"
 
     # Backward compatibility with legacy status names
     @classmethod

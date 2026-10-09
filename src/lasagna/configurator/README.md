@@ -52,6 +52,7 @@ This uses `serve.py` which runs the full REST API with the configurator mounted.
 ### Embedded in an existing FastAPI app
 
 ```python
+from fastapi import FastAPI
 from lasagna.configurator import mount_configurator
 
 app = FastAPI()

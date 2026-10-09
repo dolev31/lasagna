@@ -3,9 +3,10 @@
 Two responsibilities, both of which must happen *before* pytest imports any
 test module:
 
-1. **Data isolation.**  Redirect ``RAG_DB_DIR`` / ``RAG_UPLOAD_DIR`` at a
-   throwaway directory so the suite never touches the developer's real
-   ``~/.rag_knowledge`` store.  See the note below for why this is required.
+1. **Data isolation.**  Redirect ``RAG_DB_DIR`` / ``RAG_UPLOAD_DIR`` and
+   ``HOME`` at a throwaway directory so the suite never touches the developer's
+   real ``~/.rag_knowledge`` store or anything else under their home, and turn
+   off ragas usage telemetry.  See the notes below for why this is required.
 
 2. **Dependency probing.**  With lazy imports in ``knowledge/__init__.py`` the
    package itself imports without heavy dependencies, but individual test
@@ -49,6 +50,46 @@ os.environ["RAG_UPLOAD_DIR"] = os.path.join(_ISOLATED_DATA_DIR, "uploads")
 os.makedirs(os.environ["RAG_DB_DIR"], exist_ok=True)
 os.makedirs(os.environ["RAG_UPLOAD_DIR"], exist_ok=True)
 atexit.register(shutil.rmtree, _ISOLATED_DATA_DIR, True)
+
+# ---------------------------------------------------------------------------
+# A throwaway HOME, and no usage telemetry.
+#
+# Libraries under test write under the home directory: ragas keeps a random
+# user id in its data folder, matplotlib writes a config cache, and anything
+# that defaults to ``~/.something`` lands there too. A plain ``pytest`` left
+# those in the developer's real home. It also let a developer's own
+# ``~/nltk_data`` change how sentences are split, so two machines ran
+# different chunkers.
+#
+# The model cache is the one exception: HF_HOME is pinned to where it already
+# was, so models a developer has downloaded are reused rather than fetched
+# again (and stay found with HF_HUB_OFFLINE set).
+#
+# The package sets RAGAS_DO_NOT_TRACK on import; setting it here as well keeps
+# the suite silent even for a test that builds a ragas judge before importing
+# lasagna. tests/test_ragas_telemetry_is_off.py checks the package default.
+# ---------------------------------------------------------------------------
+_REAL_HOME = os.path.expanduser("~")
+# For the few checks that look for the developer's real home path in files
+# written outside the suite (e2e reports).
+os.environ["LASAGNA_TESTS_REAL_HOME"] = _REAL_HOME
+os.environ.setdefault(
+    "HF_HOME",
+    os.path.join(
+        os.environ.get("XDG_CACHE_HOME") or os.path.join(_REAL_HOME, ".cache"), "huggingface"
+    ),
+)
+os.environ["HOME"] = os.path.join(_ISOLATED_DATA_DIR, "home")
+os.makedirs(os.environ["HOME"], exist_ok=True)
+os.environ["RAGAS_DO_NOT_TRACK"] = "true"
+
+# gRPC's fork handlers. Once a test has opened a Milvus connection, every later
+# subprocess the suite starts gets gRPC's "FD from fork parent still in poll
+# list" lines on its stderr, written by this process's handlers between fork
+# and exec. Tests that assert a child wrote nothing then failed in some test
+# orders only. The suite never uses a gRPC channel in a forked child, so the
+# handlers are not needed here. Must be set before grpc is first imported.
+os.environ.setdefault("GRPC_ENABLE_FORK_SUPPORT", "false")
 
 # Probe critical heavy dependencies at conftest-load time (before test
 # modules are imported).  If any are missing, tell pytest to skip every

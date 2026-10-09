@@ -124,6 +124,17 @@ def _active_fallbacks() -> list:
     out = []
     if find_spec("nltk") is None:
         out += ["sentence_split_without_nltk", "bm25_without_stemming"]
+    else:
+        # nltk is installed but its tokenizer data is not: nothing downloads it
+        # implicitly any more, so sentences are split with a regex until the
+        # user runs the one-line downloader.
+        try:
+            from lasagna.processing.chunker.semantic import punkt_available
+
+            if not punkt_available():
+                out.append("sentence_split_without_punkt")
+        except Exception:
+            pass
     if find_spec("rank_bm25") is None:
         out.append("hybrid_without_bm25")
     try:

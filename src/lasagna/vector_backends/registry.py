@@ -31,6 +31,15 @@ from loguru import logger
 
 from .base import VectorStoreAdapter
 
+#: The extra that installs each optional built-in backend's client library.
+_EXTRA_FOR_BACKEND = {
+    "pinecone": "vector-backends",
+    "qdrant": "vector-backends",
+    "weaviate": "vector-backends",
+    "pgvector": "pgvector",
+    "opensearch": "opensearch",
+}
+
 
 class BackendRegistry:
     """Registry for vector store backend classes.
@@ -228,7 +237,16 @@ class BackendRegistry:
         backend_class = self._backends.get(name)
         if not backend_class:
             available = ", ".join(self._backends.keys())
-            raise ValueError(f"Unknown backend '{name}'. Available: {available or 'none'}")
+            # A built-in whose client library is missing is simply not
+            # registered, so name the extra instead of implying it does not exist.
+            extra = _EXTRA_FOR_BACKEND.get(name)
+            hint = (
+                f" '{name}' is built in but its client library is not installed: "
+                f'pip install "lasagna-rag[{extra}]"'
+                if extra
+                else ""
+            )
+            raise ValueError(f"Unknown backend '{name}'. Available: {available or 'none'}.{hint}")
 
         if singleton:
             # Build cache key from name + sorted kwargs

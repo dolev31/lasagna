@@ -50,7 +50,7 @@ asyncio.run(main())
 ## Installation
 
 ```bash
-pip install lasagna-rag[rag]
+pip install lasagna-rag
 ```
 
 **Prerequisites:** Set one LLM API key in your environment. The SDK auto-detects from 15+ supported platforms:
@@ -62,19 +62,12 @@ export OPENAI_API_KEY=sk-...       # or ANTHROPIC_API_KEY, GROQ_API_KEY,
                                     # DEEPSEEK_API_KEY, GOOGLE_API_KEY, etc.
 ```
 
-For optional integrations:
+The LangChain integration and the MCP server come with the core package. Other vector backends are optional extras:
 
 ```bash
-# LangChain integration
-pip install langchain-core
-
-# MCP server
-pip install mcp
-
-# Additional vector backends
-pip install pinecone-client  # Pinecone
-pip install qdrant-client    # Qdrant
-pip install weaviate-client  # Weaviate
+pip install "lasagna-rag[vector-backends]"  # Pinecone, Qdrant, Weaviate
+pip install "lasagna-rag[pgvector]"         # PostgreSQL pgvector
+pip install "lasagna-rag[opensearch]"       # OpenSearch
 ```
 
 ---
@@ -122,9 +115,9 @@ pip install weaviate-client  # Weaviate
 
 ```python
 from lasagna.sdk import (
-    ChunkingStrategy,    # FIXED, SEMANTIC, RECURSIVE, SENTENCE_WINDOW, HIERARCHICAL
+    ChunkingStrategy,    # FIXED, SEMANTIC, RECURSIVE, SENTENCE_WINDOW
     EmbeddingProvider,   # HUGGINGFACE, OPENAI
-    VectorBackend,       # MILVUS, PINECONE, QDRANT, WEAVIATE
+    VectorBackend,       # MILVUS, PINECONE, QDRANT, WEAVIATE, PGVECTOR, OPENSEARCH, MEMORY
     HyDEStrategy,        # OFF, FIRST_HOP, ADAPTIVE, ALWAYS
     DocumentStatus,      # PENDING, PROCESSING, INDEXING, READY, FAILED
 )

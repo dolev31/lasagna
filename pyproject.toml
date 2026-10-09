@@ -1,7 +1,7 @@
 [project]
 name = "lasagna-rag"
 version = "0.1.0a1"
-description = "Composable RAG framework and evaluation harness: swap any of eight pipeline stages with one config key, then benchmark the change against a fixed baseline."
+description = "Composable RAG framework and evaluation harness: change one of eight pipeline stages, hold the rest fixed, and benchmark the change against a baseline."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -62,9 +62,11 @@ classifiers = [
 # Lasagna was extracted out of (playwright, browsergym, e2b, tavily, langfuse,
 # langchain-ibm) are deliberately absent.
 dependencies = [
-    # Every direct dependency is capped at its next major: pymilvus 3, mcp 2 and a
-    # langchain-community minor each broke installs that resolved the newest
-    # release. constraints/ pins the exact set the release was tested with.
+    # Every core dependency is capped at its next major (for a 0.x release, at
+    # 1.0): pymilvus 3, mcp 2 and a langchain-community minor each broke
+    # installs that resolved the newest release. Extras are capped where a
+    # break is known. constraints/ pins the exact set the release was tested
+    # with.
     # LLM orchestration.
     # `langchain>=1.0` is a real floor, not caution: `agentic/agentic_rag.py`
     # imports `create_agent` from `langchain.agents` at module scope, which is a
@@ -86,24 +88,24 @@ dependencies = [
     # until then the bound is what makes installs work.
     "mcp[cli]>=1.23.0,<2",
     "fastmcp<4",
-    "typer>=0.15.3",
+    "typer>=0.15.3,<1",
     # `lasagna init` is the first command in the README's shell quickstart and
     # imports this at 24 call sites. It was never declared, so that command
     # exited 1 on every fresh install with "pip install questionary". The e2e
     # docs phase only checks that `lasagna <cmd>` names a real command -- it
     # never runs bash blocks -- so nothing caught it.
-    "questionary>=2.0",
+    "questionary>=2.0,<3",
     # Imported directly by cli.py. It arrives transitively through typer today,
     # which means a typer release that drops it would break every CLI command
     # with no change on our side. Declared because we use it.
-    "rich>=13.0",
+    "rich>=13.0,<16",
     # Configuration and runtime
     "dynaconf<4",
-    "python-dotenv",
-    "loguru",
-    "pyyaml>=6.0.3",
-    "psutil>=7.0.0",
-    "httpx",
+    "python-dotenv<2",
+    "loguru<1",
+    "pyyaml>=6.0.3,<7",
+    "psutil>=7.0.0,<8",
+    "httpx<1",
     # Default vector store (embedded; no server required)
     "pymilvus[milvus-lite]>=2.6.4,<4",
     # Embedding and reranking. Kept in core so the quickstart works on a bare
@@ -112,16 +114,27 @@ dependencies = [
     "torch>=2.9.1,<3",
     "sentence-transformers>=5.1.2,<7",
     # Document processing
-    "pypdf>=4.0.0",
-    "python-docx>=1.2.0",
-    "pdfplumber>=0.11.9",
-    "beautifulsoup4>=4.14.3",
+    "pypdf>=4.0.0,<7",
+    "python-docx>=1.2.0,<2",
+    "pdfplumber>=0.11.9,<1",
+    "beautifulsoup4>=4.14.3,<5",
     # `html2text` was here. It is GPL-3.0-or-later and was imported nowhere in
     # the package, so every install pulled a copyleft dependency into the user's
     # environment for no functional reason -- and a corporate legal review greps
     # the dependency tree, not the import graph.
     # Lexical retrieval for hybrid search
-    "rank-bm25>=0.2.2",
+    "rank-bm25>=0.2.2,<1",
+    # BM25 stems with nltk's Porter stemmer and the chunker splits sentences
+    # with its punkt tokenizer. It was in two extras only, so hybrid search,
+    # which core turns on, scored differently on a core install than on an
+    # [eval] one, and every command printed two warnings about it. It is pure
+    # Python. Its tokenizer data is a separate one-time download that nothing
+    # here fetches for you: python -m nltk.downloader punkt_tab
+    "nltk>=3.9.1,<4",
+    # Python 3.10 has no tomllib, and the built-in profiles are TOML: without a
+    # parser they silently fall back to minimal defaults. It arrived only
+    # through other packages.
+    'tomli>=2.0,<3; python_version < "3.11"',
     # Imported directly; they arrived only through other packages before.
     "numpy>=1.24,<3",
     "pydantic>=2,<3",
@@ -131,7 +144,6 @@ dependencies = [
 [project.optional-dependencies]
 # Richer ingestion: semantic chunking and OCR for scanned documents
 ingest = [
-    "nltk>=3.9.1",
     "easyocr>=1.7.2",
     "pdf2image>=1.17.0",
 ]
@@ -153,15 +165,11 @@ eval = [
     # module. Lift this once a ragas release stops importing it.
     "langchain-community<0.4.2",
     "datasets>=2.0.0,<6",
-    # BM25 stems with nltk's Porter stemmer; without it stemming silently turned
-    # off and the same config scored differently on two machines.
-    "nltk>=3.9.1,<4",
     "pandas>=2.0.0,<4",
     "scipy>=1.10,<2",
     "matplotlib>=3.7",
     "seaborn>=0.12",
     "jinja2>=3.0",
-    'tomli>=2.0; python_version < "3.11"',
 ]
 # Managed / self-hosted vector databases beyond the embedded default
 vector-backends = [
@@ -183,8 +191,40 @@ storage-all = [
     "gcsfs>=2024.1",
     "adlfs>=2024.1",
 ]
-# Background document processing (Celery) and scheduled lifecycle jobs
-lifecycle = ["apscheduler>=3.10"]
+# Scheduled lifecycle jobs (document TTL, garbage collection). Background
+# document processing with Celery is in `production`.
+lifecycle = ["apscheduler>=3.10,<4"]
+# What settings.lasagna_production.toml turns on: the Redis cache, quotas and
+# rate limits, Celery background processing, Prometheus /metrics, OpenTelemetry
+# tracing over OTLP, and the PostgreSQL database backend. Without these the
+# production settings cannot run as configured.
+production = [
+    "redis[hiredis]>=5.0,<9",
+    "celery>=5.3,<6",
+    "prometheus-client>=0.20,<1",
+    "opentelemetry-api>=1.24,<2",
+    "opentelemetry-sdk>=1.24,<2",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.24,<2",
+    "psycopg[binary,pool]>=3.1,<4",
+]
+# LLM providers beyond OpenAI (core), as listed in providers/llm_provider.py
+providers = [
+    "langchain-anthropic>=0.3,<2",
+    "langchain-google-genai>=2.0,<5",
+    "langchain-mistralai>=0.2,<2",
+    "langchain-cohere>=0.4,<1",
+    "langchain-nvidia-ai-endpoints>=0.3,<2",
+]
+# OCR engines beyond EasyOCR (in `ingest`). Tesseract also needs the
+# `tesseract` program itself, from your system's package manager. The code uses
+# the PaddleOCR 2.x API.
+ocr = [
+    "pytesseract>=0.3.10,<1",
+    "paddleocr>=2.7,<3",
+    "paddlepaddle>=2.6,<4",
+]
+# Web search fallback for corrective RAG (crag_web_search_fallback)
+web = ["ddgs>=9,<10"]
 # Local LLM inference
 local = [
     "langchain-huggingface>=0.1",
@@ -194,7 +234,7 @@ local = [
 ]
 # Everything
 all = [
-    "lasagna-rag[ingest,docling,flag-embedding,graphrag,eval,vector-backends,opensearch,pgvector,storage-all,lifecycle,local]",
+    "lasagna-rag[ingest,docling,flag-embedding,graphrag,eval,vector-backends,opensearch,pgvector,storage-all,lifecycle,production,providers,ocr,web,local]",
 ]
 
 [project.urls]
@@ -232,6 +272,16 @@ dev = [
     # Available transitively today; declared so the test cannot start skipping
     # silently when a transitive dependency drops it.
     "jsonschema>=4.0",
+    # Shuffles test order on every run (the seed is printed in the header), so
+    # a test that passes only after another one fails in CI rather than
+    # someday. Reproduce an order with -p randomly --randomly-seed=<seed>.
+    "pytest-randomly>=3.15",
+    # Lets CI run the suite with sockets blocked (--disable-socket), so a test
+    # that reaches the network fails instead of passing online.
+    "pytest-socket>=0.7",
+    # Builds the PDFs the Docling processor tests feed it; without it those
+    # tests skipped on every machine.
+    "reportlab>=4.0",
 ]
 
 [build-system]

@@ -2,8 +2,10 @@
 # Run the checks of .github/workflows/tests.yml on this machine.
 #
 # The same jobs, in the same order: lint, both secret scans, the hermetic suite
-# with the coverage floor, the in-process vector-backend conformance, and the
-# plugin template. `--full` adds the E2E release gate's quick subset.
+# with the coverage floor and sockets blocked, the in-process vector-backend
+# conformance, the OpenSearch, pgvector and Docling unit tests, and the plugin
+# template. `--full` adds the E2E release gate's quick subset. Only CI runs the
+# tests that load real embedding weights, which need the network.
 #
 # It builds its own environment in .venv-ci with uv (installed with the `eval`
 # extra and the dev group, as CI does), so the result does not depend on
@@ -36,11 +38,21 @@ fi
 step "environment"
 [[ -x "$PY" ]] || uv venv -q --python 3.12 "$VENV"
 uv pip install -q --python "$PY" -e ".[eval]" --group dev "qdrant-client>=1.7.0"
+# The plugin-template step installs the template into this venv. CI runs the
+# suite where it is not installed, and an installed plugin adds a benchmark and
+# a reranker that the README and catalogue counts do not include, so remove it
+# left over from an earlier run.
+uv pip uninstall -q --python "$PY" lasagna-plugin-template
 
 # The suite is hermetic: a throwaway HOME keeps it away from your real
-# ~/.rag_knowledge store, and the model hub is offline.
+# ~/.rag_knowledge store, the model hub is offline, and sockets are blocked
+# except loopback.
 HOME_CI="$(mktemp -d)"
 export HF_HUB_OFFLINE=1
+NO_NETWORK=(--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,localhost,::1)
+# Test order is shuffled (pytest-randomly). Rerun a failing order with
+# RANDOMLY_SEED=<seed> scripts/ci-local.sh.
+SEED="${RANDOMLY_SEED:-$RANDOM}"
 
 step "lint"
 run "ruff check" uvx --quiet ruff@0.14.7 check .
@@ -61,15 +73,25 @@ else
 fi
 run "detect-secrets" sh -c 'git ls-files -z | xargs -0 uvx --quiet --from detect-secrets detect-secrets-hook --baseline .secrets.baseline'
 
-step "tests with coverage floor"
+step "tests with coverage floor (test order seed: $SEED)"
 run "pytest" env HOME="$HOME_CI" "$PY" -m pytest tests/ --ignore=tests/live --ignore=tests/stress \
-  -q -p no:cacheprovider --cov --cov-report=term:skip-covered
+  -q -p no:cacheprovider "${NO_NETWORK[@]}" --randomly-seed="$SEED" --cov --cov-report=term:skip-covered
 
 step "vector backend conformance"
 run "conformance" env HOME="$(mktemp -d)" \
   LASAGNA_MILVUS_DB_PATH="$(mktemp -d)/milvus_conformance.db" QDRANT_PATH="$(mktemp -d)/qdrant" \
   "$PY" -m pytest tests/test_vector_backend_conformance.py tests/test_milvus_reopen_in_new_process.py \
-  tests/test_corpus_preflight_is_bounded.py -q -p no:cacheprovider
+  tests/test_corpus_preflight_is_bounded.py tests/test_profile_guard_reads_a_real_store.py \
+  -q -p no:cacheprovider
+
+step "OpenSearch, pgvector and Docling unit tests"
+# A venv of its own, so .venv-ci keeps matching what CI's main suite runs on.
+VENV_EXTRAS=.venv-ci-backends
+[[ -x "$VENV_EXTRAS/bin/python" ]] || uv venv -q --python 3.12 "$VENV_EXTRAS"
+uv pip install -q --python "$VENV_EXTRAS/bin/python" -e ".[eval,opensearch,pgvector,docling]" --group dev
+run "optional backends" env HOME="$(mktemp -d)" "$VENV_EXTRAS/bin/python" -m pytest \
+  tests/test_opensearch_backend.py tests/test_pgvector_backend.py tests/test_docling_processor.py \
+  tests/test_mock_targets_resolve.py -q -p no:cacheprovider
 
 step "plugin template"
 uv pip install -q --python "$PY" --no-deps ./examples/lasagna-plugin-template

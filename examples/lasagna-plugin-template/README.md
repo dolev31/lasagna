@@ -45,16 +45,24 @@ lasagna plugins list
 # 2. Does it satisfy the stage contract?
 lasagna component validate lasagna_plugin_template.reranker:LengthReranker
 
-# 3. Does it run end to end?
-lasagna benchmark run template_tiny
+# 3. Does it run end to end?  (speed and retrieval only: keyless, small models)
+lasagna benchmark run template_tiny --profile speed --tracks retrieval
 
 # 4. Does it help?  (two arms, everything else held fixed)
 lasagna benchmark experiment sweep.yaml
 
 # 5. Package the result so someone else can check it
-lasagna results bundle ~/.lasagna/research/results/<run>/results.json -o run.json
+lasagna results bundle "$HOME/.lasagna/research/results/<run>/results.json" -o run.json
 lasagna results validate run.json
 ```
+
+Keep the quotes in step 5. The run directory is named after the sweep's `name`,
+and free text can hold spaces or a `?`, which the shell would split or expand
+(zsh stops with "no matches found").
+
+Without `--profile speed --tracks retrieval`, step 3 runs the `standard`
+profile, which downloads about 5.4 GB of models, and the generation track,
+which needs an LLM API key.
 
 Step 4 is the one the template exists for, and it needs `sweep.yaml` rather
 than `benchmark run`. A single-arm run produces one number from the stock

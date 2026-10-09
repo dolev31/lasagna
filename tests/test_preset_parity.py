@@ -124,6 +124,37 @@ class TestPresetParity:
         )
 
 
+class TestNestedPresetParity:
+    """Nested profile settings (chunk_cite_retrieval, document_awareness) match too.
+
+    The flat comparison skips nested dicts, so config_for_speed() retrieved
+    chunks with the adaptive strategy while the speed profile used fixed, and
+    nothing noticed.
+    """
+
+    @pytest.mark.parametrize("name", ["speed", "standard", "balanced", "max_quality"])
+    def test_nested_settings_match(self, name, profile_specs, presets):
+        from lasagna.sdk._config_bridge import NESTED_MAPPINGS
+
+        spec, preset = profile_specs[name], presets[name]
+        mismatches = []
+        for nested_key, field_map in NESTED_MAPPINGS.items():
+            sub = spec.get(nested_key)
+            if not isinstance(sub, dict):
+                continue
+            for sdk_key, inner_key in field_map.items():
+                if inner_key not in sub:
+                    continue
+                value = getattr(preset, sdk_key)
+                value = getattr(value, "value", value)
+                if value != sub[inner_key]:
+                    mismatches.append(
+                        f"  {sdk_key} ({nested_key}.{inner_key}): SDK={value!r}, "
+                        f"profile_spec={sub[inner_key]!r}"
+                    )
+        assert not mismatches, f"Drift in '{name}':\n" + "\n".join(mismatches)
+
+
 # =========================================================================
 # Coverage Tests
 # =========================================================================

@@ -9,6 +9,7 @@ This module provides intelligent text chunking strategies:
 
 import re
 import hashlib
+from functools import lru_cache
 from typing import List, Tuple, Optional, Dict, Any, Union
 from enum import Enum
 from loguru import logger
@@ -19,11 +20,56 @@ try:
 
     NLTK_AVAILABLE = True
 except ImportError:
+    # Said once, when a sentence is first split, not at import: every command
+    # imports this module, including ones that never chunk anything.
     NLTK_AVAILABLE = False
-    logger.warning("nltk not installed. Falling back to simple sentence splitting.")
 
 from lasagna.core.config import rag_config, RAGConfig
 from lasagna.core.base_components import Chunk as _BaseChunk
+
+#: The one-time command that installs nltk's sentence tokenizer data. Nothing
+#: in Lasagna downloads it for you.
+PUNKT_DOWNLOAD_COMMAND = "python -m nltk.downloader punkt_tab"
+
+
+@lru_cache(maxsize=1)
+def punkt_available() -> bool:
+    """Whether nltk and its sentence tokenizer data (punkt_tab) are installed.
+
+    Only looks; never downloads. Constructing a chunker used to call
+    ``nltk.download``, so a library call reached the network, wrote 64 MB under
+    the user's home directory, and split sentences differently depending on
+    whether the machine happened to be online.
+    """
+    if not NLTK_AVAILABLE:
+        return False
+    try:
+        nltk.data.find("tokenizers/punkt_tab/english/")
+    except LookupError:
+        return False
+    return True
+
+
+_regex_split_noted = False
+
+
+def _note_regex_split() -> None:
+    """Say once per process that sentences are split with a regex, and how to fix it."""
+    global _regex_split_noted
+    if _regex_split_noted:
+        return
+    _regex_split_noted = True
+    if NLTK_AVAILABLE:
+        reason = "nltk's sentence tokenizer data (punkt_tab) is not installed"
+        fix = PUNKT_DOWNLOAD_COMMAND
+    else:
+        reason = "nltk is not installed"
+        fix = f"pip install nltk, then {PUNKT_DOWNLOAD_COMMAND}"
+    logger.warning(
+        f"Sentences are split with a regular expression because {reason}. Chunk "
+        f"boundaries can differ from a machine that has it, and run bundles record "
+        f"this as an active fallback. To use nltk's splitter, run once: {fix}"
+    )
 
 
 class ChunkingStrategy(str, Enum):
@@ -80,31 +126,16 @@ class SemanticChunker:
             embedding_manager: Optional embedding manager for semantic splitting
         """
         self.embedding_manager = embedding_manager
-        self._ensure_nltk()
-
-    def _ensure_nltk(self):
-        """Ensure NLTK resources are available."""
-        if NLTK_AVAILABLE:
-            try:
-                nltk.data.find("tokenizers/punkt")
-            except LookupError:
-                logger.info("Downloading NLTK punkt tokenizer...")
-                nltk.download("punkt", quiet=True)
-            try:
-                nltk.data.find("tokenizers/punkt_tab")
-            except LookupError:
-                try:
-                    nltk.download("punkt_tab", quiet=True)
-                except Exception:
-                    pass  # Older NLTK versions don't have this
 
     def _split_sentences(self, text: str) -> List[str]:
-        """Split text into sentences."""
-        if NLTK_AVAILABLE:
+        """Split text into sentences: nltk's punkt when installed, else a regex."""
+        if punkt_available():
             try:
                 return sent_tokenize(text)
             except Exception as e:
                 logger.warning(f"NLTK sentence tokenization failed: {e}")
+        else:
+            _note_regex_split()
 
         # Fallback: simple regex-based splitting
         sentences = re.split(r"(?<=[.!?])\s+", text)

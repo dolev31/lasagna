@@ -7,6 +7,7 @@ from lasagna.storage import get_storage_backend
 
 storage = get_storage_backend()                    # local (default)
 storage = get_storage_backend("s3", bucket="docs") # or S3, MinIO, R2, ...
+# "s3" needs pip install "lasagna-rag[storage-s3]"
 
 with open("report.pdf", "rb") as f:
     info = storage.store(f, "doc_abc123", "report.pdf")
@@ -20,8 +21,8 @@ storage.delete(info.uri)
 | Backend    | Install                       | URI Format                    | Presigned URLs | Multipart | Max Size | Use When                     |
 |------------|-------------------------------|-------------------------------|----------------|-----------|----------|------------------------------|
 | **Local**  | built-in                      | `/path/to/doc/file`           | No             | No        | 10 GB    | Development, single-node     |
-| **S3**     | `pip install boto3>=1.28`     | `s3://bucket/prefix/doc/file` | Yes            | Yes*      | 5 TB     | AWS, MinIO, R2, B2, Wasabi   |
-| **Fsspec** | `pip install fsspec` + driver | `proto://base/doc/file`       | No             | No        | 5 GB     | GCS, Azure, FTP, SFTP, HDFS  |
+| **S3**     | `pip install "lasagna-rag[storage-s3]"` | `s3://bucket/prefix/doc/file` | Yes            | Yes*      | 5 TB     | AWS, MinIO, R2, B2, Wasabi   |
+| **Fsspec** | `pip install "lasagna-rag[storage-all]"` (common cloud drivers; FTP, SFTP and HDFS need their own) | `proto://base/doc/file`       | No             | No        | 5 GB     | GCS, Azure, FTP, SFTP, HDFS  |
 
 *Multipart is automatic via boto3 `upload_fileobj()` for files >8 MB.
 
@@ -103,13 +104,18 @@ RAG_STORAGE_FSSPEC_OPTIONS='{"project":"my-proj"}'
 ```python
 from lasagna.sdk import KnowledgeConfig, config_for_production
 
-# Backend name is propagated correctly
-config = KnowledgeConfig(storage_backend="s3")
-config = config_for_production(storage_backend="s3")
-
-# Backend-specific config: use env vars (see Limitations below)
-# os.environ["RAG_STORAGE_S3_BUCKET"] = "my-docs"
+# Backend name and backend-specific settings
+config = KnowledgeConfig(
+    storage_backend="s3",
+    storage_backend_config={"bucket": "my-docs", "region_name": "us-east-1"},
+)
+config = config_for_production(
+    storage_backend="s3",
+    storage_backend_config={"bucket": "my-docs"},
+)
 ```
+
+`storage_backend_config` wins over the `RAG_STORAGE_S3_*` and `RAG_STORAGE_FSSPEC_*` variables. Like the backend name, it is fixed when the configuration first loads.
 
 ### TOML (`settings.lasagna.toml`)
 
@@ -120,21 +126,21 @@ Add to the `[rag]` section:
 storage_backend = "s3"   # or "local", "fsspec"
 ```
 
-Backend-specific settings (bucket, endpoint, etc.) are configured via `RAG_STORAGE_S3_*` environment variables, not in TOML.
+Backend-specific settings (bucket, endpoint, etc.) go in `storage_backend_config` in the same section, for example `storage_backend_config = { bucket = "my-docs" }`, or in the `RAG_STORAGE_S3_*` environment variables.
 
 ### Configurator UI
 
-The **Advanced > File Storage** tab exposes backend selection and S3/fsspec parameters for schema validation. These are deploy-time settings — changes require a restart.
+The **Advanced > File Storage** tab exposes backend selection only; the S3 and fsspec fields are hidden because no configuration key reads them. Its help text names the `RAG_STORAGE_*` variables. This is a deploy-time setting: changes require a restart.
 
 ### What Works Where
 
 | Setting                   | Env Var | SDK  | TOML | UI Schema |
 |---------------------------|---------|------|------|-----------|
 | Backend name              | Yes     | Yes  | Yes  | Yes       |
-| S3 bucket, region, prefix | Yes     | No*  | No   | Yes       |
-| Fsspec protocol, path     | Yes     | No*  | No   | Yes       |
+| S3 bucket, region, prefix | Yes     | Yes* | Yes* | No        |
+| Fsspec protocol, path     | Yes     | Yes* | Yes* | No        |
 
-*SDK and TOML `storage_backend_config` exists but is not yet wired to the backend constructor. See [Limitations](#limitations).
+*Through `storage_backend_config` (also `RAG_STORAGE_BACKEND_CONFIG` as a JSON string).
 
 ---
 
@@ -303,10 +309,8 @@ URIs are written by `store()` and persisted in the database. Read-path operation
 
 ## Limitations
 
-1. **Config wiring gap** — `storage_backend_config` from SDK/TOML is stored in `rag_config` but `get_storage_backend()` reads `RAG_STORAGE_S3_*` env vars directly instead. The backend *name* propagates correctly; the backend *config dict* does not. **Workaround:** use individual env vars for cloud config. ([registry.py:308](registry.py#L308))
+1. **URI trust boundary**: Local backend `retrieve()` and `delete()` open/unlink the URI without verifying it is within the base directory. `store()` is properly guarded with realpath checks. If the metadata database is compromised, arbitrary file read/delete is possible. ([local_backend.py:123](local_backend.py#L123))
 
-2. **URI trust boundary** — Local backend `retrieve()` and `delete()` open/unlink the URI without verifying it is within the base directory. `store()` is properly guarded with realpath checks. If the metadata database is compromised, arbitrary file read/delete is possible. ([local_backend.py:123](local_backend.py#L123))
+2. **Cloud retrieve double-buffering**: S3 and fsspec `retrieve()` read the full file into a `BytesIO` buffer. When `ensure_local()` then copies this to a temp file, peak memory is ~2x file size. For files >100 MB this is significant. A streaming `ensure_local()` override for cloud backends would reduce this to ~8 MB constant. ([s3_backend.py:190](s3_backend.py#L190), [base.py:320](base.py#L320))
 
-3. **Cloud retrieve double-buffering** — S3 and fsspec `retrieve()` read the full file into a `BytesIO` buffer. When `ensure_local()` then copies this to a temp file, peak memory is ~2x file size. For files >100 MB this is significant. A streaming `ensure_local()` override for cloud backends would reduce this to ~8 MB constant. ([s3_backend.py:190](s3_backend.py#L190), [base.py:320](base.py#L320))
-
-4. **S3 delete partial failure** — `delete_objects()` response `Errors` list is not inspected. Partial failures (e.g., Object Lock, permission on individual keys) are silently counted as successes. ([s3_backend.py:224](s3_backend.py#L224))
+3. **S3 delete partial failure**: `delete_objects()` response `Errors` list is not inspected. Partial failures (e.g., Object Lock, permission on individual keys) are silently counted as successes. ([s3_backend.py:224](s3_backend.py#L224))

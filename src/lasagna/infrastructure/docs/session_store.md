@@ -11,11 +11,11 @@ The `SessionStore` protocol provides shared session state for the RAG system. Se
 ```python
 @runtime_checkable
 class SessionStore(Protocol):
-    def load(session_id: str) -> Optional[Dict[str, Any]]
-    def save(session_id: str, state: Dict[str, Any]) -> None
-    def delete(session_id: str) -> bool
-    def list_sessions() -> List[str]
-    def cleanup_expired(max_age_seconds: float = 86400) -> int
+    def load(self, session_id: str) -> Optional[Dict[str, Any]]: ...
+    def save(self, session_id: str, state: Dict[str, Any]) -> None: ...
+    def delete(self, session_id: str) -> bool: ...
+    def list_sessions(self) -> List[str]: ...
+    def cleanup_expired(self, max_age_seconds: float = 86400) -> int: ...
 ```
 
 ---

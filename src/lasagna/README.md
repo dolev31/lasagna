@@ -75,7 +75,7 @@ python -m lasagna export --output config.json
 python -m lasagna import config.json
 
 # Run evaluation benchmark
-python -m lasagna evaluate --document data.pdf --ground-truth gt.jsonl
+python -m lasagna evaluate data.pdf gt.jsonl
 ```
 
 ### For Non-Technical Users (MCP)
@@ -84,7 +84,7 @@ Use the **MCP Server** to connect any MCP-compatible client (Claude Desktop, Cur
 
 ```bash
 export OPENAI_API_KEY=sk-...
-python -m lasagna.mcp --host 0.0.0.0 --port 8005
+python -m lasagna.mcp --port 8005
 ```
 
 Connect your client to `http://localhost:8005/sse` -- upload documents, ask questions, and get cited answers through a conversational interface. No code required.
@@ -471,11 +471,9 @@ Encapsulates a full retrieval pipeline as a reproducible, serializable object. C
 pip install lasagna-rag
 
 # With specific vector backends
-pip install lasagna-rag[qdrant]
-pip install lasagna-rag[pinecone]
-pip install lasagna-rag[weaviate]
-pip install lasagna-rag[pgvector]
-pip install lasagna-rag[opensearch]
+pip install "lasagna-rag[vector-backends]"   # Qdrant, Pinecone and Weaviate clients
+pip install "lasagna-rag[pgvector]"
+pip install "lasagna-rag[opensearch]"
 
 # With Docling document processing (tables, OCR, layout analysis)
 pip install lasagna-rag[docling]
@@ -536,15 +534,17 @@ docs = await retriever.ainvoke("quarterly earnings")
 FastAPI-based HTTP API for language-agnostic access.
 
 ```bash
-# Start the API server
-python -m lasagna.api.rest.app --host 0.0.0.0 --port 8000
+# Start the API server (on 127.0.0.1; binding 0.0.0.0 needs RAG_REQUIRE_AUTH, see SECURITY.md)
+python -m lasagna serve --port 8000
 
 # Upload
 curl -X POST http://localhost:8000/api/v1/documents \
   -F "file=@report.pdf"
 
 # Search
-curl http://localhost:8000/api/v1/search?q=revenue+growth
+curl -X POST http://localhost:8000/api/v1/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "revenue growth"}'
 
 # Health
 curl http://localhost:8000/api/v1/health
@@ -556,7 +556,7 @@ Model Context Protocol server for AI agent integration.
 
 ```bash
 # SSE transport (Claude Desktop, Cursor, web clients)
-python -m lasagna.mcp --host 0.0.0.0 --port 8005
+python -m lasagna.mcp --port 8005
 
 # stdio transport (local MCP clients)
 python -m lasagna.mcp --transport stdio
@@ -818,7 +818,7 @@ python -m pytest tests/
 Contributions are welcome. To get started:
 
 1. **Fork and clone** the repository.
-2. **Install dev dependencies**: `pip install -e ".[dev]"`.
+2. **Install dev dependencies**: `pip install -e ".[eval]" --group dev` (the dev group needs pip 25.1 or later, or use `uv pip`).
 3. **Run the test suite** before making changes: `python -m pytest tests/ -v`.
 4. **Create a feature branch** from `main`.
 5. **Follow existing patterns** -- the codebase uses the facade pattern (`RAGBackend`), mixin composition (`KnowledgeConfigManager`), and provider abstraction for decoupling.

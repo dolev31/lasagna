@@ -1,0 +1,8 @@
+# The source distribution carries the package, not the test suite.
+#
+# setuptools adds top-level tests/test*.py files on its own, but not
+# tests/conftest.py or tests/_paths.py. Run from an unpacked sdist, those tests
+# either failed to import or ran without the conftest that isolates them, and
+# wrote to the user's real ~/.rag_knowledge. Many also read docs/, examples/
+# and e2e/, which the sdist does not carry. Run the suite from a git checkout.
+prune tests

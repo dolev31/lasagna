@@ -144,14 +144,16 @@ configure_providers(
 ### Local models
 
 ```python
+import os
+
 # Ollama (just run `ollama serve` and pull a model)
-export OLLAMA_BASE_URL=http://localhost:11434
+os.environ["OLLAMA_BASE_URL"] = "http://localhost:11434"
 
 from lasagna.providers import SimpleLLMProvider
 llm = SimpleLLMProvider(default_provider="ollama")
 model = llm.get_chat_model({"platform": "ollama", "model_name": "llama3.2"})
 
-# HuggingFace Transformers (in-process, pip install lasagna-rag[local-huggingface])
+# HuggingFace Transformers (in-process, pip install "lasagna-rag[local]")
 llm = SimpleLLMProvider(default_provider="huggingface")
 model = llm.get_chat_model({
     "platform": "huggingface",
@@ -159,7 +161,7 @@ model = llm.get_chat_model({
     "device_map": "auto",
 })
 
-# llama.cpp GGUF (in-process, pip install lasagna-rag[local-llamacpp])
+# llama.cpp GGUF (in-process, pip install langchain-community llama-cpp-python)
 llm = SimpleLLMProvider(default_provider="llamacpp")
 model = llm.get_chat_model({
     "platform": "llamacpp",
@@ -168,7 +170,7 @@ model = llm.get_chat_model({
 })
 
 # vLLM or any OpenAI-compatible local server
-export VLLM_BASE_URL=http://localhost:8000/v1
+os.environ["VLLM_BASE_URL"] = "http://localhost:8000/v1"
 llm = SimpleLLMProvider(default_provider="vllm")
 model = llm.get_chat_model({"platform": "vllm", "model_name": "my-model"})
 ```

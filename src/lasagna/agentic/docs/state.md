@@ -160,7 +160,7 @@ def build_initial_state(
     routing_decision: Any = None,
     max_retrieval_attempts: int = 3,
     max_rewrites: int = 3,
-) -> RAGGraphState:
+) -> RAGGraphState: ...
 ```
 
 Centralizes default-value logic so `AgenticRAG.retrieve()` and tests can construct state consistently. Sets all fields to their default values as shown in the tables above.

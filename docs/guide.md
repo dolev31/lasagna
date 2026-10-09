@@ -319,6 +319,23 @@ config = ExperimentConfig(
 print(config.mode, "->", len(config.benchmarks), "benchmark(s)")
 ```
 
+As written, this is not the small path. It runs the `standard` profile on both
+tracks, so it needs an LLM API key (to write answers and to judge them), the
+`[eval]` extra, and `BAAI/bge-m3` plus a large reranker (about 5.4 GB on first
+use). For a keyless run on small models, pass `tracks=["retrieval"]` to
+`ExperimentConfig` and `base_profile="speed"` to `PipelineSweepSpec`. Run it,
+and look at the failed tasks before the scores: a task that failed is listed
+there, not in the table.
+
+```python
+import asyncio
+
+results = asyncio.run(Experiment(config).run())
+for task in results.failed_tasks:
+    print("failed:", task.task_key, task.error)
+print(results.to_markdown("ndcg@10"))
+```
+
 **A component override is only measured in live mode.** `generation_only` never
 constructs the pipeline, so passing `reranker=` there is now a hard error rather
 than a plausible number scored from gold context. `auto` picks the right mode
@@ -371,7 +388,6 @@ available datasets, see
 | Run a different vector database | [Vector backends](../src/lasagna/vector_backends/README.md) |
 | Understand the retrieval internals | [Architecture](../src/lasagna/core/docs/architecture.md) |
 | Deploy it | [Deployment](../src/lasagna/deploy/README.md) |
-| Know what is *not* verified | [Honest limitations](../README.md#honest-limitations) |
 
 ### Two honest warnings
 

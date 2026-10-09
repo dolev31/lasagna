@@ -431,7 +431,6 @@ class RAGConfig:
             "verify_citations": True,
             "track_citations_db": True,
             "show_page_numbers": True,
-            "show_confidence_scores": False,
             "include_source_preview": True,
             "citation_db_max_age_hours": 168,  # 1 week
             "citation_db_max_per_session": 1000,
@@ -440,20 +439,19 @@ class RAGConfig:
             # =================================================================
             # File Types
             # =================================================================
+            # Only formats DocumentProcessor can identify and extract. .doc,
+            # .rtf and .epub have no extractor, and .pptx and .xlsx are refused
+            # by the upload type check before Docling could convert them, so
+            # listing them advertised uploads that always failed.
             "supported_extensions": [
                 ".pdf",
                 ".docx",
-                ".doc",
                 ".txt",
                 ".md",
                 ".csv",
                 ".json",
                 ".html",
                 ".xml",
-                ".pptx",
-                ".xlsx",
-                ".rtf",
-                ".epub",
             ],
             # =================================================================
             # Storage

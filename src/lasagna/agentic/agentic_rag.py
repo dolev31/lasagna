@@ -38,6 +38,7 @@ from lasagna.utils.model_utils import (
     resolve_model_settings,
     get_default_model_settings,
     is_langfuse_tracing_enabled,
+    message_text,
 )
 from lasagna.providers import get_llm_provider
 
@@ -723,7 +724,7 @@ async def refine_chunk(
         )
 
         response = await llm.ainvoke([HumanMessage(content=prompt)])
-        refined_content = response.content.strip()
+        refined_content = message_text(response).strip()
 
         # Check if chunk was marked as irrelevant
         if _is_irrelevant_response(refined_content):
@@ -766,7 +767,7 @@ async def _grade_single_document(
             document_text=document_text[:2000],  # Truncate very long documents
         )
         response = await llm.ainvoke([HumanMessage(content=prompt)])
-        grade = response.content.strip().lower()
+        grade = message_text(response).strip().lower()
 
         # Normalize the grade to one of the three valid values
         if grade in ("correct", "ambiguous", "incorrect"):
@@ -2003,7 +2004,7 @@ class AgenticRAG:
             # Extract agent's final summary
             agent_summary = ""
             if isinstance(final_message, AIMessage):
-                agent_summary = final_message.content
+                agent_summary = message_text(final_message)
 
             # Get hop data from config
             hop_data_list: List[HopData] = config.get("configurable", {}).get("hop_data", [])
