@@ -286,6 +286,11 @@ class RAGConfig:
             "chunk_size": 800,
             "chunk_overlap": 0,  # Research: no measurable benefit from overlap (arXiv:2601.14123)
             "semantic_threshold": 0.75,
+            # 'absolute' (semantic_threshold) or Kamradt's 'percentile',
+            # 'standard_deviation', 'interquartile', 'gradient'
+            "semantic_breakpoint_method": "absolute",
+            "semantic_breakpoint_amount": None,  # None = the method's default (95, 3, 1.5, 95)
+            "semantic_buffer_size": 1,  # neighbours embedded with each sentence (Kamradt)
             "min_chunk_size": 200,
             "max_chunk_size": 1500,
             "window_size": 3,
@@ -840,6 +845,31 @@ class RAGConfig:
     def semantic_threshold(self) -> float:
         return self._get_knowledge_setting(
             "rag", "semantic_threshold", default=self._config["semantic_threshold"]
+        )
+
+    @property
+    def semantic_breakpoint_method(self) -> str:
+        """How the semantic chunker picks breakpoints: 'absolute' or a Kamradt method."""
+        return self._get_knowledge_setting(
+            "rag",
+            "semantic_breakpoint_method",
+            default=self._config["semantic_breakpoint_method"],
+        )
+
+    @property
+    def semantic_breakpoint_amount(self) -> Optional[float]:
+        """The breakpoint method's parameter; None uses the method's default."""
+        return self._get_knowledge_setting(
+            "rag",
+            "semantic_breakpoint_amount",
+            default=self._config["semantic_breakpoint_amount"],
+        )
+
+    @property
+    def semantic_buffer_size(self) -> int:
+        """Neighbouring sentences embedded with each sentence, on either side."""
+        return self._get_knowledge_setting(
+            "rag", "semantic_buffer_size", default=self._config["semantic_buffer_size"]
         )
 
     @property

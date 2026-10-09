@@ -939,6 +939,12 @@ class EmbeddingManager:
 _embedding_manager: Optional[EmbeddingManager] = None
 _embedding_lock = threading.Lock()
 
+# Managers for models other than the singleton's, by config signature. A sweep
+# arm's embedder or semantic chunker loads its model here once, and never
+# replaces the singleton the rest of the pipeline is searching with.
+_shared_managers: "OrderedDict[tuple, EmbeddingManager]" = OrderedDict()
+_SHARED_MANAGERS_MAX = 4
+
 
 def get_embedding_manager(config: Optional[RAGConfig] = None) -> EmbeddingManager:
     """Get or create the embedding manager singleton.
@@ -961,7 +967,7 @@ def get_embedding_manager(config: Optional[RAGConfig] = None) -> EmbeddingManage
     if mgr is None:
         with _embedding_lock:
             if _embedding_manager is None:
-                _embedding_manager = EmbeddingManager(config=config)
+                _embedding_manager = _shared_or_new(config)
             return _embedding_manager
 
     # Config-drift detection — must also be under lock to prevent two
@@ -974,13 +980,13 @@ def get_embedding_manager(config: Optional[RAGConfig] = None) -> EmbeddingManage
             with _embedding_lock:
                 # Re-read under lock: may have been reset or reloaded by another thread.
                 if _embedding_manager is None:
-                    _embedding_manager = EmbeddingManager(config=config)
+                    _embedding_manager = _shared_or_new(config)
                 elif _embedding_manager.signature != desired_signature:
                     logger.info(
                         "Embedding manager config change detected; reloading. "
                         f"old={_embedding_manager.signature} new={desired_signature}"
                     )
-                    _embedding_manager = EmbeddingManager(config=config)
+                    _embedding_manager = _shared_or_new(config)
 
                     # Best-effort GPU memory cleanup (old model will be GC'd
                     # once in-flight references are dropped)
@@ -1001,13 +1007,47 @@ def get_embedding_manager(config: Optional[RAGConfig] = None) -> EmbeddingManage
     return mgr
 
 
+def _shared_or_new(config: Optional[RAGConfig]) -> EmbeddingManager:
+    """A manager already loaded for ``config``'s signature, or a new one (lock held)."""
+    found = _shared_managers.get(_config_signature(config or rag_config))
+    return found if found is not None else EmbeddingManager(config=config)
+
+
+def shared_embedding_manager(config: Optional[RAGConfig] = None) -> EmbeddingManager:
+    """The embedding manager for ``config``'s model, loaded at most once per process.
+
+    For components that embed with a model of their own: a sweep arm's
+    ``sentence_transformers`` embedder, the semantic chunker. Returns the
+    pipeline's singleton when the settings match it, so the same model is never
+    loaded twice, and otherwise a manager kept beside it. Unlike
+    :func:`get_embedding_manager` it never replaces the singleton: an arm naming
+    another model must not change the model every other search uses.
+    """
+    config = config or rag_config
+    signature = _config_signature(config)
+    mgr = _embedding_manager
+    if mgr is not None and mgr.signature == signature:
+        return mgr
+    with _embedding_lock:
+        found = _shared_managers.get(signature)
+        if found is None:
+            found = EmbeddingManager(config=config)
+            _shared_managers[signature] = found
+            while len(_shared_managers) > _SHARED_MANAGERS_MAX:
+                _shared_managers.popitem(last=False)
+        else:
+            _shared_managers.move_to_end(signature)
+        return found
+
+
 def reset_embedding_manager():
-    """Reset the embedding manager singleton.
+    """Reset the embedding manager singleton and the shared managers.
 
     Useful for testing or when configuration changes.
     """
     global _embedding_manager
     with _embedding_lock:
+        _shared_managers.clear()
         if _embedding_manager is not None:
             logger.info("Resetting embedding manager")
             _embedding_manager = None

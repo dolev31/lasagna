@@ -216,6 +216,7 @@ _PREFIXES: Tuple[Tuple[str, str], ...] = (
     ("speculative_", "agentic_pipeline"),
     ("recursive_", "chunker"),
     ("markdown_", "chunker"),
+    ("semantic_", "chunker"),
 )
 
 
