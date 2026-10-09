@@ -382,7 +382,7 @@ them, the task fails, as for a RAGAS metric. Function:
 
 | Key | Where | Definition |
 |---|---|---|
-| `latency_ms` | per query row | Live: wall-clock time of the pipeline query (retrieval, plus the agentic graph when one runs); the answer-writing call is not included. Offline: the answer-writing call |
+| `latency_ms` | per query row | Live retrieval row: wall-clock time of the pipeline query (retrieval, plus the agentic graph when one runs). Live answer row: that plus the successful answer-writing call, end to end; `retrieval_ms` and `generation_ms` hold the two parts, and back-off sleeps between retries are not counted. Offline: the answer-writing call |
 | `avg_latency_ms`, `p50_latency_ms`, `p95_latency_ms`, `p99_latency_ms` | task | Over queries, with a query's retrieval and generation rows summed first |
 | `input_tokens`, `output_tokens`, `llm_calls` | per query row | What the system under test spent, counted at the provider |
 | `input_tokens_per_query`, `output_tokens_per_query`, `llm_calls_per_query` | task metrics | The same, summed over a query's rows, averaged over queries |

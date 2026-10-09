@@ -140,9 +140,12 @@ class TestBundlesMintedBeforeTheField:
     def test_an_older_bundle_still_recomputes_to_its_own_key(self):
         """`results validate` recomputes the key; a 1.3 bundle must not turn
         INVALID because the field set grew."""
-        held = {f: None for f in HELD_FIXED_FIELDS if f != "fixed_stages"}
+        from lasagna.knowledge_evaluation_sdk.bundle import _KEY_FIELDS_SINCE
+
+        # Every field added to the key after 1.3 is left out of a 1.3 key.
+        held = {f: None for f in HELD_FIXED_FIELDS if f not in _KEY_FIELDS_SINCE}
         held.update(metrics_version="1.3", benchmark="beir/scifact", corpus_provenance="native")
-        payload = {f: held[f] for f in HELD_FIXED_FIELDS if f != "fixed_stages"}
+        payload = {f: held[f] for f in HELD_FIXED_FIELDS if f not in _KEY_FIELDS_SINCE}
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
         assert comparability_key(held) == hashlib.sha256(blob.encode()).hexdigest()[:16]
 

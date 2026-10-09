@@ -183,9 +183,14 @@ def group(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, List[Dict[str, Any]
     out: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
     for row in rows:
         out.setdefault(row["benchmark"], {}).setdefault(_group_key(row), []).append(row)
+    from .results import lower_is_better
+
     for keys in out.values():
         for group_rows in keys.values():
-            group_rows.sort(key=lambda r: r["mean"], reverse=True)
+            # Latency and tokens rank smallest first; a published table sorted
+            # them highest first and put the slowest system on top.
+            metric = str(group_rows[0].get("metric", "")) if group_rows else ""
+            group_rows.sort(key=lambda r: r["mean"], reverse=not lower_is_better(metric))
     return out
 
 

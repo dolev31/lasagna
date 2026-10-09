@@ -107,6 +107,8 @@ HELD_FIXED_FIELDS = (
     # fusion weights, MMR or HyDE, so a dense-only and a hybrid sweep shared a
     # key and one leaderboard table. None when the row recorded no manifest.
     "fixed_stages",
+    # The embedder answer_similarity scores with (RAG_EVAL_SIMILARITY_MODEL).
+    "similarity_model",
 )
 
 #: Fields hashed only for blocks at or after the metrics version that added
@@ -114,6 +116,7 @@ HELD_FIXED_FIELDS = (
 #: Later blocks hash the field whether or not it is present (absent is None).
 _KEY_FIELDS_SINCE: Dict[str, tuple] = {
     "fixed_stages": (1, 4),
+    "similarity_model": (1, 5),
 }
 
 #: The stages a sweep varies. Excluded from the key, recorded alongside it.
@@ -279,6 +282,7 @@ def held_fixed_from(
         "retriever_top_k": _field("retriever_top_k"),
         "vector_backend": _field("vector_backend"),
         "judge_model": run_meta.get("judge_model"),
+        "similarity_model": run_meta.get("similarity_model"),
         "bm25_stemming": _field("bm25_stemming"),
         "fixed_stages": (
             {

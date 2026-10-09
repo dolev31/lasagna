@@ -1572,9 +1572,13 @@ def _run_metadata(cfg: "ExperimentConfig") -> Dict[str, Any]:
             "embedders": list(cfg.pipeline.embedders),
             "chunkers": list(cfg.pipeline.chunkers),
             "query_enhancers": list(cfg.pipeline.query_enhancers),
+            "generators": list(cfg.pipeline.generators),
             "config_overrides": list(cfg.pipeline.config_overrides),
         },
         "judge_model": _active_judge_model or cfg.judge_model or None,
+        # The embedder behind answer_similarity: a different one gives
+        # different numbers, so it belongs in the comparability key.
+        "similarity_model": _similarity_model_for_record(),
         "max_corpus_docs": cfg.max_corpus_docs,
         "tracks": list(cfg.tracks),
         "environment": capture(),
@@ -2446,6 +2450,16 @@ _corpus_sessions: Dict[str, Dict[str, Any]] = {}
 import threading as _threading  # noqa: E402
 
 _search_config_lock = _threading.Lock()
+
+
+def _similarity_model_for_record() -> Optional[str]:
+    try:
+        from .answer_metrics import similarity_model_name
+
+        name = similarity_model_name()
+    except Exception:
+        return None
+    return None if str(name).lower() == "none" else name
 
 
 def _corpus_doc_id(corpus_id: str, session_key: str = "") -> str:
@@ -3721,9 +3735,12 @@ async def _eval_live(
                 if agentic_requested and _cooldown > 0:
                     await asyncio.sleep(_cooldown)
 
-                # Generate answer from retrieved context.  The generation prompt
-                # is identical across configs — what differs is WHAT gets retrieved.
+                # Generate the answer from the retrieved context: the arm's
+                # generator when it names one, else the fixed prompt below.
                 answer = ""
+                # The successful call only: back-off sleeps between retries are
+                # the gateway's latency, not the system's.
+                _generation_ms = 0.0
 
                 # Speculative RAG: parallel draft generation + verification
                 _speculative = gen_config.get("enable_speculative_rag", False)
@@ -3737,11 +3754,13 @@ async def _eval_live(
                             n_drafts=int(gen_config.get("speculative_n_drafts", 3)),
                             subset_size=int(gen_config.get("speculative_subset_size", 3)),
                         )
+                        _attempt_t0 = time.monotonic()
                         with gen_meter, gen_meter.scope(SYSTEM):
                             answer, _drafts = await spec_rag.generate(
                                 query=gen_sample.question,
                                 contexts=contexts[:10],
                             )
+                        _generation_ms = (time.monotonic() - _attempt_t0) * 1000
                         logger.debug(
                             f"Speculative RAG: {len(_drafts)} drafts for "
                             f"'{gen_sample.question[:40]}', answer='{answer[:80]}'"
@@ -3769,6 +3788,7 @@ async def _eval_live(
                     _backoffs = [5, 15, 30, 60]
                     for _attempt in range(5):
                         try:
+                            _attempt_t0 = time.monotonic()
                             with gen_meter, gen_meter.scope(SYSTEM):
                                 if _generator is not None:
                                     raw = await asyncio.wait_for(
@@ -3793,6 +3813,7 @@ async def _eval_live(
                                         timeout=120,
                                     )
                             answer = raw.content if hasattr(raw, "content") else str(raw)
+                            _generation_ms = (time.monotonic() - _attempt_t0) * 1000
                             logger.debug(
                                 f"Generated answer for '{gen_sample.question[:40]}': "
                                 f"'{answer[:80]}'"
@@ -3872,7 +3893,11 @@ async def _eval_live(
                 _gen_sample_metrics: Dict[str, Any] = {
                     "_sample_id": gen_sample.query_id,
                     "_source_benchmark": _src,
-                    "latency_ms": query_latency_ms,
+                    # End to end for an answer row: it used to stop before the
+                    # answer was written, so p50/p95 left out generation.
+                    "latency_ms": query_latency_ms + _generation_ms,
+                    "retrieval_ms": query_latency_ms,
+                    "generation_ms": _generation_ms,
                     "n_contexts": float(len(contexts)),
                     "agentic_fallback": 1.0 if fallback else 0.0,
                     "exact_match": _em_score,
