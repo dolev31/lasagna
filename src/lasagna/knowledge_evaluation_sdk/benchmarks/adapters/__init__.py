@@ -47,12 +47,17 @@ def register_all(registry: "BenchmarkRegistry") -> None:
     register_kilt(registry)
     register_fever(registry)
 
-    # Private evaluation set (always registered; load() will raise a clear
-    # error if the dataset hasn't been built yet)
+    # The private evaluation set, only once it has been built: listed before
+    # that, its four entries sat among the public benchmarks and failed when
+    # run. Building it (python -m lasagna.knowledge_evaluation_sdk.private_eval
+    # build) registers them for that process.
     try:
-        from ...private_eval.adapter import register_private_eval_adapters
+        from pathlib import Path
 
-        register_private_eval_adapters(registry)
+        from ...private_eval.adapter import _default_dataset_dir, register_private_eval_adapters
+
+        if any(Path(_default_dataset_dir()).glob("*.jsonl")):
+            register_private_eval_adapters(registry)
     except ImportError:
         pass  # private_eval package not installed
     except Exception as exc:

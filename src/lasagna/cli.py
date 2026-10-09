@@ -847,6 +847,24 @@ benchmark_app = typer.Typer(
 app.add_typer(benchmark_app, name="benchmark")
 
 
+def _retrieval_corpus(registry, name: str, info) -> str:
+    """Where a benchmark's retrieval is measured, if anywhere.
+
+    The mode column alone said "generation" for SQuAD v2 and MuSiQue, which
+    measure retrieval live against a corpus pooled from the samples' gold
+    passages: an easier task than a real corpus, and recorded as such.
+    """
+    try:
+        adapter = registry.get(name)
+    except Exception:
+        return "?"
+    if getattr(adapter, "pools_gold_context", False):
+        return "pooled gold passages"
+    if info.eval_mode.value in ("retrieval", "end_to_end"):
+        return "its corpus"
+    return "-"
+
+
 @benchmark_app.command("list")
 def benchmark_list(
     category: Optional[str] = typer.Option(
@@ -861,6 +879,7 @@ def benchmark_list(
     table.add_column("Name", style="cyan")
     table.add_column("Category", style="green")
     table.add_column("Mode", style="yellow")
+    table.add_column("Retrieval measured on")
     table.add_column("Description")
 
     shown = 0
@@ -871,6 +890,7 @@ def benchmark_list(
             name,
             info.category.value,
             info.eval_mode.value,
+            _retrieval_corpus(benchmark_registry, name, info),
             info.description,
         )
         shown += 1
