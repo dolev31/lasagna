@@ -640,17 +640,19 @@ def serve(
         _error(str(exc))
     warn_once_if_unauthenticated(host)
 
+    # Forwarding headers are trusted only from a proxy the operator names.
+    # Trusting 127.0.0.1 by default let any local client choose its own
+    # X-Forwarded-For, and with it a fresh rate-limit bucket per request: 40
+    # of 40 session mints went through where 35 should have been refused. A
+    # proxy on this host and a client on it are indistinguishable by address.
+    trusted_proxies = os.environ.get("RAG_FORWARDED_ALLOW_IPS", "").strip()
     uvicorn.run(
         "lasagna.api.rest.app:app",
         host=host,
         port=port,
         reload=False,
-        # Trust the reverse proxy's forwarding headers when there is one.
-        # Without these the app sees the proxy's address as the client for
-        # every request, which makes any per-IP control meaningless and the
-        # access log misleading.
-        proxy_headers=True,
-        forwarded_allow_ips=os.environ.get("RAG_FORWARDED_ALLOW_IPS", "127.0.0.1"),
+        proxy_headers=bool(trusted_proxies),
+        forwarded_allow_ips=trusted_proxies or None,
     )
 
 
