@@ -118,7 +118,7 @@ class TestTheBeirPathHonoursIt:
         seen = {}
 
         def _spy(hf_name, config=None, splits=None, revision="", allow_split_fallback=True):
-            seen[config or "qrels"] = allow_split_fallback
+            seen["queries" if config == "queries" else "qrels"] = allow_split_fallback
             return _FakeDataset(splits[0]), splits[0]
 
         monkeypatch.setattr(ds, "_load_with_fallback", _spy)

@@ -324,7 +324,11 @@ def load_benchmark(
         # the split actually used is carried back out.
         qrels_ds, actual_split = _load_with_fallback(
             info["hf_qrels"],
-            config=None,
+            # Named, not None. The mteb repos hold `default` (the qrels),
+            # `corpus` and `queries`; with no name, an offline load fails once
+            # more than one of them is cached, which running the benchmark
+            # always does.
+            config=info.get("hf_qrels_config", "default"),
             splits=[split, "test", "validation", "train"],
             revision=revision,
             allow_split_fallback=allow_split_fallback,
@@ -474,7 +478,9 @@ def _load_with_fallback(
         try:
             dataset = load_dataset(hf_name, split=s, **load_kwargs)
         except (ValueError, KeyError, RuntimeError) as exc:
-            errors.append(f"{s}: {type(exc).__name__}")
+            # The message, not only the type: "multiple configurations in the
+            # cache" is not a missing split, and read as one it misleads.
+            errors.append(f"{s}: {type(exc).__name__}: {str(exc)[:200]}")
             continue
 
         if index > 0:
