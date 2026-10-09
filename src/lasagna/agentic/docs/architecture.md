@@ -4,6 +4,8 @@
 
 The structured graph (enabled via `use_structured_graph = true`) is a LangGraph `StateGraph` with 13 nodes and 6 conditional edges. All nodes read from and write to `RAGGraphState`.
 
+This document covers that graph (`agentic_pipeline = "default"`) and the legacy ReAct mode. The five published loops (`self_ask`, `ircot`, `flare`, `adaptive`, `self_rag`) do not use this graph. Each is a short loop in `agentic/loops/`, described in [the agentic README](../README.md#published-loops).
+
 ```
 START
   |
@@ -108,7 +110,7 @@ Config: `enable_crag`, `crag_web_search_fallback`
 
 ### Self-RAG Quality Gates
 
-Two opt-in post-generation checks inspired by Self-RAG (Asai et al., 2023):
+Two opt-in post-generation checks inspired by Self-RAG (Asai et al., 2023). They are not the Self-RAG method: the graph grades a retrieved set, writes one answer from all of it and then checks that answer. The `self_rag` loop is the method's short-form inference, with one answer per passage chosen by critique.
 
 **ISSUP (hallucination check):** Evaluates whether every claim in the generated answer is directly supported by the source documents. Labels: `"supported"`, `"partially_supported"`, `"not_supported"`. On `"not_supported"`, routes to rewrite_query if budget allows.
 
