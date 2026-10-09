@@ -23,6 +23,22 @@ from ..models import (
     RoutingInfo,
 )
 
+
+def _missing_llm(exc: BaseException):
+    """The no-LLM message when that is what failed, followed through wrapping."""
+    from lasagna.providers import LLMProviderNotConfigured
+
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, LLMProviderNotConfigured) or str(exc).startswith(
+            "No LLMProvider configured"
+        ):
+            return str(exc)
+        exc = exc.__cause__ or exc.__context__
+    return None
+
+
 router = APIRouter(prefix="/search", tags=["search"])
 
 
@@ -258,4 +274,9 @@ async def agentic_search(
         raise HTTPException(status_code=429, detail=str(exc))
     except Exception as exc:
         logger.error(f"Agentic search failed: {exc}")
+        missing = _missing_llm(exc)
+        if missing is not None:
+            # A setup problem with a fix the caller can apply; a bare 500 hid
+            # it in the server log.
+            raise HTTPException(status_code=503, detail=missing)
         raise HTTPException(status_code=500, detail="Internal server error")

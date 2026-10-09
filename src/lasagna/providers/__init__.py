@@ -195,11 +195,15 @@ def get_llm_provider() -> LLMProvider:
     _auto_configure_from_env()
     if _llm_provider is None:
         supported_keys = ", ".join(env for env, _ in _API_KEY_TO_PLATFORM)
-        raise RuntimeError(
+        raise LLMProviderNotConfigured(
             f"No LLMProvider configured. Set one of these API key env vars: "
             f"{supported_keys} — or call configure_providers()."
         )
     return _llm_provider
+
+
+class LLMProviderNotConfigured(RuntimeError):
+    """No LLM is configured: a setup problem, not a failure of the request."""
 
 
 def set_llm_provider(provider: LLMProvider) -> None:
