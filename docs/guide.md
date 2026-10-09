@@ -51,7 +51,9 @@ pip install lasagna-rag
 **First run downloads models.** The default profile pulls an embedding model
 *and* a reranker: about **5.4 GB**, and between 7 and 35 minutes to your first
 search result depending on your connection, as measured on every release-gate
-run to date. Everything after that is sub-second.
+run to date. After that, measured warm on two CPU threads, a search takes about
+0.3 s on the speed profile and 7–9 s on the default profile, whose large
+reranker scores every query; more cores or a GPU cut the second.
 
 To try it faster, start on the `speed` profile: pure vector search on an 80 MB
 model, no reranker.

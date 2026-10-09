@@ -10,8 +10,8 @@
 [![Project page](https://img.shields.io/badge/project-page-1f6feb.svg)](https://dolev31.github.io/lasagna/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/dolev31/lasagna/blob/main/LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12%20|%203.13-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#testing)
-[![Coverage](https://img.shields.io/badge/coverage-36%25-yellow.svg)](#testing)
+[![Tests](https://github.com/dolev31/lasagna/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/dolev31/lasagna/actions/workflows/tests.yml)
+[![Coverage](https://img.shields.io/badge/coverage-38%25-yellow.svg)](#testing)
 
 [Guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md) · [Quickstart](#quickstart) · [Why](#the-problem) · [Compare components](#compare-a-component) · [What's inside](#whats-inside) · [Docs](#documentation)
 
@@ -103,18 +103,43 @@ warns rather than raises, deliberately, so duck-typed components still work
 their stage's ABC. The count is in [Honest limitations](#honest-limitations).
 
 **What is genuinely different is the measurement apparatus.** Paired bootstrap
-with confidence intervals, Holm–Bonferroni correction across a sweep, per-sample
+with confidence intervals, Holm–Bonferroni correction across a sweep (with
+adjusted p-values), a 2×2 interaction test with a bootstrap CI, per-sample
 scores joined by sample identity, comparability keys that record what was held
-fixed, and tamper-evident result bundles. None of LangChain, LlamaIndex, Haystack
-or RAGAS ships significance testing; RAGAS scores a run, and we depend on it to
-do so. If your question is "is this gap real or is it noise", that gap in the
-ecosystem is the one Lasagna exists to fill.
+fixed, and integrity-checked result bundles. None of LangChain, LlamaIndex,
+Haystack or RAGAS ships significance testing; RAGAS scores a run, and we depend
+on it to do so. Significance testing itself is not new: PyTerrier and ranx ship
+it for IR runs, UltraRAG ships a paired permutation test, and some papers ship
+their own scripts. What we did not find elsewhere is the combination inside a
+RAG pipeline framework: paired tests with multiple-comparison correction,
+interaction CIs and provenance bundles, all from one sweep file.
+
+### Against research RAG tools
+
+A researcher will more likely weigh Lasagna against these. "Not found" means we
+found it in neither the docs nor a code search (October 2026), not that it is
+proven absent.
+
+| | **Lasagna** | **FlashRAG** | **BERGEN** | **UltraRAG** | **AutoRAG** | **PyTerrier / ranx** |
+|---|---|---|---|---|---|---|
+| Significance tests | Paired bootstrap, Holm, power | Not found | Not found | Paired permutation, no correction | Not found | Yes, IR runs only |
+| Interaction between components | 2×2 test with CI | Not found | Not found | Not found | Greedy search assumes none | Not found |
+| Result provenance | Bundles with a validator | Saved configs and scores | Experiment folders | Not found | Trial folders | Not found |
+| Published methods | 21 components | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
+| Ready corpora and indexes | Benchmark loaders, no prebuilt index | Wikipedia + prebuilt index | KILT + prebuilt index | Not found | Not found | Via ir_datasets |
+| License | Apache-2.0 | MIT | CC BY-NC-SA 4.0 | Apache-2.0 | MIT (badge) | MPL-2.0 / MIT |
+
+Where they win: FlashRAG and BERGEN ship prebuilt indexes and result tables for
+many published methods, so a baseline costs little to reproduce. AutoRAG has
+Colab notebooks and a hosted demo; FlashRAG, UltraRAG and XRAG have visual UIs.
+Lasagna ships none of its own paper's per-query results yet.
 
 **Where the others plainly win.** Ecosystem — LangChain and LlamaIndex have
 thousands of integrations and years of production hardening; Lasagna is a
-pre-release with none of either. Install weight — ours is 1.5 GB because torch and sentence-transformers
-are core dependencies, which is a real cost for an API-embeddings user and both
-of them are far lighter. Document parsing — LlamaParse handles formats our
+pre-release with none of either. Install weight — torch and sentence-transformers
+are core dependencies: about 1.3 GB installed on macOS arm64, and on Linux x86_64
+the default PyPI torch pulls CUDA wheels, about 3.2 GB of downloads. That is a
+real cost for an API-embeddings user, and both of them are far lighter. Document parsing — LlamaParse handles formats our
 pypdf/pdfplumber stack does not. Production observability — LangSmith exists;
 we have nothing comparable. Agent orchestration — LangGraph is the standard, and
 we build on it.
@@ -163,7 +188,10 @@ what this library is actually for, and it is where we suggest you start.
 > Measured on a cold cache on every release-gate run to date:
 > **5.4 GB downloaded, and 7–35 minutes to the first search result** — the
 > download size was identical every time, so the spread is your connection, not
-> the software. Queries after that are sub-second. The install itself is 1.5 GB.
+> the software. After that, measured warm on two CPU threads, a search takes
+> about 0.3 s on the speed profile and 7–9 s on the default profile, whose large
+> reranker scores every query; more cores or a GPU cut the second. The install itself is
+> about 1.3 GB on macOS; see [Install](#install) for Linux.
 >
 > To get the 80 MB model instead, run `lasagna init` and choose the speed
 > profile. It writes a settings file and points `RAG_SETTINGS_FILE` at it, which
@@ -384,7 +412,8 @@ rest need their service running
 
 ### RAG evaluation: 31 benchmarks, retrieval and generation metrics
 
-31 benchmarks — BEIR (NFCorpus, FiQA, SciFact, ArguAna, HotpotQA), HotpotQA,
+31 benchmark entries over about 22 datasets (BEIR, RAGBench and KILT subsets
+count separately) — BEIR (NFCorpus, FiQA, SciFact, ArguAna, HotpotQA), HotpotQA,
 SQuAD v2, MuSiQue, TriviaQA, Natural Questions, MS MARCO, FEVER, PopQA,
 Bamboogle, MultiHop-RAG, RAGBench, KILT, 2WikiMultihop.
 
@@ -499,6 +528,19 @@ pip install "lasagna-rag[eval]==0.1.0a1" -c https://raw.githubusercontent.com/do
 > `eval` and `storage-all` each resolve fine on their own — only the
 > combination defeats pip. See CHANGELOG "Known issues".
 
+On Linux x86_64, `pip` installs the CUDA build of torch, about 3.2 GB of
+downloads. For CPU only, install torch from the PyTorch CPU index first:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install lasagna-rag
+```
+
+> **Name collision.** `pip install lasagna` installs a different project
+> (`lasagna-ai`, an LLM-agent framework), which also provides a top-level
+> `lasagna` import package. Installing both in one environment makes them
+> overwrite each other. This package is `lasagna-rag`.
+
 `import lasagna` deliberately loads no torch, transformers, sentence-transformers
 or pymilvus — those arrive only when something needs them, so a remote-backend
 client stays light.
@@ -601,7 +643,7 @@ A framework that hides its gaps wastes your time. As of this release:
 - **`list_document_ids` fails past ~16k chunks on Milvus** — the backend
   emulates offset as `limit + offset`, which exceeds Milvus's cap. Affects
   iteration speed, not correctness. See [CHANGELOG](https://github.com/dolev31/lasagna/blob/main/CHANGELOG.md).
-- **Coverage is 36%.** That is coverage.py's combined statement+branch TOTAL,
+- **Coverage is 38%.** That is coverage.py's combined statement+branch TOTAL,
   which is what `fail_under` gates on; branch coverage alone is lower.
   Measured, floored, and ratcheting up — but not yet
   where it should be. The evaluation SDK and MCP server are the thinnest.
@@ -661,7 +703,11 @@ lasagna results bundle <results.json> -o run.json
 It carries the library versions, hardware, resolved sweep, corpus fingerprint
 and comparability key — everything a reader needs to decide whether your number
 and theirs are measuring the same thing. `lasagna results validate` recomputes
-the key and the run id, so an edited number no longer matches its own bundle.
+the key, the run id and every aggregate from its per-query scores, so a number
+edited after the run no longer matches its bundle. That is an integrity check
+against mistakes and naive edits, not a signature: anyone who edits a number can
+recompute the id, which is why the hub's trust model calls results
+self-reported.
 
 Bundles are meant to be shared. [hub/](https://github.com/dolev31/lasagna/tree/main/hub) has everything needed to run a
 public leaderboard for them — a generated JSON Schema, a PR validation workflow,
