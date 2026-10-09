@@ -125,7 +125,7 @@ _CREDENTIAL_VARS = (
 # "{" turning into a build-time KeyError.
 # ---------------------------------------------------------------------------
 DRIVER_BODY = r'''
-import copy, io, json, re, sys, traceback
+import copy, io, json, re, sys, traceback, warnings
 
 steps = {}
 metrics = {}
@@ -398,13 +398,17 @@ try:
         chosen = "cross_encoder" if "cross_encoder" in non_conforming else non_conforming[0]
         metrics["warning_component"] = chosen
 
+        # A plain script sees Python warnings; the package's own log lines are
+        # off unless the host enables them. Either channel counts.
         buf = io.StringIO()
         sink = logger.add(buf, level="WARNING", format="{message}")
         try:
-            KnowledgePipeline().replace("reranker", chosen)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                KnowledgePipeline().replace("reranker", chosen)
         finally:
             logger.remove(sink)
-        text = buf.getvalue()
+        text = buf.getvalue() + "".join(str(w.message) for w in caught)
 
         if not text.strip():
             raise AssertionError(
@@ -642,12 +646,12 @@ def _repros(warning_component: str) -> Dict[str, str]:
             "      '-- expected R; C means replace() did not reach execution')"
         ),
         "warning": _repro(
-            "import io\n"
-            "from loguru import logger\n"
+            "import warnings\n"
             "from lasagna.core.pipeline import KnowledgePipeline\n"
-            "buf = io.StringIO(); sink = logger.add(buf, level='WARNING', format='{message}')\n"
-            f"KnowledgePipeline().replace('reranker', {warning_component!r})\n"
-            "logger.remove(sink); print(repr(buf.getvalue()))"
+            "with warnings.catch_warnings(record=True) as caught:\n"
+            "    warnings.simplefilter('always')\n"
+            f"    KnowledgePipeline().replace('reranker', {warning_component!r})\n"
+            "print([str(w.message) for w in caught])"
         ),
         "run": _repro(
             _R_HEAD + _R_DOCS + "inst = KnowledgePipeline().replace('reranker', 'demo')"

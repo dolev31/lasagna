@@ -27,6 +27,7 @@ import os
 import sys
 import time
 import functools
+import warnings
 from typing import Any, Callable, Dict, List, Optional, Type
 
 from loguru import logger
@@ -98,13 +99,17 @@ def _warn_if_not_interchangeable(component_type: str, name: str) -> None:
             return
 
         alternatives = sorted(n for n, e in entries.items() if e.get("implements_contract") is True)
-        logger.warning(
+        message = (
             f"{component_type} '{name}' does not implement the "
             f"{component_type} contract, so it is not interchangeable with "
             f"components that do. A comparison against one of "
             f"{alternatives} would also be measuring the interface difference. "
             f"Contract-compliant {component_type}s: {alternatives or 'none registered'}"
         )
+        logger.warning(message)
+        # The package's logs are off unless the host turns them on, and this
+        # is the one warning a researcher writing a script must see.
+        warnings.warn(message, UserWarning, stacklevel=3)
     except Exception:  # pragma: no cover - advisory only, must never block a swap
         pass
 
