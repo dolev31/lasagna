@@ -8,6 +8,7 @@ This module provides:
 
 from dataclasses import dataclass
 import threading
+from collections import OrderedDict
 import time
 from typing import List, Optional, Tuple, Union, Any, Dict
 import numpy as np
@@ -159,6 +160,10 @@ class CrossEncoderReranker:
     of being slower (can't pre-compute document embeddings).
     """
 
+    #: Cross-encoders kept loaded at once. Sweep arms that differ in
+    #: reranker_model run side by side, and each call picks its own.
+    MAX_LOADED_MODELS = 3
+
     def __init__(self, model_name: Optional[str] = None, config=None):
         """Initialize the reranker.
 
@@ -177,50 +182,67 @@ class CrossEncoderReranker:
         # Loaded on first use, not here: the reranker is built at backend start,
         # so loading eagerly downloaded the default 870 MB model even for the
         # speed profile, which turns reranking off.
+        self._models: "OrderedDict[str, Any]" = OrderedDict()
+        self._failed: Dict[str, str] = {}
 
     def configure(self, config) -> None:
-        """Update reranker configuration for the current session (thread-safe).
+        """Follow the session's reranker settings (thread-safe).
 
-        Note: This mutates singleton state (model_name, batch_size) which is
-        read without locking in rerank(). Model reloads are rare (only when
-        the model name changes), so the practical risk is low. The lock
-        protects the expensive model loading path.
+        Only records them; the model is chosen per call in :meth:`rerank`, so
+        two sessions with different models never swap one under the other.
         """
         if not config.enable_reranking:
             return
-
         with self._config_lock:
-            needs_reload = self.model is None
-            if not self._pinned and self.model_name != config.reranker_model:
+            if not self._pinned:
                 self.model_name = config.reranker_model
-                needs_reload = True
-            if self.batch_size != config.reranker_batch_size:
-                self.batch_size = config.reranker_batch_size
-                needs_reload = True
-
-            if needs_reload and CROSS_ENCODER_AVAILABLE:
-                self._load_model()
+            self.batch_size = config.reranker_batch_size
 
     def ensure_loaded(self) -> bool:
         """Load the model if it is not loaded yet; True when it is usable."""
-        if self.model is None and CROSS_ENCODER_AVAILABLE:
-            with self._config_lock:
-                if self.model is None:
-                    self._load_model()
-        return self.model is not None
+        try:
+            self._model_for(self.model_name)
+        except RuntimeError:
+            return False
+        return True
 
     def _load_model(self):
-        """Load the cross-encoder model."""
-        try:
-            device = _detect_device()
+        """Load ``self.model_name`` (kept for callers of the old interface)."""
+        self.model = self._model_for(self.model_name)
 
-            logger.info(f"Loading cross-encoder reranker: {self.model_name} on {device}")
-            warn_if_restricted(self.model_name, component="reranker")
-            self.model = CrossEncoder(self.model_name, device=device)
-            logger.info(f"Reranker loaded successfully: {self.model_name}")
-        except Exception as e:
-            logger.error(f"Failed to load reranker model: {e}")
-            self.model = None
+    def _model_for(self, name: str) -> Any:
+        """The loaded cross-encoder for ``name``, loading it on first use.
+
+        A model that cannot load raises, once per name: it used to be skipped,
+        so an arm with a misspelled model scored the retrieval order, recorded
+        the misspelled name as what ran, and retried the load on every query.
+        """
+        with self._config_lock:
+            if name in self._failed:
+                raise RuntimeError(self._failed[name])
+            model = self._models.get(name)
+            if model is not None:
+                self._models.move_to_end(name)
+                return model
+            if not CROSS_ENCODER_AVAILABLE:
+                raise RuntimeError(
+                    "Reranking is enabled but sentence-transformers is not installed"
+                )
+            try:
+                device = _detect_device()
+                logger.info(f"Loading cross-encoder reranker: {name} on {device}")
+                warn_if_restricted(name, component="reranker")
+                model = CrossEncoder(name, device=device)
+            except Exception as e:
+                self._failed[name] = f"Cannot load reranker model {name!r}: {e}"
+                raise RuntimeError(self._failed[name]) from e
+            self._models[name] = model
+            while len(self._models) > self.MAX_LOADED_MODELS:
+                self._models.popitem(last=False)
+            if name == self.model_name:
+                self.model = model
+            logger.info(f"Reranker loaded successfully: {name}")
+            return model
 
     def rerank(
         self, query: str, results: List[Dict[str, Any]], top_k: Optional[int] = None, config=None
@@ -231,9 +253,16 @@ class CrossEncoderReranker:
             query: The search query
             results: List of search results with content
             top_k: Number of top results to return (default from config)
+            config: The session config; its ``reranker_model`` picks the model
+                unless this reranker was built for a named one.
 
         Returns:
             Reranked results
+
+        Raises:
+            RuntimeError: reranking is enabled and the model cannot load or
+                score. Returning the retrieval order instead put the control's
+                number under the treatment's name.
         """
         if not results:
             return []
@@ -244,14 +273,14 @@ class CrossEncoderReranker:
             top_k = top_k or rag_config.rerank_top_k
 
         enabled = config.enable_reranking if config else rag_config.enable_reranking
-        if config is not None:
-            # Follows the session's reranker_model and loads on first use.
-            self.configure(config)
-        elif enabled:
-            self.ensure_loaded()
-        if not self.model or not enabled:
-            # Return original results without reranking
+        if not enabled:
             return self._convert_results(results, top_k)
+
+        # The model for this call, held locally: the shared attribute can be
+        # switched by another session between choosing a model and scoring.
+        name = self.model_name if (self._pinned or config is None) else config.reranker_model
+        batch_size = getattr(config, "reranker_batch_size", None) or self.batch_size
+        model = self._model_for(name)
 
         # Prepare query-document pairs
         pairs = []
@@ -261,10 +290,9 @@ class CrossEncoderReranker:
 
         # Get reranking scores
         try:
-            scores = self.model.predict(pairs, batch_size=self.batch_size, show_progress_bar=False)
+            scores = model.predict(pairs, batch_size=batch_size, show_progress_bar=False)
         except Exception as e:
-            logger.error(f"Reranking failed: {e}")
-            return self._convert_results(results, top_k)
+            raise RuntimeError(f"Reranking with {name!r} failed: {e}") from e
 
         raw_scores = [float(s) for s in scores]
 
