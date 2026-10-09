@@ -103,16 +103,23 @@ class ReportGenerator:
                         lines.append(f"### {bench}")
                         lines.append("")
                         lines.append(
-                            "| Config A | Config B | p-value | Significant | Effect Size |"
+                            "| Config A | Config B | n | p-value | p (Holm) "
+                            "| Significant | Effect Size |"
                         )
-                        lines.append(
-                            "|----------|----------|---------|-------------|-------------|"
-                        )
+                        lines.append("|---|---|---|---|---|---|---|")
                         for pw in pairwise:
+                            if pw["p_value"] is None:
+                                # Counted in the Holm family as p = 1.
+                                lines.append(
+                                    f"| {pw['config_a']} | {pw['config_b']} | 0 "
+                                    f"| untestable | — | No | — |"
+                                )
+                                continue
                             sig_marker = "Yes" if pw["significant"] else "No"
                             lines.append(
                                 f"| {pw['config_a']} | {pw['config_b']} "
-                                f"| {pw['p_value']:.4f} | {sig_marker} "
+                                f"| {pw.get('n_paired', '')} "
+                                f"| {pw['p_value']:.4g} | {pw['p_adjusted']:.4g} | {sig_marker} "
                                 f"| {_format_effect_size(pw['effect_size'])} |"
                             )
                         lines.append("")

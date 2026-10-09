@@ -16,11 +16,12 @@ import json
 import os
 import shlex
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import typer
 from rich.console import Console
 from rich.markup import escape
+from rich.measure import Measurement
 from rich.panel import Panel
 from rich.table import Table
 
@@ -1079,8 +1080,8 @@ def _print_isolation(results) -> None:
             console.print(f"  - {escape(line)}")
     elif pairs and not report["inert"]:
         console.print(
-            f"[green]Stage isolation: arms differ only in the stages they name "
-            f"({pairs} pair(s) compared).[/green]"
+            f"[green]Stage isolation: the configuration that reached each stage differs "
+            f"only in the stages the arms name ({pairs} pair(s) compared).[/green]"
         )
     elif not pairs and len(rows) > 1:
         console.print(
@@ -1438,10 +1439,10 @@ def results_bundle(
     bundle = results.to_bundle(submitter=submitter or None)
 
     Path(output).write_text(json.dumps(bundle, indent=2, default=str))
-    console.print(f"[green]Wrote[/green] {output}")
+    console.print(f"[green]Wrote[/green] {escape(output)}")
     console.print(f"  run_id: {bundle['run_id']}")
     for cfg in bundle["configs"]:
-        console.print(f"  {cfg['name']}: comparability key {cfg['comparability_key']}")
+        console.print(f"  {escape(str(cfg['name']))}: comparability key {cfg['comparability_key']}")
     warnings = bundle["integrity"]["warnings"]
     if warnings:
         console.print(f"[yellow]  integrity warnings: {', '.join(warnings)}[/yellow]")
@@ -1462,6 +1463,7 @@ def results_validate(
         _content_hash,
         aggregate_mismatches,
         comparability_key,
+        ranked_list_mismatches,
     )
 
     bundle = json.loads(Path(bundle_path).read_text())
@@ -1492,6 +1494,10 @@ def results_validate(
         f"aggregate disagrees with per-query scores: {m}"
         for m in aggregate_mismatches(bundle.get("results") or [])
     )
+    problems.extend(
+        f"per-query score above what its ranked list supports: {m}"
+        for m in ranked_list_mismatches(bundle.get("results") or [])
+    )
 
     env = (bundle.get("experiment") or {}).get("environment") or {}
     for required in ("lasagna_version", "python", "platform"):
@@ -1504,18 +1510,32 @@ def results_validate(
         problems.append(f"  {line}")
 
     warnings = (bundle.get("integrity") or {}).get("warnings") or []
+    # What each active fallback swapped in and what to install, so the
+    # ACTIVE_FALLBACKS code is actionable. Older bundles have no list.
+    fallbacks = (
+        [str(f) for f in (bundle.get("integrity") or {}).get("fallbacks", [])]
+        if "ACTIVE_FALLBACKS" in warnings
+        else []
+    )
     if strict:
         problems.extend(f"integrity (strict): {code}" for code in warnings)
 
     if problems:
         console.print(f"[red]INVALID[/red] — {len(problems)} problem(s):")
+        # Problem lines quote arm names, which are free text: `a[/b]` is a
+        # Rich closing tag and crashed the command instead of printing.
         for p in problems:
-            console.print(f"  - {p}")
+            console.print(f"  - {escape(p)}")
+            if p == "integrity (strict): ACTIVE_FALLBACKS":
+                for line in fallbacks:
+                    console.print(f"      {escape(line)}")
         raise typer.Exit(1)
 
-    console.print(f"[green]VALID[/green] (schema {schema}, run_id {bundle['run_id']})")
+    console.print(f"[green]VALID[/green] (schema {escape(schema)}, run_id {bundle['run_id']})")
     if warnings:
-        console.print(f"[yellow]  warnings: {', '.join(warnings)}[/yellow]")
+        console.print(f"[yellow]  warnings: {escape(', '.join(warnings))}[/yellow]")
+        for line in fallbacks:
+            console.print(f"    {escape(line)}")
 
 
 @results_app.command("compare")
@@ -1527,7 +1547,11 @@ def results_compare(
     """Compare two runs, reporting whether they are comparable at all."""
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    console.print(BenchmarkResults.load(a).compare(BenchmarkResults.load(b), metric))
+    console.print(
+        BenchmarkResults.load(a).compare(BenchmarkResults.load(b), metric),
+        markup=False,
+        highlight=False,
+    )
 
 
 @results_app.command("power")
@@ -1572,13 +1596,22 @@ def results_power(
     except ValueError as exc:
         _error(str(exc))
 
-    console.print(f"[bold]{metric}[/bold] on {benchmark}: {config_b} vs {config_a}")
+    console.print(
+        f"[bold]{escape(metric)}[/bold] on {escape(benchmark)}: "
+        f"{escape(config_b)} vs {escape(config_a)}"
+    )
     console.print(f"  paired queries       : {report['n_paired']}")
     console.print(f"  observed difference  : {report['observed_difference']:+.4f}")
     console.print(f"  sd of differences    : {report['sd_of_differences']:.4f}")
-    colour = "yellow" if report["underpowered"] else "green"
     console.print(
-        f"  [bold]detectable at {int(report['power'] * 100)}% power[/bold]: "
+        f"  p, uncorrected       : {report['p_value']:.4f}"
+        + ("  [green]significant[/green]" if report["significant"] else "")
+    )
+    # Yellow only when a miss is the likely story: a significant pair was
+    # detected, whatever its size relative to the MDE.
+    colour = "yellow" if report["underpowered"] and not report["significant"] else "green"
+    console.print(
+        f"  [bold]effect detected {int(report['power'] * 100)}% of the time[/bold]: "
         f"[{colour}]{report['minimum_detectable_effect']:.4f}[/{colour}]"
     )
     if report["n_needed_for_observed_effect"]:
@@ -1586,7 +1619,7 @@ def results_power(
             f"  queries needed for the observed effect: {report['n_needed_for_observed_effect']}"
         )
     console.print()
-    console.print(f"  {report['interpretation']}")
+    console.print(f"  {escape(report['interpretation'])}")
 
 
 def _format_effect_size(effect: Optional[float]) -> str:
@@ -1671,37 +1704,63 @@ def results_significance(
         )
 
     label = "Holm-Bonferroni" if correction == "holm" else "uncorrected"
-    console.print(f"[bold]{metric}[/bold] on {benchmark} — {len(rows)} pairs, {label}")
+    console.print(
+        f"[bold]{escape(metric)}[/bold] on {escape(benchmark)} — {len(rows)} pairs, {label}"
+    )
     console.print()
 
-    table = Table(box=None, pad_edge=False)
-    # Config names are what identifies a pair; wrap them rather than cut them.
-    table.add_column("A", overflow="fold")
-    table.add_column("B", overflow="fold")
-    table.add_column("diff", justify="right")
-    table.add_column("d_z", justify="right")
-    table.add_column("p", justify="right")
-    if correction == "holm":
-        table.add_column("p (Holm)", justify="right")
-    table.add_column("", justify="left")
+    tested = [r for r in rows if r.get("p_value") is not None]
+    untestable = [r for r in rows if r.get("p_value") is None]
+    any_dropped = any(r.get("n_dropped_a") or r.get("n_dropped_b") for r in tested)
 
-    shown = 0
-    for row in rows:
-        if not show_all and not row.get("significant"):
-            continue
-        shown += 1
-        significant = row.get("significant")
-        cells = [
-            escape(str(row["config_a"])),
-            escape(str(row["config_b"])),
-            f"{row['difference']:+.4f}",
-            _format_effect_size(row.get("effect_size")),
-            f"{row['p_value']:.4f}",
-        ]
+    shown_rows = [r for r in tested if show_all or r.get("significant")]
+
+    def _table(label, between: str) -> Table:
+        table = Table(box=None, pad_edge=False)
+        table.add_column("pair", no_wrap=True)
+        table.add_column("diff", justify="right", no_wrap=True)
+        table.add_column("d_z", justify="right", no_wrap=True)
+        table.add_column("p", justify="right", no_wrap=True)
         if correction == "holm":
-            cells.append(f"{row.get('p_adjusted', row['p_value']):.4f}")
-        cells.append("[green]significant[/green]" if significant else "[dim]—[/dim]")
-        table.add_row(*cells)
+            table.add_column("p (Holm)", justify="right", no_wrap=True)
+        # How many queries the test actually paired, and how many each side
+        # scored that the other did not.
+        table.add_column("n", justify="right", no_wrap=True)
+        if any_dropped:
+            table.add_column("dropped", justify="right", no_wrap=True)
+        table.add_column("", justify="left", no_wrap=True)
+        for row in shown_rows:
+            cells = [
+                f"{label(row['config_a'])}{between}vs {label(row['config_b'])}",
+                f"{row['difference']:+.4f}",
+                _format_effect_size(row.get("effect_size")),
+                _format_p(row["p_value"]),
+            ]
+            if correction == "holm":
+                cells.append(_format_p(row.get("p_adjusted", row["p_value"])))
+            cells.append(str(row.get("n_paired", "")))
+            if any_dropped:
+                cells.append(f"{row.get('n_dropped_a', 0)}/{row.get('n_dropped_b', 0)}")
+            cells.append("[green]significant[/green]" if row.get("significant") else "[dim]—[/dim]")
+            table.add_row(*cells)
+        return table
+
+    # Config names are what identifies a pair, so they are printed whole: one
+    # per line when the table fits, numbered with a legend when it does not.
+    # Folding them (`reranker=cross_e / ncoder`) or truncating them made two
+    # arms impossible to tell apart.
+    table = _table(lambda name: escape(str(name)), "\n")
+    if _natural_width(table) > console.width:
+        numbered = {
+            name: f"[{i}]"
+            for i, name in enumerate(
+                sorted({str(r[k]) for r in shown_rows for k in ("config_a", "config_b")}), 1
+            )
+        }
+        for name, tag in numbered.items():
+            console.print(f"  {escape(tag)} {escape(name)}")
+        console.print()
+        table = _table(lambda name: escape(numbered[str(name)]), " ")
     console.print(table)
 
     survivors = sum(1 for r in rows if r.get("significant"))
@@ -1716,8 +1775,33 @@ def results_significance(
             f"[yellow]uncorrected[/yellow] — with {len(rows)} comparisons, expect "
             f"about {len(rows) * alpha:.1f} of these by chance."
         )
-    if not show_all and shown < len(rows):
-        console.print(f"  {len(rows) - shown} non-significant pairs hidden; --all shows them.")
+    if any_dropped:
+        console.print(
+            "  [yellow]dropped[/yellow] is queries only A / only B scored. Those pairs "
+            "compare a shared subset, not each config's full run."
+        )
+    if untestable:
+        console.print(
+            f"  [yellow]{len(untestable)} pair(s) could not be tested[/yellow] and count in "
+            "the family as p = 1:"
+        )
+        for row in untestable:
+            console.print(
+                f"    {escape(str(row['config_a']))} vs {escape(str(row['config_b']))}: "
+                f"{escape(str(row.get('untestable', '')))}"
+            )
+    hidden = len(tested) - len(shown_rows)
+    if not show_all and hidden:
+        console.print(f"  {hidden} non-significant pairs hidden; --all shows them.")
+
+
+def _format_p(p: float) -> str:
+    """Four decimals, or scientific notation below 0.0001 rather than 0.0000.
+
+    An exact sign-flip p over 25 queries can be 6e-8, and "0.0000" reads as a
+    probability of zero.
+    """
+    return f"{p:.4f}" if p >= 1e-4 else f"{p:.1e}"
 
 
 @results_app.command("per-query")
@@ -1735,6 +1819,10 @@ def results_per_query(
     retrieval rather than generation". The two eval paths already wrote
     per-query rows into the same list and nothing joined them, so the answer was
     in the results file and could not be read out of it.
+
+    In the JSONL export, `_retrieved` lists each document's `score` and `rank`.
+    The rank is authoritative: scores can tie, so sorting by score does not
+    rebuild the ranking the metrics were computed on.
     """
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
@@ -1763,24 +1851,66 @@ def results_per_query(
                 writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
                 writer.writeheader()
                 writer.writerows(rows)
-        console.print(f"[green]Wrote[/green] {output} ({len(rows)} rows)")
+        console.print(f"[green]Wrote[/green] {escape(output)} ({len(rows)} rows)")
         return
 
-    metrics = sorted(_metric_columns(rows))[:6]
-    table = Table(title=f"{len(rows)} queries" + (f" (worst {sort_by} first)" if sort_by else ""))
-    table.add_column("config")
-    table.add_column("sample")
-    for name in metrics:
-        table.add_column(name, justify="right")
-    for row in rows[:limit]:
-        table.add_row(
-            row["config"],
-            str(row["sample_id"])[:24],
-            *[f"{row[m]:.3f}" if m in row else "—" for m in metrics],
-        )
+    # The sort column first: `--sort-by ndcg@10` used to show the first six
+    # metrics alphabetically, which can leave out ndcg@10 itself.
+    available = sorted(_metric_columns(rows))
+    if sort_by in available:
+        available = [sort_by] + [m for m in available if m != sort_by]
+    n_queries = len({(r["benchmark"], str(r["sample_id"])) for r in rows})
+    configs = sorted({str(r["config"]) for r in rows})
+    # Rows, not queries: each query appears once per config.
+    title = f"{len(rows)} rows: {n_queries} queries x {len(configs)} configs" + (
+        f" (worst {sort_by} first)" if sort_by else ""
+    )
+
+    def _table(label, metrics: List[str]) -> Table:
+        table = Table(title=escape(title))
+        table.add_column("config", no_wrap=True)
+        table.add_column("sample", no_wrap=True)
+        for name in metrics:
+            table.add_column(escape(name), justify="right", no_wrap=True)
+        for row in rows[:limit]:
+            table.add_row(
+                label(str(row["config"])),
+                escape(str(row["sample_id"])[:24]),
+                *[f"{row[m]:.3f}" if m in row else "—" for m in metrics],
+            )
+        return table
+
+    # Config names are printed whole; they are what tells two arms apart, and
+    # truncating them printed `reranke…` for both. Metric columns are dropped
+    # from the right until the table fits, and names are numbered with a
+    # legend only when not even one metric column fits beside them.
+    numbered = {name: f"[{i}]" for i, name in enumerate(configs, 1)}
+    table, legend, shown = None, False, 0
+    for use_legend in (False, True):
+        label = (lambda n: escape(numbered[n])) if use_legend else escape
+        for shown in range(min(6, len(available)), 0, -1):
+            candidate = _table(label, available[:shown])
+            if _natural_width(candidate) <= console.width or shown == 1 and use_legend:
+                table, legend = candidate, use_legend
+                break
+        if table is not None:
+            break
+    if legend:
+        for name in configs:
+            console.print(f"  {escape(numbered[name])} {escape(name)}")
     console.print(table)
+    if len(available) > shown:
+        console.print(
+            f"[dim]{len(available) - shown} more metric column(s) not shown; "
+            "-o rows.csv has all of them.[/dim]"
+        )
     if len(rows) > limit:
         console.print(f"[dim]... {len(rows) - limit} more. Use -o rows.csv for all of them.[/dim]")
+
+
+def _natural_width(renderable) -> int:
+    """Width a renderable needs to print without folding or cropping anything."""
+    return Measurement.get(console, console.options.update_width(10_000), renderable).maximum
 
 
 def _row_columns(rows: List[dict]) -> List[str]:
@@ -1866,7 +1996,9 @@ def results_interaction(
     except ValueError as exc:
         _error(str(exc))
 
-    table = Table(title=f"{metric} on {benchmark} (n={report['n_paired']} paired queries)")
+    table = Table(
+        title=f"{escape(metric)} on {escape(benchmark)} (n={report['n_paired']} paired queries)"
+    )
     table.add_column("Cell")
     table.add_column("Mean", justify="right")
     table.add_column("vs neither", justify="right")
@@ -1879,8 +2011,10 @@ def results_interaction(
     ):
         mean = report["means"][name]
         delta = "—" if name == neither else f"{mean - base:+.4f}"
-        table.add_row(f"{label}  [dim]{name}[/dim]", f"{mean:.4f}", delta)
+        table.add_row(f"{label}  [dim]{escape(name)}[/dim]", f"{mean:.4f}", delta)
     console.print(table)
+    for line in _identical_cells(results, benchmark, [neither, only_a, only_b, both]):
+        console.print(f"[yellow]{escape(line)}[/yellow]")
 
     console.print()
     console.print(f"  expected if additive : {report['expected_if_additive']:+.4f}")
@@ -1888,8 +2022,8 @@ def results_interaction(
     colour = "green" if report["significant"] else "yellow"
     console.print(
         f"  [bold]interaction[/bold]          : [{colour}]{report['interaction']:+.4f}[/{colour}]"
-        f"  95% CI [{report['ci_lower']:+.4f}, {report['ci_upper']:+.4f}]"
-        f"  p={report['p_value']:.4f}"
+        f"  {report['confidence_level']:.0%} CI [{report['ci_lower']:+.4f}, {report['ci_upper']:+.4f}]"
+        f"  p={_format_p(report['p_value'])}"
     )
     if report["composition_efficiency"] is not None:
         console.print(
@@ -1898,6 +2032,40 @@ def results_interaction(
         )
     console.print()
     console.print(f"  [bold]{report['verdict']}[/bold]")
+
+
+def _identical_cells(results, benchmark: str, cells: List[str]) -> List[str]:
+    """Pairs of cells that returned the same ranked list on every shared query.
+
+    A factor that never changed retrieval in a cell still yields an
+    interaction estimate, and a confident one: in a rerank x MMR factorial on
+    `speed` the MMR cell matched `neither` on 12 of 12 queries and the command
+    reported a significant redundancy.
+    """
+    lists: Dict[str, Dict[Any, tuple]] = {}
+    for name in cells:
+        seen: Dict[Any, tuple] = {}
+        for task in results._by_bench_config.get((benchmark, name), []):
+            if task.error:
+                continue
+            for i, sample in enumerate(task.per_sample_scores or []):
+                ids = sample.get("_retrieved_ids")
+                if isinstance(ids, list):
+                    seen.setdefault(sample.get("_sample_id", i), tuple(ids))
+        lists[name] = seen
+
+    lines = []
+    for i, a in enumerate(cells):
+        for b in cells[i + 1 :]:
+            shared = set(lists[a]) & set(lists[b])
+            if shared and all(lists[a][sid] == lists[b][sid] for sid in shared):
+                lines.append(
+                    f"Cells {a!r} and {b!r} returned identical ranked lists on all "
+                    f"{len(shared)} shared queries. If the factor that separates them "
+                    "acts on retrieval, it did nothing in that cell, and the interaction "
+                    "below reflects that rather than an overlap between the techniques."
+                )
+    return lines
 
 
 skills_app = typer.Typer(
@@ -2079,11 +2247,11 @@ def results_leaderboard(
     )
     for name, info in index["benchmarks"].items():
         console.print(
-            f"  {name}: {info['n_rows']} row(s) in {info['n_groups']} "
+            f"  {escape(name)}: {info['n_rows']} row(s) in {info['n_groups']} "
             f"comparability group(s), {info['n_verified']} verified"
         )
     if output:
-        console.print(f"[green]Wrote {output}[/green]")
+        console.print(f"[green]Wrote {escape(output)}[/green]")
 
 
 @results_app.command("schema")
@@ -2103,7 +2271,7 @@ def results_schema(
     text = _json.dumps(json_schema(), indent=2) + "\n"
     if output:
         Path(output).write_text(text, encoding="utf-8")
-        console.print(f"[green]Wrote {output}[/green] (schema {SCHEMA_VERSION})")
+        console.print(f"[green]Wrote {escape(output)}[/green] (schema {SCHEMA_VERSION})")
     else:
         console.print(text, markup=False, highlight=False)
 

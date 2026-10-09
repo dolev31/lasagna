@@ -645,3 +645,92 @@ class TestReportShape:
         # Planted with no noise on the interaction term, so d_z is unbounded in
         # both; what matters is that they do not differ by a factor of sqrt(8).
         assert math.isinf(small["effect_size"]) == math.isinf(large["effect_size"])
+
+
+class TestTheInteractionCommand:
+    """Driven through the CLI, which is where a reader meets these numbers."""
+
+    def _file(self, tmp_path, cells, retrieved=None):
+        import json
+
+        rows = []
+        for name, scores in cells.items():
+            per_sample = []
+            for i, s in enumerate(scores):
+                row = {"_sample_id": f"q{i}", "ndcg@10": s}
+                if retrieved is not None:
+                    row["_retrieved_ids"] = retrieved[name][i]
+                per_sample.append(row)
+            rows.append(
+                {
+                    "task_key": name,
+                    "run_index": 0,
+                    "benchmark_name": "scifact",
+                    "config_name": name,
+                    "metrics": {},
+                    "per_sample_scores": per_sample,
+                }
+            )
+        path = tmp_path / "results.json"
+        path.write_text(json.dumps({"results": rows}))
+        return str(path)
+
+    def _invoke(self, path, *extra):
+        typer_testing = pytest.importorskip("typer.testing")
+        from lasagna.cli import app
+
+        return typer_testing.CliRunner().invoke(
+            app, ["results", "interaction", path, "--neither", "neither", *extra]
+        )
+
+    def test_the_interval_is_labelled_with_its_own_level(self, tmp_path):
+        """`--alpha 0.2` printed an 80% interval under the label "95% CI"."""
+        path = self._file(tmp_path, _planted(n=30, interaction=0.01))
+        out = self._invoke(path, "--alpha", "0.2")
+        assert out.exit_code == 0, out.output
+        assert "80% CI" in out.output and "95% CI" not in out.output
+
+    def test_a_cell_identical_to_another_is_named(self, tmp_path):
+        """In a rerank x MMR factorial on `speed`, the MMR cell returned the
+        same ranked lists as `neither` on 12 of 12 queries, and the command
+        reported a significant "redundant" interaction from a factor that did
+        nothing."""
+        cells = _planted(n=12, eff_a=0.05, eff_b=0.0, interaction=-0.03)
+        lists = {
+            "neither": [[f"d{i}", "x"] for i in range(12)],
+            "hyde": [[f"h{i}", "x"] for i in range(12)],
+            "reranking": [[f"d{i}", "x"] for i in range(12)],
+            "hyde+reranking": [[f"b{i}", "x"] for i in range(12)],
+        }
+        out = self._invoke(self._file(tmp_path, cells, lists))
+        assert out.exit_code == 0, out.output
+        assert "identical ranked lists" in out.output
+        assert "'neither'" in out.output and "'reranking'" in out.output
+
+    def test_distinct_cells_get_no_warning(self, tmp_path):
+        lists = {
+            name: [[f"{name}{i}"] for i in range(12)]
+            for name in ("neither", "hyde", "reranking", "hyde+reranking")
+        }
+        out = self._invoke(self._file(tmp_path, _planted(n=12), lists))
+        assert out.exit_code == 0, out.output
+        assert "identical ranked lists" not in out.output
+
+    def test_config_names_are_printed_literally(self, tmp_path):
+        cells = {
+            "neither": [0.4 + 0.01 * (i % 5) for i in range(12)],
+            "a [old]": [0.45 + 0.01 * (i % 5) for i in range(12)],
+            "b": [0.42 + 0.01 * (i % 3) for i in range(12)],
+            "both": [0.5 + 0.01 * (i % 4) for i in range(12)],
+        }
+        out = self._invoke(
+            self._file(tmp_path, cells),
+            "--only-a",
+            "a [old]",
+            "--only-b",
+            "b",
+            "--both",
+            "both",
+        )
+        assert out.exit_code == 0, out.output
+        assert "a [old]" in out.output

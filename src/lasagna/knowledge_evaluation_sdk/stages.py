@@ -1,19 +1,24 @@
-"""Which pipeline stage each setting belongs to, and proof that a swap stayed in it.
+"""Which pipeline stage each setting belongs to, and a check that a swap stayed in it.
 
 A comparison between two arms is only attributable when the arms differ in the
 stage under test and nowhere else. The registry gives every stage a fixed
-interface; this module checks the other half of the claim, at runtime: each task
-records a **stage manifest** (a digest of every setting and component that
-reached each stage), and :func:`isolation_report` compares the manifests of a
-sweep's arms against what each arm declared it would change.
+interface; this module checks the configuration half of the claim, at runtime:
+each task records a **stage manifest** (a digest of every setting and component
+that reached each stage), and :func:`isolation_report` compares the manifests
+of a sweep's arms against what each arm declared it would change.
 
-* A stage that differs between two arms although neither arm named it is an
-  **undeclared change**: something leaked across a stage boundary (a profile
-  default, a component with side effects, a harness bug). The run says so and
+* A stage whose configuration differs between two arms although neither arm
+  named it is an **undeclared change**: a setting leaked across a stage
+  boundary (a profile default, a harness bug). The run says so and
   ``lasagna results validate`` refuses the bundle.
 * An arm that names a change its manifest does not show is **inert**: the
   setting or component never reached the pipeline, so its number is the
   baseline's under another name.
+
+The manifest digests configuration, not behaviour. A component that changes
+state outside its stage at runtime (patching another module, say) leaves every
+digest unchanged and passes this check; the stage contracts and their
+conformance tests are what guard against that.
 """
 
 from __future__ import annotations

@@ -372,3 +372,66 @@ class TestTheCliExports:
         result = self._run(str(self._write(tmp_path)), "--sort-by", "nonsense")
         assert result.returncode != 0
         assert "ndcg@10" in result.stdout + result.stderr
+
+
+class TestThePrintedTable:
+    """The table a researcher reads before exporting anything."""
+
+    def _file(self, tmp_path, configs, n=6):
+        rows = []
+        for c, name in enumerate(configs):
+            rows.append(
+                {
+                    "task_key": name,
+                    "run_index": 0,
+                    "benchmark_name": "bench",
+                    "config_name": name,
+                    "metrics": {},
+                    "per_sample_scores": [
+                        {
+                            "_sample_id": f"q{i}",
+                            "ndcg@10": 0.1 * ((i + c) % 9),
+                            "f1@10": 0.5,
+                            "hit_rate@10": 1.0,
+                            "input_tokens": 3.0,
+                            "latency_ms": 40.0,
+                            "map@10": 0.4,
+                            "mrr@10": 0.4,
+                            "precision@10": 0.1,
+                        }
+                        for i in range(n)
+                    ],
+                }
+            )
+        path = tmp_path / "results.json"
+        path.write_text(json.dumps({"results": rows}))
+        return str(path)
+
+    def _invoke(self, *args):
+        typer_testing = pytest.importorskip("typer.testing")
+        from lasagna.cli import app
+
+        return typer_testing.CliRunner().invoke(app, ["results", "per-query", *args])
+
+    def test_the_sort_column_is_shown(self, tmp_path):
+        """`--sort-by ndcg@10` showed the first six metrics alphabetically,
+        which left out ndcg@10 itself."""
+        out = self._invoke(self._file(tmp_path, ["a", "b"]), "--sort-by", "ndcg@10")
+        assert out.exit_code == 0, out.output
+        # Only ndcg@10 takes these values in the fixture.
+        assert "0.600" in out.output and "0.300" in out.output
+
+    def test_two_long_config_names_can_be_told_apart(self, tmp_path):
+        """Both arms printed as `reranke…`."""
+        names = ["reranker=cross_encoder", "reranker=my_tech:soft_overlap"]
+        out = self._invoke(self._file(tmp_path, names))
+        assert out.exit_code == 0, out.output
+        for name in names:
+            assert name in out.output
+
+    def test_the_header_counts_queries_and_configs_not_rows(self, tmp_path):
+        """50 queries x 2 arms was headed "100 queries"."""
+        out = self._invoke(self._file(tmp_path, ["a", "b"], n=5))
+        assert out.exit_code == 0, out.output
+        assert "10 rows" in out.output and "5 queries" in out.output
+        assert "10 queries" not in out.output

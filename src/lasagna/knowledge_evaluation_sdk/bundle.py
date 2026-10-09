@@ -10,7 +10,9 @@ The comparability key is a hash over the held-fixed configuration:
 
     metrics_version, benchmark, split, n_samples, sampling seed,
     sample_id_digest, corpus_fingerprint, corpus_provenance, resolved_mode,
-    embedder + dimension, chunker, retriever top_k, vector backend, judge model
+    embedder + dimension, chunker, retriever top_k, vector backend, judge model,
+    BM25 stemming, and the stage-manifest digest of every stage the run does
+    not vary
 
 It **excludes the dimension under test**, which is recorded separately as
 ``varied_dimensions``. That exclusion is the whole design: the point of the
@@ -27,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 #: Bump when a metric definition changes. Numbers computed under different
@@ -56,7 +59,12 @@ from typing import Any, Dict, List, Optional
 #:   they must not compare equal to keys minted after.
 #: 1.3: held-fixed fields come from what each task ran (TaskResult.system), and
 #: BM25 stemming is part of the key.
-METRICS_VERSION = "1.3"
+#: 1.4: exact_match and token_f1 treat an answer as an abstention only when it
+#: opens with one, not when it contains a hedge anywhere, and normalize in the
+#: official SQuAD order (punctuation before articles). The key also covers the
+#: stage-manifest digests of every stage the run does not vary
+#: (``fixed_stages``): dense-only and hybrid runs used to share a key.
+METRICS_VERSION = "1.4"
 
 #: Bundle schema version. Consumers accept >=1.0,<2.0.
 SCHEMA_VERSION = "1.0"
@@ -87,7 +95,19 @@ HELD_FIXED_FIELDS = (
     # Whether BM25 stemmed its terms. It depends on nltk being installed, so two
     # machines running the same config could differ here and nowhere else.
     "bm25_stemming",
+    # {stage: digest} from the row's stage manifest, for every stage the run's
+    # arms do not vary. The fields above say nothing about retrieval mode,
+    # fusion weights, MMR or HyDE, so a dense-only and a hybrid sweep shared a
+    # key and one leaderboard table. None when the row recorded no manifest.
+    "fixed_stages",
 )
+
+#: Fields hashed only for blocks at or after the metrics version that added
+#: them, so a bundle minted before still recomputes to the key it carries.
+#: Later blocks hash the field whether or not it is present (absent is None).
+_KEY_FIELDS_SINCE: Dict[str, tuple] = {
+    "fixed_stages": (1, 4),
+}
 
 #: The stages a sweep varies. Excluded from the key, recorded alongside it.
 VARIABLE_DIMENSIONS = (
@@ -162,8 +182,12 @@ def comparability_key(held_fixed: Dict[str, Any]) -> str:
     # result row lacks it, so the one path that matters never got the default
     # and the same native run produced three different keys depending on how it
     # was serialised.
+    version = _version_tuple(held_fixed.get("metrics_version"))
     payload = {}
     for field in HELD_FIXED_FIELDS:
+        since = _KEY_FIELDS_SINCE.get(field)
+        if since is not None and version < since:
+            continue
         value = held_fixed.get(field)
         payload[field] = KEY_DEFAULTS[field] if value is None and field in KEY_DEFAULTS else value
 
@@ -171,10 +195,59 @@ def comparability_key(held_fixed: Dict[str, Any]) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
-def held_fixed_from(result: Dict[str, Any], run_meta: Dict[str, Any]) -> Dict[str, Any]:
-    """Assemble the held-fixed block from a task result and its run metadata."""
+def _versions_before(since: tuple) -> List[str]:
+    """Every ``major.minor`` metrics version before ``since`` within its major."""
+    major, minor = since
+    return [f"{major}.{m}" for m in range(minor)]
+
+
+def _version_tuple(version: Any) -> tuple:
+    """``"1.10"`` as ``(1, 10)``, so it sorts after ``"1.4"``; unparseable is newest."""
+    try:
+        return tuple(int(part) for part in str(version).split("."))
+    except ValueError:
+        return (10**9,)
+
+
+def varied_stages(
+    config_overrides: Dict[str, Any],
+    across: Optional[List[Dict[str, Any]]] = None,
+) -> List[str]:
+    """The pipeline stages a run varies: those of every override that differs
+    between its arms, or of this config's own overrides when it is the only
+    arm (the same fallback as :func:`varied_dimensions`).
+
+    Taken across the run, not per arm, so every arm of a sweep leaves the same
+    stages out of its key and the arms stay in one comparability group.
+    """
+    from .stages import stage_of
+
+    if across is None or len(across) < 2:
+        keys = {k for k in config_overrides if k not in _DERIVED_OVERRIDE_KEYS}
+    else:
+        candidates = {k for cfg in across for k in cfg if k not in _DERIVED_OVERRIDE_KEYS}
+        keys = {
+            k
+            for k in candidates
+            if len({json.dumps(cfg.get(k), sort_keys=True, default=str) for cfg in across}) > 1
+        }
+    return sorted({stage for stage in map(stage_of, keys) if stage is not None})
+
+
+def held_fixed_from(
+    result: Dict[str, Any],
+    run_meta: Dict[str, Any],
+    across: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Assemble the held-fixed block from a task result and its run metadata.
+
+    ``across`` is every config's overrides in the run, which decides the
+    stages left out of ``fixed_stages``; see :func:`varied_stages`.
+    """
     declared = run_meta.get("system", {}) or {}
     ran = result.get("system") or {}
+    manifest = ran.get("stages") or None
+    varied = set(varied_stages(result.get("config_overrides") or {}, across))
 
     def _field(name: str) -> Any:
         # What the task recorded running with wins over what the profile
@@ -199,6 +272,15 @@ def held_fixed_from(result: Dict[str, Any], run_meta: Dict[str, Any]) -> Dict[st
         "vector_backend": _field("vector_backend"),
         "judge_model": run_meta.get("judge_model"),
         "bm25_stemming": _field("bm25_stemming"),
+        "fixed_stages": (
+            {
+                stage: (entry or {}).get("digest")
+                for stage, entry in sorted(manifest.items())
+                if stage not in varied
+            }
+            if manifest
+            else None
+        ),
     }
 
 
@@ -251,11 +333,20 @@ def compare_keys(a: Dict[str, Any], b: Dict[str, Any]) -> List[str]:
     their run against a published row that differs somewhere, and a bare
     refusal teaches them nothing about which knob to turn.
     """
-    return [
-        f"{field}: {a.get(field)!r} vs {b.get(field)!r}"
-        for field in HELD_FIXED_FIELDS
-        if a.get(field) != b.get(field)
-    ]
+    diffs = []
+    for field in HELD_FIXED_FIELDS:
+        va, vb = a.get(field), b.get(field)
+        if va == vb:
+            continue
+        if field == "fixed_stages" and isinstance(va, dict) and isinstance(vb, dict):
+            # Per stage, so the reader knows which part of the pipeline to look
+            # at; the manifests in each bundle's rows name the settings.
+            for stage in sorted(set(va) | set(vb)):
+                if va.get(stage) != vb.get(stage):
+                    diffs.append(f"fixed_stages.{stage}: {va.get(stage)!r} vs {vb.get(stage)!r}")
+            continue
+        diffs.append(f"{field}: {va!r} vs {vb!r}")
+    return diffs
 
 
 def build_bundle(
@@ -287,7 +378,7 @@ def build_bundle(
         name = row.get("config_name", "")
         if name in configs:
             continue
-        held = held_fixed_from(row, run_meta)
+        held = held_fixed_from(row, run_meta, across)
         own = overrides_by_name.get(name, {})
         configs[name] = {
             "name": name,
@@ -407,10 +498,44 @@ def json_schema() -> Dict[str, Any]:
                             # Fields with a documented default in KEY_DEFAULTS
                             # are optional: a bundle published before the field
                             # existed is still valid, and the key computes the
-                            # same value for it either way. Everything else is
-                            # required, because a key hashing a field the schema
-                            # does not demand is a key nobody can recompute.
-                            "required": [f for f in HELD_FIXED_FIELDS if f not in KEY_DEFAULTS],
+                            # same value for it either way. So are fields gated
+                            # by metrics version (_KEY_FIELDS_SINCE), which an
+                            # older bundle cannot carry and a newer one hashes
+                            # as None when absent. Everything else is required,
+                            # because a key hashing a field the schema does not
+                            # demand is a key nobody can recompute.
+                            "required": [
+                                f
+                                for f in HELD_FIXED_FIELDS
+                                if f not in KEY_DEFAULTS and f not in _KEY_FIELDS_SINCE
+                            ],
+                            # A field gated by version is required from that
+                            # version on, so a current bundle cannot omit it.
+                            "allOf": [
+                                {
+                                    "if": {
+                                        "required": ["metrics_version"],
+                                        "properties": {
+                                            "metrics_version": {
+                                                "not": {"enum": _versions_before(since)}
+                                            }
+                                        },
+                                    },
+                                    "then": {"required": [field]},
+                                }
+                                for field, since in sorted(_KEY_FIELDS_SINCE.items())
+                            ],
+                            "properties": {
+                                "fixed_stages": {
+                                    "type": ["object", "null"],
+                                    "description": (
+                                        "Stage-manifest digest of every stage the run "
+                                        "does not vary, from metrics_version 1.4. Null "
+                                        "when the row recorded no manifest; such rows "
+                                        "are compared only within their own bundle."
+                                    ),
+                                },
+                            },
                         },
                         "varied_levels": {
                             "type": "object",
@@ -444,6 +569,20 @@ def json_schema() -> Dict[str, Any]:
                 "items": {
                     "type": "object",
                     "required": ["benchmark_name", "config_name", "metrics"],
+                    "properties": {
+                        "per_sample_scores": {
+                            "type": "array",
+                            "description": (
+                                "One row per query. Retrieval rows carry `_retrieved_ids` "
+                                "(the ranked list the metrics were computed on) and "
+                                "`_retrieved` ({doc_id, score, rank, chunk_rank}). `rank` "
+                                "is authoritative: scores can tie, so re-sorting by score "
+                                "does not rebuild the ranking (a keyword reranker with "
+                                "ties on every scifact query rescored to NDCG@10 0.5272 "
+                                "instead of 0.5709)."
+                            ),
+                        },
+                    },
                 },
             },
             "integrity": {
@@ -658,20 +797,24 @@ def aggregate_mismatches(rows: List[Dict[str, Any]], tol: float = 1e-6) -> List[
 
     The run id catches a bundle edited after it was built, but not one built
     from an edited results.json: a headline NDCG@10 of 0.665 over per-query
-    scores averaging 0.609 validated. Checked only where every query has a
-    finite score under the metric's own name, so metrics aggregated another way
-    (or with unjudged queries left out) are not second-guessed.
+    scores averaging 0.609 validated.
+
+    Each metric is checked against the per-query rows that carry it. An
+    end-to-end task lists a retrieval row and a generation row per query, and
+    requiring every row to carry the metric skipped every metric of every
+    e2e task. Metrics no row carries, or with an unscored (NaN) query, are not
+    second-guessed, since they are aggregated another way.
     """
     problems: List[str] = []
     for row in rows:
-        samples = row.get("per_sample_scores") or []
+        samples = [s for s in (row.get("per_sample_scores") or []) if isinstance(s, dict)]
         if not samples:
             continue
         for name, value in (row.get("metrics") or {}).items():
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 continue
-            scores = [s.get(name) if isinstance(s, dict) else None for s in samples]
-            if any(
+            scores = [s[name] for s in samples if name in s]
+            if not scores or any(
                 isinstance(v, bool) or not isinstance(v, (int, float)) or v != v for v in scores
             ):
                 continue
@@ -681,6 +824,52 @@ def aggregate_mismatches(rows: List[Dict[str, Any]], tol: float = 1e-6) -> List[
                     f"{row.get('config_name')!r} run {row.get('run_index')}: {name} is "
                     f"{value:.6g} but its {len(scores)} per-query scores average {mean:.6g}"
                 )
+    return problems
+
+
+#: Binary IR metrics a validator can recompute from the exported ranked list.
+_RECHECKABLE = re.compile(r"^(precision|hit_rate|mrr)@(\d+)$")
+
+
+def ranked_list_mismatches(rows: List[Dict[str, Any]], tol: float = 1e-9) -> List[str]:
+    """Per-query scores higher than their own exported ranked list supports.
+
+    Each retrieval row exports ``_retrieved_ids`` (the ranked list) and
+    ``_expected_docs`` (the judged documents), so precision, hit rate and MRR
+    at k can be recomputed. That catches a score raised, or a list reordered,
+    without the other, which recomputing the run id cannot: anyone who edits a
+    number can recompute the id.
+
+    One-sided on purpose. Grades are not exported, and ``_expected_docs`` can
+    include documents judged non-relevant; counting all of them as relevant
+    can only raise these three metrics, so an honest score never exceeds the
+    recomputed one. Graded metrics (NDCG) and recall-based ones are not
+    rechecked, for the same reason.
+    """
+    from .ir_metrics import hit_rate_at_k, mrr, precision_at_k
+
+    recompute = {"precision": precision_at_k, "hit_rate": hit_rate_at_k, "mrr": mrr}
+    problems: List[str] = []
+    for row in rows:
+        for i, sample in enumerate(row.get("per_sample_scores") or []):
+            if not isinstance(sample, dict):
+                continue
+            ranked, expected = sample.get("_retrieved_ids"), sample.get("_expected_docs")
+            if not isinstance(ranked, list) or not isinstance(expected, (list, dict)):
+                continue
+            relevance = {str(d): 1 for d in expected}
+            for name, stored in sample.items():
+                match = _RECHECKABLE.match(name)
+                if not match or isinstance(stored, bool) or not isinstance(stored, (int, float)):
+                    continue
+                kind, k = match.group(1), int(match.group(2))
+                bound = recompute[kind](relevance, [str(d) for d in ranked], k)
+                if stored > bound + tol:
+                    problems.append(
+                        f"{row.get('config_name')!r} run {row.get('run_index')} query "
+                        f"{sample.get('_sample_id', i)!r}: {name} is {stored:.6g} but its "
+                        f"ranked list gives at most {bound:.6g}"
+                    )
     return problems
 
 

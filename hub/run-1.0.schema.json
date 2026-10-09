@@ -96,7 +96,42 @@
               "vector_backend",
               "judge_model",
               "bm25_stemming"
-            ]
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "metrics_version"
+                  ],
+                  "properties": {
+                    "metrics_version": {
+                      "not": {
+                        "enum": [
+                          "1.0",
+                          "1.1",
+                          "1.2",
+                          "1.3"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "fixed_stages"
+                  ]
+                }
+              }
+            ],
+            "properties": {
+              "fixed_stages": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Stage-manifest digest of every stage the run does not vary, from metrics_version 1.4. Null when the row recorded no manifest; such rows are compared only within their own bundle."
+              }
+            }
           },
           "varied_levels": {
             "type": "object",
@@ -120,7 +155,13 @@
           "benchmark_name",
           "config_name",
           "metrics"
-        ]
+        ],
+        "properties": {
+          "per_sample_scores": {
+            "type": "array",
+            "description": "One row per query. Retrieval rows carry `_retrieved_ids` (the ranked list the metrics were computed on) and `_retrieved` ({doc_id, score, rank, chunk_rank}). `rank` is authoritative: scores can tie, so re-sorting by score does not rebuild the ranking (a keyword reranker with ties on every scifact query rescored to NDCG@10 0.5272 instead of 0.5709)."
+          }
+        }
       }
     },
     "integrity": {

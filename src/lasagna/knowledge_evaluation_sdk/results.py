@@ -95,6 +95,196 @@ def _samples_for_effect(effect: float, sd: float, alpha: float, power: float) ->
     return int(math.ceil((z * sd / effect) ** 2))
 
 
+def _betainc(a: float, b: float, x: float, x_complement: Optional[float] = None) -> float:
+    """Regularized incomplete beta function ``I_x(a, b)``.
+
+    Lentz's continued fraction (Numerical Recipes, ``betacf``), for the same
+    reason ``_normal_quantile`` exists: scipy is an optional extra, and the
+    Student-t distribution below is all it would be needed for.
+
+    ``x_complement`` is ``1 - x`` computed by the caller without cancellation,
+    which matters when ``x`` is within rounding of 1.
+    """
+    import math
+
+    y = (1.0 - x) if x_complement is None else x_complement
+    if x <= 0.0:
+        return 0.0
+    if y <= 0.0:
+        return 1.0
+
+    def _cf(a: float, b: float, x: float) -> float:
+        tiny = 1e-300
+        qab, qap, qam = a + b, a + 1.0, a - 1.0
+        c, d = 1.0, 1.0 - qab * x / qap
+        d = 1.0 / (d if abs(d) > tiny else tiny)
+        h = d
+        for m in range(1, 1000):
+            m2 = 2 * m
+            aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+            d = 1.0 + aa * d
+            d = 1.0 / (d if abs(d) > tiny else tiny)
+            c = 1.0 + aa / c
+            c = c if abs(c) > tiny else tiny
+            h *= d * c
+            aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+            d = 1.0 + aa * d
+            d = 1.0 / (d if abs(d) > tiny else tiny)
+            c = 1.0 + aa / c
+            c = c if abs(c) > tiny else tiny
+            step = d * c
+            h *= step
+            if abs(step - 1.0) < 1e-15:
+                break
+        return h
+
+    log_front = (
+        math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) + a * math.log(x) + b * math.log(y)
+    )
+    front = math.exp(log_front)
+    # The fraction converges fast only on one side of the mode; use symmetry
+    # on the other.
+    if x < (a + 1.0) / (a + b + 2.0):
+        return front * _cf(a, b, x) / a
+    return 1.0 - front * _cf(b, a, y) / b
+
+
+def _t_two_sided_p(t: float, df: float) -> float:
+    """``P(|T| >= |t|)`` for Student's t with ``df`` degrees of freedom."""
+    import math
+
+    if math.isnan(t):
+        return float("nan")
+    if math.isinf(t):
+        return 0.0
+    t2 = t * t
+    return _betainc(df / 2.0, 0.5, df / (df + t2), t2 / (df + t2))
+
+
+def _t_quantile(p: float, df: float) -> float:
+    """Inverse Student-t CDF, by bisection on :func:`_t_two_sided_p`.
+
+    Bisection rather than a closed-form approximation because the common
+    approximations lose accuracy at the small ``df`` this exists for: a paired
+    comparison over 10 queries has 9 degrees of freedom.
+    """
+    if not 0.0 < p < 1.0:
+        raise ValueError(f"quantile needs 0 < p < 1, got {p}")
+    if df <= 0:
+        raise ValueError(f"degrees of freedom must be positive, got {df}")
+    if p == 0.5:
+        return 0.0
+    if p < 0.5:
+        return -_t_quantile(1.0 - p, df)
+
+    target = 2.0 * (1.0 - p)  # two-sided tail mass beyond the quantile
+    lo, hi = 0.0, 1.0
+    while _t_two_sided_p(hi, df) > target:
+        lo, hi = hi, hi * 2.0
+    for _ in range(200):
+        mid = (lo + hi) / 2.0
+        if _t_two_sided_p(mid, df) > target:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo <= 1e-14 * max(1.0, hi):
+            break
+    return (lo + hi) / 2.0
+
+
+#: Largest number of non-zero differences the sign-flip test enumerates in
+#: full. Splitting the 2**n sign vectors into two halves of 2**(n/2) keeps this
+#: to a few milliseconds per comparison; above it the test samples sign
+#: vectors instead.
+_EXACT_SIGN_FLIP_MAX_N = 30
+
+
+def _sign_flip_p_value(terms, *, n_resamples: int = 10_000, seed: int = 42) -> Tuple[float, str]:
+    """Two-sided paired sign-flip randomization test that ``sum(terms)`` is 0.
+
+    ``terms`` are the paired differences (or weighted differences, for a
+    stratified mean). Under the null that each difference is as likely to have
+    come out with either sign, every one of the 2**n sign patterns is equally
+    likely, so the p-value is the share of patterns whose sum is at least as
+    far from zero as the observed one. That holds at every n, which is the
+    reason this replaced the paired bootstrap: the bootstrap's plug-in variance
+    is too narrow at small n, and at 12 to 20 queries it rejected a true null
+    8 to 9 percent of the time at alpha 0.05.
+
+    Exact when at most :data:`_EXACT_SIGN_FLIP_MAX_N` differences are non-zero
+    (zeros cannot change sign, so they drop out without changing the
+    p-value). Above that, ``n_resamples`` random sign patterns are drawn and
+    ``(count + 1) / (n_resamples + 1)`` is returned, which counts the observed
+    pattern and so is never exactly 0.
+
+    Returns ``(p_value, method)`` where ``method`` is ``"exact"`` or
+    ``"monte_carlo"``.
+    """
+    import numpy as np
+
+    x = np.asarray(terms, dtype=float)
+    x = x[x != 0.0]
+    observed = abs(float(np.sum(x)))
+    if x.size == 0 or observed == 0.0:
+        return 1.0, "exact"
+
+    # Sign patterns whose sum equals the observed one in exact arithmetic can
+    # land a rounding error either side of it; count them as reaching it.
+    threshold = observed - 1e-9 * float(np.sum(np.abs(x)))
+
+    if x.size <= _EXACT_SIGN_FLIP_MAX_N:
+
+        def _all_sums(values) -> Any:
+            sums = np.zeros(1)
+            for v in values:
+                sums = np.concatenate([sums + v, sums - v])
+            return sums
+
+        half = x.size // 2
+        left = _all_sums(x[:half])
+        right = np.sort(_all_sums(x[half:]))
+        # Pairs (l, r) with l + r >= threshold, plus pairs with l + r <= -threshold.
+        upper = right.size - np.searchsorted(right, threshold - left, side="left")
+        lower = np.searchsorted(right, -threshold - left, side="right")
+        count = int(np.sum(upper) + np.sum(lower))
+        return count / float(2**x.size), "exact"
+
+    rng = np.random.default_rng(seed)
+    total = float(np.sum(x))
+    rows = max(1, min(n_resamples, 2_000_000 // x.size))
+    count, remaining = 0, n_resamples
+    while remaining > 0:
+        take = min(rows, remaining)
+        bits = rng.integers(0, 2, size=(take, x.size), dtype=np.int8)
+        # sum(s * x) with s in {-1, +1} is 2 * sum(bits * x) - sum(x).
+        sums = 2.0 * (bits @ x) - total
+        count += int(np.count_nonzero(np.abs(sums) >= threshold))
+        remaining -= take
+    return (count + 1) / (n_resamples + 1), "monte_carlo"
+
+
+def _t_interval(diffs, alpha: float) -> Tuple[float, float]:
+    """Two-sided ``1 - alpha`` interval for the mean of paired differences.
+
+    ``mean +/- t(1 - alpha/2, n - 1) * sd / sqrt(n)``. The percentile bootstrap
+    it replaces covered the true difference 91 percent of the time at n=15 for
+    a nominal 95, for the same reason its p-value was too small. Infinite when
+    n < 2, since one difference says nothing about spread.
+    """
+    import math
+
+    import numpy as np
+
+    arr = np.asarray(diffs, dtype=float)
+    n = arr.size
+    mean = float(np.mean(arr)) if n else float("nan")
+    if n < 2:
+        return (-math.inf, math.inf)
+    se = float(np.std(arr, ddof=1)) / math.sqrt(n)
+    half = _t_quantile(1.0 - alpha / 2.0, n - 1) * se
+    return (mean - half, mean + half)
+
+
 def _mean_by_sample(tasks: List[TaskResult], metric: str) -> Dict[Any, float]:
     """Each sample's score for ``metric``, averaged across every run.
 
@@ -247,24 +437,6 @@ class BenchmarkResults:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _bootstrap_p_value(boot_arr, observed_diff) -> float:
-        """Two-tailed bootstrap p-value, with a continuity correction.
-
-        ``(count + 1) / (n + 1)`` rather than ``count / n``. Without it the
-        estimate can be exactly 0.0, which is not a probability a finite
-        resample can support -- it means "smaller than 1/n_bootstrap", and
-        reporting it as zero invites "p < 0.001" claims the data cannot carry.
-
-        The two implementations in this file disagreed on this: the ablation
-        path corrected, this one did not, so the same comparison returned
-        different p-values depending on which entry point was used.
-        """
-        import numpy as np
-
-        exceed = int(np.sum(np.abs(boot_arr - observed_diff) >= abs(observed_diff)))
-        return float((exceed + 1) / (len(boot_arr) + 1))
-
-    @staticmethod
     def _cohens_dz(diffs) -> float:
         """Cohen's ``d_z`` for a paired design: mean(diffs) / sd(diffs).
 
@@ -320,24 +492,34 @@ class BenchmarkResults:
         alpha: float = 0.05,
         seed: int = 42,
     ) -> Dict[str, Any]:
-        """Paired bootstrap significance test between two configs on the SAME benchmark.
+        """Paired significance test between two configs on the SAME benchmark.
+
+        A sign-flip randomization test of the mean paired difference, exact
+        when at most 30 differences are non-zero and sampled above (see
+        :func:`_sign_flip_p_value`), with a t interval around the difference.
+        Both hold their nominal level at the 10 to 50 queries RAG evaluations
+        use; the paired bootstrap this replaced did not.
 
         Uses per-query scores from **every** run of each config, averaged per
-        query before resampling. The ``benchmark`` parameter is REQUIRED —
-        cross-benchmark significance is not valid (different query sets).
+        query first. The ``benchmark`` parameter is REQUIRED: cross-benchmark
+        significance is not valid (different query sets).
 
         Args:
             config_a: First pipeline config name.
             config_b: Second pipeline config name.
             metric: Metric name to compare.
             benchmark: Benchmark name (required for valid pairing).
-            n_bootstrap: Number of bootstrap resamples.
-            alpha: Significance level.
-            seed: Random seed.
+            n_bootstrap: Random sign patterns drawn when the sample is too
+                large to enumerate. The name is kept for compatibility.
+            alpha: Significance level; the interval is at ``1 - alpha``.
+            seed: Random seed for the sampled patterns.
 
         Returns:
-            Dict with ``p_value``, ``significant``, ``confidence_interval_95``,
-            ``effect_size``, ``mean_a``, ``mean_b``, ``difference``, ``n_samples``.
+            Dict with ``p_value``, ``significant``, ``confidence_interval``
+            (at ``confidence_level``), ``effect_size``, ``mean_a``, ``mean_b``,
+            ``difference``, ``n_paired``, ``n_dropped_a``, ``n_dropped_b`` and
+            ``test``. ``confidence_interval_95`` is the same interval under its
+            old name, which was wrong for any alpha other than 0.05.
         """
         try:
             import numpy as np
@@ -359,31 +541,21 @@ class BenchmarkResults:
         a = np.asarray(scores_a, dtype=float)
         b = np.asarray(scores_b, dtype=float)
         n = len(a)
-
-        # Paired bootstrap
-        rng = np.random.RandomState(seed)
         diffs = a - b
         observed_diff = float(np.mean(diffs))
 
-        boot_diffs = []
-        for _ in range(n_bootstrap):
-            idx = rng.randint(0, n, size=n)
-            boot_diffs.append(float(np.mean(diffs[idx])))
-
-        boot_diffs_arr = np.asarray(boot_diffs)
-        # Two-tailed p-value: shift the bootstrap distribution onto the null
-        # (zero difference), then count how often it exceeds the observed
-        # effect in magnitude. Continuity-corrected -- see _bootstrap_p_value.
-        p_value = self._bootstrap_p_value(boot_diffs_arr, observed_diff)
-        ci_lower = float(np.percentile(boot_diffs_arr, 100 * alpha / 2))
-        ci_upper = float(np.percentile(boot_diffs_arr, 100 * (1 - alpha / 2)))
-
+        p_value, method = _sign_flip_p_value(diffs, n_resamples=n_bootstrap, seed=seed)
+        interval = _t_interval(diffs, alpha)
         effect_size = self._cohens_dz(diffs)
 
         return {
             "p_value": p_value,
             "significant": p_value < alpha,
-            "confidence_interval_95": (ci_lower, ci_upper),
+            "confidence_interval": interval,
+            "confidence_level": 1.0 - alpha,
+            "confidence_interval_95": interval,
+            "ci_method": "t",
+            "test": f"paired sign-flip ({method.replace('_', ' ')})",
             "effect_size": effect_size,
             "mean_a": float(np.mean(a)),
             "mean_b": float(np.mean(b)),
@@ -409,11 +581,15 @@ class BenchmarkResults:
         alpha: float = 0.05,
         seed: int = 42,
     ) -> Dict[str, Any]:
-        """Domain-stratified paired bootstrap for macro-averaged metrics.
+        """Domain-stratified paired test for macro-averaged metrics.
 
-        Resamples within each domain, computes per-domain metric, then
-        averages across domains. Prevents large domains (e.g., nfcorpus)
-        from dominating the bootstrap distribution.
+        The statistic is the macro average of per-domain mean differences, so a
+        large domain (e.g., nfcorpus) cannot dominate it. The p-value is a
+        sign-flip test of that statistic, each query weighted by one over its
+        domain's size times the number of domains, and the interval is a
+        stratified t interval with Welch-Satterthwaite degrees of freedom. Both
+        replaced a within-domain bootstrap, which had the same small-sample
+        defect as the paired one.
 
         Requires per-sample scores to include ``_source_benchmark`` field
         (used as domain proxy).
@@ -464,28 +640,35 @@ class BenchmarkResults:
         if not all_domains:
             raise ValueError(f"No shared domains with metric '{metric}'")
 
-        # Domain-stratified bootstrap
-        rng = np.random.RandomState(seed)
+        import math
+
         observed_macro_a = np.mean([np.mean(domains_a[d]) for d in all_domains])
         observed_macro_b = np.mean([np.mean(domains_b[d]) for d in all_domains])
         observed_diff = float(observed_macro_a - observed_macro_b)
 
-        boot_diffs = []
-        for _ in range(n_bootstrap):
-            macro_a, macro_b = [], []
-            for d in all_domains:
-                n_d = len(domains_a[d])
-                idx = rng.randint(0, n_d, size=n_d)
-                arr_a = np.asarray(domains_a[d])
-                arr_b = np.asarray(domains_b[d])
-                macro_a.append(float(np.mean(arr_a[idx])))
-                macro_b.append(float(np.mean(arr_b[idx])))
-            boot_diffs.append(np.mean(macro_a) - np.mean(macro_b))
+        n_domains = len(all_domains)
+        terms: List[float] = []
+        variance, df_denominator = 0.0, 0.0
+        for d in all_domains:
+            diffs_d = np.asarray(domains_a[d], dtype=float) - np.asarray(domains_b[d], dtype=float)
+            n_d = diffs_d.size
+            # Each query's share of the macro average.
+            terms.extend(diffs_d / (n_domains * n_d))
+            if n_d >= 2:
+                v_d = float(np.var(diffs_d, ddof=1)) / (n_d * n_domains**2)
+                variance += v_d
+                df_denominator += v_d**2 / (n_d - 1)
 
-        boot_arr = np.asarray(boot_diffs)
-        p_value = self._bootstrap_p_value(boot_arr, observed_diff)
-        ci_lower = float(np.percentile(boot_arr, 100 * alpha / 2))
-        ci_upper = float(np.percentile(boot_arr, 100 * (1 - alpha / 2)))
+        p_value, method = _sign_flip_p_value(terms, n_resamples=n_bootstrap, seed=seed)
+        if any(len(domains_a[d]) < 2 for d in all_domains):
+            # A one-query domain has no within-domain spread to estimate.
+            ci_lower, ci_upper = -math.inf, math.inf
+        elif variance == 0.0:
+            ci_lower = ci_upper = observed_diff
+        else:
+            df = variance**2 / df_denominator
+            half = _t_quantile(1.0 - alpha / 2.0, df) * math.sqrt(variance)
+            ci_lower, ci_upper = observed_diff - half, observed_diff + half
 
         # d_z over the PER-DOMAIN differences, which is the level this statistic
         # actually operates on -- the macro-average treats each domain as one
@@ -498,7 +681,11 @@ class BenchmarkResults:
         return {
             "p_value": p_value,
             "significant": p_value < alpha,
+            "confidence_interval": (ci_lower, ci_upper),
+            "confidence_level": 1.0 - alpha,
             "confidence_interval_95": (ci_lower, ci_upper),
+            "ci_method": "stratified t",
+            "test": f"stratified sign-flip ({method.replace('_', ' ')})",
             "effect_size": effect_size,
             "mean_a": float(observed_macro_a),
             "mean_b": float(observed_macro_b),
@@ -517,6 +704,17 @@ class BenchmarkResults:
     ) -> List[Dict[str, Any]]:
         """All-pairs significance tests with multiple comparison correction.
 
+        Every pair asked about stays in the family. A pair that cannot be tested
+        (no query scored on both sides) is returned with ``p_value`` None and
+        the reason in ``untestable``, and is counted in the Holm family as if
+        its p were 1. Dropping it, as this used to, shrank the family and made
+        the correction less strict without saying so.
+
+        Sampled sign-flip p-values cannot go below ``1 / (resamples + 1)``, so
+        the resample count grows with the family until that floor is a tenth of
+        the smallest Holm threshold, ``alpha / m``. At the old fixed 10,000, a
+        grid of 34 configs (561 pairs) could not reject anything.
+
         Args:
             metric: Metric to compare.
             benchmark: Benchmark (required).
@@ -526,40 +724,73 @@ class BenchmarkResults:
         Returns:
             List of dicts with ``config_a``, ``config_b``, ``p_value`` (raw),
             ``p_adjusted`` (Holm-adjusted under ``"holm"``, else raw),
-            ``significant``, ``corrected_alpha``.
+            ``significant``, ``corrected_alpha``, ``n_paired``, ``n_dropped_a``,
+            ``n_dropped_b`` and ``test``; tested pairs first, by p.
         """
+        import math
+
         configs = [c for c in self.configs if self._by_bench_config.get((benchmark, c))]
         pairs = [
             (configs[i], configs[j])
             for i in range(len(configs))
             for j in range(i + 1, len(configs))
         ]
+        if not pairs:
+            return []
+
+        m = len(pairs)
+        resamples = max(10_000, math.ceil(10 * m / alpha))
+        if resamples > 10_000:
+            logger.info(
+                f"{m} comparisons: drawing {resamples:,} sign patterns per sampled "
+                f"test so the smallest p-value ({1 / (resamples + 1):.1e}) is below "
+                f"the smallest Holm threshold ({alpha / m:.1e})."
+            )
 
         raw_results = []
+        untestable = []
         for ca, cb in pairs:
             try:
-                sig = self.significance_test(ca, cb, metric, benchmark)
-                raw_results.append(
+                sig = self.significance_test(ca, cb, metric, benchmark, n_bootstrap=resamples)
+            except ValueError as exc:
+                untestable.append(
                     {
                         "config_a": ca,
                         "config_b": cb,
-                        "p_value": sig["p_value"],
-                        "effect_size": sig["effect_size"],
-                        "difference": sig["difference"],
+                        "p_value": None,
+                        "p_adjusted": None,
+                        "effect_size": None,
+                        "difference": None,
+                        "significant": False,
+                        "corrected_alpha": None,
+                        "n_paired": 0,
+                        "untestable": str(exc),
                     }
                 )
-            except ValueError:
                 continue
+            raw_results.append(
+                {
+                    "config_a": ca,
+                    "config_b": cb,
+                    "p_value": sig["p_value"],
+                    "effect_size": sig["effect_size"],
+                    "difference": sig["difference"],
+                    "n_paired": sig.get("n_paired"),
+                    "n_dropped_a": sig.get("n_dropped_a", 0),
+                    "n_dropped_b": sig.get("n_dropped_b", 0),
+                    "test": sig.get("test"),
+                }
+            )
 
         if not raw_results:
-            return []
+            return untestable
 
         # Apply Holm-Bonferroni step-down correction:
         # Sort by p-value ascending. Test i has threshold alpha/(m-i).
         # Once a test fails to reject, all subsequent tests also fail.
+        # m counts the untestable pairs too; they sort last, as p = 1.
         if correction == "holm":
             raw_results.sort(key=lambda x: x["p_value"])
-            m = len(raw_results)
             rejected_so_far = True
             running_max = 0.0
             for i, r in enumerate(raw_results):
@@ -580,7 +811,7 @@ class BenchmarkResults:
                 r["p_adjusted"] = r["p_value"]
                 r["significant"] = r["p_value"] < alpha
 
-        return raw_results
+        return raw_results + untestable
 
     def _get_per_sample_scores(
         self,
@@ -681,10 +912,17 @@ class BenchmarkResults:
         calculation needs a variance estimate nobody has yet, and picking one
         turns the sample-size decision into a guess dressed as arithmetic.
 
-        Normal quantiles, not the t distribution: a bootstrap makes no
-        parametric claim about the differences, so this is a scale reference
-        rather than a test, and it is anti-conservative at very small n.
-        Reported n makes that visible.
+        Normal quantiles, not the t distribution: this is a scale reference
+        rather than a test, and it is anti-conservative at very small n (about
+        0.91 of the t-based MDE at n=12). Reported n makes that visible.
+
+        Power is the chance that a run this size detects a true effect of the
+        MDE. The report also carries the pair's own sign-flip p-value
+        (uncorrected), because a difference below the MDE can still be
+        significant: it was detected, and the MDE says only that a replication
+        at this size would detect an effect that small less often than
+        ``power``. The report used to call such a pair "would have been
+        missed", next to a `results significance` table calling it significant.
         """
         import math
 
@@ -717,6 +955,40 @@ class BenchmarkResults:
         degenerate = sd == 0.0
         underpowered = (not degenerate) and abs(mean_diff) < mde
 
+        p_value = self.significance_test(config_a, config_b, metric, benchmark, alpha=alpha)[
+            "p_value"
+        ]
+        significant = p_value < alpha
+        detects = f"a run this size detects a true difference of {mde:.4f} {power:.0%} of the time"
+        if degenerate:
+            interpretation = (
+                "every paired difference was identical, so any non-zero effect "
+                "would have been detected"
+            )
+        elif significant:
+            interpretation = (
+                f"the difference ({mean_diff:+.4f}) is significant on its own "
+                f"(p={p_value:.4f}, uncorrected; `results significance` corrects "
+                f"across every pair). {detects[0].upper()}{detects[1:]}"
+                + (
+                    ", and a smaller one like this less often, so a replication at "
+                    "this size could miss it"
+                    if underpowered
+                    else ""
+                )
+            )
+        elif underpowered:
+            interpretation = (
+                f"not significant (p={p_value:.4f}), and the observed difference "
+                f"({mean_diff:+.4f}) is below {mde:.4f}: {detects}, and a smaller "
+                "one less often, so a real effect this size could easily go "
+                "undetected -- inconclusive, not evidence of no difference"
+            )
+        else:
+            interpretation = (
+                f"not significant (p={p_value:.4f}); {detects}, and a larger one more often"
+            )
+
         return {
             "benchmark": benchmark,
             "config_a": config_a,
@@ -735,18 +1007,9 @@ class BenchmarkResults:
             "n_needed_for_observed_effect": (
                 _samples_for_effect(abs(mean_diff), sd, alpha, power) if mean_diff else None
             ),
-            "interpretation": (
-                "every paired difference was identical, so any non-zero effect "
-                "would have been detected"
-                if degenerate
-                else (
-                    f"the observed difference ({mean_diff:+.4f}) is smaller than the "
-                    f"smallest this run could detect ({mde:.4f}), so a real effect of "
-                    f"this size would have been missed -- inconclusive, not null"
-                    if underpowered
-                    else f"the run could detect differences of {mde:.4f} or larger"
-                )
-            ),
+            "p_value": p_value,
+            "significant": significant,
+            "interpretation": interpretation,
         }
 
     # ------------------------------------------------------------------
@@ -819,10 +1082,15 @@ class BenchmarkResults:
         queries, and the second one buys less than its solo number promised.
         Around zero means they are additive and independent.
 
-        All four cells are aligned on one shared sample set, and the bootstrap
-        resamples *samples* -- carrying all four cells of a sampled query
-        together, so the pairing that makes the double difference meaningful
-        survives the resampling.
+        All four cells are aligned on one shared sample set, and the test works
+        on each query's own double difference, so the pairing that makes the
+        estimate meaningful is kept. The p-value is a sign-flip test of those
+        per-query interactions and the interval a t interval, for the reason
+        given in :meth:`significance_test`: the bootstrap they replaced rejected
+        8.3% of true nulls at n=20.
+
+        ``n_bootstrap`` is the number of random sign patterns drawn when the
+        sample is too large to enumerate; the name is kept for compatibility.
         """
         import numpy as np
 
@@ -850,14 +1118,8 @@ class BenchmarkResults:
         inter = d_ab - d_a - d_b
 
         observed = float(np.mean(inter))
-        rng = np.random.default_rng(seed)
-        # Resample query indices, not cells: every draw takes all four numbers
-        # for a query, which is what keeps the design paired.
-        idx = rng.integers(0, n, size=(n_bootstrap, n))
-        boot = inter[idx].mean(axis=1)
-
-        lo, hi = np.percentile(boot, [100 * alpha / 2, 100 * (1 - alpha / 2)])
-        p_value = self._bootstrap_p_value(boot, observed)
+        p_value, method = _sign_flip_p_value(inter, n_resamples=n_bootstrap, seed=seed)
+        lo, hi = _t_interval(inter, alpha)
 
         main_a = float(np.mean(d_a))
         main_b = float(np.mean(d_b))
@@ -903,6 +1165,9 @@ class BenchmarkResults:
             "n_paired": n,
             "n_bootstrap": n_bootstrap,
             "alpha": alpha,
+            "confidence_level": 1.0 - alpha,
+            "ci_method": "t",
+            "test": f"paired sign-flip ({method.replace('_', ' ')})",
             "verdict": verdict,
         }
 
@@ -911,13 +1176,69 @@ class BenchmarkResults:
     # ------------------------------------------------------------------
 
     def leaderboard(self, metric: str = "ndcg@10") -> str:
-        """Generate a simple text leaderboard ranked by mean metric."""
-        agg = self.aggregate_by_pipeline(metric)
-        ranked = sorted(agg.items(), key=lambda x: x[1].mean, reverse=True)
+        """A text leaderboard, ranked within each benchmark.
 
-        lines = [f"Leaderboard — {metric}", "=" * 50]
-        for rank, (config, metrics) in enumerate(ranked, 1):
-            lines.append(f"  {rank}. {config:30s} {metrics}")
+        Configs are ranked only against configs that scored the same queries
+        on the same benchmark. This used to pool every task of a config across
+        benchmarks and drop failed ones, so a config that skipped the hard
+        benchmark outranked one that ran it, the printed ``± std (n=2)`` was
+        the spread between benchmarks, and an arm that scored 30 of 100
+        queries ranked above one that scored all 100.
+
+        A config that scored a different query set, failed some runs, failed
+        every run or never ran the benchmark is still listed, unranked or
+        annotated, so its absence cannot pass for a result.
+        """
+        lines = [
+            f"Leaderboard — {metric}",
+            "=" * 50,
+            "Ranked within each benchmark, over configs that scored the same queries.",
+        ]
+        for bench in self.benchmarks:
+            entries = []
+            for config in self.configs:
+                tasks = self._by_bench_config.get((bench, config), [])
+                ok = [t for t in tasks if not t.error and metric in t.metrics]
+                failed = sum(1 for t in tasks if t.error)
+                queries = set(_mean_by_sample(ok, metric))
+                entries.append((config, tasks, ok, failed, queries))
+
+            # The query set every complete config scored: the union, so a
+            # config missing any query is the one set apart.
+            universe = set().union(*(e[4] for e in entries))
+            width = max(len(e[0]) for e in entries)
+            ranked, unranked = [], []
+            for config, tasks, ok, failed, queries in entries:
+                failures = f"; {failed} of {len(tasks)} runs failed" if failed and ok else ""
+                if not tasks:
+                    unranked.append(f"  -  {config:{width}s}  not run")
+                elif not ok:
+                    reason = "failed" if failed else f"no {metric} recorded"
+                    unranked.append(f"  -  {config:{width}s}  {reason} ({len(tasks)} runs)")
+                else:
+                    agg = _aggregate([t.metrics[metric] for t in ok])
+                    runs = f"{agg.n_runs} run" + ("s" if agg.n_runs != 1 else "")
+                    spread = f" ± {agg.std:.4f}" if agg.n_runs > 1 else ""
+                    n_queries = f", {len(queries)} queries" if queries else ""
+                    cell = f"{agg.mean:.4f}{spread} ({runs}{n_queries}){failures}"
+                    if queries and queries != universe:
+                        unranked.append(
+                            f"  -  {config:{width}s}  {cell}; scored {len(queries)} of "
+                            f"{len(universe)} queries, not ranked against the others"
+                        )
+                    else:
+                        ranked.append((agg.mean, config, cell))
+
+            lines += ["", bench]
+            ranked.sort(key=lambda r: r[0], reverse=True)
+            for rank, (_, config, cell) in enumerate(ranked, 1):
+                lines.append(f"  {rank}. {config:{width}s}  {cell}")
+            lines += unranked
+            if not ranked and len(entries) > 1:
+                lines.append(
+                    "  No config scored every query. `lasagna results significance` "
+                    "compares two configs on the queries both scored."
+                )
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
@@ -1062,7 +1383,8 @@ class BenchmarkResults:
         if has_sig:
             lines.append("\\vspace{2pt}")
             lines.append(
-                "\\footnotesize{$^{\\dagger}$ Significantly different from best ($p < 0.05$, paired bootstrap).}"
+                "\\footnotesize{$^{\\dagger}$ Significantly different from best "
+                "($p < 0.05$, paired sign-flip test, Holm-corrected).}"
             )
         lines.append("\\end{table}")
         return "\n".join(lines)
@@ -1249,13 +1571,16 @@ class BenchmarkResults:
         lines = [f"Comparison: {self.experiment_name} vs {other.experiment_name}\n"]
         lines.append(f"Metric: {metric}\n")
 
-        # Held-fixed configuration, per side, from the first result of each.
+        # Held-fixed configuration, per side, from the first result of each,
+        # with the stages the side's arms vary left out as the bundle does.
         def _held(results: "BenchmarkResults") -> Optional[Dict[str, Any]]:
             if not results._results:
                 return None
-            first = results._results[0]
-            row = first.to_dict() if hasattr(first, "to_dict") else dict(first)
-            return held_fixed_from(row, results.experiment_config or {})
+            rows = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results._results]
+            across = list(
+                {row.get("config_name"): row.get("config_overrides") or {} for row in rows}.values()
+            )
+            return held_fixed_from(rows[0], results.experiment_config or {}, across)
 
         held_a, held_b = _held(self), _held(other)
         if held_a and held_b:

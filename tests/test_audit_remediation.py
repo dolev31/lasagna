@@ -31,6 +31,9 @@ class TestVerifiedMeansReproduced:
             "comparability_key": key,
             "varied_levels": levels,
             "benchmark": "b",
+            # A current row records what each stage held fixed; rows that do
+            # not are never verified across bundles.
+            "held_fixed": {"fixed_stages": {"retriever": "r1"}},
         }
 
     def test_a_different_arm_does_not_verify_you(self):

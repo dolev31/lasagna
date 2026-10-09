@@ -9,12 +9,19 @@ group held the same configuration fixed, which is what makes the numbers
 commensurable — by construction rather than by hope. A group is a table; the
 configuration it held fixed is its header.
 
+A row whose held-fixed block records no stage digests (``fixed_stages``: a
+bundle from before metrics version 1.4, or a task that recorded no stage
+manifest) cannot show what its retriever, reranker or query enhancer held
+fixed, so an equal key proves nothing about them. Such rows share a table only
+with rows from the same bundle, and are never verified.
+
 **Reproduction by collision.** A row is marked verified when a *different*
 submitter published a bundle with the same comparability key whose mean lands
 inside this row's reported interval. No coordination and no extra compute: it
 falls out of data the hub already has. The interval is mean ± std across runs,
 which is what the bundle reports — deliberately not a bootstrap CI, because the
-runs are few and pretending otherwise would overstate the precision.
+runs are few and pretending otherwise would overstate the precision. When the
+runs agree exactly, the interval is the mean itself.
 """
 
 from __future__ import annotations
@@ -28,6 +35,11 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 #: A row from a single run reports no spread, so it can never be confirmed or
 #: contradicted by a collision. It is shown, and never marked verified.
 _MIN_RUNS_FOR_INTERVAL = 2
+
+#: The interval of a row whose runs agree exactly. Such a pipeline is
+#: deterministic, and another lab's number reproduces it by equalling it; the
+#: tolerance only absorbs floating-point summation order.
+_EXACT = 1e-9
 
 
 def load_bundles(directory: str | Path) -> List[Dict[str, Any]]:
@@ -53,6 +65,18 @@ def load_bundles(directory: str | Path) -> List[Dict[str, Any]]:
             data["_path"] = path.relative_to(root).as_posix()
             bundles.append(data)
     return bundles
+
+
+def _stages_recorded(row: Dict[str, Any]) -> bool:
+    """Whether the row's key covers what each stage held fixed."""
+    stages = (row.get("held_fixed") or {}).get("fixed_stages")
+    return isinstance(stages, dict) and bool(stages)
+
+
+def _group_key(row: Dict[str, Any]) -> str:
+    """The comparability key, scoped to the bundle when stages were not recorded."""
+    key = row["comparability_key"]
+    return key if _stages_recorded(row) else f"{key}@{row.get('run_id', '')}"
 
 
 def _submitter(bundle: Dict[str, Any]) -> str:
@@ -131,13 +155,17 @@ def mark_verified(rows: List[Dict[str, Any]]) -> None:
     """
     for row in rows:
         row["verified"] = False
-        if row["n_runs"] < _MIN_RUNS_FOR_INTERVAL or row["std"] <= 0:
+        if row["n_runs"] < _MIN_RUNS_FOR_INTERVAL or not _stages_recorded(row):
             continue
-        low, high = row["mean"] - row["std"], row["mean"] + row["std"]
+        # std == 0 used to disqualify the row, so a deterministic pipeline
+        # could never be verified, even by a bit-identical reproduction.
+        spread = max(row["std"], _EXACT)
+        low, high = row["mean"] - spread, row["mean"] + spread
         row["verified"] = any(
             other is not row
             and other["comparability_key"] == row["comparability_key"]
             and other["comparability_key"]
+            and _stages_recorded(other)
             and other["submitter"] != row["submitter"]
             and (other.get("varied_levels") or {}) == (row.get("varied_levels") or {})
             and low <= other["mean"] <= high
@@ -146,10 +174,15 @@ def mark_verified(rows: List[Dict[str, Any]]) -> None:
 
 
 def group(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
-    """Nest rows as ``{benchmark: {comparability_key: [row, ...]}}``, best first."""
+    """Nest rows as ``{benchmark: {group_key: [row, ...]}}``, best first.
+
+    The group key is the comparability key, suffixed with ``@run_id`` for rows
+    that recorded no stage digests, so those never share a table with another
+    bundle's rows.
+    """
     out: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
     for row in rows:
-        out.setdefault(row["benchmark"], {}).setdefault(row["comparability_key"], []).append(row)
+        out.setdefault(row["benchmark"], {}).setdefault(_group_key(row), []).append(row)
     for keys in out.values():
         for group_rows in keys.values():
             group_rows.sort(key=lambda r: r["mean"], reverse=True)
@@ -190,11 +223,21 @@ def render_markdown(
         described = ", ".join(
             f"{f}={held.get(f)}" for f in _HEADER_FIELDS if held.get(f) is not None
         )
+        scoped = (
+            []
+            if _stages_recorded(rows[0])
+            else [
+                "_Stage settings not recorded, so these rows are compared only "
+                "with rows from the same bundle._",
+                "",
+            ]
+        )
         lines += [
-            f"## Held fixed: `{key}`",
+            f"## Held fixed: `{rows[0]['comparability_key']}`",
             "",
             f"{described or '_configuration not recorded_'}",
             "",
+            *scoped,
             f"| {metric} | Varied | Submitter | Runs | Verified | Bundle |",
             "|---|---|---|---|---|---|",
         ]
@@ -221,9 +264,10 @@ def render_markdown(
         "---",
         "",
         "**Verified** means a different submitter published a bundle with the "
-        "same comparability key whose mean fell inside this row's mean ± std. "
-        "It is a reproduction signal, not an endorsement. A single-run row can "
-        "never be verified, because it reports no spread to land inside.",
+        "same comparability key whose mean fell inside this row's mean ± std, "
+        "or equalled the mean when its runs showed no spread. It is a "
+        "reproduction signal, not an endorsement. A single-run row can never be "
+        "verified, because one run cannot show whether the number varies.",
         "",
         "_Generated by `lasagna results leaderboard`. Do not edit by hand._",
     ]

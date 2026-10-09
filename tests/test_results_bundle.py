@@ -218,6 +218,8 @@ class TestTheKeyCanTellConfigurationsApart:
             # it; the fixture must too, or this asserts a gap that cannot occur.
             "corpus_provenance": "native",
             "resolved_mode": "live",
+            # Every live task records a stage manifest.
+            "system": {"stages": {"retriever": {"digest": "abc"}}},
         }
         held = held_fixed_from(row, meta)
         # `judge_model` is legitimately absent: a retrieval-only run has no LLM

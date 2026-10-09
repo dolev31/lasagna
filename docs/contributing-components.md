@@ -189,11 +189,11 @@ Submit to [the results hub](../hub/README.md) as a pull request adding one file.
 
 Four properties, each mechanical rather than social.
 
-**The number cannot be edited.** `run_id` hashes the bundle contents and the
+**A naive edit is caught.** `run_id` hashes the bundle contents and the
 comparability key hashes the held-fixed block. `lasagna results validate`
 recomputes both, so a hand-edited metric no longer matches its own bundle, and a
-`held_fixed` edited to fake comparability no longer matches its key. A reviewer
-can accept a submission by reading provenance rather than rerunning it.
+`held_fixed` edited to fake comparability no longer matches its key. It is not a
+signature: anyone who edits a number can recompute the id, so rows stay self-reported.
 
 **Incomparable results cannot be silently ranked together.** Leaderboards group
 by `(benchmark, comparability_key)`. Rows in one table held the same

@@ -202,11 +202,14 @@ class AblationResults:
         alpha: float = 0.05,
         seed: int = 42,
     ) -> Dict[str, Any]:
-        """Paired bootstrap significance test between two variants.
+        """Paired significance test between two variants.
 
-        Computes a two-tailed p-value, 95 % confidence interval, and
-        Cohen's d effect size using paired bootstrap resampling —
-        the standard approach in NLP/IR evaluation.
+        The same test as ``BenchmarkResults.significance_test``: a sign-flip
+        randomization p-value (exact up to 30 non-zero differences), a t
+        interval at ``1 - alpha``, and Cohen's ``d_z``. This used to be its own
+        paired bootstrap, which rejected a true null about 9% of the time at
+        12 queries, and its own effect size, which returned 0.0 for a perfectly
+        consistent effect.
 
         When ``scores_a`` / ``scores_b`` are not provided, the method
         automatically looks up stored per-sample scores from the ablation
@@ -221,7 +224,8 @@ class AblationResults:
                 auto-retrieved from stored per-sample scores.
             scores_b: Per-sample scores for variant B (same length).
                 If ``None``, auto-retrieved from stored per-sample scores.
-            n_bootstrap: Number of bootstrap resamples.
+            n_bootstrap: Random sign patterns drawn when the sample is too
+                large to enumerate. The name is kept for compatibility.
             alpha: Significance level (default 0.05).
             seed: Random seed for reproducibility.
 
@@ -239,14 +243,34 @@ class AblationResults:
         except ImportError:
             raise ImportError("numpy required: pip install lasagna-rag[eval]")
 
-        # Auto-retrieve per-sample scores from stored data when not explicitly provided
-        if scores_a is None and variant_a in self._per_sample_scores:
-            per_sample_a = self._per_sample_scores[variant_a]
-            scores_a = [s.get(metric, 0.0) for s in per_sample_a]
-
-        if scores_b is None and variant_b in self._per_sample_scores:
-            per_sample_b = self._per_sample_scores[variant_b]
-            scores_b = [s.get(metric, 0.0) for s in per_sample_b]
+        # Auto-retrieve per-sample scores from stored data when not explicitly
+        # provided. Only positions both variants scored are kept: a missing
+        # score used to be read as 0.0, which is a measurement nobody made.
+        if (
+            scores_a is None
+            and scores_b is None
+            and variant_a in self._per_sample_scores
+            and variant_b in self._per_sample_scores
+        ):
+            pairs = [
+                (sa[metric], sb[metric])
+                for sa, sb in zip(
+                    self._per_sample_scores[variant_a], self._per_sample_scores[variant_b]
+                )
+                if metric in sa and metric in sb
+            ]
+            scores_a = [x for x, _ in pairs]
+            scores_b = [y for _, y in pairs]
+        for side, variant in (("a", variant_a), ("b", variant_b)):
+            stored = self._per_sample_scores.get(variant)
+            if (scores_a if side == "a" else scores_b) is None and stored:
+                if any(metric not in s for s in stored):
+                    raise ValueError(
+                        f"Variant {variant!r} did not score {metric!r} on every sample; "
+                        "pass both score lists, or neither so they are paired."
+                    )
+                filled = [s[metric] for s in stored]
+                scores_a, scores_b = (filled, scores_b) if side == "a" else (scores_a, filled)
 
         if scores_a is None or scores_b is None:
             raise ValueError(
@@ -254,6 +278,8 @@ class AblationResults:
                 "Either pass scores_a/scores_b explicitly, or use "
                 "sweep()/grid_search() which collect them automatically."
             )
+
+        from .results import BenchmarkResults, _sign_flip_p_value, _t_interval
 
         a = np.asarray(scores_a, dtype=float)
         b = np.asarray(scores_b, dtype=float)
@@ -265,39 +291,8 @@ class AblationResults:
             raise ValueError(f"Need at least 2 paired samples for significance testing, got {n}")
 
         differences = a - b
-        observed_diff = float(np.mean(differences))
-
-        if n < 10:
-            logger.warning(
-                f"Small sample size (n={n}). Bootstrap significance test may be unreliable."
-            )
-
-        # Center differences under the null hypothesis (mean = 0).
-        # Without centering, bootstrap means cluster around observed_diff
-        # rather than 0, producing biased p-values.
-        centered = differences - observed_diff
-
-        # Vectorized bootstrap — ~100x faster than a Python loop.
-        rng = np.random.default_rng(seed)
-        boot_indices = rng.integers(0, n, size=(n_bootstrap, n))
-        boot_means = centered[boot_indices].mean(axis=1)
-
-        # Two-tailed p-value with continuity correction (Davison & Hinkley 1997).
-        # Adding 1 to numerator and denominator prevents p-value = 0.0,
-        # which is statistically inappropriate for bootstrap tests.
-        p_value = float(
-            (np.sum(np.abs(boot_means) >= np.abs(observed_diff)) + 1) / (n_bootstrap + 1)
-        )
-
-        # Confidence interval from the uncentered bootstrap
-        # (resampling from original differences, not centered)
-        boot_means_uncentered = differences[boot_indices].mean(axis=1)
-        ci_low = float(np.percentile(boot_means_uncentered, 100 * alpha / 2))
-        ci_high = float(np.percentile(boot_means_uncentered, 100 * (1 - alpha / 2)))
-
-        # Cohen's d effect size
-        std_diff = float(np.std(differences, ddof=1))
-        cohens_d = observed_diff / std_diff if std_diff > 0 else 0.0
+        p_value, method = _sign_flip_p_value(differences, n_resamples=n_bootstrap, seed=seed)
+        interval = _t_interval(differences, alpha)
 
         return {
             "variant_a": variant_a,
@@ -305,11 +300,15 @@ class AblationResults:
             "metric": metric,
             "mean_a": float(np.mean(a)),
             "mean_b": float(np.mean(b)),
-            "difference": observed_diff,
+            "difference": float(np.mean(differences)),
             "p_value": p_value,
             "significant": p_value < alpha,
-            "confidence_interval_95": (ci_low, ci_high),
-            "effect_size": cohens_d,
+            "confidence_interval": interval,
+            "confidence_level": 1.0 - alpha,
+            "confidence_interval_95": interval,
+            "ci_method": "t",
+            "test": f"paired sign-flip ({method.replace('_', ' ')})",
+            "effect_size": BenchmarkResults._cohens_dz(differences),
             "n_samples": n,
             "n_bootstrap": n_bootstrap,
         }

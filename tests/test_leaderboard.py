@@ -34,7 +34,15 @@ def _bundle(submitter, key, config="baseline", values=(0.5,), varied=(), benchma
             {
                 "name": config,
                 "comparability_key": key,
-                "held_fixed": {"split": "test", "n_samples": 100, "embedder_model": "bge-m3"},
+                "held_fixed": {
+                    "split": "test",
+                    "n_samples": 100,
+                    "embedder_model": "bge-m3",
+                    # Recorded, so rows group by key across bundles; see
+                    # test_comparability_key_covers_every_fixed_stage.py for
+                    # rows without it.
+                    "fixed_stages": {"retriever": "r1"},
+                },
                 "varied_dimensions": list(varied),
             }
         ],
@@ -135,6 +143,31 @@ class TestVerifiedMeansReproduced:
             [
                 _bundle("lab-a", "k", values=(0.5,)),
                 _bundle("lab-b", "k", config="c2", values=(0.5,)),
+            ],
+            "ndcg@10",
+        )
+        mark_verified(rows)
+        assert not any(r["verified"] for r in rows)
+
+    def test_an_exact_reproduction_of_a_deterministic_run_verifies(self):
+        """Two submitters with bit-identical scifact results (0.6684 ± 0.0000,
+        two runs each) got no verified row: the rule required std > 0, so a
+        deterministic retrieval pipeline could never be verified."""
+        rows = collect_rows(
+            [
+                _bundle("lab-a", "k", values=(0.6684, 0.6684)),
+                _bundle("lab-b", "k", config="c2", values=(0.6684, 0.6684)),
+            ],
+            "ndcg@10",
+        )
+        mark_verified(rows)
+        assert all(r["verified"] for r in rows)
+
+    def test_a_deterministic_run_is_not_verified_by_a_different_number(self):
+        rows = collect_rows(
+            [
+                _bundle("lab-a", "k", values=(0.6684, 0.6684)),
+                _bundle("lab-b", "k", config="c2", values=(0.6685, 0.6685)),
             ],
             "ndcg@10",
         )
