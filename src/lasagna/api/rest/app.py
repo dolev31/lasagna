@@ -436,8 +436,16 @@ def create_app(
             # says so at the site rather than relying on the default holding.
             transport_guard.set_transport("http")
 
+            # With auth off this app is loopback-only, and loopback is what a
+            # web page can reach by DNS rebinding: refuse a foreign Host or
+            # Origin, as the standalone /sse does. With auth on, every tool
+            # needs a token such a page does not have.
+            from lasagna.api.rest.auth_mode import require_auth
+
+            guard = None if require_auth() else transport_guard.loopback_browser_guard()
+
             # port is unused when mounted as sub-app; routing handled by FastAPI
-            _mcp = create_mcp_server(host="0.0.0.0", port=8000)
+            _mcp = create_mcp_server(host="0.0.0.0", port=8000, transport_security=guard)
             app.mount("/mcp", _mcp.sse_app())
             logger.info("MCP server embedded at /mcp/sse")
         except Exception as exc:

@@ -109,6 +109,38 @@ class MCPAuthError(ValueError):
     """
 
 
+#: Extra ``Host`` values a loopback HTTP surface accepts, comma-separated
+#: (``host`` or ``host:*``), e.g. a container's service name.
+ALLOWED_HOSTS_ENV = "RAG_ALLOWED_HOSTS"
+
+
+def _env_list(name: str) -> list:
+    return [v.strip() for v in os.environ.get(name, "").split(",") if v.strip()]
+
+
+def loopback_browser_guard():
+    """The ``Host``/``Origin`` allow-list for an HTTP surface meant for this machine.
+
+    A loopback server is still reachable from any web page its operator
+    visits: by a cross-origin "simple" request (no preflight), or by DNS
+    rebinding, where the page's own host name is pointed at 127.0.0.1. The
+    first carries a foreign ``Origin``, the second a foreign ``Host``. The
+    standalone SSE server refuses both (FastMCP does this for a loopback
+    bind); the embedded ``/mcp`` mount and the ``/api/call`` tester did not.
+    Origins named in ``RAG_CORS_ORIGINS`` stay allowed, as they are for REST.
+    """
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    loopback = ("127.0.0.1", "localhost", "[::1]")
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[h for name in loopback for h in (name, f"{name}:*")]
+        + _env_list(ALLOWED_HOSTS_ENV),
+        allowed_origins=[o for name in loopback for o in (f"http://{name}", f"http://{name}:*")]
+        + _env_list("RAG_CORS_ORIGINS"),
+    )
+
+
 #: Directory a networked, authenticated MCP surface may read server-side files
 #: from. Unset means it may read none.
 UPLOAD_ROOT_ENV = "RAG_MCP_UPLOAD_ROOT"

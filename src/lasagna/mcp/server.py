@@ -3597,6 +3597,16 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
                 },
                 status_code=404,
             )
+        # Off unless enabled is not enough: a page the operator visits could
+        # drive it with a text/plain POST (no preflight) or by DNS rebinding.
+        # Ran `clear_session` from a foreign origin before this.
+        from mcp.server.transport_security import TransportSecurityMiddleware
+
+        refused = await TransportSecurityMiddleware(
+            transport_guard.loopback_browser_guard()
+        ).validate_request(request, is_post=True)
+        if refused is not None:
+            return refused
         try:
             body = await request.json()
             tool_name = body.get("tool")
@@ -3649,14 +3659,18 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
 # ---------------------------------------------------------------------------
 
 
-def create_mcp_server(host: str = "0.0.0.0", port: int = 8005) -> FastMCP:
+def create_mcp_server(
+    host: str = "0.0.0.0", port: int = 8005, transport_security: Any = None
+) -> FastMCP:
     """Create a configured MCP server instance without starting it.
 
     Returns a FastMCP instance with all RAG tools registered.
     Can be used standalone (via ``main()``) or mounted inside a FastAPI app
     for single-process deployments (e.g. ARM64 with Milvus Lite).
+    ``transport_security`` is FastMCP's Host/Origin check for the SSE
+    endpoints; FastMCP turns it on by itself only for a loopback ``host``.
     """
-    server = FastMCP("rag_knowledge", host=host, port=port)
+    server = FastMCP("rag_knowledge", host=host, port=port, transport_security=transport_security)
 
     # Search
     server.add_tool(_flag_failures(search))
