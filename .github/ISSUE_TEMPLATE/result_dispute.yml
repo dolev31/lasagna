@@ -1,0 +1,28 @@
+name: Result dispute
+description: A published number does not reproduce
+labels: ["results"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Disagreement about a number is useful and welcome. Most of the time it
+        turns out the two runs held different things fixed, which is exactly
+        what the comparability key is for.
+  - type: input
+    id: disputed
+    attributes:
+      label: The result being disputed
+      description: A link to the published bundle, or its run_id.
+    validations:
+      required: true
+  - type: textarea
+    id: yours
+    attributes:
+      label: Your bundle
+      description: >-
+        Run `lasagna results compare theirs.json yours.json`. If it reports the
+        runs as not comparable, paste the field-level differences — that is
+        usually the whole answer.
+      render: shell
+    validations:
+      required: true

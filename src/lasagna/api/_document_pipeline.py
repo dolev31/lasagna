@@ -1,0 +1,1246 @@
+"""Document upload, processing, and management pipeline.
+
+Handles document upload, text extraction (with OCR fallback), chunking,
+embedding generation, vector indexing, and document deletion.
+"""
+
+from __future__ import annotations
+
+import os
+import uuid
+import threading
+import time as _time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..processing.document_processor import DocumentProcessor
+
+from loguru import logger
+
+from lasagna.core.config import rag_config, RAGConfig
+from lasagna.core.schema import (
+    Document,
+    DocumentStatus,
+    DocumentMetadata,
+)
+from ..vector_backends import (
+    get_backend,
+    FilterExpression,
+)
+from ..processing.chunker.semantic import chunk_document, SemanticChunker
+from ..processing.docling_processor import is_docling_available, DoclingProcessor
+from ..infrastructure.embedding import EmbeddingManager
+from ..infrastructure.cache import get_search_cache
+from ..retrieval.search.hybrid import HybridSearcher
+from lasagna.utils.monitoring import METRICS
+from lasagna.utils.tracing import TRACER
+
+from ._validation import (
+    is_valid_session_id,
+    sanitize_filename,
+    is_safe_document_id,
+)
+from lasagna.core.tenant import get_tenant_manager
+from lasagna.core.quota import get_quota_manager
+from lasagna.infrastructure.tasks.document_tasks import dispatch_processing
+
+if TYPE_CHECKING:
+    from ._collection_manager import CollectionManager
+    from lasagna.storage.base import StorageBackend
+
+
+class DocumentPipeline:
+    """Manages document upload, processing, and lifecycle.
+
+    Handles:
+    - Document upload with file validation and storage
+    - Text extraction with OCR fallback
+    - Semantic chunking and embedding generation
+    - Vector database indexing
+    - Document metadata management (SQLite)
+    - Document deletion with full cleanup
+    """
+
+    def __init__(
+        self,
+        document_processor: DocumentProcessor,
+        embedding_manager: EmbeddingManager,
+        chunker: SemanticChunker,
+        hybrid_searcher: HybridSearcher,
+        collection_manager: "CollectionManager",
+        storage: Optional["StorageBackend"] = None,
+    ):
+        self.document_processor = document_processor
+        self.embedding_manager = embedding_manager
+        self.chunker = chunker
+        self.hybrid_searcher = hybrid_searcher
+        self._collection_manager = collection_manager
+        self._storage = storage
+        self._rebuild_lock = threading.Lock()
+        self._rebuilding = False
+
+    @property
+    def storage(self) -> "StorageBackend":
+        """Lazily resolve the storage backend."""
+        if self._storage is None:
+            from lasagna.storage import get_storage_backend
+
+            self._storage = get_storage_backend()
+        return self._storage
+
+    # =========================================================================
+    # Upload
+    # =========================================================================
+
+    def upload_document(
+        self,
+        file_path: str,
+        session_id: str,
+        filename: Optional[str] = None,
+        document_id: Optional[str] = None,
+        _chunker_override: Any = None,
+        _document_processor_override: Any = None,
+    ) -> Document:
+        """Upload and process a document with SOTA pipeline.
+
+        Args:
+            file_path: Path to the uploaded file
+            session_id: Session ID
+            filename: Original filename
+            document_id: Optional explicit document ID. When provided, used
+                instead of generating a random UUID. Useful for benchmark
+                evaluation where corpus doc IDs must match qrels.
+
+        Returns:
+            Document metadata
+        """
+        config = self._get_session_config(session_id)
+
+        # Quota enforcement — fast-fail before expensive operations (embedding
+        # manager reload, file I/O).  The authoritative atomic reservation
+        # happens later via check_and_reserve_upload().
+        quota_mgr = get_quota_manager()
+        file_size_for_quota = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        quota_mgr.check_upload(session_id, file_size_bytes=file_size_for_quota)
+
+        self._collection_manager.maybe_reload_embedding_manager(config)
+        # Sync embedding manager reference after potential reload
+        self.embedding_manager = self._collection_manager.embedding_manager
+        logger.debug(
+            "Document load using embedding model: "
+            f"{self.embedding_manager.model_name} "
+            f"(dim={self.embedding_manager.dimension})"
+        )
+
+        if not os.path.exists(file_path):
+            raise ValueError(f"File not found: {file_path}")
+
+        file_size = os.path.getsize(file_path)
+        if file_size > config.max_file_size:
+            raise ValueError(f"File too large: {file_size} bytes (max: {config.max_file_size})")
+
+        if filename is None:
+            filename = os.path.basename(file_path)
+
+        file_type = self.document_processor.detect_file_type(file_path)
+        if file_type not in config.supported_extensions:
+            raise ValueError(f"Unsupported file type: {file_type}")
+
+        document_id = document_id or f"doc_{uuid.uuid4().hex[:16]}"
+
+        document = Document(
+            document_id=document_id,
+            session_id=session_id,
+            filename=filename,
+            file_type=file_type,
+            file_size=file_size,
+            status=DocumentStatus.PROCESSING,
+            chunks_count=0,
+            upload_date=datetime.now(timezone.utc),
+        )
+
+        # --- Reserve quota BEFORE any I/O (file storage + metadata write) ---
+        # This prevents orphaned files/metadata when a concurrent upload
+        # exhausts the quota between validation and storage.
+        reservation_id = quota_mgr.check_and_reserve_upload(
+            session_id, file_size_bytes=file_size_for_quota
+        )
+
+        try:
+            stored_file_path = self._store_file(file_path, document_id, filename)
+        except Exception:
+            quota_mgr.release_upload_reservation(
+                session_id, file_size_for_quota, reservation_id=reservation_id
+            )
+            raise
+
+        try:
+            upload_backend = self._collection_manager.resolve_backend(session_id)
+            self._save_document_metadata(
+                document, stored_file_path, vector_backend_name=upload_backend.backend_name
+            )
+        except Exception:
+            # Best-effort cleanup of already-stored file
+            try:
+                self.storage.delete(stored_file_path)
+            except Exception as cleanup_exc:
+                logger.warning(
+                    f"Failed to clean up stored file after metadata error: {cleanup_exc}"
+                )
+            quota_mgr.release_upload_reservation(
+                session_id, file_size_for_quota, reservation_id=reservation_id
+            )
+            raise
+
+        logger.info(f"Document uploaded: {document_id} ({filename})")
+
+        # --- Celery async path: dispatch and return immediately ---
+        if dispatch_processing(
+            document_id,
+            session_id,
+            stored_file_path,
+            reservation_id=reservation_id,
+            reserved_file_size=file_size_for_quota,
+        ):
+            METRICS.counter("rag.document.uploads", 1)
+            return document  # status=PROCESSING; client polls for completion
+
+        # --- Synchronous path (default / Celery not enabled) ---
+
+        with TRACER.span(
+            "document_process",
+            attributes={
+                "document_id": document_id,
+                "filename": filename or "",
+                "file_type": file_type or "",
+                "file_size": file_size,
+            },
+        ) as _span:
+            try:
+                self.process_document(
+                    document,
+                    stored_file_path,
+                    config=config,
+                    _chunker_override=_chunker_override,
+                    _document_processor_override=_document_processor_override,
+                )
+            except Exception as e:
+                logger.error(f"Failed to process document {document_id}: {e}")
+                try:
+                    self._update_document_status(
+                        document_id, DocumentStatus.ERROR, error_message=str(e)
+                    )
+                except Exception as status_exc:
+                    logger.warning(f"Failed to update error status for {document_id}: {status_exc}")
+                finally:
+                    quota_mgr.release_upload_reservation(
+                        session_id, file_size_for_quota, reservation_id=reservation_id
+                    )
+                raise
+
+        # Refresh document object from database to get updated status and chunk count
+        updated_doc = self._get_document_metadata(document_id)
+        if updated_doc:
+            document.status = updated_doc.status
+            document.chunks_count = updated_doc.chunks_count
+            logger.debug(
+                f"Document refreshed after processing: "
+                f"status={document.status.value}, chunks={document.chunks_count}"
+            )
+
+        # Invalidate search cache when new document is added
+        if config.enable_search_cache:
+            try:
+                search_cache = get_search_cache(config)
+                invalidated = search_cache.invalidate_session(session_id)
+                if invalidated > 0:
+                    logger.debug(
+                        f"Search cache invalidated after upload: {invalidated} entries for session {session_id[:8]}..."
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to invalidate search cache after upload: {e}")
+
+        METRICS.counter("rag.document.uploads", 1)
+
+        # Finalize reservation with actual chunk count
+        quota_mgr.finalize_upload_reservation(
+            session_id=session_id,
+            chunks=document.chunks_count,
+        )
+
+        return document
+
+    def _store_file(self, source_path: str, document_id: str, filename: str) -> str:
+        """Store uploaded file via the pluggable storage backend.
+
+        SECURITY: Filename is sanitized to prevent path traversal attacks.
+        """
+        if not is_safe_document_id(document_id):
+            raise ValueError(f"Invalid document_id: {document_id!r}")
+
+        safe_filename = sanitize_filename(filename)
+
+        with open(source_path, "rb") as f:
+            info = self.storage.store(f, document_id, safe_filename)
+
+        logger.info(f"File stored: {info.uri}")
+        return info.uri
+
+    def _save_document_metadata(
+        self, document: Document, file_path: str, vector_backend_name: str = None
+    ):
+        """Save document metadata to SQLite."""
+        from lasagna.core.database import get_rag_database
+        from lasagna.lifecycle.policy import LifecyclePolicy
+        from datetime import timedelta
+
+        if vector_backend_name is None:
+            vector_backend_name = self._collection_manager._default_backend_name
+
+        # Compute expires_at from LifecyclePolicy.document_ttl_days (None = never expire)
+        expires_at = None
+        try:
+            policy = LifecyclePolicy.from_env()
+            if policy.document_ttl_days is not None:
+                from datetime import datetime, timezone
+
+                expires_at = (
+                    datetime.now(timezone.utc) + timedelta(days=policy.document_ttl_days)
+                ).isoformat()
+        except Exception:
+            pass  # TTL is optional; don't fail the upload if policy is unavailable
+
+        rag_db = get_rag_database()
+        rag_db.save_document(
+            {
+                "document_id": document.document_id,
+                "session_id": document.session_id,
+                "filename": document.filename,
+                "file_size": document.file_size,
+                "file_type": document.file_type,
+                "status": document.status.value,
+                "chunks_count": document.chunks_count,
+                "upload_date": document.upload_date.isoformat(),
+                "vector_backend_name": vector_backend_name,
+                "storage_backend_name": self.storage.backend_name,
+                "expires_at": expires_at,
+            },
+            file_path,
+        )
+
+    # =========================================================================
+    # Processing
+    # =========================================================================
+
+    def process_document(
+        self,
+        document: Document,
+        file_path: str,
+        config: Optional[RAGConfig] = None,
+        _chunker_override: Any = None,
+        _document_processor_override: Any = None,
+    ):
+        """Process document with SOTA pipeline.
+
+        ``_chunker_override`` is a ``BaseChunker`` instance that replaces the
+        built-in chunking strategies for this document, which is what makes a
+        chunking experiment possible at all.
+        """
+        start_time = _time.monotonic()
+        logger.info(f"Processing document: {document.document_id}")
+        config = config or rag_config
+
+        # Ensure we have a local path for processors (Docling, OCR, etc.)
+        # For local storage this is zero-copy; for cloud storage it downloads to temp.
+        local_path = self.storage.ensure_local(file_path)
+        is_temp = local_path != self.storage.get_local_path(file_path)
+
+        # --- Text extraction (needs local file) ---
+        _stage_times: Dict[str, float] = {}
+        _t_extract_start = _time.monotonic()
+        chunks_with_metadata = None
+        parent_chunks_data = None
+        text = ""
+        text_length = 0
+
+        try:
+            use_docling = self._should_use_docling(local_path, config)
+            if use_docling:
+                try:
+                    processor = DoclingProcessor.get_instance(config)
+                    chunks_with_metadata, parent_chunks_data, text = processor.process(
+                        file_path=local_path,
+                        document_id=document.document_id,
+                        session_id=document.session_id,
+                        filename=document.filename,
+                        config=config,
+                    )
+                    text_length = len(text)
+                except Exception as e:
+                    logger.warning(f"Docling processing failed, falling back to legacy: {e}")
+                    chunks_with_metadata = None
+
+            # --- Legacy path: text extraction + semantic chunking ---
+            if chunks_with_metadata is None:
+                if _document_processor_override is not None:
+                    # A registered processor owns extraction outright: it
+                    # decides how bytes become text, which is the stage under
+                    # test. Running OCR settings on top of someone else's
+                    # extractor would mean the measured system is not the one
+                    # that was configured.
+                    from ..core.base_components import BaseDocumentProcessor
+
+                    if not isinstance(_document_processor_override, BaseDocumentProcessor):
+                        raise TypeError(
+                            f"document_processor must implement BaseDocumentProcessor, "
+                            f"got {type(_document_processor_override).__name__}. Run "
+                            f"`lasagna component validate <module:Class>` to check."
+                        )
+                    processed = _document_processor_override.extract(local_path)
+                    text = getattr(processed, "text", None)
+                    if text is None:
+                        raise TypeError(
+                            "document_processor.extract() must return a "
+                            "ProcessedDocument with a `text` attribute."
+                        )
+                    logger.info(
+                        f"Extracted with injected component: {_document_processor_override.name}"
+                    )
+                else:
+                    text = self._extract_text_with_ocr(local_path, document.file_type, config)
+                text_length = len(text)
+
+                if not text or not text.strip():
+                    raise ValueError("No text could be extracted from document")
+
+                if config.enable_hierarchical:
+                    chunk_result = chunk_document(
+                        text=text,
+                        document_id=document.document_id,
+                        session_id=document.session_id,
+                        filename=document.filename,
+                        embedding_manager=self.embedding_manager,
+                        config=config,
+                        return_parents=True,
+                        chunker=_chunker_override,
+                    )
+                    if isinstance(chunk_result, tuple):
+                        chunks_with_metadata, parent_chunks_data = chunk_result
+                    else:
+                        chunks_with_metadata = chunk_result
+                else:
+                    chunks_with_metadata = chunk_document(
+                        text=text,
+                        document_id=document.document_id,
+                        session_id=document.session_id,
+                        filename=document.filename,
+                        embedding_manager=self.embedding_manager,
+                        config=config,
+                        chunker=_chunker_override,
+                    )
+        finally:
+            # Clean up temp file if we downloaded from cloud storage
+            if is_temp:
+                try:
+                    if os.path.exists(local_path):
+                        os.unlink(local_path)
+                except (OSError, IOError) as e:
+                    logger.warning(f"Failed to clean up temp file {local_path}: {e}")
+
+        if not chunks_with_metadata:
+            raise ValueError("No chunks created from document")
+
+        _stage_times["extract_chunk"] = _time.monotonic() - _t_extract_start
+
+        # Preserve original (pre-enrichment) chunk texts for late chunking.
+        # Late chunking needs texts that are substrings of full_text for offset mapping.
+        _original_chunk_texts = [ct for ct, _ in chunks_with_metadata]
+
+        # Contextual retrieval enrichment (Anthropic-style chunk-level context)
+        # Prepends each chunk with an LLM-generated context sentence that
+        # situates the chunk within the broader document.
+        # Truncate document context to 10K chars to reduce LLM token cost
+        # (~5x cheaper than the default 50K truncation in enricher.enrich()).
+        if getattr(config, "enable_contextual_retrieval", False) and text:
+            try:
+                from ..processing.contextual import ContextualEnricher
+                from ..providers.llm_provider import SimpleLLMProvider
+
+                llm = SimpleLLMProvider().get_llm()
+                enricher = ContextualEnricher(llm_provider=llm)
+                doc_context = text[:10000]
+                chunk_texts = [ct for ct, _ in chunks_with_metadata]
+                enriched_texts = enricher.enrich_batch(doc_context, chunk_texts)
+                chunks_with_metadata = [
+                    (et, cm) for et, (_, cm) in zip(enriched_texts, chunks_with_metadata)
+                ]
+                logger.info(
+                    f"Contextual enrichment: enriched {len(enriched_texts)} chunks "
+                    f"for document {document.document_id} "
+                    f"(doc context: {len(doc_context)} chars)"
+                )
+            except Exception as e:
+                logger.warning(f"Contextual enrichment failed, using original chunks: {e}")
+
+        # GraphRAG entity extraction (synchronous, ThreadPoolExecutor for parallelism)
+        if getattr(config, "enable_graph_retrieval", False):
+            try:
+                from ..retrieval.graph import EntityExtractor, get_or_create_session_graph
+                from ..providers.llm_provider import SimpleLLMProvider
+
+                extractor = EntityExtractor(
+                    entity_types=getattr(config, "graph_entity_types", None),
+                    model_name=getattr(config, "graph_extraction_model", None),
+                )
+                from ..utils.model_utils import get_default_model_name
+
+                extraction_model = (
+                    getattr(config, "graph_extraction_model", "") or get_default_model_name()
+                )
+                llm = SimpleLLMProvider().get_llm(model_name=extraction_model, temperature=0)
+                chunk_texts_for_graph = [ct for ct, _ in chunks_with_metadata]
+                extractions = extractor.extract_batch_sync(
+                    chunk_texts_for_graph, llm, max_workers=4
+                )
+                graph_store = get_or_create_session_graph(document.session_id)
+                for idx, extraction in enumerate(extractions):
+                    chunk_id = f"{document.document_id}_chunk_{idx}"
+                    for entity in extraction.get("entities", []):
+                        entity_emb = self.embedding_manager.encode_document(entity["name"])
+                        graph_store.add_entity(
+                            entity_id=entity["name"],
+                            entity_type=entity.get("type", "UNKNOWN"),
+                            embedding=entity_emb,
+                            chunk_id=chunk_id,
+                        )
+                    for rel in extraction.get("relationships", []):
+                        graph_store.add_relationship(
+                            source_id=rel["source"],
+                            target_id=rel["target"],
+                            rel_type=rel.get("type", "RELATED"),
+                        )
+                logger.info(
+                    f"GraphRAG: extracted {graph_store.num_entities} entities, "
+                    f"{graph_store.num_relationships} relationships "
+                    f"for document {document.document_id}"
+                )
+            except Exception as e:
+                logger.warning(f"GraphRAG entity extraction failed: {e}")
+
+        # Generate embeddings in batch (or via late chunking)
+        _t_embed_start = _time.monotonic()
+        chunk_texts = [ct for ct, _ in chunks_with_metadata]
+        if getattr(config, "enable_late_chunking", False) and text:
+            # Late chunking uses ORIGINAL (pre-enrichment) chunk texts for
+            # offset mapping against full_text.  The resulting embeddings
+            # capture full-document context regardless of enrichment.
+            logger.info(
+                f"Using late chunking for document {document.document_id} "
+                f"({len(text)} chars, {len(chunk_texts)} chunks)"
+            )
+            embeddings = self.embedding_manager.encode_documents_late_chunking(
+                full_text=text,
+                chunk_texts=_original_chunk_texts,
+            )
+        else:
+            embeddings = self.embedding_manager.encode_documents_batch(
+                chunk_texts, show_progress=True
+            )
+
+        # RAPTOR: build recursive summary tree and add summary nodes as extra chunks
+        if getattr(config, "enable_raptor", False):
+            try:
+                from ..retrieval.raptor import RaptorTreeBuilder
+                from ..providers.llm_provider import SimpleLLMProvider
+
+                llm = SimpleLLMProvider().get_llm(temperature=0)
+                builder = RaptorTreeBuilder(
+                    embedding_manager=self.embedding_manager,
+                    llm_provider=llm,
+                    max_cluster_size=getattr(config, "raptor_max_cluster_size", 10),
+                    max_levels=getattr(config, "raptor_max_levels", 5),
+                )
+                tree = builder.build(
+                    texts=chunk_texts,
+                    embeddings=embeddings,
+                )
+                # Add non-leaf summary nodes as extra chunks
+                raptor_extra = 0
+                for node in tree.all_nodes():
+                    if node.level == 0:
+                        continue  # leaf nodes are already in chunks_with_metadata
+                    summary_meta = {
+                        "document_id": document.document_id,
+                        "session_id": document.session_id,
+                        "filename": document.filename,
+                        "raptor_level": node.level,
+                        "raptor_node_id": node.node_id,
+                        "raptor_children": len(node.children),
+                    }
+                    chunks_with_metadata.append((node.text, summary_meta))
+                    embeddings.append(node.embedding)
+                    raptor_extra += 1
+                logger.info(
+                    f"RAPTOR: added {raptor_extra} summary nodes "
+                    f"({tree.max_level} levels) for document {document.document_id}"
+                )
+            except Exception as e:
+                logger.warning(f"RAPTOR tree building failed: {e}")
+
+        _stage_times["embed"] = _time.monotonic() - _t_embed_start
+
+        # Resolve backend for this session
+        _t_insert_start = _time.monotonic()
+        backend = self._collection_manager.resolve_backend(document.session_id)
+
+        # Compute sparse tokens for OpenSearch 3-way hybrid (when enabled)
+        sparse_tokens_list: Optional[List[Optional[Dict]]] = None
+        if backend.backend_name == "opensearch":
+            try:
+                from ..vector_backends.opensearch_backend import _neural_sparse_enabled
+
+                if _neural_sparse_enabled() and hasattr(self.embedding_manager, "encode_sparse"):
+                    sparse_result = self.embedding_manager.encode_sparse(chunk_texts)
+                    if sparse_result is not None:
+                        sparse_tokens_list = sparse_result
+                        logger.debug(f"Generated sparse tokens for {len(chunk_texts)} chunks")
+            except Exception as e:
+                logger.debug(f"Sparse token generation skipped: {e}")
+
+        # Resolve tenant partition key for partition-based isolation
+        tenant_mgr = get_tenant_manager()
+        partition_key = tenant_mgr.resolve_partition_key(document.session_id)
+        if partition_key:
+            try:
+                tenant_mgr.ensure_partition(backend, config.collection_name, partition_key)
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to create partition for session {document.session_id}: {e}"
+                ) from e
+
+        # Store chunks in vector database
+        chunk_entries = []
+        for i, ((chunk_text, metadata), embedding) in enumerate(
+            zip(chunks_with_metadata, embeddings)
+        ):
+            content = chunk_text[: config.max_content_length]
+            sparse_tokens = (
+                sparse_tokens_list[i]
+                if sparse_tokens_list and i < len(sparse_tokens_list)
+                else None
+            )
+            chunk_entries.append((content, metadata, embedding, sparse_tokens))
+
+        # Quota: check chunk limit before insert
+        quota_mgr = get_quota_manager()
+        quota_mgr.check_chunks(document.session_id, len(chunk_entries))
+
+        def _insert_all_chunks() -> tuple[int, list[dict]]:
+            batch_data = []
+            chunks_for_bm25 = []
+            for idx, (content, metadata, embedding, sparse_tokens) in enumerate(chunk_entries):
+                chunk_id = f"{document.document_id}_chunk_{idx}"
+                insert_doc = {
+                    "chunk_id": chunk_id,
+                    "document_id": document.document_id,
+                    "session_id": metadata.get("session_id", ""),
+                    "content": content,
+                    "embedding": embedding.tolist(),
+                    "metadata": metadata,
+                }
+                if sparse_tokens:
+                    insert_doc["sparse_tokens"] = sparse_tokens
+                batch_data.append(insert_doc)
+                chunks_for_bm25.append(
+                    {
+                        "chunk_id": idx,
+                        "document_id": document.document_id,
+                        "content": content,
+                        "metadata": metadata,
+                    }
+                )
+
+            if batch_data:
+                backend.insert(
+                    collection_name=config.collection_name,
+                    data=batch_data,
+                    partition_key=partition_key,
+                )
+
+            return len(batch_data), chunks_for_bm25
+
+        def _is_dim_mismatch_error(exc: Exception) -> bool:
+            message = str(exc).lower()
+            return "divide the dim" in message or ("dimension" in message and "length" in message)
+
+        def _is_schema_type_mismatch_error(exc: Exception) -> bool:
+            message = str(exc)
+            return (
+                "field should be a int64" in message.lower()
+                or "DataNotMatchException" in type(exc).__name__
+            )
+
+        def _is_recoverable_schema_error(exc: Exception) -> bool:
+            return _is_dim_mismatch_error(exc) or _is_schema_type_mismatch_error(exc)
+
+        try:
+            chunk_count, chunks_for_bm25 = _insert_all_chunks()
+        except Exception as exc:
+            if not _is_recoverable_schema_error(exc):
+                raise
+
+            # Serialize mismatch detection to prevent concurrent uploads from
+            # both rebuilding. Use _collection_manager's own lock via its
+            # thread-safe methods — do NOT hold _rebuild_lock while calling
+            # into collection manager (would risk deadlock with
+            # _collection_init_lock).
+            should_rebuild = False
+            with self._rebuild_lock:
+                if self._rebuilding:
+                    raise RuntimeError(
+                        f"Collection '{config.collection_name}' is already being rebuilt "
+                        f"by another thread. Please retry your upload."
+                    )
+
+                has_other_docs = self._collection_manager.collection_has_documents(
+                    config.collection_name, backend=backend
+                )
+
+                if has_other_docs and _is_dim_mismatch_error(exc):
+                    error_msg = (
+                        "EMBEDDING DIMENSION MISMATCH during insert:\n"
+                        "Cannot insert document - embedding dimensions don't match collection.\n"
+                        "Collection contains existing documents that would be lost.\n\n"
+                        "To resolve:\n"
+                        "  1. Use the same embedding model as existing documents\n"
+                        "  2. Call backend.force_rebuild_collection(confirm=True) to clear all data\n"
+                        "  3. Re-upload all documents after rebuild"
+                    )
+                    logger.error(error_msg)
+                    raise ValueError(error_msg) from exc
+
+                self._rebuilding = True
+                should_rebuild = True
+
+            # Rebuild outside _rebuild_lock to avoid deadlock with _collection_init_lock
+            if should_rebuild:
+                try:
+                    mismatch_type = (
+                        "schema type"
+                        if _is_schema_type_mismatch_error(exc)
+                        else "embedding dimension"
+                    )
+                    logger.warning(
+                        f"Insert failed due to {mismatch_type} mismatch. "
+                        f"Rebuilding collection '{config.collection_name}' and retrying."
+                    )
+                    self._collection_manager.recreate_collection_for_config(config, backend=backend)
+                    if config.enable_hybrid_search:
+                        self.hybrid_searcher.clear_session(document.session_id)
+                    chunk_count, chunks_for_bm25 = _insert_all_chunks()
+                finally:
+                    with self._rebuild_lock:
+                        self._rebuilding = False
+
+        # Index for BM25 hybrid search
+        if config.enable_hybrid_search:
+            self.hybrid_searcher.index_chunks(chunks_for_bm25, document.session_id, build_now=False)
+
+        # Store parent chunks in SQLite for auto-merge retrieval
+        if parent_chunks_data:
+            from lasagna.core.database import get_rag_database
+
+            rag_db = get_rag_database()
+            parent_count = rag_db.save_parent_chunks(parent_chunks_data)
+            logger.info(f"Stored {parent_count} parent chunks for document {document.document_id}")
+
+        _stage_times["insert"] = _time.monotonic() - _t_insert_start
+
+        # Generate and store preview text for document awareness
+        preview_text = self._generate_preview_text(text)
+
+        # Update document status
+        processing_time = _time.monotonic() - start_time
+        logger.debug(
+            f"[DOC PROFILE] {document.document_id}: "
+            f"extract={_stage_times.get('extract_chunk', 0):.2f}s "
+            f"embed={_stage_times.get('embed', 0):.2f}s "
+            f"insert={_stage_times.get('insert', 0):.2f}s "
+            f"total={processing_time:.2f}s "
+            f"chunks={chunk_count}"
+        )
+        self._update_document_status(
+            document.document_id,
+            DocumentStatus.READY,
+            chunks_count=chunk_count,
+            processing_time=processing_time,
+            text_length=text_length,
+            preview_text=preview_text,
+        )
+
+        logger.info(
+            f"Document processed: {document.document_id} "
+            f"({chunk_count} chunks, {processing_time:.2f}s)"
+        )
+
+    # File extensions natively supported by Docling's DocumentConverter.
+    # Plain text (.txt), JSON, and XML are NOT supported — they fall back
+    # to the legacy pipeline without the noisy Docling error.
+    _DOCLING_SUPPORTED_EXTENSIONS = frozenset(
+        {
+            ".pdf",
+            ".docx",
+            ".pptx",
+            ".html",
+            ".htm",
+            ".md",
+            ".csv",
+            ".xlsx",
+            ".asciidoc",
+            ".adoc",
+            ".latex",
+            ".tex",
+            ".vtt",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".tiff",
+            ".bmp",
+            ".gif",
+        }
+    )
+
+    @staticmethod
+    def _should_use_docling(file_path: str, config: RAGConfig) -> bool:
+        """Determine if Docling should process this document."""
+        if not config.docling_enabled:
+            return False
+        if not is_docling_available():
+            logger.warning("Docling enabled in config but not installed. Using legacy pipeline.")
+            return False
+        # Skip Docling for file types it doesn't support (e.g. .txt, .json)
+        ext = Path(file_path).suffix.lower()
+        if ext and ext not in DocumentPipeline._DOCLING_SUPPORTED_EXTENSIONS:
+            logger.debug(f"Skipping Docling for unsupported format {ext}, using legacy pipeline")
+            return False
+        return True
+
+    def _extract_text_with_ocr(
+        self,
+        file_path: str,
+        file_type: str,
+        config: RAGConfig,
+    ) -> str:
+        """Extract text with OCR fallback for scanned documents."""
+        try:
+            text = self.document_processor.extract_text(file_path, file_type)
+            if text and len(text.strip()) > 100:
+                return text
+        except Exception as e:
+            logger.warning(f"Normal text extraction failed: {e}")
+
+        if file_type == ".pdf" and config.enable_ocr:
+            from ..processing.ocr_processor import is_scanned_pdf, get_ocr_processor
+
+            if is_scanned_pdf(file_path):
+                logger.info(f"Detected scanned PDF, using OCR: {file_path}")
+                ocr = get_ocr_processor()
+                ocr_text = ocr.process_pdf(file_path)
+                if ocr_text:
+                    return ocr_text
+
+        return self.document_processor.extract_text(file_path, file_type)
+
+    def _generate_preview_text(self, text: str, token_count: int = 150) -> str:
+        """Generate a preview snippet from document text."""
+        if not text:
+            return ""
+
+        words = text.split()
+        snippet_words = words[:token_count]
+        snippet = " ".join(snippet_words)
+        snippet = " ".join(snippet.split())
+
+        if len(words) > token_count:
+            snippet += "..."
+
+        return snippet
+
+    def _update_document_status(
+        self,
+        document_id: str,
+        status: DocumentStatus,
+        chunks_count: Optional[int] = None,
+        processing_time: Optional[float] = None,
+        text_length: Optional[int] = None,
+        error_message: Optional[str] = None,
+        preview_text: Optional[str] = None,
+    ):
+        """Update document status in SQLite."""
+        from lasagna.core.database import get_rag_database
+
+        rag_db = get_rag_database()
+        rag_db.update_document_status(
+            document_id=document_id,
+            status=status.value,
+            error_message=error_message,
+            chunks_count=chunks_count,
+            processing_time=processing_time,
+            text_length=text_length,
+            preview_text=preview_text,
+        )
+
+    # =========================================================================
+    # Document Management
+    # =========================================================================
+
+    def get_documents(self, session_id: str) -> List[DocumentMetadata]:
+        """Get all documents for a session."""
+        from lasagna.core.database import get_rag_database
+
+        rag_db = get_rag_database()
+        rows = rag_db.get_session_documents(session_id)
+
+        documents = []
+        for row in rows:
+            doc = DocumentMetadata(
+                document_id=row["document_id"],
+                session_id=row["session_id"],
+                filename=row["filename"],
+                file_path=row["file_path"],
+                file_size=row["file_size"],
+                file_type=row["file_type"],
+                status=DocumentStatus(row["status"]),
+                chunks_count=row["chunks_count"],
+                upload_date=datetime.fromisoformat(row["upload_date"])
+                if isinstance(row["upload_date"], str)
+                else row["upload_date"],
+                error_message=row.get("error_message"),
+                processing_time=row.get("processing_time"),
+                text_length=row.get("text_length"),
+                vector_backend_name=row.get("vector_backend_name", "milvus"),
+                storage_backend_name=row.get("storage_backend_name", "local"),
+            )
+            documents.append(doc)
+
+        return documents
+
+    def get_document_by_id(self, document_id: str, session_id: str) -> Optional[DocumentMetadata]:
+        """Get a single document by ID with session verification (O(1) lookup).
+
+        Args:
+            document_id: Document identifier.
+            session_id: Session ID for authorization — the document must
+                belong to this session.
+
+        Returns:
+            DocumentMetadata or None if the document does not exist or
+            belongs to a different session.
+        """
+        from lasagna.core.database import get_rag_database
+
+        if not is_safe_document_id(document_id) or not is_valid_session_id(session_id):
+            return None
+
+        rag_db = get_rag_database()
+        row = rag_db.get_document(document_id)
+        if not row or row.get("session_id") != session_id:
+            return None
+
+        upload_date = row["upload_date"]
+        if isinstance(upload_date, str):
+            upload_date = datetime.fromisoformat(upload_date)
+
+        return DocumentMetadata(
+            document_id=row["document_id"],
+            session_id=row["session_id"],
+            filename=row["filename"],
+            file_path=row.get("file_path", ""),
+            file_size=row.get("file_size", 0),
+            file_type=row.get("file_type", ""),
+            status=DocumentStatus(row.get("status", "processing")),
+            chunks_count=row.get("chunks_count", 0),
+            upload_date=upload_date,
+            error_message=row.get("error_message"),
+            processing_time=row.get("processing_time"),
+            text_length=row.get("text_length"),
+            vector_backend_name=row.get("vector_backend_name", "milvus"),
+            storage_backend_name=row.get("storage_backend_name", "local"),
+        )
+
+    def delete_document(
+        self, document_id: str, session_id: str, *, keep_file: bool = False
+    ) -> bool:
+        """Delete a document and its chunks.
+
+        Args:
+            document_id: Document ID to delete.
+            session_id: Session ID for authorization.
+            keep_file: If True, skip deleting the stored file from the storage
+                backend.  Used by reindex flows that need the source file to
+                survive deletion of the old index data.
+        """
+        from lasagna.core.database import get_rag_database
+
+        rag_db = get_rag_database()
+
+        doc = rag_db.get_document(document_id)
+        if not doc or doc.get("session_id") != session_id:
+            logger.warning(f"Document not found: {document_id}")
+            return False
+
+        file_path = doc.get("file_path")
+        file_size = doc.get("file_size", 0)
+        chunks_count = doc.get("chunks_count", 0)
+
+        # Resolve tenant partition key for scoped deletion
+        tenant_mgr = get_tenant_manager()
+        partition_key = tenant_mgr.resolve_partition_key(session_id)
+
+        # Delete from database (cascades to citations)
+        rag_db.delete_document(document_id)
+
+        # Delete vectors from the backend that actually holds them
+        doc_backend_name = doc.get(
+            "vector_backend_name", self._collection_manager._default_backend_name
+        )
+        try:
+            target_backend = get_backend(doc_backend_name)
+            if not target_backend.is_connected():
+                target_backend.connect()
+            target_backend.delete(
+                collection_name=doc.get("collection_name") or rag_config.collection_name,
+                filter_expr=FilterExpression.eq("document_id", document_id),
+                partition_key=partition_key,
+            )
+        except Exception as e:
+            logger.warning(f"Could not delete vectors from {doc_backend_name}: {e}")
+
+        # Remove from BM25 fallback index
+        if rag_config.enable_hybrid_search:
+            self.hybrid_searcher.remove_document(document_id, session_id)
+
+        # Clean up parent chunks from SQLite
+        parent_deleted = rag_db.delete_parent_chunks_by_document(document_id)
+        if parent_deleted > 0:
+            logger.info(f"Deleted {parent_deleted} parent chunks for document {document_id}")
+
+        # Delete file from storage backend (skip when reindexing)
+        if file_path and not keep_file:
+            try:
+                self.storage.delete(file_path)
+                logger.info(f"Deleted document files: {file_path}")
+            except Exception as e:
+                logger.error(f"Failed to delete document files: {e}")
+
+        # Clean up session-level context awareness
+        try:
+            from ..core.session_config import get_knowledge_config_manager
+
+            config_manager = get_knowledge_config_manager()
+            config_manager.remove_document_from_session_state(document_id, session_id)
+            logger.debug(f"Cleaned session state for deleted document: {document_id}")
+        except Exception as e:
+            logger.warning(f"Failed to clean session state for document {document_id}: {e}")
+
+        # Invalidate search cache
+        if rag_config.enable_search_cache:
+            try:
+                search_cache = get_search_cache(rag_config)
+                invalidated = search_cache.invalidate_session(session_id)
+                if invalidated > 0:
+                    logger.debug(
+                        f"Search cache invalidated after delete: {invalidated} entries for session {session_id[:8]}..."
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to invalidate search cache after delete: {e}")
+
+        # Record deletion for quota tracking (frees quota)
+        quota_mgr = get_quota_manager()
+        quota_mgr.record_delete(session_id, file_size_bytes=file_size, chunks=chunks_count)
+
+        logger.info(f"Document deleted: {document_id}")
+        return True
+
+    def get_document_chunks(
+        self,
+        document_id: str,
+        session_id: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Get chunks for a specific document."""
+        if not is_safe_document_id(document_id):
+            logger.warning(f"Invalid document_id: {document_id!r}")
+            return []
+
+        if not is_valid_session_id(session_id):
+            logger.warning("Invalid session_id format in get_document_chunks")
+            return []
+
+        try:
+            backend = self._collection_manager.resolve_backend(session_id)
+
+            if backend.backend_name == "milvus":
+                filter_expr = FilterExpression.and_(
+                    FilterExpression.eq("document_id", document_id),
+                    FilterExpression.json_eq("metadata", "session_id", session_id),
+                )
+            else:
+                filter_expr = FilterExpression.and_(
+                    FilterExpression.eq("document_id", document_id),
+                    FilterExpression.eq("session_id", session_id),
+                )
+            results = backend.query(
+                collection_name=rag_config.collection_name,
+                filter_expr=filter_expr,
+                output_fields=["content", "metadata"],
+                limit=limit + offset,
+            )
+
+            if not results:
+                return []
+
+            sorted_results = sorted(
+                results, key=lambda x: x.get("metadata", {}).get("chunk_index", 0)
+            )
+            paginated = sorted_results[offset : offset + limit]
+
+            return [
+                {
+                    "content": chunk.get("content", ""),
+                    "chunk_index": chunk.get("metadata", {}).get("chunk_index", i),
+                    "metadata": chunk.get("metadata", {}),
+                }
+                for i, chunk in enumerate(paginated)
+            ]
+
+        except Exception as e:
+            logger.error(f"Failed to get chunks for document {document_id}: {e}")
+            return []
+
+    def get_document_file_path(self, document_id: str, session_id: str) -> Optional[str]:
+        """Get the file path for a document."""
+        from lasagna.core.database import get_rag_database
+
+        rag_db = get_rag_database()
+        doc = rag_db.get_document(document_id)
+
+        if doc and doc.get("session_id") == session_id:
+            return doc.get("file_path")
+        return None
+
+    # =========================================================================
+    # Metadata Helpers
+    # =========================================================================
+
+    def _get_document_metadata(self, document_id: str) -> Optional[Document]:
+        """Get document metadata from SQLite."""
+        from lasagna.core.database import get_rag_database
+
+        rag_db = get_rag_database()
+        row = rag_db.get_document(document_id)
+
+        if not row:
+            return None
+
+        upload_date = row["upload_date"]
+        if isinstance(upload_date, str):
+            upload_date = datetime.fromisoformat(upload_date)
+
+        return Document(
+            document_id=row["document_id"],
+            session_id=row["session_id"],
+            filename=row["filename"],
+            file_type=row["file_type"],
+            file_size=row["file_size"],
+            status=DocumentStatus(row["status"]),
+            chunks_count=row["chunks_count"],
+            upload_date=upload_date,
+            error_message=row.get("error_message"),
+        )
+
+    def get_documents_metadata_batch(self, document_ids: List[str]) -> Dict[str, Document]:
+        """Get document metadata for multiple documents in a single query."""
+        from lasagna.core.database import get_rag_database
+
+        if not document_ids:
+            return {}
+
+        unique_ids = list(dict.fromkeys(document_ids))
+        valid_ids = [doc_id for doc_id in unique_ids if is_safe_document_id(doc_id)]
+        if not valid_ids:
+            return {}
+
+        rag_db = get_rag_database()
+        result = {}
+
+        for row in rag_db.get_documents_batch(valid_ids):
+            upload_date = row.get("upload_date")
+            if isinstance(upload_date, str):
+                upload_date = datetime.fromisoformat(upload_date)
+
+            doc = Document(
+                document_id=row["document_id"],
+                session_id=row["session_id"],
+                filename=row["filename"],
+                file_type=row.get("file_type", ""),
+                file_size=row.get("file_size", 0),
+                status=DocumentStatus(row.get("status", "processing")),
+                chunks_count=row.get("chunks_count", 0),
+                upload_date=upload_date,
+                error_message=row.get("error_message"),
+            )
+            result[doc.document_id] = doc
+
+        return result
+
+    # =========================================================================
+    # Internal Helpers
+    # =========================================================================
+
+    @staticmethod
+    def _get_session_config(session_id: Optional[str] = None) -> RAGConfig:
+        """Get a session-aware RAGConfig instance."""
+        if session_id:
+            return rag_config.with_session(session_id)
+        return rag_config
+
+    # =========================================================================
+    # Lifecycle Helpers (called by DocumentLifecycleManager)
+    # =========================================================================
+
+    def _invalidate_search_cache(self, session_id: str) -> None:
+        """Invalidate the search cache for a session.
+
+        Called by the lifecycle manager after soft-delete, restore, and
+        bulk-delete operations to ensure stale cache entries are evicted.
+        """
+        if rag_config.enable_search_cache:
+            try:
+                search_cache = get_search_cache(rag_config)
+                invalidated = search_cache.invalidate_session(session_id)
+                if invalidated > 0:
+                    logger.debug(
+                        f"Search cache invalidated: {invalidated} entries "
+                        f"for session {session_id[:8]}..."
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to invalidate search cache for session {session_id}: {e}")
+
+    def _remove_from_session_focus(self, document_id: str, session_id: str) -> None:
+        """Remove a document from the session's document-focus / awareness state.
+
+        Called by the lifecycle manager after soft-delete so that the document
+        no longer appears in the session's focused document list.
+        """
+        try:
+            from ..core.session_config import get_knowledge_config_manager
+
+            config_manager = get_knowledge_config_manager()
+            config_manager.remove_document_from_session_state(document_id, session_id)
+            logger.debug(f"Removed document {document_id} from session focus: {session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to remove document {document_id} from session focus: {e}")

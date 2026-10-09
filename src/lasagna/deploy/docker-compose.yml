@@ -1,0 +1,237 @@
+# ============================================================================
+# RAG Knowledge Service — Base Compose (shared infrastructure)
+#
+# This is the base file.  Combine with a backend fragment:
+#   docker compose -f docker-compose.yml -f backends/pgvector.yml up -d
+#
+# Or use the Makefile (recommended):
+#   VECTOR_BACKEND=pgvector make up
+#
+# Services defined here:
+#   api          — FastAPI + Gunicorn (always starts)
+#   redis        — Cache + message broker (always starts)
+#   postgres     — Metadata database (always starts)
+#   celery-worker — Background processing (profile: celery)
+#   mcp          — Standalone MCP server (profile: mcp)
+#   jaeger       — Distributed tracing (profile: tracing)
+# ============================================================================
+
+x-env: &common-env
+  RAG_DATABASE_BACKEND: postgresql
+  # Uses the same POSTGRES_PASSWORD the postgres service requires. Hardcoding
+  # a password here would silently override it: the database would be created
+  # with the operator's password while the app kept connecting as rag:rag, and
+  # the quickest way out of the resulting auth error is to weaken
+  # POSTGRES_PASSWORD back to "rag" -- exactly what requiring it prevents.
+  RAG_DATABASE_DSN: postgresql://rag:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/rag
+  RAG_REDIS_URL: redis://redis:6379
+  RAG_CACHE_BACKEND: redis
+  RAG_CELERY_ENABLED: "${RAG_CELERY_ENABLED:-true}"
+  RAG_CELERY_BROKER_URL: redis://redis:6379/0
+  RAG_CELERY_RESULT_BACKEND: redis://redis:6379/1
+  RAG_TENANT_ISOLATION: partition
+  RAG_QUOTA_ENABLED: "true"
+  RAG_RATE_LIMITING_ENABLED: "true"
+  RAG_ENABLE_PROMETHEUS: "true"
+  PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_multiproc
+  RAG_ENABLE_TRACING: "${RAG_ENABLE_TRACING:-false}"
+  RAG_TRACING_ENDPOINT: "${RAG_TRACING_ENDPOINT:-http://jaeger:4317}"
+  # Pool size should be >= gunicorn workers × 2 (default 4 workers → 10)
+  RAG_CONNECTION_POOL_SIZE: "${RAG_CONNECTION_POOL_SIZE:-10}"
+  RAG_JWT_SECRET: "${RAG_JWT_SECRET:?Set RAG_JWT_SECRET in .env}"
+  # Off by default because this file publishes the API on loopback. Turn it on
+  # together with API_BIND -- see the note on the api service's `ports`. With it
+  # on, `X-Session-ID` stops being accepted as identity and callers must present
+  # a token from POST /api/v1/sessions.
+  RAG_REQUIRE_AUTH: "${RAG_REQUIRE_AUTH:-false}"
+  # Guards the GC/admin routes and the five MCP tools that mirror them. Unset
+  # means those routes return 503, not that they are open.
+  RAG_ADMIN_TOKEN: "${RAG_ADMIN_TOKEN:-}"
+  # Every service here binds 0.0.0.0 on the container network -- it has no other
+  # option -- and is published on 127.0.0.1 by the `ports:` entries below. The
+  # process cannot see the publish address, so it would otherwise refuse to
+  # start; this asserts what the ports section already arranges.
+  #
+  # If you change a published port to 0.0.0.0, set RAG_REQUIRE_AUTH=true with
+  # it. This variable says "the network restricts who reaches me", and that
+  # stops being true the moment you do.
+  RAG_BIND_IS_PROTECTED: "${RAG_BIND_IS_PROTECTED:-true}"
+  # Cross-origin browser access is denied unless origins are named here.
+  RAG_CORS_ORIGINS: "${RAG_CORS_ORIGINS:-}"
+  # SOTA model and retrieval config
+  RAG_EMBEDDING_MODEL: "${RAG_EMBEDDING_MODEL:-BAAI/bge-m3}"
+  RAG_EMBEDDING_DIM: "${RAG_EMBEDDING_DIM:-1024}"
+  RAG_EMBEDDING_BACKEND: "${RAG_EMBEDDING_BACKEND:-sentence-transformers}"
+  RAG_RERANKER_MODEL: "${RAG_RERANKER_MODEL:-mixedbread-ai/mxbai-rerank-large-v1}"
+  RAG_ENABLE_CONTEXT_REORDERING: "${RAG_ENABLE_CONTEXT_REORDERING:-true}"
+  RAG_ENABLE_RAG_FUSION: "${RAG_ENABLE_RAG_FUSION:-false}"
+  RAG_ENABLE_CRAG: "${RAG_ENABLE_CRAG:-false}"
+  RAG_ENABLE_CONTEXTUAL_RETRIEVAL: "${RAG_ENABLE_CONTEXTUAL_RETRIEVAL:-false}"
+  RAG_DOCLING_ENABLED: "${RAG_DOCLING_ENABLED:-false}"
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "3"
+
+x-build: &common-build
+  context: ../../../../..
+  dockerfile: src/lasagna/deploy/Dockerfile
+
+services:
+  # -------------------------------------------------------------------------
+  # API Server (FastAPI + Gunicorn) — always starts
+  # -------------------------------------------------------------------------
+  api:
+    build: *common-build
+    ports:
+      # Loopback by default, like every other service in this file. Docker's
+      # port publishing writes its own iptables DNAT rules, so an unqualified
+      # "8000:8000" reaches the LAN past most host firewalls -- and this is the
+      # one service here that can delete documents.
+      #
+      # To expose it, set API_BIND=0.0.0.0 *and* RAG_REQUIRE_AUTH=true in .env.
+      # Nothing inside the container can check that pairing for you: it always
+      # sees gunicorn bound to 0.0.0.0 on the container network regardless of
+      # how the port is published, so this file is the only place the decision
+      # is visible. `lasagna serve` does enforce it, because there the bind
+      # address is an argument it can read.
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8000}:8000"
+    environment:
+      <<: *common-env
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # Celery Worker — opt-in via: --profile celery
+  # -------------------------------------------------------------------------
+  celery-worker:
+    build: *common-build
+    profiles: ["celery"]
+    command: >
+      celery
+      -A lasagna.infrastructure.tasks.celery_app
+      worker
+      --loglevel=info
+      --concurrency=${CELERY_CONCURRENCY:-4}
+    environment:
+      <<: *common-env
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # Celery Beat Scheduler — opt-in via: --profile celery
+  # Runs periodic GC and orphan-scan tasks on a cron schedule.
+  # Must run alongside celery-worker (one beat instance per cluster).
+  # -------------------------------------------------------------------------
+  celery-beat:
+    build: *common-build
+    profiles: ["celery"]
+    command: >
+      celery
+      -A lasagna.infrastructure.tasks.celery_app
+      beat
+      --loglevel=info
+      --scheduler celery.beat.PersistentScheduler
+      --schedule /tmp/celerybeat-schedule
+    environment:
+      <<: *common-env
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # MCP Server (standalone) — opt-in via: --profile mcp
+  # -------------------------------------------------------------------------
+  mcp:
+    build: *common-build
+    profiles: ["mcp"]
+    command:
+      - python
+      - "-m"
+      - "lasagna.mcp"
+      - "--host=0.0.0.0"
+      - "--port=8005"
+    ports:
+      - "127.0.0.1:${MCP_PORT:-8005}:8005"
+    environment:
+      <<: *common-env
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # Redis (Cache + Message Broker) — always starts
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    logging: *default-logging
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # PostgreSQL (Metadata Database) — always starts
+  # Image can be overridden by backend fragments (e.g. pgvector/pgvector:pg16)
+  # -------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: rag
+      POSTGRES_USER: rag
+      # Required, like RAG_JWT_SECRET above: fail loudly rather than booting a
+      # database with a password published in this file.
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d rag"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    logging: *default-logging
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # Jaeger (Distributed Tracing) — opt-in via: --profile tracing
+  # -------------------------------------------------------------------------
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    profiles: ["tracing"]
+    ports:
+      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:4317:4317"
+    logging: *default-logging
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  postgres-data:

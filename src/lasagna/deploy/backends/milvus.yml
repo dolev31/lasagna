@@ -1,0 +1,56 @@
+# Backend: Milvus Standalone (x86/Linux/CI)
+#
+# Adds a standalone Milvus container and configures the RAG service to use it.
+# Requires x86_64 architecture — Milvus has no ARM64 Docker image.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f backends/milvus.yml up -d
+
+services:
+  milvus:
+    image: milvusdb/milvus:v2.4-latest
+    ports:
+      - "127.0.0.1:19530:19530"
+      - "127.0.0.1:9091:9091"
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      COMMON_STORAGETYPE: local
+    volumes:
+      - milvus-data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  api:
+    environment:
+      RAG_VECTOR_BACKEND: milvus
+      RAG_VECTOR_BACKEND_CONFIG: '{"uri": "http://milvus:19530"}'
+      RAG_CONFIGURATOR: "true"
+    depends_on:
+      milvus:
+        condition: service_healthy
+
+  celery-worker:
+    environment:
+      RAG_VECTOR_BACKEND: milvus
+      RAG_VECTOR_BACKEND_CONFIG: '{"uri": "http://milvus:19530"}'
+    depends_on:
+      milvus:
+        condition: service_healthy
+
+  mcp:
+    environment:
+      RAG_VECTOR_BACKEND: milvus
+      RAG_VECTOR_BACKEND_CONFIG: '{"uri": "http://milvus:19530"}'
+    depends_on:
+      milvus:
+        condition: service_healthy
+
+volumes:
+  milvus-data:

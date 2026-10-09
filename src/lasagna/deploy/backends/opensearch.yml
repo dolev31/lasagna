@@ -1,0 +1,54 @@
+# Backend: OpenSearch (self-hosted)
+#
+# Adds an OpenSearch container for hybrid search (Lucene BM25 + k-NN vectors).
+# Provides native hybrid search fusion, 30+ language analyzers, fuzzy matching.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f backends/opensearch.yml up -d
+
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.17.1
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+    ports:
+      - "127.0.0.1:${OPENSEARCH_PORT:-9200}:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  api:
+    environment:
+      RAG_VECTOR_BACKEND: opensearch
+      OPENSEARCH_HOSTS: http://opensearch:9200
+    depends_on:
+      opensearch:
+        condition: service_healthy
+
+  celery-worker:
+    environment:
+      RAG_VECTOR_BACKEND: opensearch
+      OPENSEARCH_HOSTS: http://opensearch:9200
+    depends_on:
+      opensearch:
+        condition: service_healthy
+
+  mcp:
+    environment:
+      RAG_VECTOR_BACKEND: opensearch
+      OPENSEARCH_HOSTS: http://opensearch:9200
+    depends_on:
+      opensearch:
+        condition: service_healthy
+
+volumes:
+  opensearch-data:

@@ -1,0 +1,225 @@
+"""What a number was produced on, and by what.
+
+A metric without its context is not comparable to anything. Two researchers
+reporting `ndcg@10 = 0.71` on "the same benchmark" may differ in embedding
+model, split, sample count, judge model, or library version, and nothing in a
+results file said so — it recorded four fields: mode, n_runs, seed, and the
+benchmark names.
+
+The capture logic already existed twice, in places evaluation never reached:
+`e2e/contract.py` (platform, git, hardware) and `core/pipeline.py`
+(torch/CUDA/sentence-transformers). This module is the merge, made safe to put
+in a published artifact:
+
+* **No secret names.** The e2e version records *which* API-key variables were
+  set. Useful in a private CI report, wrong in a file people upload — it
+  discloses which providers a lab uses. This records only whether credentials
+  were present.
+* **No absolute paths, no hostnames.** Redacted, not trimmed, so a home
+  directory or an unrelated project name cannot travel with a result.
+* **`git_commit` only when it means something.** For a pip install, the user's
+  working directory is unrelated to the code that ran; `installed_from`
+  distinguishes the two.
+"""
+
+from __future__ import annotations
+
+import os
+import platform
+import subprocess
+import sys
+from typing import Any, Dict, Optional
+
+
+def capture(*, include_git: Optional[bool] = None) -> Dict[str, Any]:
+    """Capture environment, versions and install provenance.
+
+    Safe to embed in a published results bundle: no paths, no hostnames, no
+    credential names, no values.
+    """
+    env: Dict[str, Any] = {
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "processor": platform.processor() or platform.machine(),
+    }
+
+    try:
+        env["cpu_count"] = os.cpu_count()
+    except Exception:  # pragma: no cover - platform dependent
+        env["cpu_count"] = None
+
+    try:
+        import psutil
+
+        env["ram_gb"] = round(psutil.virtual_memory().total / 1e9, 1)
+    except Exception:
+        env["ram_gb"] = None
+
+    env.update(_package_versions())
+    env.update(_accelerator())
+    env.update(_install_provenance(include_git=include_git))
+
+    # Presence, never names or values. Which providers a lab has configured is
+    # not something a published bundle should disclose.
+    env["llm_credentials_present"] = _any_llm_credentials()
+
+    return env
+
+
+def _package_versions() -> Dict[str, Any]:
+    """Versions of the packages that can change a number.
+
+    Recorded by import rather than from a lockfile, because what matters is
+    what actually ran.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    out: Dict[str, Any] = {}
+
+    try:
+        from lasagna.sdk._version import __version__ as lasagna_version
+
+        out["lasagna_version"] = lasagna_version
+    except ImportError:  # pragma: no cover - version module always ships
+        out["lasagna_version"] = None
+
+    # Anything here can move a metric: the embedder, the reranker, the judge
+    # harness, the dataset loader, or the bootstrap.
+    for dist in (
+        "torch",
+        "sentence-transformers",
+        "transformers",
+        "ragas",
+        "datasets",
+        "numpy",
+        "scipy",
+        "pymilvus",
+    ):
+        try:
+            out[f"{dist.replace('-', '_')}_version"] = version(dist)
+        except PackageNotFoundError:
+            out[f"{dist.replace('-', '_')}_version"] = None
+
+    return out
+
+
+def _accelerator() -> Dict[str, Any]:
+    """GPU details, which change float reduction order and therefore results."""
+    out: Dict[str, Any] = {"gpu": None, "cuda_version": None}
+    try:
+        import torch
+
+        if torch.cuda.is_available():  # pragma: no cover - no GPU in CI
+            out["gpu"] = torch.cuda.get_device_name(0)
+            out["cuda_version"] = torch.version.cuda
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            out["gpu"] = "mps"
+    except Exception:
+        pass
+    return out
+
+
+def _install_provenance(*, include_git: Optional[bool] = None) -> Dict[str, Any]:
+    """Whether this ran from a checkout or an installed wheel.
+
+    A git SHA from the current working directory is meaningless for a pip
+    install -- it describes whatever repository the user happened to be
+    standing in, not the code that produced the number.
+    """
+    out: Dict[str, Any] = {"installed_from": "unknown", "git_commit": None, "git_dirty": None}
+
+    try:
+        import lasagna
+
+        pkg_dir = os.path.dirname(os.path.abspath(lasagna.__file__))
+        out["installed_from"] = "source" if _is_git_checkout(pkg_dir) else "wheel"
+    except Exception:  # pragma: no cover
+        return out
+
+    want_git = out["installed_from"] == "source" if include_git is None else include_git
+    if not want_git:
+        return out
+
+    sha = _run_git(["rev-parse", "--short", "HEAD"], cwd=pkg_dir)
+    if sha:
+        out["git_commit"] = sha
+        # A dirty tree means the recorded SHA does not describe what ran, which
+        # is worth knowing before trusting a comparison against it.
+        out["git_dirty"] = bool(_run_git(["status", "--porcelain"], cwd=pkg_dir))
+    return out
+
+
+def _is_git_checkout(path: str) -> bool:
+    return _run_git(["rev-parse", "--is-inside-work-tree"], cwd=path) == "true"
+
+
+def _run_git(args: list[str], cwd: str) -> Optional[str]:
+    import shutil
+
+    if not shutil.which("git"):
+        return None
+    try:
+        proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=10)
+    except Exception:
+        return None
+    return proc.stdout.strip() or None if proc.returncode == 0 else None
+
+
+#: Checked for presence only. Deliberately not recorded by name.
+_LLM_CREDENTIAL_VARS = (
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GROQ_API_KEY",
+    "MISTRAL_API_KEY",
+    "TOGETHER_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "GOOGLE_API_KEY",
+    "AZURE_OPENAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "FIREWORKS_API_KEY",
+    "COHERE_API_KEY",
+    "NVIDIA_API_KEY",
+    "PERPLEXITY_API_KEY",
+    "WATSONX_API_KEY",
+    "WATSONX_APIKEY",
+)
+
+
+def _any_llm_credentials() -> bool:
+    return any(os.environ.get(v) for v in _LLM_CREDENTIAL_VARS)
+
+
+def redact(value: Any) -> Any:
+    """Strip machine-local paths from anything destined for a bundle.
+
+    Provenance is only safe to publish if the things around it are too --
+    subprocess output, tracebacks and error strings all carry absolute paths.
+    """
+    import re
+    import tempfile
+
+    if isinstance(value, dict):
+        return {k: redact(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact(v) for v in value]
+    if not isinstance(value, str):
+        return value
+
+    home = os.path.expanduser("~")
+    tmp = tempfile.gettempdir().rstrip("/")
+    out = value
+    for path, tag in sorted(
+        ((sys.executable, "python"), (home, "<home>"), (tmp, "<tmp>")),
+        key=lambda kv: len(kv[0]),
+        reverse=True,
+    ):
+        if path:
+            out = out.replace(path, tag)
+    # macOS per-user temp roots embed a token that identifies the user even
+    # when TMPDIR is unset.
+    out = re.sub(r"(?:/private)?/var/folders/[^/\s]+/[^/\s]+/[A-Za-z]+", "<tmp>", out)
+    for part in tmp.strip("/").split("/"):
+        if len(part) >= 12:
+            out = out.replace(part, "<tmp-id>")
+    return out

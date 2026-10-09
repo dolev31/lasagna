@@ -1,0 +1,743 @@
+# User Guide
+
+## Table of Contents
+
+1. [KnowledgeClient API](#knowledgeclient-api)
+2. [Document Management](#document-management)
+3. [Session Management](#session-management)
+4. [Search Operations](#search-operations)
+5. [Error Handling](#error-handling)
+6. [API Reference](#api-reference)
+
+---
+
+## KnowledgeClient API
+
+### Creating a Client
+
+```python
+from lasagna.sdk import KnowledgeClient, KnowledgeConfig
+
+# Default configuration
+client = KnowledgeClient()
+
+# Custom configuration
+config = KnowledgeConfig(
+    enable_reranking=True,
+    enable_hyde=True,
+    chunking_strategy=ChunkingStrategy.SEMANTIC,
+    chunk_size=800,
+)
+client = KnowledgeClient(config=config)
+
+# With session ID (for multi-tenancy)
+client = KnowledgeClient(session_id="user_123")
+
+# Using context manager
+async with KnowledgeClient() as client:
+    await client.upload("./doc.pdf")
+    results = await client.search_documents("query")
+```
+
+### Remote Client (`from_url`)
+
+Connect to a deployed RAG server without heavy ML dependencies (only `httpx` required):
+
+```python
+from lasagna.sdk import KnowledgeClient
+
+# Connect to remote server
+client = KnowledgeClient.from_url(
+    "https://rag.myapp.com",
+    api_key="sk-...",           # Optional Bearer token
+    session_id="my-session",    # Optional (auto-generated if omitted)
+)
+
+# Same API as local client
+await client.upload("report.pdf")
+results = await client.search_documents("quarterly revenue")
+context = await client.get_context("key findings")
+
+# Cleanup
+await client.close()
+```
+
+The remote client delegates all operations to the REST API. It supports upload, search, search with citations, document listing, and deletion. Ideal for SaaS integrations where the RAG engine runs as a service.
+
+### Core Methods
+
+| Method | Description |
+|--------|-------------|
+| `upload(path)` | Upload and index a document |
+| `search_documents(query)` | Search for relevant chunks |
+| `get_context(query)` | Get formatted context for LLM |
+| `list_documents()` | List all documents |
+| `delete_document(id)` | Delete a document |
+| `agentic_search(query)` | Multi-hop retrieval |
+| `from_url(url)` | Connect to a remote RAG server (classmethod) |
+
+### Accessing Managers
+
+```python
+# Document operations
+result = await client.documents.upload("./file.pdf")
+docs = await client.documents.list()
+chunks = await client.documents.get_chunks("doc_id")
+
+# Search operations
+results = await client.search.search("query")
+context = await client.search.get_context("query")
+results = await client.search.hybrid_search("query", alpha=0.7)
+
+# Citation operations
+citation = await client.citations.get("citation_id")
+is_valid = await client.citations.verify("citation_id")
+```
+
+---
+
+## Document Management
+
+### Uploading Documents
+
+```python
+# Simple upload
+result = await client.upload("./document.pdf")
+print(f"ID: {result.document_id}")
+print(f"Status: {result.status}")  # DocumentStatus.PROCESSING — upload is async
+
+# chunk_count is 0 until processing completes. Wait for the real numbers:
+await client.documents.wait_for_processing(result.document_id)
+doc = (await client.list_documents())[0]
+print(f"Chunks: {doc.chunk_count}, Status: {doc.status}")
+
+# With custom filename and metadata
+result = await client.documents.upload(
+    "./file.pdf",
+    filename="Q3 2024 Report",
+    metadata={"department": "finance", "quarter": "Q3"},
+)
+
+# Batch upload with parallel processing (default: up to 5 concurrent)
+results = await client.documents.upload_batch([
+    "./doc1.pdf",
+    "./doc2.pdf",
+    "./doc3.txt",
+])
+for r in results:
+    print(f"{r.filename}: {r.status}")
+
+# Sequential batch upload (max_concurrent=1)
+results = await client.documents.upload_batch(
+    ["./doc1.pdf", "./doc2.pdf"],
+    max_concurrent=1  # Process one at a time
+)
+
+# High concurrency for many small documents
+results = await client.documents.upload_batch(
+    file_paths,
+    max_concurrent=10  # Up to 10 concurrent uploads
+)
+```
+
+### Batch Upload Performance
+
+The SDK and backend are optimized for efficient batch uploads:
+
+| Feature | Description |
+| ------- | ----------- |
+| **Parallel uploads** | `upload_batch()` processes files concurrently with configurable `max_concurrent` |
+| **Batch vector inserts** | Chunks are inserted in a single database call per document |
+| **Single HTTP request** | Frontend sends all files in one request when using the UI |
+
+```python
+# Performance comparison (10 documents, ~100 chunks each)
+# Sequential: ~30 seconds
+# Parallel (max_concurrent=5): ~8 seconds
+```
+
+### Supported File Types
+
+| Type | Extensions |
+|------|------------|
+| PDF | `.pdf` |
+| Text | `.txt`, `.md`, `.rst` |
+| Office | `.docx`, `.doc`, `.pptx`, `.xlsx` |
+| Web | `.html`, `.htm` |
+| Code | `.py`, `.js`, `.ts`, `.java`, etc. |
+
+### Listing Documents
+
+```python
+# List all documents
+docs = await client.list_documents()
+for doc in docs:
+    print(f"{doc.filename}: {doc.chunk_count} chunks ({doc.status})")
+
+# Filter by status
+from lasagna.sdk import DocumentStatus
+
+ready_docs = await client.documents.list(status=DocumentStatus.READY)
+```
+
+### Getting Document Info
+
+```python
+# Get specific document
+doc = await client.documents.get("doc_abc123")
+if doc:
+    print(f"Filename: {doc.filename}")
+    print(f"Size: {doc.file_size} bytes")
+    print(f"Chunks: {doc.chunk_count}")
+    print(f"Created: {doc.created_at}")
+
+# Get document chunks
+chunks = await client.documents.get_chunks("doc_abc123")
+for chunk in chunks:
+    print(f"Chunk {chunk.chunk_index} (page {chunk.page_number}):")
+    print(f"  {chunk.content[:100]}...")
+```
+
+### Deleting Documents
+
+```python
+# Delete single document
+success = await client.delete_document("doc_abc123")
+
+# Delete all documents (requires confirmation)
+count = await client.documents.delete_all(confirm=True)
+print(f"Deleted {count} documents")
+```
+
+### Reindexing
+
+```python
+# Reindex after config changes
+await client.set_config(chunk_size=1000)
+result = await client.documents.reindex("doc_abc123")
+print(f"Reindexed: {result.chunk_count} new chunks")
+```
+
+---
+
+## Session Management
+
+Sessions provide data isolation for multi-tenant applications. Each session has its own documents, citations, search cache, and configuration state.
+
+### Session Basics
+
+```python
+# Create client with session ID
+client = KnowledgeClient(session_id="user_123")
+
+# Change session
+client.session_id = "user_456"
+
+# Documents are isolated per session
+docs = await client.list_documents()  # Only shows user_456's docs
+```
+
+### Delete Session
+
+Delete all data associated with a session:
+
+```python
+# Delete entire session (documents, citations, cache, config)
+result = await client.delete_session(confirm=True)
+
+print(f"Documents deleted: {result['documents_deleted']}")
+print(f"Citations deleted: {result['citations_deleted']}")
+print(f"Cache invalidated: {result['cache_invalidated']}")
+print(f"Session cleared: {result['session_cleared']}")
+
+# Client remains usable - can add new documents
+await client.upload("./new_doc.pdf")
+```
+
+**What gets deleted:**
+- All documents and their vector embeddings
+- All document chunks from the vector database
+- All citations in the citation database
+- Search cache entries
+- Session configuration state
+- BM25 hybrid search indices
+
+**Safety:** Requires `confirm=True` to prevent accidental deletion.
+
+```python
+# This will raise ValueError
+await client.delete_session()  # Error: confirm=True required
+
+await client.delete_session(confirm=False)  # Error: confirm=True required
+
+# This works
+await client.delete_session(confirm=True)  # Deletes all session data
+```
+
+### Session Isolation
+
+Each session maintains complete data isolation:
+
+```python
+# Session 1
+client1 = KnowledgeClient(session_id="session_1")
+await client1.upload("./doc1.pdf")
+
+# Session 2
+client2 = KnowledgeClient(session_id="session_2")
+await client2.upload("./doc2.pdf")
+
+# Searches are isolated
+results1 = await client1.search_documents("query")  # Only searches doc1.pdf
+results2 = await client2.search_documents("query")  # Only searches doc2.pdf
+
+# Deleting session 1 doesn't affect session 2
+await client1.delete_session(confirm=True)
+docs2 = await client2.list_documents()  # Still has doc2.pdf
+```
+
+### Multi-Tenancy Architecture
+
+The Knowledge SDK provides built-in multi-tenancy support through session-based isolation:
+
+| Layer | Isolation Mechanism |
+| ----- | ------------------- |
+| **SQLite (metadata)** | All queries filter by `session_id` |
+| **Vector Database** | Chunks store `session_id` in metadata JSON, filtered on search |
+| **API Layer** | Every operation validates and uses `session_id` |
+| **BM25 Index** | Separate indices per session |
+
+**Scalability considerations:**
+
+```python
+# Each tenant/user gets their own session
+async def create_tenant_client(tenant_id: str) -> KnowledgeClient:
+    return KnowledgeClient(session_id=f"tenant_{tenant_id}")
+
+# Batch uploads are processed efficiently
+client = await create_tenant_client("acme_corp")
+results = await client.documents.upload_batch(
+    files,
+    max_concurrent=5  # Parallel processing within tenant
+)
+
+# Cross-tenant data is never accessible
+# tenant_a cannot see tenant_b's documents
+```
+
+**Performance notes:**
+
+- Session isolation adds no significant overhead (simple filter)
+- Batch vector inserts reduce database round-trips by 50-90%
+- Parallel uploads scale with `max_concurrent` setting
+
+---
+
+## Search Operations
+
+### Basic Search
+
+```python
+# Simple search
+results = await client.search_documents("What is the revenue?")
+
+# With options
+results = await client.search_documents(
+    query="quarterly performance",
+    top_k=10,              # Number of results
+    min_score=0.5,         # Minimum similarity threshold
+)
+
+# Iterate results
+for result in results:
+    print(f"Score: {result.score:.2f}")
+    print(f"Source: {result.document.filename}")
+    print(f"Page: {result.chunk.page_number}")
+    print(f"Content: {result.chunk.content[:200]}...")
+    print()
+```
+
+### Getting Context for LLM
+
+```python
+# Get formatted context string
+context = await client.get_context("key findings")
+
+# Use in prompt
+prompt = f"""Based on the following information:
+
+{context}
+
+Please answer: What are the main conclusions?"""
+
+# Response will include citations like [Source 1: report.pdf (page 5)]
+```
+
+### Hybrid Search
+
+Combines vector similarity with BM25 keyword matching:
+
+```python
+# Default alpha (0.7 = more semantic)
+results = await client.search.hybrid_search("revenue growth", top_k=10)
+
+# More keyword emphasis
+results = await client.search.hybrid_search(
+    "API endpoint documentation",
+    alpha=0.3,  # 0 = pure keyword, 1 = pure semantic
+)
+```
+
+### Multi-Query Search
+
+Search with multiple queries and merge results:
+
+```python
+results = await client.search.multi_query_search(
+    queries=[
+        "quarterly revenue",
+        "Q3 income",
+        "financial performance",
+    ],
+    top_k=5,
+    deduplicate=True,  # Remove duplicate chunks
+)
+```
+
+### Streaming Search
+
+Stream results as they're processed for responsive UIs:
+
+```python
+async for result in client.search.search_stream("revenue"):
+    print(f"Found: {result.chunk.content[:50]}...")
+    # Process immediately, don't wait for all results
+```
+
+### Batch Search
+
+Search multiple queries with concurrency control:
+
+```python
+queries = ["revenue", "expenses", "profit margin", "market share"]
+
+results = await client.search.search_batch(
+    queries=queries,
+    top_k=5,
+    max_concurrent=3,  # Limit concurrent searches
+)
+
+for query, result in zip(queries, results):
+    print(f"{query}: {len(result)} results")
+```
+
+### Query Routing (Adaptive-RAG)
+
+The SDK supports intelligent per-query routing that automatically selects the
+optimal retrieval tier based on query complexity. This is enabled by default.
+
+```python
+# Auto-routing (default) — router picks the best tier
+results = await client.search_documents("What is X?")           # -> FAST
+results = await client.search_documents("Compare X with Y")     # -> STANDARD
+results = await client.search_documents(
+    "Summarize all findings across documents"                    # -> COMPREHENSIVE
+)
+
+# Force a specific tier
+results = await client.search_documents("query", routing_tier="fast")
+results = await client.search_documents("query", routing_tier="comprehensive")
+
+# Also works on get_context and SearchManager.search
+context = await client.get_context("query", routing_tier="fast")
+results = await client.search.search("query", routing_tier="standard")
+```
+
+Three tiers are available:
+
+- **fast** — Vector-only search (~50-100ms). Skips HyDE, reranking, hybrid search, and MMR.
+- **standard** — Full pipeline (~200-400ms). Hybrid search + reranking + HyDE + MMR.
+- **comprehensive** — Agentic multi-hop retrieval (~1-5s). For complex cross-document queries.
+
+Configure routing behavior via config:
+
+```python
+await client.set_config(
+    enable_query_routing=True,         # Enable/disable routing (default: True)
+    routing_strategy="adaptive",       # "rule_based" or "adaptive"
+    routing_default_tier="standard",   # Fallback when routing is disabled
+    routing_confidence_threshold=0.5,  # Adaptive strategy escalation threshold
+)
+```
+
+### Search with Citations
+
+```python
+results, context = await client.search.search_with_citations(
+    "What are the key risks?",
+    top_k=5,
+)
+
+# Access structured results
+for r in results:
+    print(f"[{r.citation_id}] {r.score:.2f} - {r.document.filename}")
+
+# Use formatted context
+print(context)
+```
+
+### Document Focus (Scoped Search)
+
+Limit searches to specific documents:
+
+```python
+# Set focus
+client.set_focused_documents(["doc_123", "doc_456"])
+
+# All searches now scoped to these documents
+results = await client.search_documents("revenue")  # Only searches focused docs
+
+# Clear focus
+client.clear_focused_documents()
+
+# Or pass document_ids directly
+results = await client.search_documents(
+    "revenue",
+    document_ids=["doc_789"],  # Overrides focus
+)
+```
+
+---
+
+## Error Handling
+
+The SDK provides a comprehensive exception hierarchy for proper error handling.
+
+### Exception Hierarchy
+
+```python
+from lasagna.sdk import (
+    # Base exception (catch-all)
+    KnowledgeError,
+
+    # Document exceptions
+    DocumentError,
+    DocumentNotFoundError,
+    UploadError,
+    ChunkingError,
+    ExtractionError,
+
+    # Search exceptions
+    SearchError,
+    QueryError,
+    EmbeddingError,
+    RetrievalError,
+
+    # Citation exceptions
+    CitationError,
+    CitationNotFoundError,
+
+    # Configuration exceptions
+    ConfigurationError,
+    ProfileNotFoundError,
+
+    # Backend exceptions
+    BackendError,
+    BackendConnectionError,
+    BackendTimeoutError,
+
+    # Agentic exceptions
+    AgenticError,
+    MaxIterationsError,
+
+    # Evaluation exceptions
+    EvaluationError,
+    JudgeError,
+)
+```
+
+### Basic Error Handling
+
+```python
+from lasagna.sdk import (
+    KnowledgeClient,
+    DocumentNotFoundError,
+    SearchError,
+    KnowledgeError,
+)
+
+client = KnowledgeClient()
+
+# Handle specific exceptions
+try:
+    await client.documents.delete("nonexistent_doc")
+except DocumentNotFoundError as e:
+    print(f"Document not found: {e.document_id}")
+except KnowledgeError as e:
+    print(f"SDK error: {e}")
+
+# Handle search errors
+try:
+    results = await client.search_documents("")
+except QueryError as e:
+    print(f"Invalid query: {e.query}")
+except SearchError as e:
+    print(f"Search failed: {e}")
+```
+
+### Exception Attributes
+
+Exceptions include contextual attributes:
+
+```python
+try:
+    await client.upload("./missing.pdf")
+except UploadError as e:
+    print(f"Upload failed: {e}")
+    print(f"File: {e.file_path}")
+    print(f"Stage: {e.stage}")  # 'extraction', 'chunking', 'indexing'
+
+try:
+    await client.citations.get("invalid_id")
+except CitationNotFoundError as e:
+    print(f"Citation {e.citation_id} not found")
+
+try:
+    await client.config_manager.set_profile("nonexistent")
+except ProfileNotFoundError as e:
+    print(f"Profile {e.profile_name} not found")
+```
+
+### Catching All SDK Errors
+
+```python
+try:
+    await client.search_documents("query")
+    await client.agentic_search("complex query")
+except KnowledgeError as e:
+    # Catches all SDK-specific errors
+    logger.error(f"Knowledge SDK error: {e}")
+```
+
+### Handling Rate Limits (HTTP 429)
+
+When using the REST API (or SDK against a remote deployment), requests may
+be rate-limited. The response includes a `Retry-After` header with the
+recommended wait time in seconds.
+
+```python
+import httpx, asyncio
+
+async def search_with_retry(client, query, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return await client.search_documents(query)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                wait = int(e.response.headers.get("Retry-After", 2))
+                print(f"Rate limited — retrying in {wait}s (attempt {attempt + 1})")
+                await asyncio.sleep(wait)
+            else:
+                raise
+    raise RuntimeError("Max retries exceeded")
+```
+
+For the Python SDK (in-process), rate limits are enforced at the middleware
+level and surface as `TimeoutError` or `BackendError`. Use the built-in
+retry configuration (see [Retry and Resilience](configuration.md#retry-and-resilience))
+for automatic handling.
+
+---
+
+## API Reference
+
+### KnowledgeClient
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `upload(path, filename?, metadata?)` | `UploadResult` | Upload document |
+| `search_documents(query, top_k?, min_score?, document_ids?)` | `SearchResults` | Search |
+| `get_context(query, document_ids?, max_chunks?)` | `str` | Get LLM context |
+| `list_documents(status?)` | `List[Document]` | List documents |
+| `delete_document(id)` | `bool` | Delete document |
+| `agentic_search(query, max_iterations?, document_ids?)` | `AgenticSearchResults` | Multi-hop |
+| `set_focused_documents(ids)` | `None` | Focus searches |
+| `clear_focused_documents()` | `None` | Clear focus |
+| `set_config(**kwargs)` | `None` | Update config |
+| `use_preset(name)` | `None` | Apply preset |
+| `delete_session(confirm)` | `Dict` | Delete all session data |
+| `close()` | `None` | Cleanup |
+
+### DocumentManager
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `upload(path, filename?, metadata?)` | `UploadResult` | Upload document |
+| `upload_batch(paths, metadata?, max_concurrent=5)` | `List[UploadResult]` | Batch upload with parallel processing |
+| `list(status?)` | `List[Document]` | List documents |
+| `get(id)` | `Optional[Document]` | Get document |
+| `delete(id)` | `bool` | Delete document |
+| `delete_all(confirm)` | `int` | Delete all |
+| `get_chunks(id, offset?, limit?)` | `List[DocumentChunk]` | Get chunks |
+| `reindex(id)` | `UploadResult` | Reindex document |
+
+### SearchManager
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `search(query, top_k?, min_score?, document_ids?, use_reranking?, use_hyde?)` | `SearchResults` | Search |
+| `get_context(query, document_ids?, max_chunks?)` | `str` | Get context |
+| `search_with_citations(query, top_k?, document_ids?)` | `Tuple[SearchResults, str]` | Search + context |
+| `hybrid_search(query, top_k?, alpha?, document_ids?)` | `SearchResults` | Hybrid search (thread-safe) |
+| `multi_query_search(queries, top_k?, document_ids?, deduplicate?)` | `SearchResults` | Multi-query |
+| `search_stream(query, top_k?, min_score?, document_ids?)` | `AsyncIterator[SearchResult]` | Stream results |
+| `search_batch(queries, top_k?, max_concurrent?, document_ids?)` | `List[SearchResults]` | Batch search |
+
+### CitationManager
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `get(id)` | `Citation` | Get citation (raises `CitationNotFoundError`) |
+| `verify(id)` | `bool` | Verify citation (raises `CitationError`) |
+| `list_recent(limit?, query_id?)` | `List[Citation]` | List recent |
+| `list_for_document(document_id)` | `List[Citation]` | List for doc |
+| `clear(confirm)` | `int` | Clear citations |
+| `cleanup_expired()` | `int` | Remove expired |
+
+### Exceptions
+
+| Exception | Parent | Description |
+| --------- | ------ | ----------- |
+| `KnowledgeError` | `Exception` | Base exception for all SDK errors |
+| `DocumentError` | `KnowledgeError` | Document operation failed |
+| `DocumentNotFoundError` | `DocumentError` | Document not found |
+| `UploadError` | `DocumentError` | Upload failed (attrs: `file_path`, `stage`) |
+| `SearchError` | `KnowledgeError` | Search operation failed |
+| `QueryError` | `SearchError` | Invalid query (attr: `query`) |
+| `CitationError` | `KnowledgeError` | Citation operation failed |
+| `CitationNotFoundError` | `CitationError` | Citation not found (attr: `citation_id`) |
+| `ConfigurationError` | `KnowledgeError` | Configuration error (attr: `config_key`) |
+| `ProfileNotFoundError` | `ConfigurationError` | Profile not found (attr: `profile_name`) |
+| `BackendError` | `KnowledgeError` | Backend error (attrs: `backend_name`, `operation`) |
+| `AgenticError` | `KnowledgeError` | Agentic RAG error (attr: `iteration`) |
+| `MaxIterationsError` | `AgenticError` | Max iterations exceeded |
+| `EvaluationError` | `KnowledgeError` | Evaluation error |
+| `JudgeError` | `EvaluationError` | LLM judge error |
+
+### Retry Utilities
+
+| Function/Class | Description |
+| -------------- | ----------- |
+| `with_retry(max_attempts, delay, backoff, exceptions, on_retry)` | Async retry decorator |
+| `with_retry_sync(...)` | Sync retry decorator |
+| `RetryConfig` | Reusable retry configuration |
+| `RETRY_BACKEND` | Preset for backend operations (3 attempts, 0.5s) |
+| `RETRY_SEARCH` | Preset for search operations (2 attempts, 0.2s) |
+
+---
+
+## See Also
+
+- [Getting Started](getting_started.md)
+- [Configuration](configuration.md)
+- [Features](features.md)

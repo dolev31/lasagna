@@ -1,0 +1,85 @@
+# Copy to `.github/workflows/validate.yml` in the results repository.
+#
+# Runs on every pull request that adds or changes a bundle. Validation is the
+# whole review: it recomputes the comparability key and the run id from the
+# recorded fields, so a hand-edited number cannot pass. A human reviewer reads
+# the provenance and never reruns the experiment.
+
+name: Validate submitted results
+
+on:
+  pull_request:
+    paths:
+      - "runs/**/*.json"
+
+jobs:
+  validate:
+    name: Validate bundles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Needed to diff against the base branch: only submitted bundles are
+          # validated, not the entire back catalogue on every PR.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Lasagna
+        run: pip install "lasagna-rag[eval]"
+
+      - name: Find submitted bundles
+        id: changed
+        run: |
+          set -euo pipefail
+          base="origin/${{ github.base_ref }}"
+          files=$(git diff --name-only --diff-filter=AM "$base"...HEAD -- 'runs/**/*.json')
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$files" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "Submitted: ${files:-none}"
+
+      - name: Validate
+        run: |
+          set -euo pipefail
+          files="${{ steps.changed.outputs.files }}"
+          if [ -z "$files" ]; then
+            echo "No bundles in this PR."
+            exit 0
+          fi
+          failed=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            echo "::group::$f"
+            # --strict: warnings block a *published* result even though they do
+            # not block a local run. A single run is a fine pilot; it is not a
+            # leaderboard row, and an unresolved judge alias means the number
+            # cannot be reproduced six months from now.
+            lasagna results validate "$f" --strict || failed=1
+            echo "::endgroup::"
+          done <<< "$files"
+          exit $failed
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          cat <<'EOF'
+          A submitted bundle did not validate.
+
+          Common causes:
+            * The file was edited after generation. The run id hashes the
+              contents, so any change invalidates it. Re-run and re-bundle
+              rather than editing.
+            * Integrity warnings. Under --strict, SINGLE_RUN and
+              UNRESOLVED_JUDGE_ALIAS block publication: one run cannot support
+              a claim about variance, and a floating judge alias points at
+              different weights over time.
+            * Incomplete provenance. A number nobody can situate is not
+              reviewable.
+
+          Regenerate with:
+            lasagna results bundle <results.json> -o run.json
+            lasagna results validate run.json --strict
+          EOF

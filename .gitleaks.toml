@@ -1,0 +1,98 @@
+# gitleaks configuration for Lasagna.
+#
+# The point of this file is that a scan should return zero findings, so that a
+# non-zero result means something. A scanner that always reports the same 36
+# known-benign hits trains everyone to ignore it, and the one real leak arrives
+# looking exactly like the noise.
+#
+# Every allowlist below names a specific file and a specific reason. None of
+# them is a blanket suppression, and none covers a path where a real credential
+# could plausibly live.
+#
+# Run locally:  gitleaks dir .        (working tree, includes untracked)
+#               gitleaks detect .     (full git history)
+
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Rules added because the default set was measured and found to miss them.
+#
+# Calibration: seven realistic secrets were planted in a scratch file and
+# scanned with the stock ruleset. Four were caught (GitHub PAT, Slack bot
+# token, and two generic `name = "value"` assignments). The AWS access key ID
+# and a PEM block written as an escaped one-line Python string were not. These
+# rules close those two gaps.
+#
+# Stated plainly because it is the honest scope of this control: a secret
+# scanner is a net with a known mesh size, not a proof that nothing leaked.
+# ---------------------------------------------------------------------------
+
+[[rules]]
+id = "aws-access-key-id"
+description = "AWS access key ID (AKIA/ASIA/ABIA/ACCA/A3T prefix)"
+regex = '''\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16})\b'''
+keywords = ["AKIA", "ASIA", "ABIA", "ACCA", "A3T"]
+[rules.allowlist]
+description = "AWS's own documentation example key, published in their docs"
+regexes = ['''AKIAIOSFODNN7EXAMPLE''']  # pragma: allowlist secret
+
+[[rules]]
+id = "private-key-block-inline"
+description = "PEM private key, including escaped single-line forms"
+regex = '''-----BEGIN[ A-Z0-9]*PRIVATE KEY( BLOCK)?-----'''
+keywords = ["-----BEGIN"]
+
+[[allowlists]]
+description = """
+detect-secrets baseline. Stores SHA-1 digests of reviewed candidates, never
+plaintext -- that is the whole format. Each entry is a file/line pointer, and
+all 30 were verified by hand to be placeholders (user:pass, CHANGE_ME, sk-...)
+or test fixtures. Committing this file is how detect-secrets works.
+"""
+paths = ['''^\.secrets\.baseline$''']
+
+[[allowlists]]
+description = """
+REST API reference. The auth examples are deliberately truncated placeholders
+-- "X-Session-Token: eyJhbGciOi..." is the standard JWT header prefix with no
+payload and no signature, so nothing here is a usable credential.
+"""
+paths = ['''^src/lasagna/api/docs/endpoints\.md$''']
+regexes = [
+  '''eyJhbGciOi[A-Za-z0-9._-]*\.\.\.''',
+  '''X-Session-Token:\s*(<token>|eyJhbGciOi[A-Za-z0-9._-]*\.\.\.)''',
+]
+
+[[allowlists]]
+description = """
+Deployment templates. Placeholders and Docker-internal defaults only: the
+values that matter (POSTGRES_PASSWORD, RAG_JWT_SECRET) are declared with
+compose's `:?` operator, so the stack refuses to start when they are unset
+rather than falling back to something weak.
+"""
+paths = [
+  '''^src/lasagna/deploy/\.env\.example$''',
+  '''^src/lasagna/deploy/k8s/base/secrets\.yaml$''',
+]
+regexes = ['''CHANGE_ME''']
+
+[[allowlists]]
+description = """
+Documentation placeholders: "sk-...", "your-api-key", "user:pass@host". These
+appear in prose and docstrings showing a caller what shape an argument takes.
+"""
+regexes = [
+  '''sk-\.\.\.''',
+  '''your[-_](api[-_])?key''',
+  '''(?i)postgresql://user:pass@''',  # pragma: allowlist secret
+  '''(?i)://\*\*\*@''',
+]
+
+[[allowlists]]
+description = """
+npm lockfile integrity digests. Publicly published content hashes of package
+tarballs, not credentials, and high-entropy by construction.
+"""
+paths = ['''package-lock\.json$''']
+regexes = ['''"integrity":\s*"sha\d+-[A-Za-z0-9+/=]+"''']

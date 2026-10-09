@@ -1,0 +1,1570 @@
+"""Parameter schema — single source of truth for all RAG configuration parameters.
+
+Each ``ParameterDef`` describes a tunable knob: its type, constraints,
+default value, which UI tab/group it belongs to, and contextual help text.
+
+The frontend fetches this schema via ``GET /configurator/api/schema`` so it
+never hard-codes parameter metadata.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from typing import Any, Literal, Optional
+
+
+@dataclass
+class EnumOption:
+    """A single option in an enum parameter."""
+
+    value: str
+    label: str
+    description: str = ""
+
+    def to_dict(self) -> dict:
+        return {"value": self.value, "label": self.label, "description": self.description}
+
+
+@dataclass
+class ParameterDef:
+    """Definition of a single configurable RAG parameter.
+
+    ``label`` is the user-friendly display name (e.g. "Smart Search").
+    The raw config key (e.g. ``enable_hybrid_search``) serves as the
+    technical reference and is shown as small gray text in the UI.
+    """
+
+    key: str
+    type: Literal["boolean", "integer", "float", "string", "enum", "object"]
+    label: str
+    description: str
+    help_text: str
+    tab: Literal["essential", "search", "processing", "advanced"]
+    group: str
+    default: Any
+    requires_reindex: bool = False
+    hidden: bool = False  # Hide from UI (e.g. auto-computed fields)
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    step: Optional[float] = None
+    enum_options: list[EnumOption] = field(default_factory=list)
+    parent_key: Optional[str] = None  # For nested params like chunk_cite_retrieval.strategy
+    validate_as: Optional[Literal["string_list"]] = (
+        None  # Explicit validation type for object params
+    )
+
+    def to_dict(self) -> dict:
+        d: dict = {
+            "key": self.key,
+            "type": self.type,
+            "label": self.label,
+            "description": self.description,
+            "help_text": self.help_text,
+            "tab": self.tab,
+            "group": self.group,
+            "default": self.default,
+            "requires_reindex": self.requires_reindex,
+            "hidden": self.hidden,
+        }
+        if self.min_value is not None:
+            d["min_value"] = self.min_value
+        if self.max_value is not None:
+            d["max_value"] = self.max_value
+        if self.step is not None:
+            d["step"] = self.step
+        if self.enum_options:
+            d["enum_options"] = [o.to_dict() for o in self.enum_options]
+        if self.parent_key:
+            d["parent_key"] = self.parent_key
+        if self.validate_as:
+            d["validate_as"] = self.validate_as
+        return d
+
+
+# ---------------------------------------------------------------------------
+# Tab & group definitions
+# ---------------------------------------------------------------------------
+
+TABS = [
+    {
+        "key": "essential",
+        "label": "Essential",
+        "description": "Core settings that cover 80% of use cases",
+    },
+    {
+        "key": "search",
+        "label": "Search & Retrieval",
+        "description": "Fine-tune search behavior and ranking",
+    },
+    {
+        "key": "processing",
+        "label": "Processing",
+        "description": "Document chunking, OCR, and awareness",
+    },
+    {
+        "key": "advanced",
+        "label": "Advanced",
+        "description": "Agentic RAG, citations, caching, observability",
+    },
+]
+
+GROUPS = [
+    {"key": "feature_toggles", "label": "Features", "tab": "essential"},
+    {"key": "embedding", "label": "AI Understanding Model", "tab": "essential"},
+    {"key": "quick_tuning", "label": "Quick Tuning", "tab": "essential"},
+    {"key": "search_params", "label": "Search Tuning", "tab": "search"},
+    {"key": "reranking", "label": "Result Re-Ranking", "tab": "search"},
+    {"key": "query_enhancement", "label": "Smarter Searching", "tab": "search"},
+    {"key": "chunk_retrieval", "label": "How Many Results to Use", "tab": "search"},
+    {"key": "chunking", "label": "Document Splitting", "tab": "processing"},
+    {"key": "hierarchical", "label": "Context-Aware Splitting", "tab": "processing"},
+    {"key": "ocr", "label": "Scanned Document Reading", "tab": "processing"},
+    {"key": "document_awareness", "label": "Document Awareness", "tab": "processing"},
+    {"key": "query_routing", "label": "Smart Routing", "tab": "search"},
+    {"key": "agentic_rag", "label": "Deep Search Agent", "tab": "advanced"},
+    {"key": "citations", "label": "Citations & References", "tab": "advanced"},
+    {"key": "caching", "label": "Performance Cache", "tab": "advanced"},
+    {"key": "observability", "label": "Monitoring & Logging", "tab": "advanced"},
+    {"key": "vector_backend", "label": "Vector Database", "tab": "advanced"},
+    {"key": "storage", "label": "File Storage", "tab": "advanced"},
+]
+
+
+# ---------------------------------------------------------------------------
+# Parameter definitions
+# ---------------------------------------------------------------------------
+
+PARAMETERS: list[ParameterDef] = [
+    # ── Essential > Feature Toggles ──────────────────────────────────────
+    ParameterDef(
+        key="enable_hybrid_search",
+        type="boolean",
+        label="Smart Search",
+        description="Finds results by both meaning and exact keywords — catches acronyms, IDs, and rare terms that pure AI search misses.",
+        help_text="Technical: Hybrid search combines dense vector similarity with BM25 keyword matching. Adds ~20-50ms latency. Recommended for most workloads.",
+        tab="essential",
+        group="feature_toggles",
+        default=True,
+    ),
+    ParameterDef(
+        key="enable_reranking",
+        type="boolean",
+        label="Result Re-Ranking",
+        description="Double-checks results with a precision model to put the most relevant ones first.",
+        help_text="Technical: Cross-encoder reranking. Re-scores the top-k candidates with a more accurate (but slower) model. Adds ~50-150ms. Highly recommended.",
+        tab="essential",
+        group="feature_toggles",
+        default=True,
+    ),
+    ParameterDef(
+        key="enable_mmr",
+        type="boolean",
+        label="Result Diversity",
+        description="Avoids showing repetitive or near-duplicate results — ensures variety in answers.",
+        help_text="Technical: Maximal Marginal Relevance (MMR). Balances relevance with diversity. Controlled by the diversity balance slider in Search tab.",
+        tab="essential",
+        group="feature_toggles",
+        default=True,
+    ),
+    ParameterDef(
+        key="enable_hyde",
+        type="boolean",
+        label="AI-Enhanced Search",
+        description="Uses AI to imagine what the ideal answer looks like, then searches for content matching that answer.",
+        help_text="Technical: HyDE (Hypothetical Document Embeddings). Generates a synthetic answer via LLM, then searches with its embedding. Adds ~500ms-2s. Best for abstract or vague queries.",
+        tab="essential",
+        group="feature_toggles",
+        default=False,
+    ),
+    ParameterDef(
+        key="enable_ocr",
+        type="boolean",
+        label="Scanned Document Reading",
+        description="Read text from scanned PDFs and images — useful for old documents or photos of text.",
+        help_text="Technical: OCR (Optical Character Recognition). Requires easyocr, tesseract, or paddleocr. Significantly increases document processing time.",
+        tab="essential",
+        group="feature_toggles",
+        default=False,
+        requires_reindex=True,
+    ),
+    ParameterDef(
+        key="docling_enabled",
+        type="boolean",
+        label="Advanced Document Parsing",
+        description="Understand complex layouts, tables, and formatting in PDFs and documents — extracts richer, more structured content.",
+        help_text="Technical: Docling document parser. Extracts structured content (tables, headers, lists) from PDFs and Office docs. Better than basic text extraction for complex layouts. Requires docling package.",
+        tab="essential",
+        group="feature_toggles",
+        default=False,
+        requires_reindex=True,
+    ),
+    ParameterDef(
+        key="use_agentic_rag",
+        type="boolean",
+        label="Deep Search Agent",
+        description="For complex questions, an AI agent searches multiple times and pieces together a thorough answer.",
+        help_text="Technical: Agentic RAG with ReAct-style multi-hop retrieval. The agent iteratively refines queries and gathers evidence. Adds ~1-5s. Best for multi-faceted questions.",
+        tab="essential",
+        group="feature_toggles",
+        default=True,
+    ),
+    ParameterDef(
+        key="enable_hierarchical",
+        type="boolean",
+        label="Context-Aware Chunks",
+        description="Keeps related pieces of a document together so answers include full context, not just fragments.",
+        help_text="Technical: Hierarchical chunking with auto-merge. Stores fine-grained child chunks for precision and coarser parent chunks for context. When enough children match, the parent is returned instead.",
+        tab="essential",
+        group="feature_toggles",
+        default=True,
+        requires_reindex=True,
+    ),
+    # ── Essential > Embedding Model ──────────────────────────────────────
+    ParameterDef(
+        key="embedding_model",
+        type="enum",
+        label="AI Understanding Model",
+        description="Determines how well your system understands document content. Better models find more relevant results but use more memory.",
+        help_text="Technical: Sentence-transformer embedding model. Larger models produce higher-quality vectors but are slower. MiniLM (80MB) is fast; BGE-large (1.3GB) is highest quality.",
+        tab="essential",
+        group="embedding",
+        default="BAAI/bge-m3",
+        requires_reindex=True,
+        enum_options=[
+            EnumOption(
+                "all-MiniLM-L6-v2",
+                "Fast & Light",
+                "Quick processing, good for most use cases (80MB)",
+            ),
+            EnumOption(
+                "BAAI/bge-small-en-v1.5", "Improved Light", "Better quality, same speed as Fast"
+            ),
+            EnumOption("BAAI/bge-base-en-v1.5", "Balanced", "Good quality-speed balance"),
+            EnumOption(
+                "BAAI/bge-large-en-v1.5",
+                "Best Quality",
+                "Highest accuracy, needs more memory (1.3GB)",
+            ),
+            EnumOption(
+                "BAAI/bge-m3",
+                "SOTA Multilingual",
+                "Dense+sparse+ColBERT, 100+ languages, 8K context (2.2GB)",
+            ),
+            EnumOption("intfloat/e5-small-v2", "E5 Small", "Fast E5 model, English only (134MB)"),
+            EnumOption("intfloat/e5-base-v2", "E5 Base", "Balanced E5 model, English only (438MB)"),
+            EnumOption("intfloat/e5-large-v2", "E5 Large", "Best E5 quality, English only (1.3GB)"),
+            EnumOption(
+                "intfloat/multilingual-e5-large",
+                "E5 Multilingual",
+                "E5 with 100+ languages (2.2GB)",
+            ),
+        ],
+    ),
+    ParameterDef(
+        key="embedding_dim",
+        type="integer",
+        label="Model Dimension",
+        description="Auto-set by the selected model.",
+        help_text="Technical: Vector dimension. Must match the embedding model. Auto-filled when you change the model.",
+        tab="essential",
+        group="embedding",
+        default=1024,
+        requires_reindex=True,
+        min_value=128,
+        max_value=4096,
+        hidden=True,
+    ),
+    ParameterDef(
+        key="use_gpu",
+        type="boolean",
+        label="Use GPU (Faster)",
+        description="Process documents faster using your graphics card, if available.",
+        help_text="Technical: CUDA GPU acceleration for embedding generation. Falls back to CPU automatically if no GPU is detected. Provides 5-10x speedup.",
+        tab="essential",
+        group="embedding",
+        default=True,
+    ),
+    ParameterDef(
+        key="batch_size",
+        type="integer",
+        label="Processing Speed",
+        description="How many text pieces to process at once. Higher = faster but uses more memory.",
+        help_text="Technical: Embedding batch size. Reduce if you encounter out-of-memory errors.",
+        tab="essential",
+        group="embedding",
+        default=32,
+        min_value=1,
+        max_value=256,
+        step=8,
+        hidden=True,
+    ),
+    ParameterDef(
+        key="normalize_embeddings",
+        type="boolean",
+        label="Normalize Embeddings",
+        description="Normalize embedding vectors for cosine similarity. Required for most models.",
+        help_text="Technical: L2-normalizes embedding vectors so cosine similarity equals dot product. Required for cosine metric_type. Changing this requires reindexing.",
+        tab="essential",
+        group="embedding",
+        default=True,
+        requires_reindex=True,
+        hidden=True,
+    ),
+    # ── Essential > Quick Tuning ─────────────────────────────────────────
+    ParameterDef(
+        key="default_top_k",
+        type="integer",
+        label="Results to Consider",
+        description="How many document pieces to look through when searching. More = thorough but slower.",
+        help_text="Technical: top_k — number of candidate chunks retrieved before reranking. With reranking enabled, 50-100 is typical. Without reranking, 10-20.",
+        tab="essential",
+        group="quick_tuning",
+        default=20,
+        min_value=1,
+        max_value=500,
+        step=5,
+    ),
+    ParameterDef(
+        key="similarity_threshold",
+        type="float",
+        label="Minimum Relevance Score",
+        description="Only include results above this quality bar. Lower = more results, higher = stricter filtering.",
+        help_text="Technical: similarity_threshold — cosine similarity cutoff. 0.3 is a good default; increase to 0.5+ for stricter filtering.",
+        tab="essential",
+        group="quick_tuning",
+        default=0.3,
+        min_value=0.0,
+        max_value=1.0,
+        step=0.05,
+    ),
+    ParameterDef(
+        key="hybrid_alpha",
+        type="float",
+        label="AI vs Keyword Balance",
+        description="Balance between understanding meaning (right) and matching exact words (left). Most documents work best around 0.7.",
+        help_text="Technical: hybrid_alpha — 0.7 means 70% vector similarity + 30% BM25 keyword matching. Increase for semantic queries, decrease for keyword-heavy searches.",
+        tab="essential",
+        group="quick_tuning",
+        default=0.7,
+        min_value=0.0,
+        max_value=1.0,
+        step=0.05,
+    ),
+    # ── Search > Search Parameters ───────────────────────────────────────
+    ParameterDef(
+        key="rerank_top_k",
+        type="integer",
+        label="Final Results Count",
+        description="How many results to keep after the re-ranking step picks the best ones.",
+        help_text="Technical: rerank_top_k — the cross-encoder reranks top_k candidates and returns the best rerank_top_k. Typical: 5-20.",
+        tab="search",
+        group="search_params",
+        default=5,
+        min_value=1,
+        max_value=100,
+        step=1,
+    ),
+    ParameterDef(
+        key="mmr_lambda",
+        type="float",
+        label="Diversity Balance",
+        description="More relevance (right) vs more variety (left). Balanced at 0.5.",
+        help_text="Technical: MMR lambda — 1.0 = pure relevance, 0.0 = maximum diversity. 0.5 is balanced.",
+        tab="search",
+        group="search_params",
+        default=0.5,
+        min_value=0.0,
+        max_value=1.0,
+        step=0.05,
+    ),
+    ParameterDef(
+        key="mmr_score_normalization",
+        type="enum",
+        label="Score Normalization",
+        description="How search scores are normalized before comparing results.",
+        help_text="Technical: MMR score normalization. Sigmoid is robust for most cases. Min-Max is simpler but sensitive to outliers.",
+        tab="search",
+        group="search_params",
+        default="sigmoid",
+        enum_options=[
+            EnumOption(
+                "sigmoid", "Sigmoid (recommended)", "Smooth normalization, robust to outliers"
+            ),
+            EnumOption("minmax", "Min-Max", "Linear scaling between min and max scores"),
+            EnumOption(
+                "sigmoid_minmax", "Sigmoid + Min-Max", "Sigmoid followed by min-max rescaling"
+            ),
+            EnumOption("none", "None", "No normalization — raw scores"),
+        ],
+    ),
+    ParameterDef(
+        key="enable_context_reordering",
+        type="boolean",
+        label="Smart Result Ordering",
+        description="Rearranges results so the most relevant ones are at the start and end — where AI models pay the most attention.",
+        help_text="Technical: Lost-in-the-middle mitigation (Liu et al., 2023). Reorders retrieved chunks so the highest-scoring are at the top and bottom of the context window, improving LLM attention allocation. Negligible latency.",
+        tab="search",
+        group="search_params",
+        default=True,
+    ),
+    ParameterDef(
+        key="rrf_k",
+        type="integer",
+        label="RRF Fusion Constant",
+        description="Controls how search results from different methods are combined. Higher values give more credit to lower-ranked results.",
+        help_text="Technical: rrf_k parameter in Reciprocal Rank Fusion formula: score = 1/(k + rank). Default 60. Range 1-200.",
+        tab="search",
+        group="search_params",
+        default=60,
+        min_value=1,
+        max_value=200,
+        step=10,
+    ),
+    ParameterDef(
+        key="sparse_method",
+        type="enum",
+        label="Keyword Search Method",
+        description="Which keyword-based retrieval method to use alongside AI vector search.",
+        help_text="Technical: BM25 is the proven standard. SPLADE uses learned sparse representations (experimental, may fall back to BM25).",
+        tab="search",
+        group="search_params",
+        default="bm25",
+        enum_options=[
+            EnumOption("bm25", "BM25", "Classic keyword matching — fast and reliable"),
+            EnumOption("splade", "SPLADE", "Learned sparse vectors — experimental"),
+        ],
+    ),
+    ParameterDef(
+        key="enable_context_compression",
+        type="boolean",
+        label="Context Compression",
+        description="Compress retrieved text before sending to the AI, reducing noise and token usage.",
+        help_text="Technical: Applies extractive or abstractive compression after reranking. Can improve answer quality by removing irrelevant content.",
+        tab="search",
+        group="search_params",
+        default=False,
+    ),
+    ParameterDef(
+        key="compression_method",
+        type="enum",
+        label="Compression Method",
+        description="How to compress context. Extractive keeps key sentences; abstractive rewrites concisely.",
+        help_text="Technical: 'extractive' uses sentence importance scoring (no LLM cost). 'abstractive' uses LLM rewriting (higher quality, costs tokens).",
+        tab="search",
+        group="search_params",
+        default="extractive",
+        enum_options=[
+            EnumOption("extractive", "Extractive", "Keep key sentences — fast, no LLM cost"),
+            EnumOption("abstractive", "Abstractive", "AI rewriting — better quality, costs tokens"),
+        ],
+    ),
+    ParameterDef(
+        key="compression_ratio",
+        type="float",
+        label="Compression Ratio",
+        description="How much text to keep after compression. 0.3 means keep 30% of the original.",
+        help_text="Technical: Target ratio for context compression. Only used when compression is enabled.",
+        tab="search",
+        group="search_params",
+        default=0.3,
+        min_value=0.1,
+        max_value=1.0,
+        step=0.1,
+    ),
+    # ── Search > Reranking ───────────────────────────────────────────────
+    ParameterDef(
+        key="reranker_model",
+        type="enum",
+        label="Re-Ranking Model",
+        description="The AI model that double-checks and reorders search results for quality.",
+        help_text="Technical: Cross-encoder model. MiniLM is fast (~10ms per pair); larger models are more accurate but slower.",
+        tab="search",
+        group="reranking",
+        default="mixedbread-ai/mxbai-rerank-large-v1",
+        enum_options=[
+            EnumOption("cross-encoder/ms-marco-MiniLM-L-6-v2", "Fast", "Good quality, very fast"),
+            EnumOption(
+                "cross-encoder/ms-marco-MiniLM-L-12-v2",
+                "Balanced",
+                "Better quality, slightly slower",
+            ),
+            EnumOption("BAAI/bge-reranker-base", "High Quality", "Strong accuracy, moderate speed"),
+            EnumOption("BAAI/bge-reranker-large", "Best Quality", "Highest accuracy, slowest"),
+            EnumOption(
+                "BAAI/bge-reranker-v2-m3", "BGE v2 M3", "Next-gen BGE reranker, multilingual"
+            ),
+            EnumOption("BAAI/bge-reranker-v2-gemma", "BGE v2 Gemma", "Gemma-based BGE reranker"),
+            EnumOption(
+                "jinaai/jina-reranker-v2-base-multilingual",
+                "Jina v2",
+                "BEIR nDCG@10 = 61.94, multilingual",
+            ),
+            EnumOption(
+                "mixedbread-ai/mxbai-rerank-large-v1",
+                "SOTA Reranker (recommended)",
+                "Top-ranked reranker, BEIR NDCG@10 = 57.49",
+            ),
+        ],
+    ),
+    ParameterDef(
+        key="reranker_batch_size",
+        type="integer",
+        label="Re-Ranking Batch Size",
+        description="How many results to score at once. Higher = faster but uses more memory.",
+        help_text="Technical: reranker_batch_size — number of query-document pairs scored per batch.",
+        tab="search",
+        group="reranking",
+        default=16,
+        min_value=1,
+        max_value=128,
+        step=4,
+        hidden=True,
+    ),
+    # ── Search > Query Enhancement ───────────────────────────────────────
+    ParameterDef(
+        key="hyde_model",
+        type="string",
+        label="AI Search Model",
+        description="Which AI model powers the AI-Enhanced Search feature. 'default' uses your main model.",
+        help_text="Technical: HyDE model — generates synthetic answers for Hypothetical Document Embeddings.",
+        tab="search",
+        group="query_enhancement",
+        default="default",
+    ),
+    ParameterDef(
+        key="enable_query_expansion",
+        type="boolean",
+        label="Search Variations",
+        description="Automatically rephrase your question in different ways to find more results.",
+        help_text="Technical: Query expansion — generates alternative phrasings and fuses results. Adds latency proportional to max_query_variations.",
+        tab="search",
+        group="query_enhancement",
+        default=False,
+    ),
+    ParameterDef(
+        key="max_query_variations",
+        type="integer",
+        label="Number of Variations",
+        description="How many alternative phrasings to try when Search Variations is enabled.",
+        help_text="Technical: max_query_variations — more variations = broader recall but higher latency.",
+        tab="search",
+        group="query_enhancement",
+        default=3,
+        min_value=1,
+        max_value=10,
+        step=1,
+    ),
+    ParameterDef(
+        key="enable_query_decomposition",
+        type="boolean",
+        label="Break Down Complex Questions",
+        description="Split multi-part questions into simpler sub-questions and search each separately.",
+        help_text="Technical: Query decomposition — each sub-query is searched independently and results are fused.",
+        tab="search",
+        group="query_enhancement",
+        default=False,
+    ),
+    ParameterDef(
+        key="enable_rag_fusion",
+        type="boolean",
+        label="Multi-Angle Search",
+        description="Automatically rephrases your question from multiple angles, searches each, and fuses the best results together.",
+        help_text="Technical: RAG Fusion — generates N query variations via LLM, searches each independently, then merges results using Reciprocal Rank Fusion (RRF). Improves recall for ambiguous queries. Adds ~200-500ms per variation.",
+        tab="search",
+        group="query_enhancement",
+        default=False,
+    ),
+    ParameterDef(
+        key="enable_crag",
+        type="boolean",
+        label="Self-Correcting Search",
+        description="After finding results, the system checks if they're good enough — and tries harder if they're not.",
+        help_text="Technical: Corrective RAG (CRAG, Yan et al. 2024). Grades retrieval quality; if below threshold, refines the query or falls back to web search. Adds ~300-800ms. Requires use_agentic_rag=True.",
+        tab="search",
+        group="query_enhancement",
+        default=False,
+    ),
+    # ── Search > Query Routing ─────────────────────────────────────────
+    ParameterDef(
+        key="enable_query_classification",
+        type="boolean",
+        label="Query Type Detection",
+        description="Automatically detects what kind of question you're asking (factual, analytical, etc.) to tune search parameters.",
+        help_text="Technical: Adaptive query-type classification. Identifies query intent (factual lookup, comparison, analytical, etc.) and adjusts hybrid_alpha, HyDE usage, and routing tier accordingly. Negligible overhead (<5ms).",
+        tab="search",
+        group="query_routing",
+        default=True,
+    ),
+    ParameterDef(
+        key="enable_query_routing",
+        type="boolean",
+        label="Smart Query Routing",
+        description="Automatically picks the fastest retrieval path for each query — simple lookups skip expensive steps.",
+        help_text="Technical: Adaptive-RAG (NAACL 2024) inspired routing. Classifies queries and routes to FAST (vector-only, ~50ms), STANDARD (full pipeline, ~200-400ms), or COMPREHENSIVE (agentic multi-hop, ~1-5s). Reduces avg latency by 30-40%.",
+        tab="search",
+        group="query_routing",
+        default=True,
+    ),
+    ParameterDef(
+        key="routing_strategy",
+        type="enum",
+        label="Routing Strategy",
+        description="How the system decides which search path to use for each query.",
+        help_text="Technical: 'rule_based' uses a deterministic decision tree (<1ms, zero LLM calls). 'adaptive' extends rule-based with confidence-aware tier escalation.",
+        tab="search",
+        group="query_routing",
+        default="rule_based",
+        enum_options=[
+            EnumOption(
+                "rule_based",
+                "Rule-Based (recommended)",
+                "Deterministic decision tree — fast and predictable",
+            ),
+            EnumOption("adaptive", "Adaptive", "Escalates to a higher tier when confidence is low"),
+        ],
+    ),
+    ParameterDef(
+        key="routing_default_tier",
+        type="enum",
+        label="Default Routing Tier",
+        description="Which search path to use when routing is disabled or as the fallback tier.",
+        help_text="Technical: FAST = vector-only (lowest latency). STANDARD = hybrid + reranking + HyDE. COMPREHENSIVE = agentic multi-hop retrieval.",
+        tab="search",
+        group="query_routing",
+        default="standard",
+        enum_options=[
+            EnumOption("fast", "Fast", "Vector-only search — lowest latency (~50ms)"),
+            EnumOption("standard", "Standard", "Full pipeline — hybrid + reranking (~200-400ms)"),
+            EnumOption(
+                "comprehensive", "Comprehensive", "Agentic multi-hop — highest quality (~1-5s)"
+            ),
+        ],
+    ),
+    ParameterDef(
+        key="routing_confidence_threshold",
+        type="float",
+        label="Routing Confidence Threshold",
+        description="How confident the router must be before committing to a tier. Lower confidence triggers escalation (adaptive strategy only).",
+        help_text="Technical: When using 'adaptive' strategy, if the rule-based decision's confidence is below this threshold, the tier is escalated one level (FAST → STANDARD, STANDARD → COMPREHENSIVE).",
+        tab="search",
+        group="query_routing",
+        default=0.5,
+        min_value=0.0,
+        max_value=1.0,
+        step=0.05,
+    ),
+    # ── Search > Chunk Retrieval Strategy ────────────────────────────────
+    ParameterDef(
+        key="chunk_cite_retrieval.strategy",
+        type="enum",
+        label="Result Selection Method",
+        description="How the system decides how many pieces of content to include in the answer.",
+        help_text="Technical: Chunk retrieval strategy. 'Adaptive' (EMNLP 2025) finds the optimal cutoff. 'Fixed' returns a set number. 'Above Threshold' uses a score cutoff.",
+        tab="search",
+        group="chunk_retrieval",
+        default="adaptive",
+        parent_key="chunk_cite_retrieval",
+        enum_options=[
+            EnumOption(
+                "adaptive",
+                "Smart Auto-Select (recommended)",
+                "Automatically finds the right amount of content using AI",
+            ),
+            EnumOption("fixed", "Fixed Count", "Always include exactly the same number of pieces"),
+            EnumOption(
+                "above_threshold", "Quality Cutoff", "Include everything above a quality score"
+            ),
+            EnumOption(
+                "agent_decides",
+                "Let AI Decide",
+                "The Deep Search Agent chooses how much content to include",
+            ),
+        ],
+    ),
+    ParameterDef(
+        key="chunk_cite_retrieval.max_chunks",
+        type="integer",
+        label="Maximum Content Pieces",
+        description="Never include more than this many pieces, even if more are relevant.",
+        help_text="Technical: max_chunks — safety limit to prevent context window overflow.",
+        tab="search",
+        group="chunk_retrieval",
+        default=20,
+        parent_key="chunk_cite_retrieval",
+        min_value=1,
+        max_value=100,
+        step=1,
+    ),
+    ParameterDef(
+        key="chunk_cite_retrieval.min_chunks",
+        type="integer",
+        label="Minimum Content Pieces",
+        description="Always include at least this many pieces, even if scores are low.",
+        help_text="Technical: min_chunks — ensures minimum context even when scores drop off quickly.",
+        tab="search",
+        group="chunk_retrieval",
+        default=2,
+        parent_key="chunk_cite_retrieval",
+        min_value=1,
+        max_value=20,
+        step=1,
+    ),
+    ParameterDef(
+        key="chunk_cite_retrieval.fixed_size",
+        type="integer",
+        label="Fixed Count",
+        description="Exact number of pieces to include (only when using Fixed Count method).",
+        help_text="Technical: fixed_size — only used when strategy is 'fixed'.",
+        tab="search",
+        group="chunk_retrieval",
+        default=5,
+        parent_key="chunk_cite_retrieval",
+        min_value=1,
+        max_value=50,
+        step=1,
+    ),
+    ParameterDef(
+        key="chunk_cite_retrieval.threshold_score",
+        type="float",
+        label="Quality Cutoff Score",
+        description="Minimum quality score for inclusion (only when using Quality Cutoff method).",
+        help_text="Technical: threshold_score — chunks below this score are excluded.",
+        tab="search",
+        group="chunk_retrieval",
+        default=0.5,
+        parent_key="chunk_cite_retrieval",
+        min_value=0.0,
+        max_value=1.0,
+        step=0.05,
+    ),
+    ParameterDef(
+        key="chunk_cite_retrieval.score_gap_buffer",
+        type="integer",
+        label="Score Gap Buffer",
+        description="Extra safety margin for the Smart Auto-Select algorithm.",
+        help_text="Technical: score_gap_buffer — includes extra chunks above the largest score gap.",
+        tab="search",
+        group="chunk_retrieval",
+        default=2,
+        parent_key="chunk_cite_retrieval",
+        min_value=0,
+        max_value=10,
+        step=1,
+        hidden=True,
+    ),
+    ParameterDef(
+        key="chunk_cite_retrieval.min_gap_ratio",
+        type="float",
+        label="Min Gap Ratio",
+        description="Sensitivity of the Smart Auto-Select cutoff detection.",
+        help_text="Technical: min_gap_ratio — a gap must be at least this fraction of the max score to count as significant.",
+        tab="search",
+        group="chunk_retrieval",
+        default=0.15,
+        parent_key="chunk_cite_retrieval",
+        min_value=0.0,
+        max_value=0.5,
+        step=0.05,
+        hidden=True,
+    ),
+    # ── Processing > Chunking ────────────────────────────────────────────
+    ParameterDef(
+        key="chunking_strategy",
+        type="enum",
+        label="Document Splitting Method",
+        description="How your documents are divided into searchable pieces. Semantic splitting is smartest but slower.",
+        help_text="Technical: chunking_strategy — 'semantic' splits on topic boundaries. 'fixed' splits at character count. 'recursive' splits by separators. 'sentence_window' creates overlapping sentence windows.",
+        tab="processing",
+        group="chunking",
+        default="semantic",
+        requires_reindex=True,
+        enum_options=[
+            EnumOption("semantic", "Smart (by topic)", "Splits where topics change — best quality"),
+            EnumOption("fixed", "Fixed Size", "Splits at regular intervals — simple and fast"),
+            EnumOption(
+                "recursive", "Recursive", "Splits by paragraphs, then sentences — good balance"
+            ),
+            EnumOption(
+                "sentence_window", "Sentence Window", "Sliding window over sentences — good for Q&A"
+            ),
+        ],
+    ),
+    ParameterDef(
+        key="chunk_size",
+        type="integer",
+        label="Piece Size",
+        description="How large each piece of content should be (in characters). Smaller = more precise, larger = more context.",
+        help_text="Technical: chunk_size — target characters per chunk. 500-1000 is typical. Smaller for precise retrieval, larger for broad context.",
+        tab="processing",
+        group="chunking",
+        default=800,
+        requires_reindex=True,
+        min_value=100,
+        max_value=4000,
+        step=50,
+    ),
+    ParameterDef(
+        key="chunk_overlap",
+        type="integer",
+        label="Overlap Between Pieces",
+        description="Characters shared between adjacent pieces to avoid losing information at boundaries.",
+        help_text="Technical: chunk_overlap — characters shared between adjacent chunks. Default is 0 based on research showing no measurable benefit from overlap (arXiv:2601.14123). Increase if you observe boundary-split issues.",
+        tab="processing",
+        group="chunking",
+        default=0,
+        requires_reindex=True,
+        min_value=0,
+        max_value=1000,
+        step=25,
+    ),
+    ParameterDef(
+        key="semantic_threshold",
+        type="float",
+        label="Topic Sensitivity",
+        description="How sensitive the smart splitter is to topic changes. Lower = more splits, higher = fewer splits.",
+        help_text="Technical: semantic_threshold — similarity threshold for semantic chunking decisions. Only applies to 'semantic' strategy.",
+        tab="processing",
+        group="chunking",
+        default=0.75,
+        requires_reindex=True,
+        min_value=0.0,
+        max_value=1.0,
+        step=0.05,
+    ),
+    ParameterDef(
+        key="min_chunk_size",
+        type="integer",
+        label="Minimum Piece Size",
+        description="Pieces smaller than this are merged with their neighbors.",
+        help_text="Technical: min_chunk_size — prevents tiny, unhelpful chunks.",
+        tab="processing",
+        group="chunking",
+        default=200,
+        requires_reindex=True,
+        min_value=50,
+        max_value=1000,
+        step=50,
+    ),
+    ParameterDef(
+        key="max_chunk_size",
+        type="integer",
+        label="Maximum Piece Size",
+        description="Pieces larger than this are force-split to keep them manageable.",
+        help_text="Technical: max_chunk_size — hard ceiling for chunk size.",
+        tab="processing",
+        group="chunking",
+        default=1500,
+        requires_reindex=True,
+        min_value=500,
+        max_value=10000,
+        step=100,
+    ),
+    ParameterDef(
+        key="preserve_tables",
+        type="boolean",
+        label="Keep Tables Intact",
+        description="Prevents tables from being split across multiple pieces.",
+        help_text="Technical: preserve_tables — keeps table structures whole during chunking.",
+        tab="processing",
+        group="chunking",
+        default=True,
+        requires_reindex=True,
+    ),
+    ParameterDef(
+        key="preserve_headers",
+        type="boolean",
+        label="Keep Section Headings",
+        description="Attaches section headings to their content so context is never lost.",
+        help_text="Technical: preserve_headers — prepends section headers to chunks for context.",
+        tab="processing",
+        group="chunking",
+        default=True,
+        requires_reindex=True,
+    ),
+    ParameterDef(
+        key="enable_contextual_retrieval",
+        type="boolean",
+        label="AI-Enriched Chunks",
+        description="Add AI-generated context to each document piece before storing — makes search more accurate but slower to index.",
+        help_text="Technical: Contextual Retrieval (Anthropic, 2024). Prepends LLM-generated context to each chunk before embedding, improving retrieval accuracy by ~49%. Significant indexing overhead (one LLM call per chunk). Requires reindexing.",
+        tab="processing",
+        group="chunking",
+        default=False,
+        requires_reindex=True,
+    ),
+    # ── Processing > Hierarchical Chunking ───────────────────────────────
+    ParameterDef(
+        key="parent_chunk_size",
+        type="integer",
+        label="Context Window Size",
+        description="Size of the broader context pieces (in characters). Provides surrounding context when needed.",
+        help_text="Technical: parent_chunk_size — parent chunks provide broader context when multiple child chunks match. Typically 2-4x child size.",
+        tab="processing",
+        group="hierarchical",
+        default=2000,
+        requires_reindex=True,
+        min_value=500,
+        max_value=10000,
+        step=100,
+    ),
+    ParameterDef(
+        key="child_chunk_size",
+        type="integer",
+        label="Detail Window Size",
+        description="Size of the precise matching pieces (in characters). Used for initial search.",
+        help_text="Technical: child_chunk_size — child chunks used for initial retrieval. Smaller = more precise matching.",
+        tab="processing",
+        group="hierarchical",
+        default=500,
+        requires_reindex=True,
+        min_value=100,
+        max_value=2000,
+        step=50,
+    ),
+    ParameterDef(
+        key="auto_merge_threshold",
+        type="float",
+        label="Auto-Merge Sensitivity",
+        description="When enough small pieces match from the same section, automatically use the full section instead.",
+        help_text="Technical: auto_merge_threshold — fraction of child chunks needed to trigger parent merge. 0.5 = 50% of children must match.",
+        tab="processing",
+        group="hierarchical",
+        default=0.5,
+        min_value=0.1,
+        max_value=1.0,
+        step=0.1,
+    ),
+    # ── Processing > OCR ─────────────────────────────────────────────────
+    ParameterDef(
+        key="ocr_engine",
+        type="enum",
+        label="OCR Engine",
+        description="Which engine reads text from scanned documents and images.",
+        help_text="Technical: OCR engine selection. EasyOCR is easiest to install. Tesseract requires system package. PaddleOCR has best multilingual support.",
+        tab="processing",
+        group="ocr",
+        default="easyocr",
+        requires_reindex=True,
+        enum_options=[
+            EnumOption(
+                "easyocr", "EasyOCR (recommended)", "Easy to install, good accuracy, GPU support"
+            ),
+            EnumOption("tesseract", "Tesseract", "Classic engine, requires system install"),
+            EnumOption("paddleocr", "PaddleOCR", "Best multilingual support, GPU support"),
+        ],
+    ),
+    ParameterDef(
+        key="ocr_confidence_threshold",
+        type="float",
+        label="Reading Confidence",
+        description="How confident the OCR must be before accepting text. Lower = more text (possibly noisy), higher = cleaner.",
+        help_text="Technical: ocr_confidence_threshold — text detected below this confidence is discarded.",
+        tab="processing",
+        group="ocr",
+        default=0.5,
+        requires_reindex=True,
+        min_value=0.0,
+        max_value=1.0,
+        step=0.05,
+    ),
+    ParameterDef(
+        key="ocr_languages",
+        type="object",
+        label="OCR Languages",
+        description="Language codes for OCR text extraction.",
+        help_text="Technical: Language codes passed to the OCR engine (e.g. ['en', 'fr']). Affects text extraction quality. Changing languages requires reindexing affected documents.",
+        tab="processing",
+        group="ocr",
+        default=["en"],
+        requires_reindex=True,
+        hidden=True,
+        validate_as="string_list",
+    ),
+    # ── Processing > Document Awareness ──────────────────────────────────
+    ParameterDef(
+        key="document_awareness.enabled",
+        type="boolean",
+        label="Document Awareness",
+        description="Give the AI a summary of all your documents so it knows what's available before searching.",
+        help_text="Technical: Provides document summaries to the agentic RAG agent, helping it decide which documents to search.",
+        tab="processing",
+        group="document_awareness",
+        default=True,
+        parent_key="document_awareness",
+    ),
+    ParameterDef(
+        key="document_awareness.enrichment_strategy",
+        type="enum",
+        label="Summary Method",
+        description="How document descriptions are generated. Free preview is fast; AI summary is better but costs tokens.",
+        help_text="Technical: enrichment_strategy — 'first_tokens' extracts document start. 'llm_summary' uses an LLM. 'hybrid' combines both.",
+        tab="processing",
+        group="document_awareness",
+        default="first_tokens",
+        parent_key="document_awareness",
+        enum_options=[
+            EnumOption(
+                "first_tokens",
+                "Free Preview",
+                "Uses the beginning of each document — free and fast",
+            ),
+            EnumOption(
+                "llm_summary",
+                "AI Summary",
+                "Generates smart summaries via AI — better quality, costs tokens",
+            ),
+            EnumOption("hybrid", "Auto", "Free preview for small docs, AI summary for large docs"),
+        ],
+    ),
+    ParameterDef(
+        key="document_awareness.first_tokens_count",
+        type="integer",
+        label="Preview Length",
+        description="How many tokens to extract from the start of each document for the preview.",
+        help_text="Technical: first_tokens_count — only used when enrichment_strategy includes 'first_tokens'.",
+        tab="processing",
+        group="document_awareness",
+        default=150,
+        parent_key="document_awareness",
+        min_value=50,
+        max_value=500,
+        step=25,
+    ),
+    ParameterDef(
+        key="document_awareness.include_filename",
+        type="boolean",
+        label="Show Filename",
+        description="Include the filename in document summaries to help identify documents.",
+        help_text="Technical: include_filename — helps the agent identify documents by name.",
+        tab="processing",
+        group="document_awareness",
+        default=True,
+        parent_key="document_awareness",
+    ),
+    ParameterDef(
+        key="document_awareness.include_upload_date",
+        type="boolean",
+        label="Show Upload Date",
+        description="Include when each document was uploaded.",
+        help_text="Technical: include_upload_date — useful for time-sensitive queries.",
+        tab="processing",
+        group="document_awareness",
+        default=True,
+        parent_key="document_awareness",
+    ),
+    ParameterDef(
+        key="document_awareness.include_file_type",
+        type="boolean",
+        label="Show File Type",
+        description="Include the file format (PDF, DOCX, etc.) in document summaries.",
+        help_text="Technical: include_file_type — helps the agent understand document formats.",
+        tab="processing",
+        group="document_awareness",
+        default=True,
+        parent_key="document_awareness",
+    ),
+    ParameterDef(
+        key="document_awareness.max_documents_in_context",
+        type="integer",
+        label="Documents to Show AI",
+        description="How many document summaries the AI can see at once. More = better awareness, but slower.",
+        help_text="Technical: max_documents_in_context — limits context size. Documents sorted by relevance.",
+        tab="processing",
+        group="document_awareness",
+        default=10,
+        parent_key="document_awareness",
+        min_value=1,
+        max_value=50,
+        step=1,
+    ),
+    ParameterDef(
+        key="document_awareness.cache_snippets",
+        type="boolean",
+        label="Cache Summaries",
+        description="Remember document summaries so they don't need to be regenerated every time.",
+        help_text="Technical: cache_snippets — avoids regenerating snippets on every query.",
+        tab="processing",
+        group="document_awareness",
+        default=True,
+        parent_key="document_awareness",
+    ),
+    ParameterDef(
+        key="document_awareness.snippet_cache_ttl",
+        type="integer",
+        label="Cache Duration",
+        description="How long to remember summaries before regenerating (in seconds). 3600 = 1 hour.",
+        help_text="Technical: snippet_cache_ttl — how long cached snippets remain valid.",
+        tab="processing",
+        group="document_awareness",
+        default=3600,
+        parent_key="document_awareness",
+        min_value=60,
+        max_value=86400,
+        step=60,
+    ),
+    # ── Advanced > Agentic RAG ───────────────────────────────────────────
+    ParameterDef(
+        key="max_agent_iterations",
+        type="integer",
+        label="Search Depth",
+        description="How many times the AI agent can search and refine its understanding. More = thorough but slower.",
+        help_text="Technical: max_agent_iterations — maximum search hops for ReAct-style multi-hop retrieval. 3 is typical; 5 for max_quality.",
+        tab="advanced",
+        group="agentic_rag",
+        default=3,
+        min_value=1,
+        max_value=10,
+        step=1,
+    ),
+    ParameterDef(
+        key="agent_temperature",
+        type="float",
+        label="Creativity Level",
+        description="How creative the AI is when rephrasing search queries. Lower = predictable, higher = creative.",
+        help_text="Technical: agent_temperature — LLM temperature for reasoning steps. Lower = more deterministic.",
+        tab="advanced",
+        group="agentic_rag",
+        default=0.1,
+        min_value=0.0,
+        max_value=1.0,
+        step=0.05,
+    ),
+    ParameterDef(
+        key="chunk_refinement_method",
+        type="enum",
+        label="Answer Refinement",
+        description="Whether the AI cleans up and highlights the most relevant parts of found content.",
+        help_text="Technical: chunk_refinement_method — 'vanilla' returns raw chunks. 'refined' uses LLM extraction. 'auto' decides based on quality.",
+        tab="advanced",
+        group="agentic_rag",
+        default="auto",
+        enum_options=[
+            EnumOption("vanilla", "None (fastest)", "Return content as-is — no processing"),
+            EnumOption(
+                "refined", "AI Refined", "AI extracts the most relevant parts — better quality"
+            ),
+            EnumOption(
+                "auto", "Auto (recommended)", "Automatically choose based on content quality"
+            ),
+        ],
+    ),
+    ParameterDef(
+        key="refinement_model",
+        type="string",
+        label="Refinement AI Model",
+        description="Which AI model refines the search results. A fast, affordable model works well here.",
+        help_text="Technical: refinement_model — LLM used for chunk refinement. gpt-4o-mini is a good default.",
+        tab="advanced",
+        group="agentic_rag",
+        default=os.environ.get("MODEL_NAME", "gpt-4o-mini"),
+    ),
+    ParameterDef(
+        key="agentic_hyde_strategy",
+        type="enum",
+        label="AI Search Strategy",
+        description="When to use AI-Enhanced Search during multi-step searches.",
+        help_text="Technical: agentic_hyde_strategy — controls HyDE usage within multi-hop agentic search.",
+        tab="advanced",
+        group="agentic_rag",
+        default="adaptive",
+        enum_options=[
+            EnumOption("off", "Off", "Never use AI-Enhanced Search in multi-step mode"),
+            EnumOption("first_hop", "First Step Only", "Use only on the initial search"),
+            EnumOption("adaptive", "Smart (recommended)", "Automatically use when it would help"),
+            EnumOption("always", "Always", "Use on every search step"),
+        ],
+    ),
+    ParameterDef(
+        key="use_final_search",
+        type="boolean",
+        label="Final Verification Search",
+        description="Run one last search after the AI agent finishes to make sure nothing was missed.",
+        help_text="Technical: use_final_search — performs a final consolidated search with refined understanding. Can improve completeness.",
+        tab="advanced",
+        group="agentic_rag",
+        default=False,
+    ),
+    ParameterDef(
+        key="use_structured_graph",
+        type="boolean",
+        label="Structured Graph Agent",
+        description="Use a structured pipeline instead of flat ReAct for more reliable, debuggable retrieval with quality gates.",
+        help_text="Technical: use_structured_graph — replaces the flat ReAct agent with a LangGraph StateGraph featuring explicit CRAG routing, quality gates, and query decomposition. Equivalent to setting agentic_pipeline='default'.",
+        tab="advanced",
+        group="agentic_rag",
+        default=False,
+    ),
+    ParameterDef(
+        key="agentic_pipeline",
+        type="string",
+        label="Retrieval Pipeline",
+        description="Which agentic retrieval pipeline to use for complex queries. Built-in: 'default' (structured graph) or 'legacy_react'. Custom pipelines can be registered via the component registry.",
+        help_text="Technical: agentic_pipeline — selects the registered pipeline. 'default' is the structured graph (13-node LangGraph), 'legacy_react' is the flat ReAct agent. Custom names are resolved from the component registry. Takes precedence over use_structured_graph when set explicitly.",
+        tab="advanced",
+        group="agentic_rag",
+        default="legacy_react",
+    ),
+    ParameterDef(
+        key="enable_hallucination_check",
+        type="boolean",
+        label="Answer Grounding Check",
+        description="After generating an answer, verify it is grounded in the source documents. Requires Structured Graph Agent.",
+        help_text="Technical: ISSUP grading — LLM checks if generation is supported by retrieved context. Adds ~200-500ms.",
+        tab="advanced",
+        group="agentic_rag",
+        default=False,
+    ),
+    ParameterDef(
+        key="enable_answer_quality_check",
+        type="boolean",
+        label="Answer Quality Check",
+        description="After generating an answer, verify it actually addresses the original question. Requires Structured Graph Agent.",
+        help_text="Technical: ISUSE grading — LLM checks if generation adequately answers the question. Adds ~200-500ms.",
+        tab="advanced",
+        group="agentic_rag",
+        default=False,
+    ),
+    ParameterDef(
+        key="coverage_scorer_mode",
+        type="enum",
+        label="Coverage Assessment",
+        description="How to assess whether retrieved documents cover all aspects of the question.",
+        help_text="Technical: 'keyword' uses fast pattern matching (zero overhead). 'llm' uses an LLM call for more accurate aspect-level coverage analysis (+200-500ms).",
+        tab="advanced",
+        group="agentic_rag",
+        default="keyword",
+        enum_options=[
+            EnumOption(
+                "keyword", "Fast (keyword)", "Quick pattern-based scoring — zero extra latency"
+            ),
+            EnumOption(
+                "llm", "AI-Powered", "LLM analyzes query aspects for thorough coverage assessment"
+            ),
+        ],
+    ),
+    ParameterDef(
+        key="final_search_mode",
+        type="enum",
+        label="Final Search Behavior",
+        description="When Final Verification Search is enabled, how to combine results from multi-hop and final search.",
+        help_text="Technical: 'merge' preserves multi-hop citations and deduplicates. 'replace' discards hop context (legacy behavior).",
+        tab="advanced",
+        group="agentic_rag",
+        default="merge",
+        enum_options=[
+            EnumOption(
+                "merge",
+                "Merge (recommended)",
+                "Combine hop and final search citations — preserves multi-hop context",
+            ),
+            EnumOption(
+                "replace",
+                "Replace (legacy)",
+                "Only use final search results — discards earlier hops",
+            ),
+        ],
+    ),
+    # ── Advanced > Citations ─────────────────────────────────────────────
+    ParameterDef(
+        key="citation_format",
+        type="enum",
+        label="Citation Format",
+        description="How citations are identified.",
+        help_text="'stable_id' uses content-based hashes (deterministic). 'index' uses sequential numbers (simpler but not stable across queries).",
+        tab="advanced",
+        group="citations",
+        default="stable_id",
+        enum_options=[
+            EnumOption(
+                "stable_id", "Stable ID", "Content-based hash — deterministic across queries"
+            ),
+            EnumOption("index", "Index", "Sequential numbers [1], [2], [3]..."),
+        ],
+    ),
+    ParameterDef(
+        key="citation_id_length",
+        type="integer",
+        label="Citation ID Length",
+        description="Length of stable citation IDs (when using stable_id format).",
+        help_text="Longer IDs have lower collision probability. 8 is sufficient for most use cases.",
+        tab="advanced",
+        group="citations",
+        default=8,
+        min_value=4,
+        max_value=16,
+        step=1,
+    ),
+    ParameterDef(
+        key="verify_citations",
+        type="boolean",
+        label="Verify Citations",
+        description="Verify that cited chunks actually exist.",
+        help_text="Adds a verification step to ensure citations reference real content.",
+        tab="advanced",
+        group="citations",
+        default=True,
+    ),
+    ParameterDef(
+        key="track_citations_db",
+        type="boolean",
+        label="Track in Database",
+        description="Persist citation history to the database.",
+        help_text="Enables citation analytics and historical lookups.",
+        tab="advanced",
+        group="citations",
+        default=True,
+    ),
+    ParameterDef(
+        key="show_page_numbers",
+        type="boolean",
+        label="Show Page Numbers",
+        description="Include page numbers in citations (when available).",
+        help_text="Requires page-aware document processing.",
+        tab="advanced",
+        group="citations",
+        default=True,
+    ),
+    # ── Advanced > Caching ───────────────────────────────────────────────
+    ParameterDef(
+        key="enable_embedding_cache",
+        type="boolean",
+        label="Embedding Cache",
+        description="Cache computed embeddings to avoid recomputation.",
+        help_text="Significant speedup for repeated or similar queries.",
+        tab="advanced",
+        group="caching",
+        default=True,
+    ),
+    ParameterDef(
+        key="embedding_cache_size",
+        type="integer",
+        label="Embedding Cache Size",
+        description="Maximum number of cached embeddings.",
+        help_text="Each entry is ~4KB (1024d float32). 10,000 entries ≈ 40MB.",
+        tab="advanced",
+        group="caching",
+        default=10000,
+        min_value=100,
+        max_value=100000,
+        step=1000,
+    ),
+    ParameterDef(
+        key="enable_search_cache",
+        type="boolean",
+        label="Search Cache",
+        description="Cache search results for repeated queries.",
+        help_text="Returns cached results for identical queries within the TTL window.",
+        tab="advanced",
+        group="caching",
+        default=True,
+    ),
+    ParameterDef(
+        key="search_cache_ttl",
+        type="integer",
+        label="Search Cache TTL",
+        description="How long cached search results remain valid (seconds).",
+        help_text="Lower values ensure fresher results. Higher values reduce backend load.",
+        tab="advanced",
+        group="caching",
+        default=300,
+        min_value=10,
+        max_value=3600,
+        step=10,
+    ),
+    # ── Advanced > Observability ─────────────────────────────────────────
+    ParameterDef(
+        key="log_level",
+        type="enum",
+        label="Log Level",
+        description="Logging verbosity.",
+        help_text="DEBUG for development, INFO for production, WARNING for quiet operation.",
+        tab="advanced",
+        group="observability",
+        default="INFO",
+        enum_options=[
+            EnumOption("DEBUG", "Debug", "Verbose — all messages including search internals"),
+            EnumOption("INFO", "Info", "Standard — key events and results"),
+            EnumOption("WARNING", "Warning", "Quiet — only warnings and errors"),
+            EnumOption("ERROR", "Error", "Minimal — only errors"),
+        ],
+    ),
+    ParameterDef(
+        key="enable_metrics",
+        type="boolean",
+        label="Internal Metrics",
+        description="Track internal performance metrics.",
+        help_text="Tracks counters, histograms, and gauges for search latency, cache hits, etc.",
+        tab="advanced",
+        group="observability",
+        default=True,
+    ),
+    ParameterDef(
+        key="enable_prometheus",
+        type="boolean",
+        label="Prometheus Export",
+        description="Export metrics in Prometheus format at /metrics.",
+        help_text="Requires prometheus-client package. Enables scraping by Prometheus/Grafana.",
+        tab="advanced",
+        group="observability",
+        default=False,
+    ),
+    ParameterDef(
+        key="enable_tracing",
+        type="boolean",
+        label="Distributed Tracing",
+        description="Enable OpenTelemetry distributed tracing.",
+        help_text="Requires opentelemetry packages. Traces search pipelines across services.",
+        tab="advanced",
+        group="observability",
+        default=False,
+    ),
+    ParameterDef(
+        key="track_retrieval_quality",
+        type="boolean",
+        label="Track Retrieval Quality",
+        description="Log retrieval quality metrics (MRR, precision, etc.).",
+        help_text="Useful for evaluation and debugging but adds slight overhead.",
+        tab="advanced",
+        group="observability",
+        default=True,
+    ),
+    ParameterDef(
+        key="track_latency_breakdown",
+        type="boolean",
+        label="Track Latency Breakdown",
+        description="Log per-stage latency breakdown for search pipeline.",
+        help_text="Shows time spent in embedding, search, reranking, etc.",
+        tab="advanced",
+        group="observability",
+        default=True,
+    ),
+    # ── Advanced > Vector Backend ────────────────────────────────────────
+    ParameterDef(
+        key="vector_backend",
+        type="enum",
+        label="Vector Database",
+        description="Which vector database to use for storing embeddings.",
+        help_text="Milvus is the default with embedded (Lite) and standalone modes. Pinecone is fully managed. Qdrant and Weaviate are open-source alternatives.",
+        tab="advanced",
+        group="vector_backend",
+        default="milvus",
+        enum_options=[
+            EnumOption(
+                "milvus", "Milvus", "High-performance, supports Lite (embedded) and standalone"
+            ),
+            EnumOption("pinecone", "Pinecone", "Fully managed cloud-native vector database"),
+            EnumOption("qdrant", "Qdrant", "Open-source vector similarity search engine"),
+            EnumOption(
+                "weaviate", "Weaviate", "AI-native vector database with built-in vectorization"
+            ),
+            EnumOption("pgvector", "pgvector", "PostgreSQL extension for vector storage"),
+            EnumOption(
+                "opensearch",
+                "OpenSearch",
+                "Lucene BM25 + k-NN hybrid search with 30+ language analyzers",
+            ),
+        ],
+    ),
+    # --- File Storage ---
+    ParameterDef(
+        key="storage_backend",
+        type="enum",
+        label="File Storage",
+        description="Where uploaded documents are stored.",
+        help_text="'Local' stores files on disk. 'S3' works with AWS S3, MinIO, R2, and 15+ S3-compatible services. 'fsspec' supports 30+ backends including GCS and Azure. Set via RAG_STORAGE_BACKEND env var.",
+        tab="advanced",
+        group="storage",
+        default="local",
+        enum_options=[
+            EnumOption("local", "Local Filesystem", "Zero-config, files stored on disk"),
+            EnumOption("s3", "S3-Compatible", "AWS S3, MinIO, R2, Backblaze, Wasabi, etc."),
+            EnumOption("fsspec", "Universal (fsspec)", "GCS, Azure, FTP, SFTP, 30+ backends"),
+        ],
+    ),
+    # S3-specific parameters (applicable when storage_backend = "s3")
+    ParameterDef(
+        key="storage_s3_bucket",
+        type="string",
+        label="S3 Bucket",
+        description="S3 bucket name for document storage (required for S3 backend).",
+        help_text="e.g., 'my-rag-documents'. Set via RAG_STORAGE_S3_BUCKET env var.",
+        tab="advanced",
+        group="storage",
+        default="",
+    ),
+    ParameterDef(
+        key="storage_s3_endpoint_url",
+        type="string",
+        label="S3 Endpoint URL",
+        description="Custom endpoint for S3-compatible services.",
+        help_text="Leave empty for AWS S3. For MinIO: 'http://minio:9000', for R2: 'https://<account>.r2.cloudflarestorage.com'. Set via RAG_STORAGE_S3_ENDPOINT_URL env var.",
+        tab="advanced",
+        group="storage",
+        default="",
+    ),
+    ParameterDef(
+        key="storage_s3_region",
+        type="string",
+        label="S3 Region",
+        description="AWS region for the S3 bucket.",
+        help_text="e.g., 'us-east-1', 'eu-west-1'. Set via RAG_STORAGE_S3_REGION env var.",
+        tab="advanced",
+        group="storage",
+        default="us-east-1",
+    ),
+    # fsspec-specific parameters (applicable when storage_backend = "fsspec")
+    ParameterDef(
+        key="storage_fsspec_protocol",
+        type="string",
+        label="fsspec Protocol",
+        description="Filesystem protocol for fsspec backend.",
+        help_text="e.g., 'gcs' (Google Cloud Storage), 'az' (Azure Blob), 'ftp', 'sftp'. Set via RAG_STORAGE_FSSPEC_PROTOCOL env var.",
+        tab="advanced",
+        group="storage",
+        default="",
+    ),
+    ParameterDef(
+        key="storage_fsspec_base_path",
+        type="string",
+        label="fsspec Base Path",
+        description="Base path within the filesystem.",
+        help_text="e.g., 'my-bucket/rag-documents' for GCS, 'my-container/rag' for Azure. Set via RAG_STORAGE_FSSPEC_BASE_PATH env var.",
+        tab="advanced",
+        group="storage",
+        default="",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def get_schema_dict() -> dict:
+    """Return the full schema as a JSON-serializable dict."""
+    return {
+        "tabs": TABS,
+        "groups": GROUPS,
+        "parameters": [p.to_dict() for p in PARAMETERS],
+    }
+
+
+def get_reindex_keys() -> list[str]:
+    """Return parameter keys that require reindexing when changed."""
+    return [p.key for p in PARAMETERS if p.requires_reindex]
+
+
+def get_defaults() -> dict:
+    """Return a flat dict of all default values."""
+    defaults: dict = {}
+    for p in PARAMETERS:
+        if p.parent_key:
+            # Nested parameter
+            parent = defaults.setdefault(p.parent_key, {})
+            child_key = p.key.split(".")[-1]
+            parent[child_key] = p.default
+        else:
+            defaults[p.key] = p.default
+    return defaults

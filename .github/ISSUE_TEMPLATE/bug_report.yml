@@ -1,0 +1,41 @@
+name: Bug report
+description: Something behaves differently from what the documentation says
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If a **benchmark number** looks wrong, please attach the results bundle
+        (`lasagna results bundle <results.json> -o run.json`). It carries the
+        versions, hardware and configuration that decide whether the number is
+        explainable — without it, most of the debugging is guesswork about your
+        environment.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: >-
+        The smallest command or script that shows it. `lasagna benchmark run
+        smoke` needs no download and is a good starting point if the problem
+        reproduces there.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >-
+        Paste the output of `python -c "from lasagna.core.provenance import
+        capture; print(capture())"`. It contains no paths, hostnames or
+        credential names.
+      render: shell
+    validations:
+      required: true

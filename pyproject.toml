@@ -1,0 +1,324 @@
+[project]
+name = "lasagna-rag"
+version = "0.1.0a1"
+description = "Composable RAG framework and evaluation harness: swap any of seven pipeline stages with one config key, then benchmark the change against a fixed baseline."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [
+    { name = "Ido Levy" },
+    { name = "Segev Shlomov" },
+    { name = "Leshem Choshen" },
+]
+requires-python = ">=3.10, <3.14"
+keywords = [
+    "rag",
+    "retrieval-augmented-generation",
+    "retrieval",
+    "information-retrieval",
+    "llm",
+    "vector-database",
+    "reranking",
+    "reranker",
+    "hybrid-search",
+    "evaluation",
+    "benchmark",
+    "mcp",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    # No "License ::" classifier: PEP 639 supersedes it with the SPDX
+    # `license` expression above, and setuptools rejects having both.
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Indexing",
+    # The facets below are how PyPI's sidebar and /search/?c= browse work.
+    # Without them the package is reachable by exact-name search only, which
+    # is the one case where the searcher already knows it exists.
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Framework :: FastAPI",
+    "Framework :: AsyncIO",
+    "Environment :: Console",
+    # NOT "OS Independent". The default vector store is milvus-lite, and
+    # pymilvus gates that extra on `sys_platform != "win32"` -- so on Windows
+    # `pip install lasagna-rag` reports success and the first upload dies with
+    # pymilvus telling the user to install a package that will not install.
+    # Windows needs WSL, or an external Milvus / another backend.
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Typing :: Typed",
+]
+
+# Core: everything needed for `pip install lasagna-rag` followed by the
+# README quickstart to work end to end — ingest a document locally, embed it,
+# search it, serve it. Agent/browser-specific dependencies from the project
+# Lasagna was extracted out of (playwright, browsergym, e2b, tavily, langfuse,
+# langchain-ibm) are deliberately absent.
+dependencies = [
+    # LLM orchestration.
+    # `langchain>=1.0` is a real floor, not caution: `agentic/agentic_rag.py`
+    # imports `create_agent` from `langchain.agents` at module scope, which is a
+    # 1.x API. Unbounded, a resolver was free to pick 0.3.x and break the import
+    # of a core module.
+    "langchain>=1.0",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.2",
+    "langgraph",                          # agentic pipeline graph
+    # Service surfaces
+    "fastapi[standard]",
+    "uvicorn",
+    # Pinned below 2.0: mcp 2.0.0 removed `mcp.server.fastmcp`, which both
+    # lasagna/mcp/server.py and sdk/integrations/mcp.py import. With an
+    # unbounded range a fresh `pip install lasagna-rag` resolved to 2.0.0 and
+    # the MCP server -- one of the four advertised interfaces -- failed at
+    # import for every new user, while developers with an older resolved
+    # version saw nothing wrong. Migrating to the 2.x API is tracked separately;
+    # until then the bound is what makes installs work.
+    "mcp[cli]>=1.23.0,<2",
+    "fastmcp",
+    "typer>=0.15.3",
+    # `lasagna init` is the first command in the README's shell quickstart and
+    # imports this at 24 call sites. It was never declared, so that command
+    # exited 1 on every fresh install with "pip install questionary". The e2e
+    # docs phase only checks that `lasagna <cmd>` names a real command -- it
+    # never runs bash blocks -- so nothing caught it.
+    "questionary>=2.0",
+    # Imported directly by cli.py. It arrives transitively through typer today,
+    # which means a typer release that drops it would break every CLI command
+    # with no change on our side. Declared because we use it.
+    "rich>=13.0",
+    # Configuration and runtime
+    "dynaconf",
+    "python-dotenv",
+    "loguru",
+    "pyyaml>=6.0.3",
+    "psutil>=7.0.0",
+    "httpx",
+    # Default vector store (embedded; no server required)
+    "pymilvus[milvus-lite]>=2.6.4",
+    # Embedding and reranking. Kept in core so the quickstart works on a bare
+    # install; a slim client distribution for remote-backend-only use is
+    # tracked as future work.
+    "torch>=2.9.1",
+    "sentence-transformers>=5.1.2",
+    # Document processing
+    "pypdf>=4.0.0",
+    "python-docx>=1.2.0",
+    "pdfplumber>=0.11.9",
+    "beautifulsoup4>=4.14.3",
+    # `html2text` was here. It is GPL-3.0-or-later and was imported nowhere in
+    # the package, so every install pulled a copyleft dependency into the user's
+    # environment for no functional reason -- and a corporate legal review greps
+    # the dependency tree, not the import graph.
+    # Lexical retrieval for hybrid search
+    "rank-bm25>=0.2.2",
+]
+
+[project.optional-dependencies]
+# Richer ingestion: semantic chunking and OCR for scanned documents
+ingest = [
+    "nltk>=3.9.1",
+    "easyocr>=1.7.2",
+    "pdf2image>=1.17.0",
+]
+# Structure-aware document conversion (tables, layout analysis)
+docling = ["docling>=2.70.0"]
+# BGE-M3 dense+sparse+ColBERT embedding
+flag-embedding = ["FlagEmbedding>=1.3.0"]
+# Entity-linked retrieval over a knowledge graph
+graphrag = ["networkx>=3.0"]
+# Evaluation harness: RAGAS metrics, benchmark loaders, statistics, plots
+eval = [
+    "ragas>=0.4.0",
+    # Not a lasagna import: ragas 0.4.3 (the newest release) imports
+    # `langchain_community.chat_models.vertexai` at `import ragas`, and
+    # langchain-community 0.4.2 removed that module. ragas declares the
+    # dependency unbounded, so a fresh `[eval]` install resolved 0.4.2 and every
+    # RAGAS score failed with "ragas is required ... pip install
+    # lasagna-rag[eval]" while ragas was installed. 0.4.1 still ships the
+    # module. Lift this once a ragas release stops importing it.
+    "langchain-community<0.4.2",
+    "datasets>=2.0.0",
+    "pandas>=2.0.0",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+    "seaborn>=0.12",
+    "jinja2>=3.0",
+    'tomli>=2.0; python_version < "3.11"',
+]
+# Managed / self-hosted vector databases beyond the embedded default
+vector-backends = [
+    "pinecone>=5.0.0",
+    "qdrant-client>=1.7.0",
+    "weaviate-client>=4.4.0",
+]
+opensearch = ["opensearch-py>=2.4.0"]
+# All three, per pgvector_backend.py:51-52 -- `psycopg[binary]` provides
+# neither the `pgvector` adapter nor the connection pool, so the extra
+# installed cleanly and left the backend silently unavailable.
+pgvector = ["pgvector>=0.2.5", "psycopg[binary,pool]>=3.1"]
+# Document storage backends
+storage-s3 = ["boto3>=1.28"]
+storage-all = [
+    "boto3>=1.28",
+    "fsspec>=2024.1",
+    "s3fs>=2024.1",
+    "gcsfs>=2024.1",
+    "adlfs>=2024.1",
+]
+# Background document processing (Celery) and scheduled lifecycle jobs
+lifecycle = ["apscheduler>=3.10"]
+# Local LLM inference
+local = [
+    "langchain-huggingface>=0.1",
+    "transformers>=4.40",
+    "accelerate>=0.25",
+    "langchain-ollama>=0.2",
+]
+# Everything
+all = [
+    "lasagna-rag[ingest,docling,flag-embedding,graphrag,eval,vector-backends,opensearch,pgvector,storage-all,lifecycle,local]",
+]
+
+[project.urls]
+Homepage = "https://dolev31.github.io/lasagna/"
+Repository = "https://github.com/dolev31/lasagna"
+Issues = "https://github.com/dolev31/lasagna/issues"
+# PyPI renders these with their own sidebar icons. Documentation is the single
+# highest-value link on that page: a visitor who arrived from search has no
+# other signposted route to the guide.
+Documentation = "https://github.com/dolev31/lasagna/blob/main/docs/guide.md"
+Changelog = "https://github.com/dolev31/lasagna/blob/main/CHANGELOG.md"
+
+[project.scripts]
+lasagna = "lasagna.cli:app"
+# Point at server:main, not mcp.__main__ — that module calls main() at import
+# time, so a console script targeting it would start the server twice.
+lasagna-mcp = "lasagna.mcp.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "pytest-asyncio>=1.1.0",
+    "pytest-cov>=5.0",
+    # Same pin as CI and .pre-commit-config.yaml, so `ruff check .` agrees everywhere.
+    "ruff==0.14.7",
+    "pre-commit>=4.3.0",
+    "detect-secrets>=1.5",
+    "pip-audit>=2.7",
+    "pip-licenses>=5.0",
+    "requests>=2.32",
+    # Used only by tests/stress. It was a CORE dependency and imported nowhere
+    # in src/, so every install carried it to run tests the user does not have.
+    "aiohttp>=3.9",
+    # Checks the published hub schema against bundles we actually produce.
+    # Available transitively today; declared so the test cannot start skipping
+    # silently when a transitive dependency drops it.
+    "jsonschema>=4.0",
+]
+
+[build-system]
+# 77.0 is the floor for PEP 639, which `[project] license = "Apache-2.0"`
+# plus `license-files` above requires. On 68-76 the metadata fails
+# validation; it built here only because the local setuptools is newer.
+# `wheel` is vestigial for setuptools >= 70.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+lasagna = [
+    "py.typed",
+    "settings.lasagna.toml",
+    "settings.lasagna_production.toml",
+    "**/*.jinja2",
+    # Deployment manifests are shipped so `lasagna` users can run the stack
+    "deploy/**/*",
+    # Listed explicitly: setuptools' globs do not match dot-files, so the
+    # template every deployment starts from was declared and silently absent
+    # from the wheel. Found by the E2E install phase, which compares the built
+    # wheel against the package-data patterns rather than trusting them.
+    "deploy/.env.example",
+    # Configuration UI: the prebuilt frontend bundle, produced by CI at release
+    "configurator/frontend/dist/**/*",
+    # Example experiment configs and the reference docs that describe them.
+    # Without these, `pip install lasagna-rag[eval]` leaves a researcher with no
+    # config to copy and no metrics reference on disk, while the README tells
+    # them to run `benchmark experiment quickstart.yaml` -- a file that only
+    # exists in a git checkout.
+    "knowledge_evaluation_sdk/research/**/*.yaml",
+    "knowledge_evaluation_sdk/research/**/*.md",
+    "knowledge_evaluation_sdk/docs/*.md",
+    # Agent skills. These have to be in the wheel: `lasagna skills install`
+    # copies them out of the installed package, so a user who pip-installed
+    # rather than cloned would otherwise get an empty list.
+    "skills/*/SKILL.md",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: requires external services (vector DB, API server)",
+    "slow: long-running test",
+    "needs_embedding_weights: loads the configured embedding model; skipped when Hugging Face offline mode is set and no cached copy exists",
+]
+
+[tool.coverage.run]
+source = ["lasagna"]
+branch = true
+omit = [
+    # Optional third-party agent adapters: exercised only when that framework
+    # is installed, which it is not in CI by design.
+    "*/lasagna/integrations/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "@(abc\\.)?abstractmethod",
+]
+# Floor, not a target.
+#
+# Measured 2026-08-19 with no external services running, which is what CI sees:
+# 34% combined (statement+branch, the `coverage report` TOTAL). The previous
+# note here said 30.8% and had gone stale, so three different coverage numbers
+# were in circulation across README, this file and the audit report for the same
+# quantity. `branch = true` is on because this package's bugs have
+# overwhelmingly lived in error branches, but the number gated below is the
+# COMBINED total, not branch coverage alone -- branch alone is materially lower,
+# and the README badge used to name it while printing this figure.
+#
+# Set just below the measurement to absorb ordering jitter. This only ever
+# ratchets UP. Lowering it to make a build pass defeats the point: if a change
+# drops coverage, either it added untested code or deleted tested code, and
+# both are worth a conversation.
+fail_under = 30
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# A package's __init__.py imports names precisely so callers can reach them
+# from the package root. Ruff cannot tell that from an unused import, and
+# `__all__` is not consistently declared across this tree.
+"__init__.py" = ["F401"]
+"src/lasagna/**/__init__.py" = ["F401"]

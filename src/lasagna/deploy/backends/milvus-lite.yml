@@ -1,0 +1,30 @@
+# Backend: Milvus Lite (ARM64 / Apple Silicon)
+#
+# Uses embedded Milvus Lite instead of a standalone container.
+# Milvus Lite is single-process — requires:
+#   - Single gunicorn worker (--workers=1)
+#   - Celery disabled (cannot share embedded DB across processes)
+#   - MCP server embedded in the API process
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f backends/milvus-lite.yml up -d
+
+services:
+  api:
+    command:
+      - uvicorn
+      - "lasagna.api.rest.app:app"
+      - "--host=0.0.0.0"
+      - "--port=8000"
+      - "--workers=1"
+      - "--timeout-keep-alive=120"
+    environment:
+      RAG_VECTOR_BACKEND: milvus
+      RAG_VECTOR_BACKEND_CONFIG: '{"db_path": "/data/milvus/milvus.db"}'
+      RAG_EMBED_MCP: "true"
+      RAG_CELERY_ENABLED: "false"
+    volumes:
+      - milvus-data:/data/milvus
+
+volumes:
+  milvus-data:

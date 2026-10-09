@@ -1,0 +1,56 @@
+# Backend: Weaviate (self-hosted)
+#
+# Adds a Weaviate container for vector storage.
+# Works on both x86 and ARM64.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f backends/weaviate.yml up -d
+
+services:
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.28.4
+    ports:
+      - "127.0.0.1:${WEAVIATE_HTTP_PORT:-8080}:8080"
+      - "127.0.0.1:${WEAVIATE_GRPC_PORT:-50051}:50051"
+    environment:
+      # NOTE: Anonymous access is for development only.
+      # For production, set AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false
+      # and configure an API key or OIDC provider.
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "${WEAVIATE_ANONYMOUS_ACCESS:-true}"
+      PERSISTENCE_DATA_PATH: /var/lib/weaviate
+    volumes:
+      - weaviate-data:/var/lib/weaviate
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  api:
+    environment:
+      RAG_VECTOR_BACKEND: weaviate
+      WEAVIATE_URL: http://weaviate:8080
+    depends_on:
+      weaviate:
+        condition: service_healthy
+
+  celery-worker:
+    environment:
+      RAG_VECTOR_BACKEND: weaviate
+      WEAVIATE_URL: http://weaviate:8080
+    depends_on:
+      weaviate:
+        condition: service_healthy
+
+  mcp:
+    environment:
+      RAG_VECTOR_BACKEND: weaviate
+      WEAVIATE_URL: http://weaviate:8080
+    depends_on:
+      weaviate:
+        condition: service_healthy
+
+volumes:
+  weaviate-data:

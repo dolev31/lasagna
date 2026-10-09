@@ -1,0 +1,36 @@
+# A complete, installable Lasagna plugin.
+#
+# Everything a third-party package needs to add a component and a benchmark to
+# Lasagna is in this file and the two modules beside it. Copy the directory,
+# rename it, replace the implementations.
+#
+# This is a real package rather than a cookiecutter on purpose: CI installs it
+# and runs its tests, so it cannot rot into instructions that no longer work.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lasagna-plugin-template"
+version = "0.1.0"
+description = "Template showing how to publish a Lasagna component and benchmark"
+requires-python = ">=3.10"
+dependencies = ["lasagna-rag"]
+
+# --- This is the whole integration -------------------------------------------
+#
+# Lasagna scans these two groups at registry load. Nothing else is needed: no
+# plugin manifest, no registration call, no import from the host at startup.
+
+[project.entry-points."lasagna_components"]
+# Name format is "{stage}.{name}". Stages: reranker, embedder, chunker,
+# retriever, document_processor, query_enhancer, agentic_pipeline.
+"reranker.template_length" = "lasagna_plugin_template.reranker:LengthReranker"
+
+[project.entry-points.lasagna_benchmarks]
+# Name is the benchmark id users will pass to `--benchmark`.
+"template_tiny" = "lasagna_plugin_template.benchmark:TinyBenchmark"
+
+[tool.setuptools.packages.find]
+where = ["src"]

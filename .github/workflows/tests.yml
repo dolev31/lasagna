@@ -1,0 +1,264 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      # Pinned to the same version as .pre-commit-config.yaml. Unpinned, uvx
+      # takes the newest ruff, whose default rule set and formatter style move
+      # between releases: 0.16 enables 413 rules by default against 0.14's 59,
+      # which turned a clean tree into thousands of findings with no code change.
+      - run: uvx ruff@0.14.7 check .
+      - run: uvx ruff@0.14.7 format --check .
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: a credential committed and then deleted is still in the
+      # pack, and still recoverable by anyone who clones.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          set -euo pipefail
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      # Both directions, because they catch different things: `detect` reads
+      # every commit, `dir` reads the tree as it stands including files that
+      # are untracked but present. .gitleaks.toml allowlists the known
+      # placeholders by path and reason, so a finding here is a real finding.
+      - name: Scan git history
+        run: gitleaks detect --source . --config .gitleaks.toml --redact --verbose
+
+      - name: Scan working tree
+        run: gitleaks dir . --config .gitleaks.toml --redact --verbose
+
+  plugin-template:
+    name: Plugin template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+
+      # The template is documentation that has to keep working. Installing it
+      # for real is the only way to exercise entry-point discovery, which is
+      # how every third-party component and benchmark reaches the registry --
+      # and which cannot be tested from inside this repo, because entry points
+      # come from installed distribution metadata.
+      - name: Install Lasagna and the template
+        run: |
+          uv pip install --system -e . --group dev
+          uv pip install --system --no-deps ./examples/lasagna-plugin-template
+
+      - name: The template's own tests
+        run: pytest examples/lasagna-plugin-template/tests -q
+
+      - name: Lasagna discovers it
+        run: |
+          lasagna plugins list
+          lasagna component validate lasagna_plugin_template.reranker:LengthReranker
+
+      # A broken plugin must be visible, not silently absent. This asserts the
+      # discovery log reports it and that strict mode raises.
+      - name: A broken plugin is reported, not swallowed
+        run: |
+          python - <<'PY'
+          from lasagna.core.registry import registry, discovery_log
+          registry.list_rerankers()
+          names = {e["name"] for e in discovery_log()}
+          assert "reranker.template_length" in names, names
+          assert all(e["ok"] for e in discovery_log()), discovery_log()
+          print("discovery log:", discovery_log())
+          PY
+
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install
+        run: uv pip install --system -e ".[eval]" --group dev
+
+      # tests/live needs running services and tests/stress is long-running;
+      # everything else is hermetic — no network, no external services.
+      #
+      # Coverage is measured on one version only: the floor is a property of
+      # the code, not of the interpreter, and running it four times would just
+      # produce four identical numbers.
+      - name: Run tests
+        if: matrix.python-version != '3.12'
+        run: pytest tests/ --ignore=tests/live --ignore=tests/stress -q
+
+      - name: Run tests with coverage floor
+        if: matrix.python-version == '3.12'
+        run: |
+          pytest tests/ --ignore=tests/live --ignore=tests/stress -q \
+            --cov --cov-report=term-missing:skip-covered
+
+      # Milvus Lite and Qdrant both run in-process, so the vector-backend
+      # conformance suite can exercise two real backends with no services.
+      # This is how the Qdrant pagination bug was caught; without it the suite
+      # would skip itself and prove nothing.
+      # Without `vector-backends`, qdrant-client is absent and the Qdrant
+      # parameter skips -- so the job named "vector backend conformance"
+      # exercised only Milvus while reporting a pass for all of them.
+      - name: Install in-process vector backends
+        run: uv pip install --system "qdrant-client>=1.7.0"
+
+      - name: Vector backend conformance (in-process backends)
+        env:
+          LASAGNA_MILVUS_DB_PATH: ${{ runner.temp }}/milvus_conformance.db
+          QDRANT_PATH: ${{ runner.temp }}/qdrant_conformance
+        run: pytest tests/test_vector_backend_conformance.py tests/test_milvus_reopen_in_new_process.py -q
+
+  # The rest of the suite runs from inside the repo, with src/ on sys.path.
+  # This job is the only thing that checks the package the way a user meets it:
+  # built into a wheel, installed into a clean venv, driven from outside.
+  # It catches the defects most likely to actually reach someone — a broken
+  # install, a broken quickstart, a broken core journey.
+  #
+  # Phases p8 and p9 need an API key or several minutes, so they stay in
+  # the local release gate (see e2e/README.md).
+  e2e-smoke:
+    name: E2E gate (quick subset)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install
+        run: uv pip install --system -e ".[eval]" --group dev
+
+      - name: Run release gate
+        run: python -m e2e.run --quick
+
+      # Keep the evidence even when the gate fails — that is the run whose
+      # metrics are worth reading.
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: e2e/reports/
+          if-no-files-found: warn
+
+  compliance:
+    name: Secrets and licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+
+      # A published package must never ship credentials.
+      #
+      # `detect-secrets scan --baseline` MERGES findings into the baseline and
+      # returns 0 unconditionally -- it rewrites the file rather than checking
+      # against it, so this step passed for every commit and could not have
+      # failed. `detect-secrets-hook` is the form that exits non-zero.
+      #
+      # The `secrets` job's gitleaks run is the other half: it covers full
+      # history, which a working-tree scan cannot.
+      # `--from detect-secrets` is required, not decoration. `uvx <cmd>` resolves
+      # the command string as a DISTRIBUTION name, and `detect-secrets-hook` is a
+      # console script of the `detect-secrets` distribution -- no distribution of
+      # that name exists, so this step errored on every run:
+      #
+      #   Because detect-secrets-hook was not found in the package registry [...]
+      #   your requirements are unsatisfiable
+      #
+      # It is the first step of this job, so its failure also took the licence
+      # check and the internal-reference grep below with it. The whole job was
+      # dead. `.pre-commit-config.yaml` already used the correct form.
+      #
+      # The unowned name is also a supply-chain hazard: anyone could register
+      # `detect-secrets-hook` on PyPI and this workflow would install and run it.
+      - name: Scan for secrets
+        run: |
+          git ls-files -z | xargs -0 uvx --from detect-secrets detect-secrets-hook \
+            --baseline .secrets.baseline
+
+      # Lasagna is Apache 2.0; copyleft in the dependency graph would make that
+      # claim false for anyone installing it.
+      #
+      # `--partial-match` is load-bearing. Without it pip-licenses does exact
+      # case-insensitive equality on the rendered licence name, so a package
+      # must report literally "GPL" to trip the gate -- `GPL-3.0-or-later` and
+      # `GNU Affero General Public License v3` both sailed through. The gate had
+      # never failed and structurally could not, which is how a GPL-3 core
+      # dependency (`html2text`, since removed) shipped in every install.
+      #
+      # Scope note: this installs core only, so the LGPL transitives that live
+      # under `[ingest]` are out of the closure. Widening the install here means
+      # triaging those first, not loosening the flag.
+      #
+      # `--python` is the second half of the fix. `uvx` runs pip-licenses in its
+      # own ephemeral tool environment, which is created with
+      # `include-system-site-packages = false`, and pip-licenses inspects
+      # whatever `sys.path` it is running under (defaulting to its own
+      # `sys.executable`). So it enumerated the ~3 packages in that throwaway
+      # venv -- never the dependency closure installed on the line above -- and
+      # returned 0 unconditionally. Two independent reasons this gate could not
+      # fail, in the same three lines.
+      - name: Check dependency licenses
+        run: |
+          uv pip install --system -e .
+          uvx pip-licenses --python "$(which python)" \
+            --partial-match --fail-on="GPL;AGPL;SSPL" \
+            --ignore-packages lasagna-rag
+
+      # Guards against an internal endpoint or a developer path being reintroduced.
+      #
+      # Covers the docs, the README and the e2e harness as well as `src/`:
+      # those are the files most likely to carry a pasted local path or a
+      # corporate endpoint, because they are written on a developer machine.
+      - name: Check for internal references
+        run: |
+          if grep -rnIE "[a-z0-9-]+\.ibm\.com|/Users/[a-z]+/|/home/[a-z]+/" \
+               --include="*.py" --include="*.toml" --include="*.yml" \
+               --include="*.yaml" --include="*.md" --include="*.json" \
+               src/ tests/ e2e/ docs/ hub/ examples/ README.md CONTRIBUTING.md; then
+            echo "::error::Internal or machine-specific reference found"
+            exit 1
+          fi

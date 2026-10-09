@@ -1,0 +1,366 @@
+"""Session state mixin for session configuration.
+
+Handles session state retrieval, config patching, reset, import/export,
+RAG master toggle, and document focus management.
+"""
+
+import copy
+import time
+from typing import Any, Dict, List, Optional
+
+from loguru import logger
+
+from ._data_models import (
+    SCHEMA_VERSION,
+    RAGProfile,
+    KnowledgeConfigState,
+    _deep_merge,
+)
+
+
+class SessionStateMixin:
+    """Mixin for session state management.
+
+    Expects the host class to provide:
+    - self._lock: RLock
+    - self._session_states: Dict[str, KnowledgeConfigState]
+    - self._default_profiles: List[RAGProfile]
+    - self._global_custom_profiles: List[RAGProfile]
+    - self._reload_if_changed(): method (from PersistenceMixin)
+    - self._cleanup_old_sessions(): method (from PersistenceMixin)
+    - self._ensure_default_profile(): method (from ProfileMixin)
+    - self._persist_session_states(): method (from PersistenceMixin)
+    - self._delete_persisted_session(): method (from PersistenceMixin)
+    - self._get_citations_file_path(): method (from CitationStoreMixin)
+    """
+
+    def _state_from_dict(self, data: Dict[str, Any]) -> KnowledgeConfigState:
+        """Build a KnowledgeConfigState from persisted data."""
+        profiles_data = data.get("profiles", [])
+        profiles = []
+        if isinstance(profiles_data, list):
+            for item in profiles_data:
+                if isinstance(item, dict) and item.get("name"):
+                    profiles.append(RAGProfile.from_dict(item))
+
+        if not profiles:
+            profiles = [copy.deepcopy(p) for p in self._default_profiles]
+
+        profiles = self._ensure_default_profile(profiles)
+        profile_names = {p.name for p in profiles}
+        active_profile = data.get("active_profile") or "default"
+        if active_profile not in profile_names:
+            active_profile = "default"
+
+        session_overrides = data.get("session_overrides", {})
+        if not isinstance(session_overrides, dict):
+            session_overrides = {}
+
+        defaults_source = data.get("defaults_source", "settings.lasagna.toml")
+
+        rag_enabled = data.get("rag_enabled", True)
+        if not isinstance(rag_enabled, bool):
+            rag_enabled = True
+
+        focused_document_ids = data.get("focused_document_ids", [])
+        if not isinstance(focused_document_ids, list):
+            focused_document_ids = []
+
+        last_accessed = data.get("last_accessed", time.time())
+
+        return KnowledgeConfigState(
+            profiles=profiles,
+            active_profile=active_profile,
+            session_overrides=session_overrides,
+            defaults_source=defaults_source,
+            rag_enabled=rag_enabled,
+            focused_document_ids=focused_document_ids,
+            last_accessed=last_accessed,
+        )
+
+    def get_session_state(self, session_id: Optional[str] = None) -> KnowledgeConfigState:
+        """Get or create session state."""
+        session_id = session_id or "default"
+
+        with self._lock:
+            self._reload_if_changed()
+            self._cleanup_old_sessions()
+
+            if session_id not in self._session_states:
+                all_profiles = [copy.deepcopy(p) for p in self._default_profiles]
+
+                default_names = {p.name for p in all_profiles}
+                for custom_profile in self._global_custom_profiles:
+                    if custom_profile.name not in default_names:
+                        all_profiles.append(copy.deepcopy(custom_profile))
+
+                state = KnowledgeConfigState(
+                    profiles=all_profiles,
+                    active_profile="default",
+                    session_overrides={},
+                    defaults_source="settings.lasagna.toml",
+                    rag_enabled=True,
+                    focused_document_ids=[],
+                    last_accessed=time.time(),
+                )
+                state.profiles = self._ensure_default_profile(state.profiles)
+                self._session_states[session_id] = state
+            else:
+                self._session_states[session_id].last_accessed = time.time()
+
+            return self._session_states[session_id]
+
+    def get_config(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get the full configuration response for the API."""
+        state = self.get_session_state(session_id)
+        return state.to_dict()
+
+    def get_resolved_config(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get the resolved configuration for RAG execution."""
+        state = self.get_session_state(session_id)
+        return state.get_resolved_config()
+
+    def _publish_to_search(self, session_id: Optional[str]) -> None:
+        """Mirror the resolved config into the store the search path reads.
+
+        This manager and ``SessionConfigProvider`` were two disconnected
+        stores. Writing here updated the manager's own SQLite-backed state and
+        nothing else, while ``rag_config.with_session()`` -- what the search
+        orchestrator actually resolves through -- read from the provider. So
+        every config-changing tool returned success and changed nothing:
+        ``patch_config({"rerank_top_k": 17})`` left search using 5.
+
+        That is the worst failure shape available. An error would have been
+        noticed; silent success means an agent tuning retrieval believes it
+        tuned retrieval, and every downstream number is quietly wrong.
+
+        Publishing rather than merging the two stores keeps this a contained
+        fix: the manager stays the source of truth for profiles and history,
+        and the provider stays the thing search reads.
+
+        ``PersistentSessionProvider`` already resolves *through* this manager,
+        and its ``set_config_overrides`` calls ``patch_config`` — so publishing
+        to it from inside ``patch_config`` recurses. Measured before the guard:
+        one user-level patch became 49 nested calls and a ``RecursionError``,
+        each level persisting to SQLite. The provider advertises this with
+        ``_delegates_to_manager``, which the REST config route already honours
+        for the same reason.
+        """
+        try:
+            from lasagna.providers import get_session_provider
+
+            provider = get_session_provider()
+            if getattr(provider, "_delegates_to_manager", False):
+                # It reads from here already; writing back would recurse.
+                return
+            resolved = self.get_resolved_config(session_id)
+            provider.set_config_overrides(session_id or "default", resolved)
+        except Exception:
+            # Never let publishing break the write itself -- but say so, since
+            # the symptom otherwise is a config change that does not apply.
+            logger.exception(
+                "Config was saved but could not be published to the search path; "
+                "retrieval will keep using the previous settings."
+            )
+
+    def patch_config(
+        self,
+        patch: Dict[str, Any],
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Apply a patch to the session overrides."""
+        state = self.get_session_state(session_id)
+
+        with self._lock:
+            self._validate_or_raise(patch, session_id, is_patch=True)
+            _deep_merge(state.session_overrides, patch)
+            self._persist_session_states()
+
+        self._publish_to_search(session_id)
+        return state.to_dict()
+
+    def reset_config(
+        self,
+        scope: str = "active",
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Reset configuration to defaults."""
+        state = self.get_session_state(session_id)
+
+        with self._lock:
+            if scope == "all":
+                state.profiles = [copy.deepcopy(p) for p in self._default_profiles]
+                state.active_profile = "default"
+                state.session_overrides = {}
+            else:
+                state.session_overrides = {}
+            self._persist_session_states()
+
+        self._publish_to_search(session_id)
+        active = state.get_active_profile()
+        result = state.to_dict()
+        if active:
+            result["config"] = active.config
+        return result
+
+    def export_config(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Export the full configuration for download."""
+        state = self.get_session_state(session_id)
+        return state.to_dict()
+
+    def import_config(
+        self,
+        import_data: Dict[str, Any],
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Import configuration from uploaded JSON."""
+        schema_version = import_data.get("schema_version")
+        if not schema_version:
+            raise ValueError("Missing schema_version in import data")
+
+        if schema_version > SCHEMA_VERSION:
+            raise ValueError(
+                f"Import schema version {schema_version} is newer than supported version {SCHEMA_VERSION}"
+            )
+
+        if "profiles" not in import_data:
+            raise ValueError("Missing 'profiles' in import data")
+
+        profiles_data = import_data["profiles"]
+        if not isinstance(profiles_data, list):
+            raise ValueError("'profiles' must be an array")
+
+        profile_names = [p.get("name") for p in profiles_data]
+        if len(profile_names) != len(set(profile_names)):
+            raise ValueError("Profile names must be unique")
+
+        imported_profiles = []
+        for p_data in profiles_data:
+            if not p_data.get("name"):
+                raise ValueError("Each profile must have a 'name'")
+            if not isinstance(p_data.get("config", {}), dict):
+                raise ValueError(f"Profile '{p_data['name']}' config must be an object")
+            profile_config = p_data.get("config", {})
+            if profile_config:
+                self._validate_or_raise(profile_config)
+            imported_profiles.append(RAGProfile.from_dict(p_data))
+
+        state = self.get_session_state(session_id)
+
+        with self._lock:
+            existing_names = {p.name for p in state.profiles}
+            for imported in imported_profiles:
+                if imported.name in existing_names:
+                    for i, p in enumerate(state.profiles):
+                        if p.name == imported.name:
+                            state.profiles[i] = imported
+                            break
+                else:
+                    state.profiles.append(imported)
+
+            active_profile = import_data.get("active_profile")
+            if active_profile:
+                valid_names = {p.name for p in state.profiles}
+                if active_profile in valid_names:
+                    state.active_profile = active_profile
+
+            if "session_overrides" in import_data:
+                state.session_overrides = import_data["session_overrides"]
+            self._persist_session_states()
+
+        return state.to_dict()
+
+    def set_rag_enabled(
+        self,
+        enabled: bool,
+        session_id: Optional[str] = None,
+    ) -> None:
+        """Set whether RAG is enabled for a session."""
+        state = self.get_session_state(session_id)
+
+        with self._lock:
+            state.rag_enabled = enabled
+            logger.debug(f"Set rag_enabled for session {session_id}: {enabled}")
+
+            if not enabled:
+                state.focused_document_ids = []
+                state.last_citations = []
+                state.last_chunks = []
+                logger.debug(
+                    f"Cleared focused_document_ids and cached results for session "
+                    f"{session_id} (RAG disabled)"
+                )
+
+            self._persist_session_states()
+
+    def is_rag_enabled(
+        self,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Check if RAG is enabled for a session."""
+        state = self.get_session_state(session_id)
+        return state.rag_enabled
+
+    def set_focused_document_ids(
+        self,
+        document_ids: List[str],
+        session_id: Optional[str] = None,
+    ) -> None:
+        """Set focused document IDs for a session."""
+        state = self.get_session_state(session_id)
+
+        with self._lock:
+            state.focused_document_ids = document_ids or []
+            logger.debug(
+                f"Set focused_document_ids for session {session_id}: "
+                f"{len(state.focused_document_ids)} documents"
+            )
+            self._persist_session_states()
+
+    def get_focused_document_ids(
+        self,
+        session_id: Optional[str] = None,
+    ) -> List[str]:
+        """Get focused document IDs for a session."""
+        state = self.get_session_state(session_id)
+        return state.focused_document_ids or []
+
+    def clear_focused_document_ids(
+        self,
+        session_id: Optional[str] = None,
+    ) -> None:
+        """Clear focused document IDs for a session."""
+        self.set_focused_document_ids([], session_id)
+
+    def delete_session_state(self, session_id: str) -> bool:
+        """Completely remove a session from config state."""
+        deleted = False
+
+        with self._lock:
+            if session_id in self._session_states:
+                del self._session_states[session_id]
+                deleted = True
+                logger.debug(f"Removed session {session_id} from in-memory state")
+
+            # Remove persisted citations file
+            try:
+                citations_file = self._get_citations_file_path(session_id)
+                import os
+
+                if os.path.exists(citations_file):
+                    os.remove(citations_file)
+                    logger.debug(f"Removed citations file: {citations_file}")
+            except Exception as e:
+                logger.warning(f"Could not delete citations file for session {session_id}: {e}")
+
+            if deleted:
+                # Delete from database (SQLite/PostgreSQL) so it doesn't
+                # get resurrected on next restart.
+                self._delete_persisted_session(session_id)
+                logger.info(f"Session state deleted: {session_id}")
+
+        return deleted
+
+    def _persist_sessions(self) -> None:
+        """Alias for _persist_session_states for backward compatibility."""
+        self._persist_session_states()

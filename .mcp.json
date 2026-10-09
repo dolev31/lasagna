@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "lasagna": {
+      "command": "lasagna-mcp",
+      "args": ["--transport", "stdio"],
+      "env": {
+        "RAG_SESSION_ID": "lasagna-dev"
+      }
+    }
+  }
+}

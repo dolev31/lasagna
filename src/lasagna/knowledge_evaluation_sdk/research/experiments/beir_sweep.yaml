@@ -1,0 +1,47 @@
+# BEIR Reranker Sweep — multi-benchmark component sweep
+# Usage: python -m lasagna benchmark experiment beir_sweep.yaml
+#
+# This file used to end with:
+#
+#   query_enhancers:
+#     - hyde
+#     - null
+#
+# which measured nothing. `null` in a dimension list is not "the feature off";
+# it means "leave the profile alone". And swapping the `query_enhancer`
+# component does not set `enable_hyde` — the orchestrator gates on
+# `use_hyde and config.enable_hyde`, and the `standard` profile ships
+# `enable_hyde: False`. So both arms ran with HyDE off and produced identical
+# numbers, and the sweep looked like evidence that HyDE does not help.
+#
+# A feature is turned on by its flag. To ask whether HyDE helps — and whether it
+# still helps once reranking is on — see `hyde_x_reranking.yaml`, which is a 2x2
+# and reports the interaction.
+
+name: "BEIR Reranker Sweep"
+description: "Compare reranker variants across BEIR benchmarks"
+
+benchmarks:
+  - name: beir/nfcorpus
+    n_samples: 200
+  - name: beir/scifact
+    n_samples: 200
+  - name: beir/fiqa
+    n_samples: 200
+
+pipeline:
+  base_profile: standard
+  rerankers:
+    - cross_encoder
+    - combined
+    - ensemble
+
+mode: live
+n_runs: 3
+seed: 42
+max_concurrency: 4
+
+output_formats:
+  - markdown
+  - json
+  - latex

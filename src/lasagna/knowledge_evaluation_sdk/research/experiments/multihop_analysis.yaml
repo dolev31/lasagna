@@ -1,0 +1,74 @@
+# Does reranking still earn its latency once query expansion is on?
+#
+#   lasagna benchmark experiment multihop_analysis.yaml
+#   lasagna results interaction <output>/results.json --metric ndcg@10
+#
+# Expansion widens the candidate pool; reranking reorders it. Both raise NDCG on
+# their own, and they plausibly fix the same queries -- a wider pool is worth
+# less if the reranker was already surfacing the right passage. The interesting
+# question is not whether each helps, but whether the second still helps once
+# the first is on. A 2x2 answers that; two separate arms cannot.
+#
+# This file previously read:
+#
+#   benchmarks: [hotpotqa, musique, bamboogle]
+#   pipeline:
+#     query_enhancers: [query_decomposition, query_expansion, null]
+#   mode: auto
+#
+# and measured nothing at all, twice over. `auto` resolves those three
+# benchmarks to generation_only — they carry gold context but no corpus, so
+# retrieval never runs and a retrieval-time query enhancer has nothing to act
+# on. And the `null` arm did not disable anything; it left the profile default
+# in place while still appearing in the results as its own configuration.
+#
+# `beir/hotpotqa` is the same questions against a real corpus, so retrieval
+# actually happens and NDCG means something.
+
+name: "Multi-hop Reasoning Analysis"
+description: "2x2 interaction between query expansion and reranking on multi-hop retrieval"
+
+benchmarks:
+  - name: beir/hotpotqa
+    n_samples: 300
+
+pipeline:
+  base_profile: standard
+  factorial:
+    # Two independent gates on the live search path: expansion at
+    # _search_orchestrator.py:318 (delegates to search_multi_query), reranking
+    # at :904 and retrieval/search/ranker.py:186.
+    #
+    # This file has now had its factors wrong twice, both times producing an
+    # interaction of exactly 0 by construction:
+    #
+    #   enable_query_decomposition -- decomposition rewrites the query into
+    #     sub-queries whose results are then fused, which is the same mechanism
+    #     enable_query_expansion drives, so the two were not independent either.
+    #     (An earlier note here claimed the flag had no reader outside the
+    #     agentic graph. That was wrong -- it is read at
+    #     retrieval/enhancement/enhancer.py:558 and :820. The problem was
+    #     coupling, not absence.)
+    #   enable_rag_fusion -- OR'd into the SAME branch as enable_query_expansion
+    #     (:319), with rag_fusion_n_queries == max_query_variations == 3, so
+    #     three of the four cells ran an identical search.
+    #
+    # `_COUPLED_FLAG_PAIRS` in experiment.py now refuses the second of those
+    # outright, because "the flag exists and is read somewhere" is not the same
+    # property as "these two factors vary independently".
+    factor_a: enable_query_expansion
+    factor_b: enable_reranking
+    held_fixed:
+      # The classifier can turn enhancement on per query on its own, which
+      # would let the `neither` cell expand anyway.
+      enable_query_classification: false
+
+mode: live
+n_runs: 3
+seed: 42
+max_concurrency: 2
+
+output_formats:
+  - markdown
+  - json
+  - latex

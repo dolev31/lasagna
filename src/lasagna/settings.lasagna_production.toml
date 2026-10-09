@@ -1,0 +1,122 @@
+# =============================================================================
+#             RAG KNOWLEDGE BASE — PRODUCTION CONFIGURATION
+# =============================================================================
+#
+# This file configures the RAG system for multi-tenant production deployments.
+# All scalability, observability, and protection features are enabled.
+#
+# USAGE:
+#   Set the environment variable before starting the service:
+#     export RAG_SETTINGS_FILE=settings.lasagna_production.toml
+#
+#   Or via the SDK:
+#     from lasagna.sdk.config import config_for_production
+#     config = config_for_production(database_dsn="...", redis_url="...")
+#
+# SENSITIVE VALUES:
+#   Database DSNs, Redis URLs, and API keys should be set via environment
+#   variables (RAG_* prefix) rather than committed to this file.
+#   See the comments below for which env vars to set.
+#
+# =============================================================================
+
+[rag]
+
+# =============================================================================
+# INFRASTRUCTURE — Database, Cache, Background Processing
+# =============================================================================
+
+# Database: PostgreSQL for concurrent writes and horizontal scaling
+# Set via env: RAG_DATABASE_DSN=postgresql://user:pass@host:5432/rag
+database_backend = "postgresql"
+database_pool_min = 5
+database_pool_max = 20
+
+# Cache: Redis for distributed cache shared across all workers
+# Set via env: RAG_REDIS_URL=redis://host:6379
+cache_backend = "redis"
+redis_pool_size = 10
+
+# Background processing: Celery workers for non-blocking document uploads
+# Set via env: RAG_CELERY_BROKER_URL=redis://host:6379/0
+# Set via env: RAG_CELERY_RESULT_BACKEND=redis://host:6379/1
+celery_enabled = true
+
+# Vector backend connection pool (allows parallel searches)
+connection_pool_size = 10
+
+# =============================================================================
+# TENANT PROTECTION — Isolation, Quotas, Rate Limiting
+# =============================================================================
+
+# Partition-based isolation: each tenant's vectors stored in separate partitions
+tenant_isolation = "partition"
+
+# Per-tenant resource quotas (prevents noisy neighbours)
+quota_enabled = true
+
+# Adaptive rate limiter with priority tiers
+rate_limiting_enabled = true
+rate_limiting_strategy = "adaptive"
+
+# =============================================================================
+# OBSERVABILITY — Metrics and Tracing
+# =============================================================================
+
+# Prometheus metrics: counters and histograms for all pipeline stages
+# Exposes /api/v1/metrics endpoint
+enable_prometheus = true
+
+# OpenTelemetry tracing: per-stage spans for end-to-end visibility
+# Set via env: RAG_TRACING_ENDPOINT=http://your-collector:4317
+enable_tracing = true
+tracing_exporter = "otlp"
+tracing_endpoint = "http://localhost:4317"
+tracing_service_name = "rag-knowledge"
+
+# =============================================================================
+# EMBEDDING MODEL — Production Quality
+# =============================================================================
+
+embedding_model = "BAAI/bge-large-en-v1.5"
+embedding_model_fallback = "BAAI/bge-base-en-v1.5"
+embedding_dim = 1024
+normalize_embeddings = true
+batch_size = 32
+use_gpu = true
+
+# =============================================================================
+# SEARCH QUALITY — Balanced Profile
+# =============================================================================
+
+enable_reranking = true
+enable_hybrid_search = true
+enable_mmr = true
+enable_hierarchical = true
+use_agentic_rag = true
+enable_hyde = false               # Opt-in (requires LLM API key)
+
+default_top_k = 75
+rerank_top_k = 10
+similarity_threshold = 0.3
+hybrid_alpha = 0.7
+mmr_lambda = 0.5
+
+# =============================================================================
+# VECTOR DATABASE
+# =============================================================================
+
+collection_name = "rag_documents_v2"
+metric_type = "COSINE"
+index_type = "HNSW"
+index_params = { M = 16, efConstruction = 256 }
+search_params = { ef = 128 }
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+
+log_level = "INFO"
+enable_metrics = true
+track_retrieval_quality = true
+track_latency_breakdown = true

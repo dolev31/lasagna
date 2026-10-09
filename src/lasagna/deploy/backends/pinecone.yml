@@ -1,0 +1,20 @@
+# Backend: Pinecone (cloud / managed)
+#
+# Pinecone is a managed cloud service — no local container needed.
+# Set PINECONE_API_KEY and PINECONE_ENVIRONMENT in your .env file.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f backends/pinecone.yml up -d
+
+services:
+  api:
+    environment:
+      RAG_VECTOR_BACKEND: pinecone
+
+  celery-worker:
+    environment:
+      RAG_VECTOR_BACKEND: pinecone
+
+  mcp:
+    environment:
+      RAG_VECTOR_BACKEND: pinecone

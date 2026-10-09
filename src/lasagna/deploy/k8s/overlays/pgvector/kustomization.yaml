@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: rag-knowledge-config
+        namespace: rag-knowledge
+      data:
+        RAG_VECTOR_BACKEND: "pgvector"
+  - patch: |-
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: rag-knowledge-secrets
+        namespace: rag-knowledge
+      stringData:
+        PGVECTOR_DSN: "postgresql://rag:CHANGE_ME@postgres.rag-knowledge:5432/rag"

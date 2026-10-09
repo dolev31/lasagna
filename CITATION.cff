@@ -1,0 +1,66 @@
+cff-version: 1.2.0
+title: "Lasagna: a compositional framework for RAG component evaluation"
+message: >-
+  If you use Lasagna in published work, please cite the paper it accompanies
+  (preferred-citation below). If you also report a number produced by its
+  evaluation harness, please publish the results bundle alongside it: it
+  carries the environment, versions, corpus fingerprint and comparability key
+  that let a reader tell whether your number and theirs belong in the same
+  table.
+type: software
+authors:
+  - given-names: "Ido"
+    family-names: "Levy"
+    affiliation: "IBM; Weizmann Institute of Science"
+    # orcid: "https://orcid.org/0000-0000-0000-0000"
+  - given-names: "Segev"
+    family-names: "Shlomov"
+    affiliation: "IBM"
+  - given-names: "Leshem"
+    family-names: "Choshen"
+    affiliation: "IBM; Weizmann Institute of Science"
+repository-code: "https://github.com/dolev31/lasagna"
+url: "https://dolev31.github.io/lasagna/"
+license: Apache-2.0
+version: "0.1.0a1"
+# MUST match the date of the release tag; update it when the release is cut.
+date-released: "2026-08-18"
+# Filled in after the GitHub Release, when Zenodo mints it. Switch the Zenodo
+# integration on BEFORE creating the release; it only archives later releases.
+# doi: "10.5281/zenodo.XXXXXXX"
+abstract: >-
+  Lasagna isolates the stages of a retrieval-augmented generation pipeline
+  behind typed contracts so that a single component can be replaced while
+  everything else is held fixed, making a measured difference attributable to
+  the change. It ships benchmark adapters, retrieval and generation metrics,
+  paired significance testing, and a results format carrying the provenance
+  needed to compare runs between machines.
+keywords:
+  - retrieval-augmented generation
+  - RAG evaluation
+  - compositionality
+  - information retrieval
+  - evaluation
+  - reproducibility
+  - benchmarking
+preferred-citation:
+  type: article
+  status: preprint
+  title: "Retrieval Augmented Generation Compositionality"
+  authors:
+    - given-names: "Ido"
+      family-names: "Levy"
+      affiliation: "IBM; Weizmann Institute of Science"
+    - given-names: "Segev"
+      family-names: "Shlomov"
+      affiliation: "IBM"
+    - given-names: "Leshem"
+      family-names: "Choshen"
+      affiliation: "IBM; Weizmann Institute of Science"
+  year: 2026
+  url: "https://dolev31.github.io/lasagna/"
+  # After the arXiv listing, add:
+  # journal: "arXiv preprint arXiv:XXXX.XXXXX"
+  # identifiers:
+  #   - type: url
+  #     value: "https://arxiv.org/abs/XXXX.XXXXX"

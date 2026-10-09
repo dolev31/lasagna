@@ -1,0 +1,77 @@
+# Non-sensitive configuration values.
+# Secrets (passwords, DSN strings) live in secrets.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-knowledge-config
+  namespace: rag-knowledge
+  labels:
+    app.kubernetes.io/name: rag-knowledge
+data:
+  # --- Authentication ---
+  # Without this, `X-Session-ID` is accepted as identity with no credential and
+  # any caller can read or delete any session's documents. It is off by default
+  # in the library so local development and the README quickstart keep working;
+  # a Service reachable by the rest of the cluster is not that case.
+  #
+  # With it on, identity must come from a token issued by POST /api/v1/sessions,
+  # and RAG_JWT_SECRET (secrets.yaml) must be the *same* value in every replica
+  # or tokens minted by one pod will be rejected by the other.
+  RAG_REQUIRE_AUTH: "true"
+
+  # Browsers may not call this API cross-origin unless listed here. Leaving it
+  # unset denies all cross-origin requests, which is what you want unless a
+  # separate frontend origin talks to it.
+  # RAG_CORS_ORIGINS: "https://app.example.com"
+
+  # --- Infrastructure ---
+  RAG_DATABASE_BACKEND: "postgresql"
+  RAG_CACHE_BACKEND: "redis"
+  # RAG_VECTOR_BACKEND is set per overlay (milvus, pgvector, qdrant, etc.)
+  # Pool size should be >= gunicorn workers x 2 (default 4 workers -> 10)
+  RAG_CONNECTION_POOL_SIZE: "10"
+
+  # --- Celery ---
+  RAG_CELERY_ENABLED: "true"
+
+  # --- Embedded services ---
+  RAG_EMBED_MCP: "false"
+  RAG_CONFIGURATOR: "false"
+
+  # --- Tenant isolation ---
+  RAG_TENANT_ISOLATION: "partition"
+  RAG_QUOTA_ENABLED: "true"
+
+  # --- Rate limiting ---
+  RAG_RATE_LIMITING_ENABLED: "true"
+  RAG_RATE_LIMITING_STRATEGY: "adaptive"
+
+  # --- Observability ---
+  RAG_ENABLE_PROMETHEUS: "true"
+  PROMETHEUS_MULTIPROC_DIR: "/tmp/prometheus_multiproc"
+  # NOTE: Tracing is enabled by default in k8s (assumes OTel collector is available).
+  # In Docker Compose, tracing defaults to false and is opt-in via the 'tracing' profile.
+  RAG_ENABLE_TRACING: "true"
+  RAG_TRACING_EXPORTER: "otlp"
+  RAG_TRACING_ENDPOINT: "http://otel-collector.observability:4317"
+
+  # --- Search quality ---
+  # NOTE: k8s uses bge-large-en-v1.5 (production config) while Docker Compose
+  # defaults to bge-m3 (development). Both are 1024d but produce different
+  # embedding spaces — do NOT mix indices between environments.
+  RAG_EMBEDDING_MODEL: "BAAI/bge-large-en-v1.5"
+  RAG_EMBEDDING_DIM: "1024"
+  RAG_EMBEDDING_BACKEND: "sentence-transformers"
+  RAG_RERANKER_MODEL: "mixedbread-ai/mxbai-rerank-large-v1"
+  RAG_ENABLE_RERANKING: "true"
+  RAG_ENABLE_HYBRID_SEARCH: "true"
+  RAG_ENABLE_MMR: "true"
+  RAG_ENABLE_HIERARCHICAL: "true"
+  RAG_DEFAULT_TOP_K: "75"
+  RAG_RERANK_TOP_K: "10"
+
+  # SOTA feature toggles omitted — these use Dockerfile/code defaults:
+  #   RAG_ENABLE_CONTEXT_REORDERING (default: true)
+  #   RAG_ENABLE_RAG_FUSION, RAG_ENABLE_CRAG,
+  #   RAG_ENABLE_CONTEXTUAL_RETRIEVAL, RAG_DOCLING_ENABLED (default: false)
+  # Set them here to override.

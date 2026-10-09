@@ -1,0 +1,40 @@
+name: Component contribution
+description: Propose a retrieval component for Lasagna
+labels: ["component"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        You may not need this. Publishing your own package with a
+        `lasagna_components` entry point makes your component available to
+        anyone who installs it, without going through review — see
+        [the plugin template](../../examples/lasagna-plugin-template/).
+        Open this issue if you think the component belongs in Lasagna itself.
+  - type: input
+    id: stage
+    attributes:
+      label: Stage
+      description: reranker, embedder, chunker, retriever, query_enhancer, ...
+    validations:
+      required: true
+  - type: checkboxes
+    id: contract
+    attributes:
+      label: Contract
+      options:
+        - label: "`lasagna component validate <path>` passes"
+          required: true
+        - label: It does not mutate the documents it is handed
+          required: true
+        - label: It is constructible with no required arguments
+          required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence it helps
+      description: >-
+        A comparison against a control on a real benchmark, with n_runs >= 3.
+        Attach the results bundle if you have one. "It should help" is a
+        hypothesis; this framework exists to turn that into a number.
+    validations:
+      required: true

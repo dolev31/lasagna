@@ -1,0 +1,43 @@
+Acme Agent Platform - Product Overview
+
+1. Introduction
+================
+Acme is a (fictional) AI agent platform that enables businesses to automate
+complex workflows using intelligent agents. The platform supports multiple
+integration methods including API, SDK, and browser automation.
+
+2. Key Features
+===============
+- Multi-step task execution with tool orchestration
+- Human-in-the-loop (HITL) for approval workflows
+- Policy-based guardrails for safety and compliance
+- RAG (Retrieval-Augmented Generation) for knowledge-based responses
+- Real-time streaming of agent execution
+- Browser automation with visual grounding
+- MCP (Model Context Protocol) integration
+
+3. Pricing
+==========
+Acme offers flexible pricing plans:
+- Starter: $99/month - Up to 1,000 agent executions
+- Professional: $299/month - Up to 10,000 executions
+- Enterprise: Custom pricing for unlimited usage
+
+All plans include:
+- Knowledge base with RAG support
+- 24/7 email support
+- API access
+
+4. Technical Specifications
+==========================
+- Supported LLMs: OpenAI GPT-4, Claude, Gemini
+- Vector Database: Milvus for RAG embeddings
+- Embedding Model: BAAI/bge-m3 (1024 dimensions)
+- Max Document Size: 50MB
+- Supported File Types: PDF, DOCX, TXT, MD, CSV, JSON, HTML, XML
+
+5. Contact Information
+======================
+For sales inquiries: sales@example.com
+For support: support@example.com
+Website: https://example.com

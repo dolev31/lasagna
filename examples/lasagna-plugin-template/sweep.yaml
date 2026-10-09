@@ -1,0 +1,46 @@
+# Does the component help? — the two-arm comparison this template exists for.
+#
+# Usage:  lasagna benchmark experiment sweep.yaml
+#
+# The point is the `rerankers` list below. It runs the SAME benchmark, the same
+# corpus, the same sample and the same everything-else through two rerankers:
+# the built-in `cross_encoder` as a control, and `template_length` from this
+# package. Because only that one stage differs, the gap between the two numbers
+# is attributable to the component.
+#
+# A single-arm `lasagna benchmark run` cannot do this. It produces one number
+# from the stock pipeline, which reads exactly like a score for your component
+# and is not one — a silent wrong answer, which is worse than an error.
+#
+# `template_length` ranks by word count, so expect it to LOSE to the control.
+# That is the template working: a component that beat a real cross-encoder by
+# counting words would mean the harness was not measuring anything.
+
+name: "Does template_length help?"
+description: "Two-arm reranker comparison against a control, everything else fixed"
+
+benchmarks:
+  # `smoke` is hermetic: 24 documents and 12 queries inside the package, no
+  # download and no API key. Swap it for `beir/scifact` once this passes —
+  # that is a real benchmark, and a real download.
+  - name: smoke
+    split: test
+
+pipeline:
+  rerankers:
+    - cross_encoder      # the control
+    - template_length    # this package's component
+
+# Retrieval metrics move between runs. One run cannot separate a real gap from
+# noise, and per-sample scores are paired by sample identity so that a
+# significance test is possible at all.
+n_runs: 3
+
+# Hold the query subset fixed across runs, so the reported spread is run-to-run
+# nondeterminism rather than a resampled subset.
+variance_source: run
+
+# `auto` picks live mode when the benchmark ships a corpus, and logs which it
+# chose and why. Component overrides only apply in live mode -- passing one in
+# generation_only is a hard error rather than a plausible number.
+mode: auto

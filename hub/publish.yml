@@ -1,0 +1,57 @@
+# Copy to `.github/workflows/publish.yml` in the results repository.
+#
+# Regenerates leaderboards and the index after a submission lands. Generated
+# files are never edited by hand: the leaderboard is a rendering of the
+# validated bundles, so anything typed into it is a claim nothing checked.
+
+name: Publish leaderboards
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "runs/**/*.json"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # Two submissions merging close together would otherwise race and one would
+  # regenerate from a tree missing the other.
+  group: publish-leaderboards
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Lasagna
+        run: pip install "lasagna-rag[eval]"
+
+      - name: Regenerate
+        run: |
+          set -euo pipefail
+          # Grouped by (benchmark, comparability_key): rows in one table held
+          # the same configuration fixed, so they may be compared with each
+          # other. Rows in different tables may not.
+          lasagna results leaderboard runs --metric ndcg@10 --output leaderboards
+          cp leaderboards/index.json index.json
+
+      - name: Commit if anything changed
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add leaderboards index.json
+          # No-op runs are normal: a submission may add a metric this
+          # leaderboard does not rank.
+          git diff --staged --quiet && { echo "No change."; exit 0; }
+          git commit -m "Regenerate leaderboards"
+          git push

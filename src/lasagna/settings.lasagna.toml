@@ -1,0 +1,619 @@
+# =============================================================================
+#                    RAG KNOWLEDGE BASE CONFIGURATION
+# =============================================================================
+#
+# This file configures the RAG (Retrieval-Augmented Generation) system.
+# The RAG system allows you to upload documents and search them semantically.
+#
+# PROFILES - Switch via UI, API, or SDK (client.use_preset("name")):
+# -------------------------------------------------------------------
+# This file defines the "default" profile. 4 built-in profiles are also available:
+#
+# 1. SPEED (Pure Vector Search):
+#    - Disables reranking, hybrid search, MMR, HyDE, agentic RAG
+#    - Uses all-MiniLM-L6-v2 (384d, 80MB)
+#    - Target latency: ~50-100ms
+#
+# 2. STANDARD (Recommended Starter):
+#    - Enables reranking, hybrid search, MMR, agentic RAG
+#    - Uses BAAI/bge-m3 (1024d, 2.2GB, dense+sparse+ColBERT, 100+ languages)
+#    - Target latency: ~200-400ms
+#
+# 3. BALANCED (Best Quality-Speed Tradeoff):
+#    - Enables reranking, hybrid search, MMR, agentic RAG
+#    - Uses BAAI/bge-m3 (1024d, 2.2GB, dense+sparse+ColBERT, 100+ languages)
+#    - Target latency: ~300-600ms
+#
+# 4. MAX QUALITY (Maximum Recall & Precision):
+#    - Enables all features including HyDE and query expansion
+#    - Uses BAAI/bge-m3 (1024d, 2.2GB, dense+sparse+ColBERT, 100+ languages)
+#    - All features: HyDE, query expansion, RAG Fusion, CRAG, quality gates
+#    - Target latency: ~1-3 seconds
+#
+# This file sets the "default" profile values. Built-in profiles override these.
+# =============================================================================
+
+[rag]
+
+# -----------------------------------------------------------------------------
+# FEATURE TOGGLES - Enable/Disable Major Features
+# -----------------------------------------------------------------------------
+# These are the main switches to control what features are active.
+# Disabling features improves speed but may reduce search quality.
+
+# Hybrid Search: Combines vector similarity with keyword matching (BM25)
+# WHY: Better handles exact terms, acronyms, and rare words
+#
+# HOW IT WORKS:
+# - Milvus Standalone/Distributed: Uses native Milvus BM25 with sparse vectors
+# - Milvus Lite (local): Falls back to rank_bm25 library (install: pip install rank-bm25)
+#
+# NOTE: If using Milvus Lite without rank_bm25 installed, hybrid search will
+# be disabled automatically and only dense vector search will be used.
+enable_hybrid_search = true
+
+# Reranking: Re-scores results using a cross-encoder model
+# WHY: More accurate relevance scoring than vector similarity alone
+# IMPACT: +30-50% better precision, +100-200ms latency
+enable_reranking = true
+
+# MMR Diversity: Reduces redundancy in search results
+# WHY: Prevents multiple similar chunks from dominating results
+# IMPACT: More diverse results, minimal latency impact
+enable_mmr = true
+
+# HyDE: Generates hypothetical answer before searching
+# WHY: Bridges gap between question and document embedding spaces
+# IMPACT: +10-20% better recall for complex questions, +500ms latency
+# NOTE: Requires OpenAI API key for hyde_model
+enable_hyde = false
+
+# Logging level for RAG components (DEBUG, INFO, WARNING, ERROR)
+log_level = "INFO"
+
+# OCR: Extract text from scanned PDFs and images
+# WHY: Makes scanned documents searchable
+# IMPACT: Enables search in image-based documents, slow processing
+# NOTE: Requires: pip install easyocr pdf2image
+enable_ocr = false
+
+# -----------------------------------------------------------------------------
+# EMBEDDING MODEL - The Core of Semantic Search
+# -----------------------------------------------------------------------------
+# The embedding model converts text into vectors for similarity search.
+# Larger models = better quality but slower and more memory.
+#
+# RECOMMENDED MODELS (from fastest to best quality):
+#   "all-MiniLM-L6-v2"        - 384 dim, 80MB,  fastest, good for dev/testing
+#   "BAAI/bge-small-en-v1.5"  - 384 dim, 130MB, fast, good quality
+#   "BAAI/bge-base-en-v1.5"   - 768 dim, 440MB, balanced choice
+#   "BAAI/bge-large-en-v1.5"  - 1024 dim, 1.3GB, good quality
+#   "BAAI/bge-m3"             - 1024 dim, 2.2GB, SOTA (dense+sparse+ColBERT, 8K ctx, 100+ languages)
+#
+# NOTE: Changing embedding model requires reindexing all documents.
+
+embedding_model = "BAAI/bge-m3"
+embedding_model_fallback = "BAAI/bge-large-en-v1.5"
+embedding_dim = 1024  # Must match model: MiniLM=384, bge-small=384, bge-base=768, bge-large/bge-m3=1024
+# E5 model variants (uncomment to use — requires reindexing):
+#   "intfloat/e5-large-v2"            - 1024 dim, strong English
+#   "intfloat/e5-base-v2"             - 768 dim, balanced
+#   "intfloat/e5-small-v2"            - 384 dim, lightweight
+#   "intfloat/multilingual-e5-large"  - 1024 dim, 100+ languages
+
+# Embedding backend: "auto" detects from model name, or force "sentence-transformers" / "flag-embedding"
+embedding_backend = "auto"
+
+# Embedding optimization
+normalize_embeddings = true   # Required for cosine similarity
+batch_size = 32               # Embeddings per batch (lower if OOM errors)
+use_gpu = true                # MPS enabled for faster embedding
+
+# -----------------------------------------------------------------------------
+# LOCAL LLM MODELS (Tier 3) - Optional
+# -----------------------------------------------------------------------------
+# Uncomment one block to use a local model instead of a cloud API.
+# No API key needed. Install extras: pip install lasagna-rag[local]
+#
+# --- Ollama (easiest — just run `ollama serve`) ---
+# platform = "ollama"
+# model_name = "llama3.2"
+# # Set OLLAMA_BASE_URL env var if not on localhost:11434
+#
+# --- HuggingFace Transformers (in-process, pip install lasagna-rag[local-huggingface]) ---
+# platform = "huggingface"
+# model_name = "microsoft/Phi-3-mini-4k-instruct"
+# # Or set HF_MODEL_ID env var
+#
+# --- llama.cpp GGUF (in-process, pip install lasagna-rag[local-llamacpp]) ---
+# platform = "llamacpp"
+# model_path = "/path/to/model.gguf"
+# # Or set LLAMACPP_MODEL_PATH env var
+#
+# --- vLLM / any OpenAI-compatible local server ---
+# platform = "vllm"
+# model_name = "my-model"
+# # Set VLLM_BASE_URL env var (default: http://localhost:8000/v1)
+
+# -----------------------------------------------------------------------------
+# CHUNKING - How Documents Are Split
+# -----------------------------------------------------------------------------
+# Documents are split into chunks for storage and retrieval.
+# Smaller chunks = more precise but may lose context.
+# Larger chunks = more context but may include irrelevant text.
+
+# Chunking strategy options:
+#   "fixed"           - Simple character-based splitting (fastest)
+#   "semantic"        - Split at semantic boundaries (recommended)
+#   "sentence_window" - Sliding window of sentences
+chunking_strategy = "semantic"
+
+# Chunking parameters
+chunk_size = 800           # Target characters per chunk
+chunk_overlap = 0          # Research: no measurable benefit from overlap (arXiv:2601.14123)
+
+# Semantic chunking parameters
+semantic_threshold = 0.75  # Similarity threshold for splitting (0-1)
+min_chunk_size = 200       # Minimum chunk size in characters
+max_chunk_size = 1500      # Maximum chunk size in characters
+
+# Hierarchical chunking (parent-child for auto-merge retrieval)
+# When enabled, documents are split into large parent chunks and smaller child
+# chunks. Child chunks are embedded and searched; when enough siblings from the
+# same parent are retrieved, they are merged back into the parent for richer
+# LLM context. Based on LlamaIndex AutoMergingRetriever (Apache 2.0).
+enable_hierarchical = true
+parent_chunk_size = 2000   # Characters per parent chunk
+child_chunk_size = 500     # Characters per child chunk
+auto_merge_threshold = 0.5 # Ratio of retrieved children / total siblings to trigger merge
+
+# Structure preservation
+preserve_tables = true     # Keep table structure intact
+preserve_headers = true    # Track section headers for context
+
+# -----------------------------------------------------------------------------
+# SEARCH PARAMETERS - Control Search Behavior
+# -----------------------------------------------------------------------------
+
+# How many chunks to retrieve initially (before reranking)
+# Research: 75+ introduces hard negatives that degrade quality (ICLR 2025)
+default_top_k = 20
+
+# How many chunks to return after reranking
+# When strategy = "adaptive", this acts as a ceiling — adaptive-k may return fewer
+rerank_top_k = 5
+
+# Lost-in-the-middle reordering: place best results at start and end of context
+# LLMs attend better to beginning and end (arXiv:2406.16008, +15pp improvement)
+enable_context_reordering = true
+
+# Minimum similarity score (0-1, lower = more results)
+similarity_threshold = 0.3
+
+# Hybrid search weight: 0 = pure keyword, 1 = pure vector
+# 0.7 means 70% vector similarity, 30% keyword matching
+hybrid_alpha = 0.7
+
+# BM25 fallback session management (in-memory BM25 index per session)
+bm25_max_sessions = 1000        # Maximum number of session indices to keep in memory
+bm25_session_ttl_seconds = 86400  # Idle TTL for session indices (24 hours)
+
+# MMR diversity: 0 = pure diversity, 1 = pure relevance
+# SOTA standard: 0.5 (LangChain, LlamaIndex default)
+mmr_lambda = 0.5
+
+# MMR score normalization strategy:
+#   "sigmoid"        - Plain sigmoid (recommended, preserves cross-encoder calibration)
+#   "minmax"         - Min-max scaling within batch
+#   "sigmoid_minmax" - Sigmoid then minmax (not recommended, destroys calibration)
+#   "none"           - No normalization (legacy)
+mmr_score_normalization = "sigmoid"
+
+# -----------------------------------------------------------------------------
+# RERANKING MODEL - For Result Re-scoring
+# -----------------------------------------------------------------------------
+# Cross-encoder models for reranking (from fastest to best):
+#   "cross-encoder/ms-marco-TinyBERT-L-2-v2"           - Fastest, lower quality
+#   "cross-encoder/ms-marco-MiniLM-L-6-v2"             - Fast, decent quality
+#   "cross-encoder/ms-marco-MiniLM-L-12-v2"            - Better quality, slower
+#   "mixedbread-ai/mxbai-rerank-large-v1"              - SOTA (BEIR NDCG@10 = 57.49)
+
+reranker_model = "mixedbread-ai/mxbai-rerank-large-v1"
+reranker_batch_size = 16
+
+# Custom component overrides (component registry)
+# Set to a registered component name to use a custom implementation.
+# Leave empty to use defaults. See retrieval/registry.py for available components.
+# Example: custom_reranker = "my_colbert"
+custom_reranker = ""
+custom_query_enhancer = ""
+
+# Contextual Retrieval (Anthropic-style, -67% retrieval failures)
+# Enriches each chunk with LLM-generated context at index time
+# Requires LLM calls during document processing - increases indexing time
+enable_contextual_retrieval = false
+
+# RAG Fusion: generate query variations and merge with RRF
+# Improves comprehensiveness (+8-10% accuracy)
+enable_rag_fusion = false
+rag_fusion_n_queries = 3
+
+# Corrective RAG: LLM grades retrieval quality post-search
+# If quality is poor, refines query or falls back to web search
+enable_crag = false
+crag_web_search_fallback = false
+
+# -----------------------------------------------------------------------------
+# QUERY ROUTING - Adaptive-RAG (NAACL 2024)
+# -----------------------------------------------------------------------------
+# Routes each query to the optimal retrieval tier based on complexity:
+#
+#   FAST:          Vector-only search (~50-100ms). For simple factual/navigational lookups.
+#   STANDARD:      Full pipeline — hybrid + reranking + HyDE (~200-400ms). Default.
+#   COMPREHENSIVE: Agentic multi-hop retrieval (~1-5s). For cross-document reasoning.
+#
+# The router classifies queries using lightweight pattern matching (zero LLM overhead)
+# and selects the tier that balances cost, latency, and accuracy.
+#
+# Research: Adaptive-RAG (NAACL 2024) — 30-40% latency reduction, ~28% cost savings,
+# +8% accuracy on complex queries.
+
+# Enable/disable query routing (when disabled, uses routing_default_tier for all queries)
+enable_query_routing = true
+
+# Strategy: "rule_based" (deterministic, <1ms) or "adaptive" (escalates tier on low confidence)
+routing_strategy = "rule_based"
+
+# Default tier when routing is disabled: "fast", "standard", "comprehensive"
+routing_default_tier = "standard"
+
+# Adaptive strategy: escalate tier when classification confidence is below this threshold
+routing_confidence_threshold = 0.5
+
+# Allow API callers to force a specific tier via routing_tier parameter
+routing_allow_tier_override = true
+
+# Log routing decisions for observability
+routing_log_decisions = true
+
+# -----------------------------------------------------------------------------
+# QUERY ENHANCEMENT - Improve Search Queries
+# -----------------------------------------------------------------------------
+# These features modify the query before searching to get better results.
+
+# HyDE model (use "default" to match Lasagna's active model/provider)
+hyde_model = "default"
+
+# Query expansion: Generate alternative phrasings
+enable_query_expansion = false
+max_query_variations = 3
+
+# Query decomposition: Break complex questions into sub-questions
+enable_query_decomposition = false
+
+# -----------------------------------------------------------------------------
+# CITATION TRACKING - Source Attribution
+# -----------------------------------------------------------------------------
+# How citations are tracked and displayed.
+
+citation_format = "stable_id"   # "stable_id" (hash-based) or "index" (1,2,3...)
+citation_id_length = 8          # Length of citation hash
+verify_citations = true         # Verify citations exist in database
+track_citations_db = true       # Store citations in SQLite for lookup
+show_page_numbers = true        # Include page numbers when available
+
+# -----------------------------------------------------------------------------
+# OCR CONFIGURATION - For Scanned Documents
+# -----------------------------------------------------------------------------
+# Only used when enable_ocr = true
+
+# OCR engine options: "easyocr" (recommended), "tesseract", "paddleocr"
+ocr_engine = "easyocr"
+ocr_languages = ["en"]           # Language codes to detect
+ocr_confidence_threshold = 0.5   # Minimum confidence (0-1)
+
+# -----------------------------------------------------------------------------
+# VECTOR DATABASE
+# -----------------------------------------------------------------------------
+# Vector backend: "milvus" (default), "qdrant", "pinecone", "weaviate", "pgvector", "opensearch"
+# Override at runtime with RAG_VECTOR_BACKEND environment variable.
+vector_backend = "milvus"
+
+# Lasagna uses Milvus Lite by default (embedded database, no server needed).
+# For production, consider Milvus Standalone or Distributed for:
+# - Native BM25 full-text search (no rank_bm25 library needed)
+# - Better scalability and performance
+# - Persistent storage across restarts
+#
+# MILVUS DEPLOYMENT OPTIONS:
+#   Milvus Lite (default): Embedded, local file-based, no BM25 native support
+#   Milvus Standalone: Docker-based, native BM25, production-ready
+#   Milvus Distributed: Kubernetes, native BM25, enterprise-scale
+
+collection_name = "rag_documents_v2"
+metric_type = "COSINE"           # COSINE (normalized) or IP (inner product)
+index_type = "AUTOINDEX"         # AUTOINDEX (auto-select best), FLAT, IVF_FLAT for Milvus Lite; HNSW for Milvus server
+index_params = {}                # Empty for AUTOINDEX, { M = 16, efConstruction = 256 } for HNSW
+search_params = {}
+
+# -----------------------------------------------------------------------------
+# FILE HANDLING
+# -----------------------------------------------------------------------------
+
+max_file_size = 52428800  # 50MB in bytes
+
+supported_extensions = [
+    ".pdf", ".docx", ".doc", ".txt", ".md",
+    ".csv", ".json", ".html", ".xml"
+]
+
+# Storage paths (relative to project root)
+upload_dir_name = "rag_uploads"
+db_name = "rag.db"  # Unified database containing documents and citations
+
+# Parallel upload configuration
+max_concurrent_uploads = 5  # Maximum parallel document uploads (1-20)
+                            # Also controls thread pool size for async processing
+                            # when Celery is not available.
+
+# Async processing: when true (default), uploads dispatch to a background
+# ThreadPoolExecutor instead of blocking the caller.  The MCP upload_document
+# tool defaults to wait=true so callers see synchronous behaviour unless
+# they explicitly opt out with wait=false.  Set to false to disable the
+# thread pool entirely (all uploads block inline).
+async_processing = true
+
+# -----------------------------------------------------------------------------
+# FAST INGESTION (eval-only pipeline tuning)
+# -----------------------------------------------------------------------------
+# These control the 3-stage fast ingest pipeline used by the experiment runner.
+# They do NOT affect the standard client.upload() / REST API ingestion path.
+# Env overrides: RAG_INGEST_EXTRACT_WORKERS, RAG_INGEST_EMBED_BATCH_SIZE,
+#                RAG_INGEST_INSERT_BATCH_SIZE
+ingest_extract_workers = 4    # Parallel text extraction/chunking workers
+ingest_embed_batch_size = 64  # Cross-document embedding batch size
+ingest_insert_batch_size = 500  # Chunks per vector store insert call
+
+# -----------------------------------------------------------------------------
+# CACHING - Improve Performance
+# -----------------------------------------------------------------------------
+
+enable_embedding_cache = true    # Cache computed embeddings
+embedding_cache_size = 10000     # Max cached embeddings
+enable_search_cache = true       # Cache search results
+search_cache_ttl = 300           # Cache lifetime in seconds
+
+# -----------------------------------------------------------------------------
+# OBSERVABILITY - Prometheus Metrics & OpenTelemetry Tracing
+# -----------------------------------------------------------------------------
+# Production observability stack. Both are disabled by default (no-op mode)
+# so single-user deployments have zero extra dependencies.
+
+# Prometheus: Exposes /metrics endpoint with counters & histograms for all
+# RAG pipeline stages (search latency, cache hits, embedding time, etc.)
+# Requires: pip install prometheus-client>=0.20.0
+enable_prometheus = false
+
+# OpenTelemetry: Distributed tracing with per-stage spans for end-to-end
+# search pipeline visibility (embed → dense → sparse → rerank → MMR → merge)
+# Requires: pip install opentelemetry-api>=1.24.0 opentelemetry-sdk>=1.24.0
+enable_tracing = false
+
+# Tracing exporter: "otlp" (recommended), "jaeger", "zipkin", "console"
+tracing_exporter = "otlp"
+
+# Collector endpoint (OTLP gRPC default)
+tracing_endpoint = "http://localhost:4317"
+
+# Service name reported in traces
+tracing_service_name = "rag-knowledge"
+
+# -----------------------------------------------------------------------------
+# DOCLING - Structure-Aware Document Processing (Optional)
+# -----------------------------------------------------------------------------
+# Docling (IBM Research, MIT-licensed) provides AI-powered document conversion
+# with layout analysis, table extraction (97.9% accuracy), and structure-aware
+# chunking. When enabled, replaces the legacy text-extraction+chunking pipeline
+# for supported formats (PDF, DOCX, PPTX, XLSX, HTML, Markdown, images).
+#
+# INSTALL: pip install "lasagna-rag[docling]"   (or: uv pip install docling)
+# If not installed, the legacy pipeline runs automatically — no error.
+#
+# DEPLOYMENT MODES:
+#   "auto"       - Detects GPU → uses "production" if CUDA available, else "local"
+#   "local"      - pypdfium2 backend (~2.5 GB RAM, CPU-only, no GPU needed)
+#   "production" - docling_parse backend (~6 GB RAM, GPU-accelerated if available)
+
+docling_enabled = true           # Docling is default; falls back to legacy if not installed
+docling_mode = "auto"            # "auto", "local", or "production"
+docling_pdf_backend = "docling_parse"  # "docling_parse" or "pypdfium2"
+docling_ocr_enabled = true       # Enable OCR within Docling (for scanned pages)
+docling_table_structure = true   # Enable TableFormer table extraction
+docling_max_tokens = 512         # Max tokens per chunk (HybridChunker)
+docling_timeout = 300            # Per-document timeout in seconds
+
+# -----------------------------------------------------------------------------
+# LOGGING & METRICS
+# -----------------------------------------------------------------------------
+# (log_level is defined above in FEATURE TOGGLES)
+
+enable_metrics = true            # Track performance metrics
+track_retrieval_quality = true   # Log precision/recall estimates
+track_latency_breakdown = true   # Log component latencies
+
+# -----------------------------------------------------------------------------
+# ADVANCED: AGENTIC RAG (Multi-Hop ReAct-Style)
+# -----------------------------------------------------------------------------
+# ReAct-style agent that iteratively refines search results.
+# Supports multi-hop reasoning: learns missing entities/constraints from each hop.
+# More powerful but slower and uses more tokens.
+
+use_agentic_rag = true           # Agentic RAG with multi-hop reasoning
+use_final_search = false         # Do final search after refinement for complete citations
+max_agent_iterations = 3         # Max search iterations (bounded for safety)
+
+# HyDE strategy for Agentic RAG searches:
+#   "off"       - Never use HyDE in agentic searches
+#   "first_hop" - Only use HyDE on the first hop
+#   "adaptive"  - Use HyDE for short queries or when evidence is insufficient (recommended)
+#   "always"    - Use HyDE for every hop and the final search
+agentic_hyde_strategy = "adaptive"
+
+# Chunk refinement method:
+#   "vanilla" - No refinement, pass-through original chunks
+#   "refined" - LLM-based chunk refinement (removes irrelevant content)
+#   "auto"    - Auto-decide based on chunk quality (length, score, count)
+chunk_refinement_method = "auto"
+
+# Model for chunk refinement. Commented out so it falls back to your configured
+# default LLM (see MODEL_NAME / the LLM provider settings). Set it only to pin a
+# specific model, using whatever identifier your provider expects
+# (e.g. "gpt-4o-mini", or a gateway-prefixed name like "openai/gpt-4o-mini").
+# refinement_model = "gpt-4o-mini"
+
+# Agent temperature (low for determinism and predictability)
+agent_temperature = 0.1
+
+# Max query length for refined queries (tokens, keeps queries focused)
+max_query_length = 12
+
+# Auto-refinement thresholds (only used when chunk_refinement_method = "auto")
+auto_refine_avg_length_threshold = 1000  # Refine if avg chunk length > this
+auto_refine_avg_score_threshold = 0.5    # Refine if avg score < this
+auto_refine_chunk_count_threshold = 7    # Refine if chunk count > this
+
+# Structured Graph Agent (replaces flat ReAct with explicit LangGraph StateGraph)
+# When enabled, uses a structured pipeline with quality gates, CRAG routing,
+# and query decomposition for more reliable, debuggable retrieval.
+use_structured_graph = false
+
+# Agentic pipeline selection: "default" (structured graph), "legacy_react" (ReAct agent),
+# or any custom pipeline registered via the component registry.
+# When not set, derived from use_structured_graph (true → "default", false → "legacy_react").
+# agentic_pipeline = "default"
+
+# Post-generation quality gates (only active when use_structured_graph = true)
+# Hallucination check (ISSUP): verifies answer is grounded in source documents
+enable_hallucination_check = false
+# Answer quality check (ISUSE): verifies answer addresses the original question
+enable_answer_quality_check = false
+# Maximum retry attempts when quality gates fail
+max_quality_check_attempts = 2
+
+# Coverage assessment mode for retrieval completeness
+#   "keyword" - Fast keyword-based scoring (zero extra latency)
+#   "llm"     - LLM-based analysis of query aspect coverage (+200-500ms)
+coverage_scorer_mode = "keyword"
+
+# Final search behavior when use_final_search = true
+#   "merge"   - Merge hop citations with final search results (preserves multi-hop context)
+#   "replace" - Replace all hop citations with final search only (legacy behavior)
+final_search_mode = "merge"
+
+# -----------------------------------------------------------------------------
+# ADVANCED: CHUNK RETRIEVAL STRATEGY
+# -----------------------------------------------------------------------------
+# Controls how many chunks to include in the final context.
+
+[rag.chunk_cite_retrieval]
+# Strategy options:
+#   "fixed"           - Always return fixed_size chunks
+#   "above_threshold" - Return all chunks above threshold_score
+#   "adaptive"        - Adapt based on score distribution (recommended, EMNLP 2025)
+#   "agent_decides"   - Let the LLM decide relevance
+#
+# HOW ADAPTIVE WORKS (Adaptive-k, EMNLP 2025):
+#   Sorts relevance scores descending and finds the largest relative gap
+#   in the score distribution. Chunks above the gap are "clearly relevant";
+#   chunks below are not. A buffer is added past the gap as safety margin.
+#   This avoids both over-retrieval (hallucination) and under-retrieval
+#   (information loss) by adapting to the actual relevance distribution.
+strategy = "adaptive"
+
+fixed_size = 5
+threshold_score = 0.5
+max_chunks = 20           # Maximum chunks to return (ceiling for adaptive). Was 7.
+min_chunks = 2            # Minimum chunks to return (floor for adaptive)
+score_gap_buffer = 2      # Extra chunks past the score gap as safety margin
+min_gap_ratio = 0.15      # Minimum relative gap to trigger cutoff (prevents noise)
+
+# -----------------------------------------------------------------------------
+# DOCUMENT AWARENESS - Help Agent Know About Available Documents
+# -----------------------------------------------------------------------------
+# When enabled, Lasagna will be aware of uploaded documents and can decide
+# when to search them. This helps the agent know when RAG tools are relevant.
+
+[rag.document_awareness]
+# Enable document awareness in the agent's prompt
+enabled = true
+
+# Enrichment strategy for document snippets:
+#   "first_tokens"    - Extract first N tokens (fast, no LLM cost)
+#   "llm_summary"     - Generate LLM summary (better quality, costs tokens)
+#   "hybrid"          - First tokens + LLM summary for important docs
+enrichment_strategy = "first_tokens"
+
+# First tokens extraction settings
+first_tokens_count = 150         # Number of tokens to extract from document start
+include_filename = true          # Include filename in context
+include_upload_date = true       # Include when document was uploaded
+include_file_type = true         # Include file type (PDF, DOCX, etc.)
+
+# LLM summary settings (only used when enrichment_strategy = "llm_summary" or "hybrid")
+# summary_model = "gpt-4o-mini"  # Defaults to your configured LLM when unset
+summary_max_tokens = 100         # Max tokens for each summary
+summary_prompt = "Summarize this document in 1-2 sentences, focusing on the main topic and key information:"
+
+# Hybrid mode: use LLM summary for documents larger than this (in KB)
+hybrid_llm_threshold_kb = 100    # Documents > 100KB get LLM summary
+
+# Maximum documents to include in context (to avoid prompt bloat)
+max_documents_in_context = 10
+
+# Cache document snippets to avoid recomputing
+cache_snippets = true
+snippet_cache_ttl = 3600         # Cache lifetime in seconds (1 hour)
+
+# ---------------------------------------------------------------------------
+# Lifecycle & Garbage Collection
+# ---------------------------------------------------------------------------
+[rag.lifecycle]
+
+# Hours after soft-delete before GC permanently removes the document.
+# Env override: RAG_GC_GRACE_HOURS
+soft_delete_grace_hours = 24
+
+# Days after upload before a document is automatically soft-deleted (TTL).
+# Set to 0 or omit entirely to disable TTL-based expiry (both 0 and null mean "disabled").
+# Via env: RAG_GC_TTL_DAYS=0 also disables TTL.
+# Env override: RAG_GC_TTL_DAYS
+# document_ttl_days = 0  # (disabled by default)
+
+# Days to keep ERROR-status documents before soft-deleting them.
+# Env override: RAG_GC_ERROR_RETENTION_DAYS
+error_retention_days = 7
+
+# Days of inactivity before a session is eligible for cleanup.
+# Env override: RAG_GC_SESSION_IDLE_DAYS
+session_idle_days = 30
+
+# Hours between full GC cycles.  Honored by both APScheduler and Celery Beat.
+# Env override: RAG_GC_CYCLE_HOURS
+gc_cycle_hours = 24
+
+# Hours between orphan detection scans.
+# Env override: RAG_GC_ORPHAN_SCAN_HOURS
+orphan_scan_hours = 168
+
+# Abort the GC phase if more than this fraction of all documents would be
+# deleted in a single cycle (safety guard).
+# Env override: RAG_GC_SAFETY_THRESHOLD
+safety_threshold_percent = 0.25
+
+# Documents processed per DB/vector batch during GC phases.
+# Env override: RAG_GC_BATCH_SIZE
+batch_size = 100
+
+# Rebuild quota counters from the DB at backend startup to correct drift.
+# Env override: RAG_GC_RECONCILE_QUOTA
+reconcile_quota_on_startup = true

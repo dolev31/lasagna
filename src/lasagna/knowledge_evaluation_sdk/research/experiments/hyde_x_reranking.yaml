@@ -1,0 +1,51 @@
+# Do HyDE and reranking compose, or do they overlap?
+#
+#   lasagna benchmark experiment hyde_x_reranking.yaml
+#   lasagna results interaction <output>/results.json --metric ndcg@10
+#
+# A 2x2. Four arms — neither, HyDE only, reranking only, both — so the
+# interaction can be estimated:
+#
+#   interaction = (both - neither) - (hyde - neither) - (reranking - neither)
+#
+# This is the question two papers cannot answer between them. Each reports its
+# technique against a baseline, and the interaction is not a function of the two
+# main effects: both techniques may be fixing the same queries, in which case
+# stacking them buys far less than the sum of their headline numbers.
+#
+# Positive interaction: they compound. Negative: they overlap, and the second
+# one is worth less than its solo number promised. Near zero: additive, and the
+# two results can be added after all.
+#
+# Factors are boolean flags, not component names. Swapping the `query_enhancer`
+# component does not enable HyDE — the orchestrator gates on `enable_hyde` — and
+# a component slot has no "off" level for the `neither` cell to use.
+
+name: "HyDE x Reranking"
+description: "2x2 interaction between HyDE and reranking on BEIR"
+
+benchmarks:
+  - name: beir/scifact
+    n_samples: 300
+
+pipeline:
+  base_profile: standard
+  factorial:
+    factor_a: enable_hyde
+    factor_b: enable_reranking
+    held_fixed:
+      # The query classifier overwrites hybrid_alpha and can flip HyDE per
+      # query, which blurs the arms into each other: the `neither` cell would
+      # sometimes run HyDE anyway. A factorial needs its cells to stay put.
+      enable_query_classification: false
+
+mode: live
+# Three runs, so the spread reported alongside the interaction is real
+# run-to-run variance rather than a single draw.
+n_runs: 3
+seed: 42
+max_concurrency: 4
+
+output_formats:
+  - markdown
+  - json

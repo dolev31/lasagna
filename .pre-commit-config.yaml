@@ -1,0 +1,51 @@
+# Pre-commit hooks.
+#
+# `CONTRIBUTING.md` has told every contributor to run `pre-commit install` since
+# before this file existed, and `pre-commit>=4.3.0` is in the dev group — so the
+# first command in the contributor setup errored on a missing config. This is
+# the file it was asking for.
+#
+# Scope is deliberately narrow: these mirror what CI already enforces, so a
+# contributor finds out locally in a second rather than in a red build five
+# minutes later. Anything CI does NOT enforce does not belong here — a hook that
+# blocks a commit for something the project will not block a merge for is how
+# people learn to pass `--no-verify`.
+#
+# Not mirrored, on purpose:
+#   * the test suite (3+ minutes; that is a CI job, not a commit hook)
+#   * gitleaks over full history (same reason)
+#   * pip-licenses (needs an install of the package)
+
+repos:
+  # Matches the `lint` job: `uvx ruff@0.14.7 check .` then `uvx ruff@0.14.7 format --check .`
+  # Bump `rev` here, in tests.yml and in the dev group together.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.7
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # Matches the `compliance` job's secret scan. `detect-secrets-hook` is the
+  # form that exits non-zero; `detect-secrets scan --baseline` merges findings
+  # into the baseline and always returns 0, which is what CI used to run.
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        # The wheel budget is 8 MB (e2e/phases/p1_install.py). A file this size
+        # arriving in the tree is a mistake worth catching at the commit.
+        args: [--maxkb=2048]
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+        # The workflow files use GitHub's `on:` key, which some YAML linters
+        # parse as the boolean True; check-yaml itself is fine with it.
+      - id: end-of-file-fixer
+      - id: trailing-whitespace

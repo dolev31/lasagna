@@ -1,0 +1,116 @@
+name: Release
+
+# Publishes to PyPI on a version tag.
+#
+# There was no release automation at all: `tests.yml` triggers on push to main,
+# pull_request and workflow_dispatch, so `git tag v0.1.0a1 && git push --tags`
+# ran zero CI and published nothing. `hub/publish.yml` is a template for the
+# *results* repository, not this one.
+#
+# BEFORE THE FIRST RUN, one manual step that cannot be automated: register a
+# PyPI **pending publisher** for `lasagna-rag` (owner, repository, this workflow
+# filename, and the environment name below). The project does not exist on PyPI
+# yet, so trusted publishing has nothing to attach to until that form is filled
+# in. It cannot be done after the fact.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and check, but do not publish"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The gate's `wheel is built from a committed tree` check compares
+          # against git; a shallow clone with no tags reports a dirty tree.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: src/lasagna/configurator/frontend/package-lock.json
+
+      # `pyproject.toml` declares `configurator/frontend/dist/**/*` as
+      # package-data with the comment "produced by CI at release". This is that
+      # CI. Without it the directory is absent (it is gitignored), the wheel
+      # ships no UI, and `lasagna serve` prints a configurator URL and opens a
+      # browser at a 404 for every installed user.
+      - name: Build the configurator frontend
+        working-directory: src/lasagna/configurator/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Verify the frontend actually built
+        run: |
+          if [ ! -d src/lasagna/configurator/frontend/dist ]; then
+            echo "::error::frontend dist/ missing — the wheel would ship a 404"
+            exit 1
+          fi
+          echo "dist contains $(find src/lasagna/configurator/frontend/dist -type f | wc -l) files"
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+
+      # A wheel that does not contain the frontend is the defect this workflow
+      # exists to prevent, so it is checked rather than assumed.
+      - name: Verify the wheel ships the frontend
+        run: |
+          python - <<'PY'
+          import pathlib, sys, zipfile
+          wheel = sorted(pathlib.Path("dist").glob("*.whl"))[-1]
+          names = zipfile.ZipFile(wheel).namelist()
+          hits = [n for n in names if "configurator/frontend/dist/" in n]
+          print(f"{wheel.name}: {len(hits)} frontend files")
+          if not hits:
+              sys.exit("::error::wheel does not contain the configurator frontend")
+          PY
+
+      - name: Check metadata renders on PyPI
+        run: python -m twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    # Only on a real tag. A manual dry run builds and checks without publishing,
+    # because a PyPI filename cannot be replaced once it is taken.
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    environment:
+      name: pypi
+      url: https://pypi.org/p/lasagna-rag
+    permissions:
+      # Trusted publishing (OIDC). No API token in repository secrets.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
