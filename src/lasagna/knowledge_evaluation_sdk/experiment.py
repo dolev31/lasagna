@@ -509,6 +509,23 @@ _CROSS_ENCODER_RERANKERS = frozenset(
 )
 
 
+#: The setting that names the model a built-in reranker component loads.
+_RERANKER_MODEL_KEYS = {"colbert": "colbert_model", "llm_listwise": "llm_reranker_model"}
+
+
+def _reranker_that_ran(component: Optional[str], task_config: Dict[str, Any]) -> Any:
+    """The reranker a task ran, down to the model where the component has one.
+
+    Two colbert arms with different checkpoints both recorded ``colbert``, so
+    the held-fixed block could not tell them apart.
+    """
+    if not component or component in _CROSS_ENCODER_RERANKERS:
+        return task_config.get("reranker_model")
+    key = _RERANKER_MODEL_KEYS.get(component)
+    model = task_config.get(key) if key else None
+    return f"{component}:{model}" if model else component
+
+
 def _ran_system(
     embedder_model: Any,
     embedder_dim: Any,
@@ -546,11 +563,7 @@ def _ran_system(
         "retriever_top_k": task_config.get("default_top_k"),
         # A named component that is not a cross-encoder reranks on its own,
         # so the configured cross-encoder model is not what ran.
-        "reranker_model": (
-            reranker_component
-            if reranker_component and reranker_component not in _CROSS_ENCODER_RERANKERS
-            else task_config.get("reranker_model")
-        )
+        "reranker_model": _reranker_that_ran(reranker_component, task_config)
         if task_config.get("enable_reranking")
         else None,
         "vector_backend": getattr(rag_config, "vector_backend", None),

@@ -75,3 +75,15 @@ def test_a_custom_reranker_is_recorded_instead_of_the_cross_encoder():
     assert _ran_system("m", 384, {}, cfg, "cross_encoder_adapted")["reranker_model"] == (
         "cross-encoder/ms-marco-MiniLM-L-6-v2"
     )
+
+
+def test_a_colbert_or_llm_arm_records_its_model():
+    from lasagna.knowledge_evaluation_sdk.experiment import _reranker_that_ran
+
+    on = {"enable_reranking": True, "reranker_model": "ce-model"}
+    assert _reranker_that_ran(None, on) == "ce-model"
+    assert _reranker_that_ran("cross_encoder", on) == "ce-model"
+    assert _reranker_that_ran("colbert", {**on, "colbert_model": "A"}) == "colbert:A"
+    assert _reranker_that_ran("colbert", {**on, "colbert_model": "B"}) == "colbert:B"
+    assert _reranker_that_ran("llm_listwise", {**on, "llm_reranker_model": ""}) == "llm_listwise"
+    assert _reranker_that_ran("my_ideas:f", on) == "my_ideas:f"
