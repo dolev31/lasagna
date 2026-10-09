@@ -9,6 +9,7 @@ Run with:
 
 import hashlib
 import json
+import os
 from types import SimpleNamespace
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
@@ -513,8 +514,19 @@ try:
 except ImportError:
     _HAS_DOCLING = False
 
+# Docling fetches its layout models from the Hugging Face Hub on first use, so
+# with the hub offline these fail on a model download that says nothing about
+# the code under test. CI runs them online.
+_HUB_OFFLINE = any(
+    os.environ.get(var, "").strip().lower() in {"1", "true", "yes", "on"}
+    for var in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
+)
+
 
 @pytest.mark.skipif(not _HAS_DOCLING, reason="docling not installed")
+@pytest.mark.skipif(
+    _HUB_OFFLINE, reason="Docling downloads its layout models on first use; the hub is offline"
+)
 class TestDoclingIntegration:
     """End-to-end tests with real Docling processing."""
 

@@ -24,6 +24,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # pytest-socket: a test that opens a connection anywhere but loopback fails.
+  # Without it the suite downloaded nltk data and posted ragas telemetry, and
+  # passed, because nothing said it should not reach the network.
+  NO_NETWORK: --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,localhost,::1
+
 jobs:
   lint:
     name: Lint
@@ -129,21 +135,35 @@ jobs:
       - name: Install
         run: uv pip install --system -e ".[eval]" --group dev
 
-      # tests/live needs running services and tests/stress is long-running;
-      # everything else is hermetic — no network, no external services.
+      # tests/live needs running services and tests/stress is long-running.
+      # Everything else is hermetic, and enforced: sockets are blocked except
+      # loopback, the model hub is offline, and tests/conftest.py gives the run
+      # a throwaway HOME. Test order is shuffled (pytest-randomly prints the
+      # seed in the header), so a test that passes only after another fails
+      # here. The few tests that load real embedding weights skip with the hub
+      # offline; the next step runs them.
       #
       # Coverage is measured on one version only: the floor is a property of
       # the code, not of the interpreter, and running it four times would just
       # produce four identical numbers.
       - name: Run tests
         if: matrix.python-version != '3.12'
-        run: pytest tests/ --ignore=tests/live --ignore=tests/stress -q
+        env:
+          HF_HUB_OFFLINE: "1"
+        run: pytest tests/ --ignore=tests/live --ignore=tests/stress -q $NO_NETWORK
 
       - name: Run tests with coverage floor
         if: matrix.python-version == '3.12'
+        env:
+          HF_HUB_OFFLINE: "1"
         run: |
-          pytest tests/ --ignore=tests/live --ignore=tests/stress -q \
+          pytest tests/ --ignore=tests/live --ignore=tests/stress -q $NO_NETWORK \
             --cov --cov-report=term-missing:skip-covered
+
+      # The only tests allowed the network: they load the configured embedding
+      # model from the Hugging Face Hub.
+      - name: Tests that load real embedding weights
+        run: pytest tests/ --ignore=tests/live --ignore=tests/stress -q -m needs_embedding_weights
 
       # Milvus Lite and Qdrant both run in-process, so the vector-backend
       # conformance suite can exercise two real backends with no services.
@@ -160,6 +180,21 @@ jobs:
           LASAGNA_MILVUS_DB_PATH: ${{ runner.temp }}/milvus_conformance.db
           QDRANT_PATH: ${{ runner.temp }}/qdrant_conformance
         run: pytest tests/test_vector_backend_conformance.py tests/test_milvus_reopen_in_new_process.py tests/test_corpus_preflight_is_bounded.py -q
+
+      # The OpenSearch, pgvector and Docling unit tests mock the service but need
+      # its client library, which [eval] does not install: without this step
+      # 154 of them skipped on every run, and the two backends sat at 9% and 12%
+      # coverage. One Python is enough to catch a regression. Online, because
+      # the Docling integration tests fetch Docling's layout models.
+      - name: Install optional backends and Docling
+        if: matrix.python-version == '3.12'
+        run: uv pip install --system -e ".[eval,opensearch,pgvector,docling]" --group dev
+
+      - name: OpenSearch, pgvector and Docling unit tests
+        if: matrix.python-version == '3.12'
+        run: |
+          pytest tests/test_opensearch_backend.py tests/test_pgvector_backend.py \
+            tests/test_docling_processor.py tests/test_mock_targets_resolve.py -q
 
   # The rest of the suite runs from inside the repo, with src/ on sys.path.
   # This job is the only thing that checks the package the way a user meets it:

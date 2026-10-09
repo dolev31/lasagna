@@ -272,6 +272,16 @@ dev = [
     # Available transitively today; declared so the test cannot start skipping
     # silently when a transitive dependency drops it.
     "jsonschema>=4.0",
+    # Shuffles test order on every run (the seed is printed in the header), so
+    # a test that passes only after another one fails in CI rather than
+    # someday. Reproduce an order with -p randomly --randomly-seed=<seed>.
+    "pytest-randomly>=3.15",
+    # Lets CI run the suite with sockets blocked (--disable-socket), so a test
+    # that reaches the network fails instead of passing online.
+    "pytest-socket>=0.7",
+    # Builds the PDFs the Docling processor tests feed it; without it those
+    # tests skipped on every machine.
+    "reportlab>=4.0",
 ]
 
 [build-system]
