@@ -14,9 +14,9 @@ Five steps. Each is one command, and each is a checkpoint that can fail.
 
 | # | Step | Command | What it rules out |
 |---|---|---|---|
-| 1 | Write it | — | — |
+| 1 | Write it | one decorator on a function | — |
 | 2 | Check the contract | `lasagna component validate mod:Class` | it does not satisfy the ABC |
-| 3 | Check it runs | `lasagna benchmark run smoke --reranker my_reranker ...` | it breaks inside the pipeline |
+| 3 | Check it runs | `lasagna benchmark run smoke --reranker my_ideas:keyword_overlap ...` | it breaks inside the pipeline |
 | 4 | Check it helps | `lasagna benchmark experiment sweep.yaml` | the gain is noise, or was never measured |
 | 5 | Publish | `lasagna results bundle` → `validate` | nobody can tell what produced the number |
 
@@ -27,35 +27,40 @@ otherwise disguise as a result.
 
 ## 1. Write it
 
-One method, for six of the seven stages.
+One decorator on a plain function. Put this in `my_ideas.py`:
 
 ```python
-import copy
-from lasagna.core.base_components import BaseReranker
-from lasagna.core.registry import registry
+import lasagna
 
 
-@registry.register("reranker", "my_reranker",
-                   paper="Someone et al. 2026", claims={"ndcg@10": 0.42})
-class MyReranker(BaseReranker):
-    def rerank(self, query, documents, top_k=5, **kwargs):
-        terms = set(query.lower().split())
-        out = [copy.deepcopy(d) for d in documents]
-        for d in out:  # your scoring goes here; this one counts shared words
-            d.score = float(len(terms & set(d.content.lower().split())))
-        out.sort(key=lambda d: d.score, reverse=True)
-        return out[:top_k]
+@lasagna.reranker("keyword_overlap", paper="Someone et al. 2026", claims={"ndcg@10": 0.42})
+def keyword_overlap(query, text):
+    """Count the query words that appear in the passage."""
+    return len(set(query.lower().split()) & set(text.lower().split()))
 ```
+
+The decorator wraps the function in the stage's interface (`BaseReranker`) and
+registers it. The wrapper hands the function copies of what it receives, so it
+cannot change what another stage sees. Each stage takes the natural signature:
+
+| Stage | Function |
+|---|---|
+| reranker | `f(query, text) -> float`, or `f(query, documents, top_k) -> documents` |
+| query_enhancer | `f(query) -> list[str]` |
+| chunker | `f(text) -> list[str]` |
+| embedder | `f(texts) -> one vector per text` |
+| retriever | `f(query, top_k) -> list[str]` or documents |
+| document_processor | `f(file_path) -> str` |
 
 `paper` and `claims` are optional and worth filling in: they come back out of
 the registry, so a results table can show the claimed number beside the one you
 reproduced. That comparison is the single most useful thing a reader of your
 result can see, and nothing else in the ecosystem records it.
 
-**Deep-copy first.** The pipeline may hand the same objects to several stages.
-A component that edits them in place makes results depend on the order stages
-ran in — which destroys exactly the attribution this framework exists to
-provide.
+A technique with state or a model is a class instead: subclass the stage's
+interface (`BaseReranker` and so on), register it with
+`@registry.register("reranker", "name")`, and deep-copy its inputs before
+changing them.
 
 ---
 
@@ -91,13 +96,14 @@ Which is why step 3 exists and is not optional.
 ## 3. Check it runs
 
 ```bash
-lasagna benchmark run smoke --reranker my_reranker --profile speed --tracks retrieval
+lasagna benchmark run smoke --reranker my_ideas:keyword_overlap --profile speed --tracks retrieval
 ```
 
 24 documents, 12 queries, held inside the package. No dataset download, no API
 key. It runs the real pipeline end to end with your component in its stage, so a
-green run means your component is genuinely wired in. (The CLI sees components
-installed as a `lasagna_components` entry point; see step 4.)
+green run means your component is genuinely wired in. `my_ideas:keyword_overlap`
+is an import path: the CLI imports it from the working directory, so the
+function needs no package. Installed plugins are named by their registered name.
 
 It is deliberately easy. The score means "this works", never "this is good".
 
@@ -117,7 +123,7 @@ benchmarks:
 tracks: [retrieval]                                 # no LLM or RAGAS needed
 pipeline:
   base_profile: speed                               # no LLM key, small models
-  rerankers: [cross_encoder_adapted, my_reranker]   # a control and your component
+  rerankers: [cross_encoder, "my_ideas:keyword_overlap"]   # a control and yours
 n_runs: 3
 ```
 
@@ -126,17 +132,19 @@ lasagna benchmark experiment sweep.yaml
 lasagna results significance <output>/results.json -m ndcg@10 --all
 ```
 
-The control is `cross_encoder_adapted`, not `cross_encoder`: the adapted one
-implements the reranker contract, so the comparison measures the algorithms
-rather than an interface difference. Naming a reranker turns reranking on for
-that arm, even on `speed`. The second command prints each pair with the
-difference, the effect size and both the raw and the Holm-adjusted p:
+Every listed built-in implements its stage's interface, so `cross_encoder` is a
+like-for-like control. Naming a reranker turns reranking on for that arm, even
+on `speed`. Before ingesting anything the run checks that each named component
+passes its stage's contract, and when it finishes it confirms that the arms
+differed only at the reranker (or says which other stage moved). The second
+command prints each pair with the difference, the effect size and both the raw
+and the Holm-adjusted p:
 
 ```
 ndcg@10 on beir/scifact — 1 pairs, Holm-Bonferroni
 
 A                      B            diff    d_z       p  p (Holm)
-cross_encoder_adapted  my_reranker  ...
+reranker=cross_encoder  reranker=my_ideas:keyword_overlap  ...
 ```
 
 Three things this enforces that a hand-rolled comparison does not:

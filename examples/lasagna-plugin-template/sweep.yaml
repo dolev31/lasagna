@@ -4,7 +4,7 @@
 #
 # The point is the `rerankers` list below. It runs the SAME benchmark, the same
 # corpus, the same sample and the same everything-else through two rerankers:
-# the built-in `cross_encoder_adapted` as a control, and `template_length` from this
+# the built-in `cross_encoder` as a control, and `template_length` from this
 # package. Because only that one stage differs, the gap between the two numbers
 # is attributable to the component.
 #
@@ -35,7 +35,7 @@ pipeline:
   # reranking on for its arm.
   base_profile: speed
   rerankers:
-    - cross_encoder_adapted  # the control; implements the reranker contract
+    - cross_encoder          # the control; every built-in implements its interface
     - template_length        # this package's component
 
 # Retrieval metrics move between runs. One run cannot separate a real gap from

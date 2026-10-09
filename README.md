@@ -96,11 +96,10 @@ generation metrics. It is a layer for measuring, not a replacement for building.
 
 **Typed swap seams are table stakes, not our differentiator.** LlamaIndex has
 `BaseNodePostprocessor`, LangChain has `BaseDocumentCompressor` and `Embeddings`;
-both are real ABCs enforced at instantiation. Anyone claiming otherwise has not
-read their source. Our conformance is in one respect *weaker*: registration
-warns rather than raises, deliberately, so duck-typed components still work
-(`core/registry.py:92`) — and some of our own built-ins do not yet implement
-their stage's ABC. The count is in [Honest limitations](#honest-limitations).
+both are real ABCs enforced at instantiation. What we add on top is that a
+function is enough (one decorator wraps it in the stage's interface) and that a
+sweep checks, from what actually ran, that its arms differed only in the stage
+they name.
 
 **What is genuinely different is the measurement apparatus.** Paired bootstrap
 with confidence intervals, Holm–Bonferroni correction across a sweep (with
@@ -225,36 +224,20 @@ final count.
 
 ## Compare a component
 
-This is what Lasagna is for. Here is the whole loop — write a component,
-register it with the provenance of the paper it came from, and run it against a
-control. It executes as-is, with no model download and no corpus:
+This is what Lasagna is for. Adding a technique is one line: a decorator on a
+plain function. The function becomes a component of its stage, interchangeable
+with every built-in, and runs inside the complete pipeline. This executes as-is,
+with no model download and no corpus:
 
 ```python
-import copy
-
-from lasagna.core.base_components import BaseReranker, ScoredDocument
+import lasagna
+from lasagna.core.base_components import ScoredDocument
 from lasagna.core.registry import registry
 
 
-@registry.register(
-    "reranker",
-    "readme_demo",
-    paper="arxiv:2XXX.XXXXX",     # optional provenance
-    claims={"ndcg@10": 0.456},    # what the paper reported
-)
-class MyReranker(BaseReranker):
-    def rerank(self, query, documents, top_k=5, **kwargs):
-        out = [copy.deepcopy(d) for d in documents]   # never mutate the input
-        out.sort(key=lambda d: len(d.content.split()), reverse=True)
-        return out[:top_k]
-
-
-class Control(BaseReranker):
-    """Retrieval order, untouched. Without it you cannot tell "my component
-    reordered things" from "my component never ran"."""
-
-    def rerank(self, query, documents, top_k=5, **kwargs):
-        return [copy.deepcopy(d) for d in documents][:top_k]
+@lasagna.reranker("readme_demo", paper="arxiv:2XXX.XXXXX", claims={"ndcg@10": 0.456})
+def longer_first(query, text):
+    return len(text.split())  # your technique: score one passage
 
 
 candidates = [
@@ -265,72 +248,93 @@ candidates = [
                    document_id="d3", chunk_id="c3"),
 ]
 
-control = [d.document_id for d in Control().rerank("q", candidates)]
-mine = [d.document_id for d in MyReranker().rerank("q", candidates)]
-
+mine = registry.get("reranker", "readme_demo").rerank("q", candidates)
 entry = next(e for e in registry.list_rerankers() if e["name"] == "readme_demo")
-print("control order:      ", control)
-print("my reranker:        ", mine)
-print("attributable change:", control != mine)
-print("claims recorded:    ", entry["claims"])
-print("interchangeable:    ", entry["implements_contract"])
+print("retrieval order:", [d.document_id for d in candidates])
+print("my reranker:    ", [d.document_id for d in mine])
+print("claims recorded:", entry["claims"])
+print("interchangeable:", entry["implements_contract"])
 ```
 
 ```text
-control order:       ['d1', 'd2', 'd3']
-my reranker:         ['d2', 'd3', 'd1']
-attributable change: True
-claims recorded:     {'ndcg@10': 0.456}
-interchangeable:     True
+retrieval order: ['d1', 'd2', 'd3']
+my reranker:     ['d2', 'd3', 'd1']
+claims recorded: {'ndcg@10': 0.456}
+interchangeable: True
 ```
 
 `paper` and `claims` travel with the component and come back out of the
 registry, so a results table can put the claimed number beside the one you
-reproduced. `implements_contract` tells you the component is genuinely
-interchangeable with others — not merely that it registered.
+reproduced. Every stage takes a function the same way: `@lasagna.query_enhancer`
+(`query -> [str]`), `@lasagna.chunker` (`text -> [str]`), `@lasagna.embedder`
+(`texts -> vectors`), `@lasagna.retriever` and `@lasagna.document_processor`. A
+reranker can also order the whole list (`query, documents, top_k`). The function
+is handed copies, so it cannot change what another stage sees. When a technique
+needs state or a model, subclass the stage's interface (`BaseReranker` and so on)
+and register the class with `@registry.register` instead.
 
-Once it behaves, [measure whether it *helps*](https://github.com/dolev31/lasagna/blob/main/docs/guide.md#8-measure-it-on-a-benchmark)
-on 31 benchmarks.
+Then measure it, again in one line. A sweep can name the function by its import
+path, with no registration call and no package:
+
+```yaml
+# sweep.yaml, next to my_ideas.py
+name: does longer_first help
+benchmarks: [{name: smoke}]
+tracks: [retrieval]
+pipeline:
+  base_profile: speed
+  rerankers: [cross_encoder, "my_ideas:longer_first"]
+n_runs: 3
+```
+
+```bash
+lasagna benchmark experiment sweep.yaml
+lasagna results significance <output>/results.json -m ndcg@10 --all
+```
+
+Before any corpus is ingested, the run checks that each named component
+implements its stage and passes its behavioural contract (return types, `top_k`,
+empty input, no mutation of its input). It then runs both arms on the same
+queries and ends by confirming that the arms differed only at the reranker.
+[The guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md#8-measure-it-on-a-benchmark)
+covers the 31 benchmarks.
 
 ### Picking a baseline
 
-`implements_contract` is the field that matters. A comparison is only meaningful
-between components that exchange the same types — otherwise you are measuring
-the interface difference along with the algorithm.
-
-Some built-ins predate the typed contracts and take or return different shapes.
-They work fine in the pipeline they were written for, but they are **not**
-interchangeable with a component written against `BaseReranker`. Selecting one
-says so:
+Any listed built-in will do: every one implements its stage's interface, so a
+comparison measures the algorithms rather than an interface difference. That
+is what `implements_contract` in a listing reports:
 
 ```python
-pipeline.replace("reranker", "cross_encoder")
-# WARNING  reranker 'cross_encoder' does not implement the reranker contract,
-#          so it is not interchangeable with components that do.
-#          Contract-compliant rerankers: ['combined_adapted',
-#          'cross_encoder_adapted', 'ensemble_adapted', 'mmr_adapted']
-```
+from lasagna.core.registry import registry
 
-Filter to comparable baselines in one line:
-
-```python
 [r["name"] for r in registry.list_rerankers() if r["implements_contract"]]
+# ['cross_encoder', 'combined', 'ensemble', 'mmr', 'colbert', 'llm_listwise']
 ```
+
+A component registered without its stage's interface (a duck-typed class) is
+reported as not interchangeable when selected, and a sweep refuses it, naming
+the fix.
 
 ### Why the stages stay isolated
 
-Each stage exchanges only its declared types with the next, so toggling one
-component cannot leak into another's execution and contaminate the measurement.
-That is not a stylistic preference — it is what makes an interaction estimate
-attributable rather than an artefact.
+A comparison is attributable only if the arms differ in the stage under test and
+nowhere else. Lasagna checks that rather than assuming it.
 
-It is enforced, not asserted. A conformance suite checks that components
-subclass their stage's contract, do not mutate the objects they are handed, and
-do not hand out chunks that share one metadata dict:
-
-```bash
-pytest tests/test_abc_conformance.py tests/test_stage_isolation_behavioural.py
-```
+- **A fixed interface per stage.** Components exchange only their stage's
+  declared types, and function components get copies of what they are handed.
+  A conformance suite checks that every registered component subclasses its
+  stage's contract, does not mutate its input, and does not hand out chunks that
+  share one metadata dict:
+  `pytest tests/test_abc_conformance.py tests/test_stage_isolation_behavioural.py`.
+- **A stage manifest per task.** Each run records what reached each of the seven
+  stages: every setting, from the configuration the search actually resolved,
+  and the component in the slot.
+- **A check across arms.** If two arms differ at a stage neither of them names,
+  the run says so, the bundle is marked `UNDECLARED_STAGE_CHANGE`, and
+  `lasagna results validate` refuses it, naming the stage and the settings that
+  moved. An arm whose named change never reached its stage is flagged as inert,
+  since its number is the control's under another name.
 
 ### Do two techniques compose, or do they overlap?
 
@@ -632,14 +636,18 @@ A framework that hides its gaps wastes your time. As of this release:
 - **Three of six vector backends** (pgvector, Weaviate, OpenSearch) have a
   conformance suite but need their service running to execute it. Pinecone is
   excluded from conformance entirely — it is SaaS-only.
-- **Nine of eighteen *listable* registered components** do not implement their
-  stage's ABC. They predate the typed contracts, are flagged by
-  `implements_contract` and warned about on selection, but re-typing them is
-  outstanding. The denominator is worth stating precisely: 21 components are
-  registered across seven stages, and the conformance suite enumerates four of
-  them — `retriever`, `document_processor` and `agentic_pipeline` have no
-  conformance signal at all. **`retriever` currently has zero registered
-  components**, so the swap seam exists and ships nothing to swap in.
+- **The behavioural contract is deeper for some stages than others.** Every
+  listed built-in implements its stage's interface, and rerankers, chunkers,
+  query enhancers and embedders are checked behaviourally (types, `top_k`, empty
+  input, no mutation). Retrievers and document processors are checked for their
+  interface and output types only, since a real check needs a collection or a
+  file; agentic pipelines need an LLM and are not run by the pre-flight.
+  **`retriever` has no built-in component**: the default search is not
+  registered as one, so a retriever sweep compares yours against search with no
+  retriever override.
+- **Stage isolation is verified for live tasks.** `generation_only` tasks
+  never build the pipeline, record no stage manifest, and are reported as
+  unverified rather than passed.
 - **`list_document_ids` fails past ~16k chunks on Milvus** — the backend
   emulates offset as `limit + offset`, which exceeds Milvus's cap. Affects
   iteration speed, not correctness. See [CHANGELOG](https://github.com/dolev31/lasagna/blob/main/CHANGELOG.md).
