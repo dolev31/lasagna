@@ -432,3 +432,98 @@ class TestWorkerCountRules:
         )
         # Should complete (may have 0 chunks if semantic chunking fails without real embeddings)
         assert isinstance(total, int)
+
+
+# ---------------------------------------------------------------------------
+# Test: tenant partitions
+# ---------------------------------------------------------------------------
+
+
+class _RecordingVectorBackend(MockVectorBackend):
+    """Records the partition each insert was routed to."""
+
+    def __init__(self):
+        super().__init__()
+        self.partitions: List[Any] = []
+
+    def insert(self, collection_name, data, partition_key=None):
+        self.partitions.append(partition_key)
+        return super().insert(collection_name, data, partition_key=partition_key)
+
+
+class _PartitionedTenants:
+    """A tenant manager in partition mode: every session has its own partition."""
+
+    def __init__(self, fail_to_create: bool = False):
+        self.ensured: List[str] = []
+        self._fail = fail_to_create
+
+    def resolve_partition_key(self, session_id):
+        return f"tenant_{session_id}"
+
+    def ensure_partition(self, backend, collection_name, partition_key):
+        if self._fail:
+            raise RuntimeError("partition quota exceeded")
+        self.ensured.append(partition_key)
+
+
+class TestTenantPartitions:
+    """Benchmark ingestion writes where search reads.
+
+    Search reads only the session's partition when tenant isolation is
+    "partition". The fast path used to import the tenant manager from a module
+    that does not define it, swallow the ImportError, and insert into the
+    default partition: retrieval then returned nothing, with no error.
+    """
+
+    @staticmethod
+    def _backend_recording_partitions():
+        backend = MockBackend()
+        recording = _RecordingVectorBackend()
+        backend._vector_backend = recording
+        backend._collection_manager = MockCollectionManager(recording, backend._embedding_manager)
+        return backend, recording
+
+    @pytest.mark.asyncio
+    async def test_benchmark_chunks_land_in_the_session_partition(self, monkeypatch):
+        from lasagna.knowledge_evaluation_sdk._fast_ingest import fast_ingest_corpus
+
+        tenants = _PartitionedTenants()
+        monkeypatch.setattr("lasagna.core.tenant.get_tenant_manager", lambda: tenants)
+        backend, recording = self._backend_recording_partitions()
+        corpus = _make_corpus(3)
+
+        total, ingested, errors = await fast_ingest_corpus(
+            corpus=corpus,
+            corpus_to_valid=_make_corpus_to_valid(corpus),
+            ready_ids=set(),
+            session_id="s1",
+            config=MockConfig(),
+            backend=backend,
+        )
+
+        assert total > 0 and not errors
+        assert tenants.ensured == ["tenant_s1"]
+        assert recording.partitions and set(recording.partitions) == {"tenant_s1"}
+
+    @pytest.mark.asyncio
+    async def test_a_partition_that_cannot_be_created_fails_the_ingest(self, monkeypatch):
+        from lasagna.knowledge_evaluation_sdk._fast_ingest import fast_ingest_corpus
+
+        monkeypatch.setattr(
+            "lasagna.core.tenant.get_tenant_manager",
+            lambda: _PartitionedTenants(fail_to_create=True),
+        )
+        backend, recording = self._backend_recording_partitions()
+        corpus = _make_corpus(2)
+
+        with pytest.raises(ValueError, match="partition"):
+            await fast_ingest_corpus(
+                corpus=corpus,
+                corpus_to_valid=_make_corpus_to_valid(corpus),
+                ready_ids=set(),
+                session_id="s1",
+                config=MockConfig(),
+                backend=backend,
+            )
+        assert recording.inserted == []

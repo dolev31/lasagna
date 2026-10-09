@@ -516,17 +516,22 @@ async def fast_ingest_corpus(
 
     resolved_backend = backend._collection_manager.resolve_backend(session_id)
 
+    from ..core import tenant
     from ..core.config import rag_config
 
-    try:
-        from ..providers.session_provider import get_tenant_manager
-
-        tenant_mgr = get_tenant_manager()
-        partition_key = tenant_mgr.resolve_partition_key(session_id)
-        if partition_key:
+    # Search reads only the session's partition under tenant_isolation =
+    # "partition", so chunks inserted anywhere else are invisible to it. This
+    # used to import from a module that does not define the function and treat
+    # the ImportError as "no partition": benchmark chunks went to the default
+    # partition and retrieval returned nothing, with no error. Same handling as
+    # the upload path (api/_document_pipeline.py).
+    tenant_mgr = tenant.get_tenant_manager()
+    partition_key = tenant_mgr.resolve_partition_key(session_id)
+    if partition_key:
+        try:
             tenant_mgr.ensure_partition(resolved_backend, config.collection_name, partition_key)
-    except Exception:
-        partition_key = None
+        except Exception as e:
+            raise ValueError(f"Failed to create partition for session {session_id}: {e}") from e
 
     enable_late_chunking = getattr(config, "enable_late_chunking", False)
     enable_hybrid = getattr(config, "enable_hybrid_search", True)
