@@ -56,7 +56,10 @@ from typing import Any, Dict, List, Optional
 #:   they must not compare equal to keys minted after.
 #: 1.3: held-fixed fields come from what each task ran (TaskResult.system), and
 #: BM25 stemming is part of the key.
-METRICS_VERSION = "1.3"
+#: 1.4: exact_match and token_f1 treat an answer as an abstention only when it
+#: opens with one, not when it contains a hedge anywhere, and normalize in the
+#: official SQuAD order (punctuation before articles).
+METRICS_VERSION = "1.4"
 
 #: Bundle schema version. Consumers accept >=1.0,<2.0.
 SCHEMA_VERSION = "1.0"
