@@ -13,6 +13,10 @@ from lasagna.providers import get_llm_provider
 from .models import JudgeScore, ScoreLevel
 
 
+class JudgeUnavailableError(RuntimeError):
+    """The judge model could not produce a score (network, quota, parsing)."""
+
+
 JUDGE_SYSTEM_PROMPT = """You are an expert evaluator for RAG (Retrieval-Augmented Generation) systems.
 Your task is to evaluate how well an AI agent answered a question using knowledge from documents.
 
@@ -173,16 +177,11 @@ class LLMJudge:
                 return await self._evaluate_with_parsing(messages)
 
         except Exception as e:
+            # A judge that could not run has not judged. Scoring the answer as
+            # a failure turned 429s and network blips into measured quality
+            # differences between configurations judged at different times.
             logger.warning(f"Judge evaluation failed: {e}")
-            # Return a default low score on failure
-            return JudgeScore(
-                score=1,
-                level=ScoreLevel.FAIL,
-                reasoning=f"Evaluation failed: {str(e)}",
-                relevance=0.0,
-                completeness=0.0,
-                factual_accuracy=0.0,
-            )
+            raise JudgeUnavailableError(f"Judge evaluation failed: {e}") from e
 
     async def _evaluate_with_parsing(self, messages) -> JudgeScore:
         """Fallback evaluation with manual JSON parsing."""
@@ -227,7 +226,8 @@ class LLMJudge:
             max_concurrent: Maximum concurrent evaluations.
 
         Returns:
-            List of JudgeScore objects.
+            List of JudgeScore objects, with None for each case the judge
+            could not score (excluded from averages, not counted as a fail).
         """
         import asyncio
 
@@ -236,6 +236,9 @@ class LLMJudge:
         async def eval_one(case):
             async with semaphore:
                 question, expected, response, context = case
-                return await self.evaluate(question, expected, response, context)
+                try:
+                    return await self.evaluate(question, expected, response, context)
+                except JudgeUnavailableError:
+                    return None
 
         return await asyncio.gather(*[eval_one(c) for c in cases])

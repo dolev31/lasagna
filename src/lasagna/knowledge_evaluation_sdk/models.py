@@ -189,12 +189,16 @@ class EvalMetrics:
     score_distribution: Dict[int, int]
     """Distribution of scores (1-5)."""
 
+    unjudged_cases: int = 0
+    """Cases that ran but the judge could not score; excluded from the rates."""
+
     @property
     def pass_rate(self) -> float:
-        """Percentage of passed cases."""
-        if self.total_cases == 0:
+        """Percentage of judged cases that passed."""
+        judged = self.passed_cases + self.failed_cases
+        if judged == 0:
             return 0.0
-        return (self.passed_cases / self.total_cases) * 100
+        return (self.passed_cases / judged) * 100
 
     @classmethod
     def from_results(cls, results: List[EvalResult]) -> "EvalMetrics":
@@ -243,6 +247,7 @@ class EvalMetrics:
             avg_latency_ms=sum(latencies) / len(latencies) if latencies else 0.0,
             avg_rag_latency_ms=(sum(rag_latencies) / len(rag_latencies) if rag_latencies else 0.0),
             rag_usage_rate=((len(rag_used) / len(results)) * 100 if results else 0.0),
+            unjudged_cases=sum(1 for r in results if r.error is None and not r.judge_score),
             score_distribution=score_dist,
         )
 
@@ -297,6 +302,7 @@ class EvalMetrics:
             "passed_cases": self.passed_cases,
             "failed_cases": self.failed_cases,
             "error_cases": self.error_cases,
+            "unjudged_cases": self.unjudged_cases,
             "pass_rate": self.pass_rate,
             "avg_score": self.avg_score,
             "avg_relevance": self.avg_relevance,

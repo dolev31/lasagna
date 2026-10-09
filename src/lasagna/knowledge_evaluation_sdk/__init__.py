@@ -24,7 +24,7 @@ Example:
 
 from .models import EvalCase, EvalResult, EvalMetrics, EvalConfig
 from .evaluator import KnowledgeEvaluator
-from .judge import LLMJudge
+from .judge import JudgeUnavailableError, LLMJudge
 
 
 # Lazy imports for optional dependencies (ragas, pandas, matplotlib, datasets)
@@ -86,6 +86,7 @@ __all__ = [
     "EvalConfig",
     "KnowledgeEvaluator",
     "LLMJudge",
+    "JudgeUnavailableError",
     # RAGAS (lazy-loaded)
     "RAGASEvaluator",
     "DetailedEvalResult",
