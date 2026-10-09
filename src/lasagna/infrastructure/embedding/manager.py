@@ -1116,6 +1116,12 @@ class EmbeddingManagerAdapter(BaseEmbedder):
         # Guard against None entries from partial cache misses / encoding failures
         valid = [r for r in results if r is not None]
         if len(valid) != len(results):
+            if strict_stages():
+                # A zero vector is a document no query can find: under
+                # evaluation the corpus would be silently smaller.
+                raise RuntimeError(
+                    f"{len(results) - len(valid)} of {len(results)} texts could not be embedded"
+                )
             logger.warning(
                 f"Embedding batch had {len(results) - len(valid)} failed entries "
                 f"out of {len(results)} — replacing with zero vectors"
@@ -1126,6 +1132,9 @@ class EmbeddingManagerAdapter(BaseEmbedder):
 
     def encode_query(self, query: str, **kwargs) -> np.ndarray:
         return self._inner.encode_query(query)
+
+    def encode_queries_batch(self, queries: List[str]) -> List[np.ndarray]:
+        return self._inner.encode_queries_batch(queries)
 
     @property
     def dimension(self) -> int:

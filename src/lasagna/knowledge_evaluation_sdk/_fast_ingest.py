@@ -124,7 +124,10 @@ def _chunk_one_doc(
 
             llm = SimpleLLMProvider().get_llm()
             enricher = ContextualEnricher(llm_provider=llm)
-            doc_context = text[:10000]
+            # The same document budget as the contextual chunker component, so
+            # the flag and the component measure the same method.
+            limit = getattr(config, "contextual_max_document_chars", 10000)
+            doc_context = text if limit is None else text[:limit]
             chunk_texts = [c["content"] for c in chunk_dicts]
             enriched_texts = enricher.enrich_batch(doc_context, chunk_texts)
             for chunk, enriched in zip(chunk_dicts, enriched_texts):

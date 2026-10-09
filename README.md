@@ -419,18 +419,31 @@ boolean setting, before the first corpus is ingested.
 | `embedder` | 6 | any sentence-transformers model with its model card's prefixes, BGE-M3, OpenAI, Cohere, Voyage, and the configured default |
 | `document_processor` | 4 | built-in (pypdf, pdfplumber, OCR), Docling, MarkItDown, PyMuPDF4LLM |
 
-### Retrieval: hybrid search, reranking, MMR
+### Every stage, with the methods a paper compares against
 
-Dense · BM25 · SPLADE learned-sparse · hybrid with RRF · HyDE · query expansion
-and decomposition · RAG Fusion · MMR · adaptive-k · cross-encoder and ColBERT
-reranking · lost-in-the-middle reordering · corrective RAG · self-RAG quality
-gates.
+Each method below is a registered component or a setting, and either swaps in
+a sweep with one line.
 
-### Agentic RAG: CRAG, self-RAG, quality gates
-
-A LangGraph pipeline with document grading, query rewriting, multi-hop
-sub-query planning, hallucination checks, and quality gates — swappable as a
-unit or node by node.
+- **Ingest and chunk:** built-in PDF extraction, Docling, MarkItDown,
+  PyMuPDF4LLM; fixed (characters, words or tokens), recursive, sentence
+  window, Markdown header, semantic breakpoints, hierarchical, propositions
+  (Dense X Retrieval), Contextual Retrieval, late chunking.
+- **Embed:** any sentence-transformers model with its model card's query and
+  document prefixes, BGE-M3, OpenAI, Cohere, Voyage, Matryoshka truncation.
+- **Retrieve:** dense, BM25, SPLADE, hybrid by reciprocal rank fusion, hybrid by
+  normalized score fusion.
+- **Rerank:** cross-encoders (bge-reranker, mxbai and any Hugging Face
+  reranker), ColBERT, monoT5, RankGPT listwise, LLM pointwise grading,
+  FlashRank, Cohere Rerank, MMR, ensembles.
+- **Augment:** HyDE, Query2doc, step-back prompting, Rewrite-Retrieve-Read,
+  RAG-Fusion, query expansion, least-to-most decomposition, lost-in-the-middle
+  reordering, context compression.
+- **Agentic loop:** a LangGraph pipeline with CRAG-style document grading,
+  multi-hop planning, hallucination checks and quality gates (swappable as a
+  unit or node by node), plus Self-Ask, IRCoT, FLARE, Adaptive-RAG and
+  Self-RAG. Each hop searches with the arm's own components.
+- **Generate:** a concise answer, answers with ALCE-style citations,
+  chain-of-thought, chain-of-note, speculative RAG.
 
 ### Vector databases: six backends, one interface
 
@@ -449,9 +462,10 @@ Bamboogle, MultiHop-RAG, RAGBench, KILT, 2WikiMultihop.
 
 | Family | Metrics |
 |---|---|
-| Retrieval | NDCG@k, precision@k, F1@k, hit-rate@k, MAP, MRR |
-| Generation | faithfulness, answer relevancy, context precision, context recall, factual correctness (RAGAS) |
-| Operational | p50/p95 latency, cost per query |
+| Retrieval | NDCG@k, precision@k, recall@k, F1@k, hit rate (success)@k, MAP, MRR, R-precision, complete (all-gold) recall@k for multi-hop questions |
+| Generation, no judge | exact match and token F1 (SQuAD-normalized; SQuAD v2 scored answerable and unanswerable separately), ROUGE-L, answer containment, answer similarity (embedding), abstention rate |
+| Generation, judged | faithfulness, context precision, context recall, factual correctness (RAGAS); citation recall and precision (ALCE) when answers cite; opt-in: answer relevancy, noise sensitivity, context relevance |
+| Operational | p50/p95/p99 latency (retrieval and generation, end to end), input and output tokens and LLM calls per query, with the judge's spend reported separately |
 
 Plus multi-objective tradeoff analysis, paired significance testing, and t
 confidence intervals.

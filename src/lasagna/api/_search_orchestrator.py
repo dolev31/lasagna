@@ -1824,8 +1824,13 @@ class SearchOrchestrator:
 
         effective_embedder = _embedder_override or self.embedding_manager
 
-        # Batch embed all queries (returns List[np.ndarray])
-        raw_embeddings = effective_embedder.encode_queries_batch(all_queries)
+        # Batch embed all queries (returns List[np.ndarray]). Only the built-in
+        # manager has a batch method; a component embedder answers one query
+        # at a time through the public contract.
+        if hasattr(effective_embedder, "encode_queries_batch"):
+            raw_embeddings = effective_embedder.encode_queries_batch(all_queries)
+        else:
+            raw_embeddings = [effective_embedder.encode_query(q) for q in all_queries]
         all_embeddings = [emb.tolist() for emb in raw_embeddings]
 
         # ENFORCEMENT: Check for focused_document_ids in session config

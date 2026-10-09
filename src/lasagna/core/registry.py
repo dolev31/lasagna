@@ -1388,8 +1388,17 @@ class ComponentRegistry:
             # different shapes, so comparing one against a contract-compliant
             # component is not like-for-like. Surfacing it lets a caller tell
             # the difference instead of finding out from a TypeError.
-            if expected_abc is not None and reg.cls is not None:
-                entry["implements_contract"] = issubclass(reg.cls, expected_abc)
+            if expected_abc is not None:
+                # A deferred entry is resolved here: the answer used to be
+                # missing until something else happened to load the class,
+                # so a listing depended on what had run before it.
+                try:
+                    cls = reg.cls if reg.cls is not None else reg.resolve()
+                except (ImportError, AttributeError):
+                    cls = None
+                entry["implements_contract"] = (
+                    issubclass(cls, expected_abc) if isinstance(cls, type) else False
+                )
             # Research provenance, included only when the component declared it,
             # so listings of built-in components stay uncluttered. This is what
             # lets a results table put a paper's claimed metric next to the one
