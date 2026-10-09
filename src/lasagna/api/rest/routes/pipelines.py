@@ -5,14 +5,17 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 
 from lasagna.core.config import rag_config
 from lasagna.core.registry import registry
+from ..dependencies import get_session_id
 from ..models import PipelineInfo, PipelineListResponse
 
-router = APIRouter(prefix="/pipelines", tags=["pipelines"])
+# With auth on, a verified caller only: a custom pipeline's name and
+# description are a tenant's, not public.
+router = APIRouter(prefix="/pipelines", tags=["pipelines"], dependencies=[Depends(get_session_id)])
 
 
 @router.get("", response_model=PipelineListResponse)

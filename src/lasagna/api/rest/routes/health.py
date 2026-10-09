@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 
 from ..auth_mode import require_auth
-from ..dependencies import get_backend
+from ..dependencies import get_backend, get_session_id
 from ..models import (
     HealthCheckDetail,
     HealthResponse,
@@ -127,7 +127,9 @@ async def full_health(backend=Depends(get_backend)):
     return HealthResponse(status=overall, checks=checks, require_auth=require_auth())
 
 
-@router.get("/stats", response_model=StatsResponse)
+# With auth on, a verified caller only: it names the collection, the model and
+# the feature flags. The probes above stay open for orchestrators.
+@router.get("/stats", response_model=StatsResponse, dependencies=[Depends(get_session_id)])
 async def system_stats(backend=Depends(get_backend)):
     """System statistics — embedding model, features, cache stats."""
     try:
