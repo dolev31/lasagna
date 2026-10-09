@@ -11,9 +11,9 @@ So a stage added later inherits no coverage and nothing says so. This file
 derives its parametrisation from `registry` itself, which means a new stage
 type arrives already covered, or fails loudly until it is.
 
-It also states the `retriever` gap rather than leaving it to be discovered:
-zero components are registered for it, so "swap the retriever" is the one stage
-claim that has nothing behind it.
+It also names any stage with no registered component rather than leaving the
+gap to be discovered. `retriever` was one until dense, BM25, SPLADE and two
+hybrid fusions were registered as components.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ STAGE_ENTRY_POINTS = {
 #: the swap claim does not hold for that stage yet -- not permission to ignore
 #: it. `test_the_empty_stages_are_still_the_empty_ones` fails when this drifts,
 #: in either direction.
-STAGES_WITH_NO_COMPONENTS = {"retriever"}
+STAGES_WITH_NO_COMPONENTS: set = set()
 
 
 def _valid_types():
@@ -110,8 +110,8 @@ class TestEveryStageWithComponentsIsExercised:
     def test_a_stage_either_has_components_or_is_declared_empty(self, stage):
         """Silence is the failure mode this replaces.
 
-        `retriever` registering nothing is a real gap in the swap-any-stage
-        claim, and until this test existed nothing anywhere said so.
+        A stage registering nothing is a real gap in the swap-any-stage claim
+        (`retriever` was one), and until this test existed nothing said so.
         """
         has_components = bool(_registered(stage))
         declared_empty = stage in STAGES_WITH_NO_COMPONENTS
@@ -123,9 +123,9 @@ class TestEveryStageWithComponentsIsExercised:
     def test_the_empty_stages_are_still_the_empty_ones(self):
         """Fails in both directions.
 
-        If someone registers a retriever, this fails and the note above -- plus
-        the README's stage claim -- gets corrected. If another stage empties
-        out, it fails too.
+        If a stage listed as empty gains a component, this fails and the note
+        above -- plus the README's stage claim -- gets corrected. If a stage
+        empties out, it fails too.
         """
         empty = {s for s in STAGE_ENTRY_POINTS if not _registered(s)}
         assert empty == STAGES_WITH_NO_COMPONENTS
@@ -247,7 +247,7 @@ class TestTheContractFlagTellsTheTruth:
     @pytest.mark.parametrize("stage", _STAGES_WITH_LISTINGS)
     def test_at_least_one_component_per_stage_is_interchangeable(self, stage):
         """Otherwise the stage is listed as swappable and nothing can be
-        swapped into it -- the same gap `retriever` has, one level down."""
+        swapped into it -- the gap `retriever` had, one level down."""
         conforming = [e["name"] for e in _listing(stage) if e.get("implements_contract")]
         assert conforming, (
             f"no {stage} implements the stage contract, so the swap claim does not hold for it"

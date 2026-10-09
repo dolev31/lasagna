@@ -19,6 +19,7 @@ The mode is automatically detected based on Milvus deployment type.
 import re
 import time
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from loguru import logger
@@ -61,80 +62,164 @@ if TYPE_CHECKING:
 
 
 class SPLADESparseEncoder:
-    """SPLADE-max learned sparse encoder for query-time scoring.
+    """SPLADE learned sparse encoder (Formal et al. 2021, SPLADE v2, arXiv:2109.10086).
 
-    Encodes queries into sparse term weights using a masked language model.
-    At query time, scores documents via dot-product of shared terms.
-    Replaces BM25 in the RRF merge for semantically-aware sparse retrieval.
+    A masked language model's logits become one weight per vocabulary term,
+    ``w_j = max_i log(1 + ReLU(logit_ij))`` over the text's tokens with padding
+    masked out (SPLADE v2's max pooling, kept by the SPLADE++ checkpoints).
+    Queries and passages are encoded the same way and scored by the dot product
+    of their weights, so a passage can match on terms its encoding expands to.
     """
+
+    #: Tokens each side keeps, as in SPLADE's training.
+    MAX_LENGTH = 256
+    #: Encoded corpora kept at once, one per caller key (an index version).
+    MAX_CORPORA = 4
 
     def __init__(self, model_name: str = "naver/splade-cocondenser-ensembledistil"):
         self._model_name = model_name
         self._model = None
         self._tokenizer = None
+        self._failed: Optional[str] = None
         self._lock = threading.Lock()
+        self._corpora: "OrderedDict[Any, _SparseCorpus]" = OrderedDict()
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
 
     def _ensure_loaded(self):
-        if self._model is None:
-            with self._lock:
-                if self._model is None:
-                    try:
-                        from transformers import AutoModelForMaskedLM, AutoTokenizer
+        if self._model is not None:
+            return
+        with self._lock:
+            if self._model is not None:
+                return
+            if self._failed:
+                raise RuntimeError(self._failed)
+            try:
+                from transformers import AutoModelForMaskedLM, AutoTokenizer
+            except ImportError as exc:
+                raise ImportError("SPLADE needs transformers: pip install transformers") from exc
+            warn_if_restricted(self._model_name, component="SPLADE sparse encoder")
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(self._model_name)
+                model, info = AutoModelForMaskedLM.from_pretrained(
+                    self._model_name, output_loading_info=True
+                )
+            except Exception as exc:
+                self._failed = f"Cannot load SPLADE model {self._model_name!r}: {exc}"
+                raise RuntimeError(self._failed) from exc
+            missing = list((info or {}).get("missing_keys") or [])
+            if missing:
+                # A checkpoint without a trained MLM head (a sentence encoder,
+                # say) loads with a random one, and its "expansions" are noise
+                # that still produces scores.
+                self._failed = (
+                    f"{self._model_name!r} is not a SPLADE (masked-LM) checkpoint: "
+                    f"its language-model head is missing ({', '.join(missing[:3])})"
+                )
+                raise RuntimeError(self._failed)
+            model.eval()
+            self._tokenizer, self._model = tokenizer, model
+            logger.info(f"SPLADE model loaded: {self._model_name}")
 
-                        warn_if_restricted(self._model_name, component="SPLADE sparse encoder")
-                        self._tokenizer = AutoTokenizer.from_pretrained(self._model_name)
-                        self._model = AutoModelForMaskedLM.from_pretrained(self._model_name)
-                        self._model.eval()
-                        logger.info(f"SPLADE model loaded: {self._model_name}")
-                    except ImportError:
-                        raise ImportError(
-                            "transformers is required for SPLADE. "
-                            "Install with: pip install transformers"
-                        )
-
-    def encode_query(self, query: str) -> Dict[str, float]:
-        """Encode query to sparse {term: weight} mapping."""
+    def encode(self, texts: List[str], batch_size: int = 8) -> List[Tuple[Any, Any]]:
+        """Each text's nonzero SPLADE weights, as (term ids, weights) arrays."""
         self._ensure_loaded()
+        import numpy as np
         import torch
 
-        inputs = self._tokenizer(query, return_tensors="pt", truncation=True, max_length=256)
-        with torch.no_grad():
-            logits = self._model(**inputs).logits
-        weights = torch.log1p(torch.relu(logits)).max(dim=1).values.squeeze()
-        non_zero = (weights > 0).nonzero().squeeze(-1)
-        return {self._tokenizer.decode([int(idx)]): float(weights[idx]) for idx in non_zero}
+        out: List[Tuple[Any, Any]] = []
+        for start in range(0, len(texts), batch_size):
+            inputs = self._tokenizer(
+                list(texts[start : start + batch_size]),
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=self.MAX_LENGTH,
+            )
+            with torch.no_grad():
+                logits = self._model(**inputs).logits
+            mask = inputs["attention_mask"].unsqueeze(-1).to(logits.dtype)
+            weights = (torch.log1p(torch.relu(logits)) * mask).max(dim=1).values
+            for row in weights:
+                ids = torch.nonzero(row > 0).squeeze(-1)
+                out.append(
+                    (ids.numpy().astype(np.int64), row[ids].float().numpy().astype(np.float32))
+                )
+        return out
 
-    def score_documents(
-        self, query_sparse: Dict[str, float], documents: List[Dict[str, Any]]
-    ) -> List[Tuple[int, float]]:
-        """Score documents against sparse query. Returns (doc_idx, score) tuples."""
-        results = []
-        for idx, doc in enumerate(documents):
-            text = doc.get("content", "")
-            if not text:
-                continue
-            doc_terms = set(text.lower().split())
-            score = sum(w for term, w in query_sparse.items() if term.lower() in doc_terms)
-            if score > 0:
-                results.append((idx, score))
-        # Sort by score descending
-        results.sort(key=lambda x: x[1], reverse=True)
-        return results
+    def corpus(self, key: Any, texts: List[str]) -> "_SparseCorpus":
+        """The passages' encodings as an inverted index, encoded once per ``key``."""
+        with self._lock:
+            cached = self._corpora.get(key)
+            if cached is not None:
+                self._corpora.move_to_end(key)
+                return cached
+        logger.info(f"Encoding {len(texts)} passages with SPLADE ({self._model_name})")
+        corpus = _SparseCorpus(self.encode(texts))
+        with self._lock:
+            self._corpora[key] = corpus
+            while len(self._corpora) > self.MAX_CORPORA:
+                self._corpora.popitem(last=False)
+        return corpus
+
+    def search(self, query: str, texts: List[str], key: Any, top_k: int) -> List[Tuple[int, float]]:
+        """The ``top_k`` passages by SPLADE dot product, as (index, score), score > 0."""
+        import numpy as np
+
+        corpus = self.corpus(key, texts)
+        ids, weights = self.encode([query])[0]
+        scores = corpus.score(ids, weights)
+        order = np.argsort(-scores, kind="stable")[:top_k]
+        return [(int(i), float(scores[i])) for i in order if scores[i] > 0]
 
 
-# Module-level SPLADE encoder singleton (lazy-loaded)
-_splade_encoder: Optional[SPLADESparseEncoder] = None
+class _SparseCorpus:
+    """Passage weights sorted by term, so a query scores only the passages it shares terms with."""
+
+    def __init__(self, encoded: List[Tuple[Any, Any]]):
+        import numpy as np
+
+        self.size = len(encoded)
+        if encoded:
+            terms = np.concatenate([ids for ids, _ in encoded])
+            weights = np.concatenate([w for _, w in encoded])
+            docs = np.concatenate(
+                [np.full(len(ids), i, dtype=np.int64) for i, (ids, _) in enumerate(encoded)]
+            )
+        else:
+            terms = docs = np.zeros(0, dtype=np.int64)
+            weights = np.zeros(0, dtype=np.float32)
+        order = np.argsort(terms, kind="stable")
+        self._terms, self._docs, self._weights = terms[order], docs[order], weights[order]
+
+    def score(self, ids: Any, weights: Any) -> Any:
+        """Dot product of the query's weights with every passage's."""
+        import numpy as np
+
+        scores = np.zeros(self.size, dtype=np.float64)
+        lo = np.searchsorted(self._terms, ids, side="left")
+        hi = np.searchsorted(self._terms, ids, side="right")
+        for start, end, w in zip(lo, hi, weights):
+            # A term appears once per passage, so the indices in a slice are unique.
+            scores[self._docs[start:end]] += float(w) * self._weights[start:end]
+        return scores
+
+
+# One SPLADE encoder per model, loaded on first use.
+_splade_encoders: Dict[str, SPLADESparseEncoder] = {}
 _splade_lock = threading.Lock()
 
 
-def _get_splade_encoder() -> SPLADESparseEncoder:
-    """Get or create the SPLADE encoder singleton."""
-    global _splade_encoder
-    if _splade_encoder is None:
-        with _splade_lock:
-            if _splade_encoder is None:
-                _splade_encoder = SPLADESparseEncoder()
-    return _splade_encoder
+def _get_splade_encoder(model_name: Optional[str] = None) -> SPLADESparseEncoder:
+    """The encoder for ``model_name`` (the configured ``splade_model`` by default)."""
+    name = model_name or rag_config.splade_model
+    with _splade_lock:
+        encoder = _splade_encoders.get(name)
+        if encoder is None:
+            encoder = _splade_encoders[name] = SPLADESparseEncoder(name)
+        return encoder
 
 
 def _escape_milvus_value(s: str) -> str:
@@ -1101,10 +1186,15 @@ class HybridSearcher:
         _sparse_method = getattr(_effective_config, "sparse_method", "bm25")
         if _sparse_method == "splade":
             try:
-                splade = _get_splade_encoder()
-                query_sparse = splade.encode_query(query)
-                sparse_results = splade.score_documents(query_sparse, index.documents)
-                sparse_results = sparse_results[: top_k * 2]
+                # Passages are encoded too: matching the query's expansion
+                # terms against raw passage words was not SPLADE.
+                splade = _get_splade_encoder(getattr(_effective_config, "splade_model", None))
+                sparse_results = splade.search(
+                    query,
+                    [d.get("content", "") for d in index.documents],
+                    key=(id(index), index._version),
+                    top_k=top_k * 2,
+                )
                 metrics["hybrid_mode"] = "splade_fallback"
             except Exception as e:
                 logger.warning(f"SPLADE fallback failed, using BM25: {e}")

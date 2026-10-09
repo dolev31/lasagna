@@ -312,6 +312,17 @@ class RAGConfig:
             "enable_bm25_stemming": True,  # Enable Porter stemming for BM25
             "bm25_max_sessions": 1000,  # Max in-memory BM25 session indices
             "bm25_session_ttl_seconds": 86400,  # Idle TTL for session indices (24h)
+            # Built-in retriever components (`retriever: bm25`, `splade`, ...).
+            "bm25_k1": 1.2,  # Okapi BM25 tf saturation (Robertson & Zaragoza 2009)
+            "bm25_b": 0.75,  # Okapi BM25 length normalisation
+            # SPLADE++ CoCondenser-EnsembleDistil (Formal et al. 2022)
+            "splade_model": "naver/splade-cocondenser-ensembledistil",
+            # Candidates each list contributes before fusion; both fusion papers
+            # (Cormack et al. 2009, Bruch et al. 2023) fuse the top 1000.
+            "hybrid_fusion_depth": 1000,
+            # Score normalisation for hybrid_convex: 'tmm' (theoretical min-max,
+            # Bruch et al.'s recommendation), 'minmax' or 'zscore'.
+            "hybrid_convex_normalization": "tmm",
             # =================================================================
             # Reranking
             # =================================================================
@@ -326,8 +337,16 @@ class RAGConfig:
             # "<vendor>/<model>" is rejected outright by every other provider, so
             # it fails for anyone who did not happen to share our deployment.
             "llm_reranker_model": "",  # Model for LLM listwise reranker
-            "llm_reranker_window_size": 10,  # Sliding window size for listwise reranking
+            # RankGPT's sliding window (Sun et al. 2023): 20 passages, moved by 10.
+            "llm_reranker_window_size": 20,
+            "llm_reranker_step_size": 10,
             "colbert_model": "colbert-ir/colbertv2.0",  # ColBERT late-interaction model
+            "monot5_model": "castorini/monot5-base-msmarco-10k",  # Nogueira et al. 2020
+            "flashrank_model": "ms-marco-TinyBERT-L-2-v2",  # FlashRank's default ONNX model
+            "cohere_rerank_model": "rerank-v3.5",
+            # Some cross-encoder rerankers ship their own modelling code (e.g.
+            # jinaai/jina-reranker-v2-base-multilingual) and load only with it.
+            "reranker_trust_remote_code": False,
             "enable_context_reordering": True,  # Lost-in-the-middle fix: place best results at start/end
             "enable_context_compression": False,  # Compress chunks to reduce noise/tokens
             "compression_method": "extractive",  # 'extractive' | 'abstractive'
@@ -957,6 +976,39 @@ class RAGConfig:
             "rag", "bm25_session_ttl_seconds", default=self._config["bm25_session_ttl_seconds"]
         )
 
+    @property
+    def bm25_k1(self) -> float:
+        """BM25 term-frequency saturation for the bm25 and hybrid retrievers."""
+        return self._get_knowledge_setting("rag", "bm25_k1", default=self._config["bm25_k1"])
+
+    @property
+    def bm25_b(self) -> float:
+        """BM25 document-length normalisation for the bm25 and hybrid retrievers."""
+        return self._get_knowledge_setting("rag", "bm25_b", default=self._config["bm25_b"])
+
+    @property
+    def splade_model(self) -> str:
+        """Masked-language-model checkpoint the splade retriever encodes with."""
+        return self._get_knowledge_setting(
+            "rag", "splade_model", default=self._config["splade_model"]
+        )
+
+    @property
+    def hybrid_fusion_depth(self) -> int:
+        """Candidates each list contributes to hybrid_rrf / hybrid_convex fusion."""
+        return self._get_knowledge_setting(
+            "rag", "hybrid_fusion_depth", default=self._config["hybrid_fusion_depth"]
+        )
+
+    @property
+    def hybrid_convex_normalization(self) -> str:
+        """Score normalisation for hybrid_convex: 'tmm', 'minmax' or 'zscore'."""
+        return self._get_knowledge_setting(
+            "rag",
+            "hybrid_convex_normalization",
+            default=self._config["hybrid_convex_normalization"],
+        )
+
     # =========================================================================
     # Reranking Properties
     # =========================================================================
@@ -1006,10 +1058,47 @@ class RAGConfig:
         )
 
     @property
+    def llm_reranker_step_size(self) -> int:
+        """How far the listwise reranker's window moves toward the top each step."""
+        return self._get_knowledge_setting(
+            "rag", "llm_reranker_step_size", default=self._config["llm_reranker_step_size"]
+        )
+
+    @property
     def colbert_model(self) -> str:
         """ColBERT late-interaction model name."""
         return self._get_knowledge_setting(
             "rag", "colbert_model", default=self._config["colbert_model"]
+        )
+
+    @property
+    def monot5_model(self) -> str:
+        """Sequence-to-sequence checkpoint the monot5 reranker scores with."""
+        return self._get_knowledge_setting(
+            "rag", "monot5_model", default=self._config["monot5_model"]
+        )
+
+    @property
+    def flashrank_model(self) -> str:
+        """FlashRank model name for the flashrank reranker."""
+        return self._get_knowledge_setting(
+            "rag", "flashrank_model", default=self._config["flashrank_model"]
+        )
+
+    @property
+    def cohere_rerank_model(self) -> str:
+        """Cohere Rerank model for the cohere reranker."""
+        return self._get_knowledge_setting(
+            "rag", "cohere_rerank_model", default=self._config["cohere_rerank_model"]
+        )
+
+    @property
+    def reranker_trust_remote_code(self) -> bool:
+        """Let the cross-encoder run modelling code shipped with its checkpoint."""
+        return self._get_knowledge_setting(
+            "rag",
+            "reranker_trust_remote_code",
+            default=self._config["reranker_trust_remote_code"],
         )
 
     @property

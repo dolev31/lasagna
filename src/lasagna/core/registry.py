@@ -313,7 +313,7 @@ class ComponentRegistry:
                 "reranker",
                 "llm_listwise",
                 _r + "LLMListwiseRerankerAdapter",
-                "LLM listwise reranker with sliding-window Borda aggregation (RankGPT-style)",
+                "RankGPT: LLM permutations over windows sliding from the bottom up",
                 "arxiv:2304.09542",
                 [],
             ),
@@ -388,6 +388,78 @@ class ComponentRegistry:
                 "Built-in extraction (pypdf and pdfplumber, OCR when enabled)",
                 None,
                 ["default_adapted"],
+            ),
+            (
+                "retriever",
+                "dense",
+                "lasagna.retrieval.search.retrievers:DenseRetriever",
+                "Dense vector search with the configured embedder (the default first stage)",
+                "arxiv:2004.04906",
+                [],
+            ),
+            (
+                "retriever",
+                "bm25",
+                "lasagna.retrieval.search.retrievers:BM25Retriever",
+                "Okapi BM25 over the session's chunks (bm25_k1, bm25_b)",
+                "doi:10.1561/1500000019",
+                [],
+            ),
+            (
+                "retriever",
+                "splade",
+                "lasagna.retrieval.search.retrievers:SPLADERetriever",
+                "SPLADE learned sparse retrieval (splade_model)",
+                "arxiv:2109.10086",
+                [],
+            ),
+            (
+                "retriever",
+                "hybrid_rrf",
+                "lasagna.retrieval.search.retrievers:HybridRRFRetriever",
+                "Dense and BM25 fused by Reciprocal Rank Fusion (rrf_k)",
+                "doi:10.1145/1571941.1572114",
+                [],
+            ),
+            (
+                "retriever",
+                "hybrid_convex",
+                "lasagna.retrieval.search.retrievers:HybridConvexRetriever",
+                "Convex combination of normalised dense and BM25 scores (hybrid_alpha)",
+                "arxiv:2210.11934",
+                [],
+            ),
+            (
+                "reranker",
+                "monot5",
+                "lasagna.retrieval.search.rerankers:MonoT5Reranker",
+                "monoT5: P(true) from a seq2seq relevance model (monot5_model)",
+                "arxiv:2003.06713",
+                [],
+            ),
+            (
+                "reranker",
+                "llm_pointwise",
+                "lasagna.retrieval.search.rerankers:LLMPointwiseReranker",
+                "LLM relevance grade per passage on a 0-3 scale (llm_reranker_model)",
+                "arxiv:2309.10621",
+                [],
+            ),
+            (
+                "reranker",
+                "flashrank",
+                "lasagna.retrieval.search.rerankers:FlashRankReranker",
+                "FlashRank ONNX cross-encoders on CPU (pip install flashrank)",
+                None,
+                [],
+            ),
+            (
+                "reranker",
+                "cohere",
+                "lasagna.retrieval.search.rerankers:CohereReranker",
+                "Cohere Rerank API (pip install cohere, COHERE_API_KEY)",
+                None,
+                [],
             ),
             (
                 "generator",
@@ -938,13 +1010,7 @@ class ComponentRegistry:
         return self._list_category(self._components["query_enhancer"], "query_enhancer")
 
     def list_retrievers(self) -> List[Dict[str, str]]:
-        """List all registered retrievers with descriptions.
-
-        Returns an empty list today: nothing is registered for this stage, so
-        the "swap any stage" claim has nothing behind it here. Exposing the
-        accessor anyway means a caller finds that out by asking rather than by
-        discovering there is no way to ask.
-        """
+        """List all registered retrievers with descriptions."""
         self._ensure_builtins()
         return self._list_category(self._components["retriever"], "retriever")
 

@@ -153,12 +153,46 @@ class RerankedResult:
     highlights: Optional[List[str]] = None
 
 
+#: sentence-transformers scores a causal-LM reranker (mixedbread-ai/mxbai-rerank-
+#: base-v2, Qwen3-Reranker) from its true/false token logits from 5.4 on.
+#: Earlier releases load one as a classifier with an untrained head.
+_CAUSAL_LM_RERANKERS_SINCE = (5, 4)
+
+
+def _refuse_unscorable_reranker(name: str, trust_remote_code: bool) -> None:
+    """Raise for a causal-LM reranker this sentence-transformers cannot score."""
+    try:
+        from importlib.metadata import version
+
+        installed = tuple(int(p) for p in version("sentence-transformers").split(".")[:2])
+    except Exception:
+        return
+    if installed >= _CAUSAL_LM_RERANKERS_SINCE:
+        return
+    from transformers import AutoConfig
+
+    config = AutoConfig.from_pretrained(name, trust_remote_code=trust_remote_code)
+    if any(a.endswith("ForCausalLM") for a in getattr(config, "architectures", None) or []):
+        raise RuntimeError(
+            f"{name!r} is a causal-LM reranker, which sentence-transformers "
+            f"{'.'.join(map(str, installed))} would score with an untrained head: "
+            f"pip install -U 'sentence-transformers>=5.4'"
+        )
+
+
 class CrossEncoderReranker:
     """Cross-encoder based reranker for improved precision.
 
     Cross-encoders jointly encode query and document, providing
     more accurate relevance scores than bi-encoders at the cost
     of being slower (can't pre-compute document embeddings).
+
+    Any sentence-transformers ``CrossEncoder`` checkpoint loads by name:
+    sequence classifiers (BAAI/bge-reranker-v2-m3, the ms-marco MiniLMs) and,
+    from sentence-transformers 5.4, causal-LM rerankers that ship their scoring
+    module (mixedbread-ai/mxbai-rerank-base-v2). A checkpoint with its own
+    modelling code (jinaai/jina-reranker-v2-base-multilingual) needs
+    ``reranker_trust_remote_code``.
     """
 
     #: Cross-encoders kept loaded at once. Sweep arms that differ in
@@ -211,19 +245,20 @@ class CrossEncoderReranker:
         """Load ``self.model_name`` (kept for callers of the old interface)."""
         self.model = self._model_for(self.model_name)
 
-    def _model_for(self, name: str) -> Any:
+    def _model_for(self, name: str, trust_remote_code: bool = False) -> Any:
         """The loaded cross-encoder for ``name``, loading it on first use.
 
         A model that cannot load raises, once per name: it used to be skipped,
         so an arm with a misspelled model scored the retrieval order, recorded
         the misspelled name as what ran, and retried the load on every query.
         """
+        key = f"{name}|trust_remote_code" if trust_remote_code else name
         with self._config_lock:
-            if name in self._failed:
-                raise RuntimeError(self._failed[name])
-            model = self._models.get(name)
+            if key in self._failed:
+                raise RuntimeError(self._failed[key])
+            model = self._models.get(key)
             if model is not None:
-                self._models.move_to_end(name)
+                self._models.move_to_end(key)
                 return model
             if not CROSS_ENCODER_AVAILABLE:
                 raise RuntimeError(
@@ -233,12 +268,14 @@ class CrossEncoderReranker:
                 device = _detect_device()
                 logger.info(f"Loading cross-encoder reranker: {name} on {device}")
                 warn_if_restricted(name, component="reranker")
+                _refuse_unscorable_reranker(name, trust_remote_code)
+                extra = {"trust_remote_code": True} if trust_remote_code else {}
                 with device_guard(device):
-                    model = CrossEncoder(name, device=device)
+                    model = CrossEncoder(name, device=device, **extra)
             except Exception as e:
-                self._failed[name] = f"Cannot load reranker model {name!r}: {e}"
-                raise RuntimeError(self._failed[name]) from e
-            self._models[name] = model
+                self._failed[key] = f"Cannot load reranker model {name!r}: {e}"
+                raise RuntimeError(self._failed[key]) from e
+            self._models[key] = model
             while len(self._models) > self.MAX_LOADED_MODELS:
                 self._models.popitem(last=False)
             if name == self.model_name:
@@ -282,7 +319,10 @@ class CrossEncoderReranker:
         # switched by another session between choosing a model and scoring.
         name = self.model_name if (self._pinned or config is None) else config.reranker_model
         batch_size = getattr(config, "reranker_batch_size", None) or self.batch_size
-        model = self._model_for(name)
+        trust = getattr(
+            config if config is not None else rag_config, "reranker_trust_remote_code", False
+        )
+        model = self._model_for(name, bool(trust))
 
         # Prepare query-document pairs
         pairs = []
@@ -1095,41 +1135,87 @@ class ColBERTReranker:
         return reranked[:top_k]
 
 
-class LLMListwiseReranker:
-    """LLM-based listwise reranking using sliding windows (RankGPT-style).
+def parse_rankgpt_permutation(text: str, n: int) -> Tuple[List[int], bool]:
+    """A window's order from a RankGPT response, and whether it named any passage.
 
-    Uses Borda count aggregation across overlapping windows for robust ranking.
-    Production reliability: temperature=0, regex parsing, fallback to original order.
+    RankGPT's parsing: the identifiers in the order given, minus duplicates and
+    out-of-range ones, then every passage the response left out in its current
+    order. Two guards it lacked: a reasoning model's ``<think>`` block is
+    dropped, and when the response uses ``[n]`` identifiers only those are
+    read, so prose such as "the 20 passages ranked:" is not read as passage 20.
+    """
+    import re
+
+    text = re.sub(r"<think>.*?</think>", " ", text or "", flags=re.DOTALL)
+    numbers = re.findall(r"\[(\d+)\]", text) or re.findall(r"\d+", text)
+    seen: set = set()
+    order: List[int] = []
+    for number in numbers:
+        i = int(number) - 1
+        if 0 <= i < n and i not in seen:
+            seen.add(i)
+            order.append(i)
+    named = bool(order)
+    order.extend(i for i in range(n) if i not in seen)
+    return order, named
+
+
+class LLMListwiseReranker:
+    """RankGPT listwise reranking (Sun et al. 2023, "Is ChatGPT Good at Search?").
+
+    The LLM is shown a window of passages as numbered chat turns and asked for a
+    permutation (``[2] > [3] > [1]``), with RankGPT's prompt. Windows of
+    ``llm_reranker_window_size`` passages (20) slide from the bottom of the list
+    to the top in steps of ``llm_reranker_step_size`` (10), each permutation
+    reordering its window in place, so a relevant passage can rise across
+    windows to the top. Each passage is cut to its first 300 words, as in
+    RankGPT. Raises when no LLM is configured, when a call keeps failing, or when
+    no response named a passage: returning the retrieval order would put the
+    control's number under this arm's name.
     """
 
-    PROMPT = (
-        'Given the query: "{query}"\n'
-        "Rank the following {n} passages from most to least relevant.\n"
-        'Output ONLY a comma-separated list of passage numbers (e.g., "3,1,4,2").\n\n'
-        "{passages}"
+    SYSTEM = (
+        "You are RankGPT, an intelligent assistant that can rank passages based on "
+        "their relevancy to the query."
     )
+    PREFIX = (
+        "I will provide you with {num} passages, each indicated by number identifier []. "
+        "\nRank the passages based on their relevance to query: {query}."
+    )
+    POST = (
+        "Search Query: {query}. \nRank the {num} passages above based on their relevance "
+        "to the search query. The passages should be listed in descending order using "
+        "identifiers. The most relevant passages should be listed first. The output "
+        "format should be [] > [], e.g., [1] > [2]. Only response the ranking results, "
+        "do not say any word or explain."
+    )
+    #: Words of each passage shown to the LLM, as in RankGPT.
+    PASSAGE_WORDS = 300
 
     def __init__(self, config=None, embedding_manager=None, **kwargs):
         self._config = config or rag_config
-        self._window_size = getattr(self._config, "llm_reranker_window_size", 10)
-        self._step_size = max(1, self._window_size // 2)
+        self._window_size = getattr(self._config, "llm_reranker_window_size", 20)
+        self._step_size = getattr(self._config, "llm_reranker_step_size", 10)
         from lasagna.utils.model_utils import get_default_model_name
 
         # Empty/unset resolves to the configured provider default. A vendor-
         # prefixed literal here fails for anyone not on that same proxy.
         self._model = getattr(self._config, "llm_reranker_model", "") or get_default_model_name()
-        self._llm = None
+        self._llms: Dict[str, Any] = {}
+        self._llm_lock = threading.Lock()
 
-    def _ensure_llm(self):
-        if self._llm is None:
-            try:
-                from lasagna.providers.llm_provider import SimpleLLMProvider
+    def _llm_for(self, model: str) -> Any:
+        with self._llm_lock:
+            llm = self._llms.get(model)
+            if llm is None:
+                from lasagna.providers import LLMProviderNotConfigured, get_llm_provider
 
-                provider = SimpleLLMProvider()
-                self._llm = provider.get_llm(model_name=self._model, temperature=0)
-            except Exception as e:
-                logger.error(f"Failed to create LLM for listwise reranker: {e}")
-                raise
+                try:
+                    provider = get_llm_provider()
+                except LLMProviderNotConfigured as exc:
+                    raise RuntimeError("llm_listwise needs an LLM, and none is configured") from exc
+                llm = self._llms[model] = provider.get_llm(model_name=model, temperature=0)
+            return llm
 
     @property
     def model_name(self) -> str:
@@ -1149,46 +1235,48 @@ class LLMListwiseReranker:
         config=None,
         **kwargs,
     ) -> Union[List[RerankedResult], Tuple[List[RerankedResult], Dict[str, Any]]]:
-        """Sliding window listwise reranking with Borda aggregation."""
-
-        # Read per-query config for window_size and model, falling back to
-        # constructor-time defaults.  This ensures experiment YAML overrides
-        # (e.g. llm_reranker_window_size: 5 vs 10) are respected even though
-        # the reranker instance is created once per pipeline.
-        effective_config = config or self._config
-        window_size = getattr(effective_config, "llm_reranker_window_size", self._window_size)
-        step_size = max(1, window_size // 2)
-        request_model = getattr(effective_config, "llm_reranker_model", self._model)
-
-        # Re-create LLM if model changed from a previous call
-        if request_model != self._model or self._llm is None:
-            self._model = request_model
-            self._llm = None  # force re-creation
-        self._ensure_llm()
+        """RankGPT's sliding-window permutation generation over ``results``."""
+        # Read per call: the instance is built once per pipeline, and a sweep's
+        # arms differ in these settings.
+        effective = config or self._config
+        window = int(getattr(effective, "llm_reranker_window_size", None) or self._window_size)
+        step = int(getattr(effective, "llm_reranker_step_size", None) or self._step_size)
+        model = getattr(effective, "llm_reranker_model", None) or self._model
+        if window < 2 or step < 1:
+            raise ValueError(
+                f"llm_listwise needs a window of at least 2 and a step of at least 1 "
+                f"(got window={window}, step={step})"
+            )
 
         t0 = time.time()
         top_k = top_k or len(results)
+        order = list(range(len(results)))
+        if len(results) > 1:
+            llm = self._llm_for(model)
+            passages = [" ".join(extract_content(r).split()[: self.PASSAGE_WORDS]) for r in results]
+            named_any = False
+            # The loop of rank_llm, the RankGPT authors' own library: unlike
+            # RankGPT's first version it also ranks a list shorter than a window.
+            end, start = len(order), len(order) - window
+            while end > 0 and start + step != 0:
+                start = max(start, 0)
+                current = order[start:end]
+                if len(current) > 1:
+                    permutation, named = self._rank_window(
+                        llm, query, [passages[i] for i in current]
+                    )
+                    named_any = named_any or named
+                    order[start:end] = [current[j] for j in permutation]
+                end, start = end - step, start - step
+            if not named_any:
+                raise RuntimeError(
+                    f"llm_listwise: no response from {model!r} named a passage, so "
+                    f"nothing was reranked"
+                )
 
-        # Truncate passages to ~500 tokens each
-        truncated = [extract_content(r)[:2000] for r in results]
-
-        # Slide window, collect Borda scores
-        borda: Dict[int, float] = {i: 0.0 for i in range(len(results))}
-        for start in range(0, len(results), step_size):
-            window = list(range(start, min(start + window_size, len(results))))
-            if len(window) < 2:
-                continue
-            ranking = self._rank_window(query, [truncated[i] for i in window])
-            for borda_rank, local_idx in enumerate(ranking):
-                if local_idx < len(window):
-                    borda[window[local_idx]] += len(window) - borda_rank
-
-        # Sort by Borda score descending
-        ranked_indices = sorted(borda, key=lambda i: borda[i], reverse=True)
-        max_borda = max(borda.values()) if borda else 1.0
-
+        n = len(order)
         reranked = []
-        for final_rank, orig_idx in enumerate(ranked_indices[:top_k]):
+        for final_rank, orig_idx in enumerate(order[:top_k]):
             r = results[orig_idx]
             reranked.append(
                 RerankedResult(
@@ -1197,8 +1285,8 @@ class LLMListwiseReranker:
                     content=extract_content(r),
                     metadata=extract_metadata(r),
                     original_score=extract_score(r),
-                    rerank_score=borda[orig_idx],
-                    normalized_score=borda[orig_idx] / max(1.0, max_borda),
+                    rerank_score=float(n - final_rank),
+                    normalized_score=(n - final_rank) / n,
                     original_rank=orig_idx,
                     final_rank=final_rank,
                     embedding=extract_embedding(r),
@@ -1211,42 +1299,32 @@ class LLMListwiseReranker:
             return reranked, {"rerank_ms": rerank_ms, "mmr_ms": 0.0}
         return reranked
 
-    def _rank_window(self, query: str, passages: List[str]) -> List[int]:
-        """Call LLM to rank a window of passages. Returns list of 0-based indices."""
-        import re
+    def _rank_window(self, llm: Any, query: str, passages: List[str]) -> Tuple[List[int], bool]:
+        """One RankGPT call: the window's permutation, and whether it named a passage."""
+        from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
         n = len(passages)
-        passage_text = "\n".join(f"Passage {i + 1}: {p[:500]}" for i, p in enumerate(passages))
-        prompt = self.PROMPT.format(query=query, n=n, passages=passage_text)
+        messages: List[Any] = [
+            SystemMessage(content=self.SYSTEM),
+            HumanMessage(content=self.PREFIX.format(num=n, query=query)),
+            AIMessage(content="Okay, please provide the passages."),
+        ]
+        for i, passage in enumerate(passages, start=1):
+            messages.append(HumanMessage(content=f"[{i}] {passage}"))
+            messages.append(AIMessage(content=f"Received passage [{i}]."))
+        messages.append(HumanMessage(content=self.POST.format(query=query, num=n)))
 
         for attempt in range(3):
             try:
-                response = self._llm.invoke(prompt)
-                text = response.content if hasattr(response, "content") else str(response)
-                # Parse comma-separated indices
-                numbers = re.findall(r"\d+", text)
-                if numbers:
-                    # Convert to 0-based, deduplicate, validate range
-                    seen = set()
-                    ranking = []
-                    for num_str in numbers:
-                        idx = int(num_str) - 1  # 1-based to 0-based
-                        if 0 <= idx < n and idx not in seen:
-                            seen.add(idx)
-                            ranking.append(idx)
-                    if ranking:
-                        # Add any missing indices at the end
-                        for i in range(n):
-                            if i not in seen:
-                                ranking.append(i)
-                        return ranking
+                response = llm.invoke(messages)
+                break
             except Exception as e:
+                if attempt == 2:
+                    raise RuntimeError(f"llm_listwise: the LLM call failed: {e}") from e
                 logger.warning(f"LLM reranker attempt {attempt + 1} failed: {e}")
-                if attempt < 2:
-                    time.sleep(2**attempt)
-
-        # Fallback: original order
-        return list(range(n))
+                time.sleep(2**attempt)
+        text = response.content if hasattr(response, "content") else str(response)
+        return parse_rankgpt_permutation(str(text), n)
 
 
 _reranker: Optional[CombinedReranker] = None
