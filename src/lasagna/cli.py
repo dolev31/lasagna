@@ -1342,10 +1342,10 @@ def results_bundle(
     bundle = results.to_bundle(submitter=submitter or None)
 
     Path(output).write_text(json.dumps(bundle, indent=2, default=str))
-    console.print(f"[green]Wrote[/green] {output}")
+    console.print(f"[green]Wrote[/green] {escape(output)}")
     console.print(f"  run_id: {bundle['run_id']}")
     for cfg in bundle["configs"]:
-        console.print(f"  {cfg['name']}: comparability key {cfg['comparability_key']}")
+        console.print(f"  {escape(str(cfg['name']))}: comparability key {cfg['comparability_key']}")
     warnings = bundle["integrity"]["warnings"]
     if warnings:
         console.print(f"[yellow]  integrity warnings: {', '.join(warnings)}[/yellow]")
@@ -1413,8 +1413,10 @@ def results_validate(
 
     if problems:
         console.print(f"[red]INVALID[/red] — {len(problems)} problem(s):")
+        # Problem lines quote arm names, which are free text: `a[/b]` is a
+        # Rich closing tag and crashed the command instead of printing.
         for p in problems:
-            console.print(f"  - {p}")
+            console.print(f"  - {escape(p)}")
         raise typer.Exit(1)
 
     console.print(f"[green]VALID[/green] (schema {schema}, run_id {bundle['run_id']})")
@@ -1431,7 +1433,11 @@ def results_compare(
     """Compare two runs, reporting whether they are comparable at all."""
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    console.print(BenchmarkResults.load(a).compare(BenchmarkResults.load(b), metric))
+    console.print(
+        BenchmarkResults.load(a).compare(BenchmarkResults.load(b), metric),
+        markup=False,
+        highlight=False,
+    )
 
 
 @results_app.command("power")
@@ -1728,7 +1734,7 @@ def results_per_query(
                 writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
                 writer.writeheader()
                 writer.writerows(rows)
-        console.print(f"[green]Wrote[/green] {output} ({len(rows)} rows)")
+        console.print(f"[green]Wrote[/green] {escape(output)} ({len(rows)} rows)")
         return
 
     metrics = sorted(_metric_columns(rows))[:6]
@@ -1739,8 +1745,8 @@ def results_per_query(
         table.add_column(name, justify="right")
     for row in rows[:limit]:
         table.add_row(
-            row["config"],
-            str(row["sample_id"])[:24],
+            escape(str(row["config"])),
+            escape(str(row["sample_id"])[:24]),
             *[f"{row[m]:.3f}" if m in row else "—" for m in metrics],
         )
     console.print(table)
@@ -2082,11 +2088,11 @@ def results_leaderboard(
     )
     for name, info in index["benchmarks"].items():
         console.print(
-            f"  {name}: {info['n_rows']} row(s) in {info['n_groups']} "
+            f"  {escape(name)}: {info['n_rows']} row(s) in {info['n_groups']} "
             f"comparability group(s), {info['n_verified']} verified"
         )
     if output:
-        console.print(f"[green]Wrote {output}[/green]")
+        console.print(f"[green]Wrote {escape(output)}[/green]")
 
 
 @results_app.command("schema")
@@ -2106,7 +2112,7 @@ def results_schema(
     text = _json.dumps(json_schema(), indent=2) + "\n"
     if output:
         Path(output).write_text(text, encoding="utf-8")
-        console.print(f"[green]Wrote {output}[/green] (schema {SCHEMA_VERSION})")
+        console.print(f"[green]Wrote {escape(output)}[/green] (schema {SCHEMA_VERSION})")
     else:
         console.print(text, markup=False, highlight=False)
 
