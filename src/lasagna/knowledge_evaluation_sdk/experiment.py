@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import functools
 import json
 import os
 import re
@@ -87,6 +88,27 @@ _INGESTION_TIME_KEYS = frozenset(
         "collection_name",
     }
 )
+
+
+@functools.lru_cache(maxsize=1)
+def _ingestion_time_keys() -> frozenset:
+    """Every setting that changes what gets ingested: the list above plus each
+    setting the stage map files under chunking, embedding or document
+    processing.
+
+    The list alone went stale: settings added with new chunkers
+    (semantic_breakpoint_method, chunk_unit, ...) were missing, so an arm
+    sweeping only one of them reused the control's corpus and measured nothing.
+    """
+    from lasagna.core.config import RAGConfig, rag_config
+
+    from .stages import stage_of
+
+    known = set(getattr(rag_config, "_config", {}) or {})
+    known |= {n for n, v in vars(RAGConfig).items() if isinstance(v, property)}
+    derived = {k for k in known if stage_of(k) in ("chunker", "embedder", "document_processor")}
+    return frozenset(_INGESTION_TIME_KEYS | derived)
+
 
 # Keys that affect ingestion *behavior* (e.g., whether BM25 tokenization
 # happens during upload) but do NOT affect corpus identity.  These are
@@ -664,7 +686,14 @@ _CROSS_ENCODER_RERANKERS = frozenset(
 
 
 #: The setting that names the model a built-in reranker component loads.
-_RERANKER_MODEL_KEYS = {"colbert": "colbert_model", "llm_listwise": "llm_reranker_model"}
+_RERANKER_MODEL_KEYS = {
+    "colbert": "colbert_model",
+    "llm_listwise": "llm_reranker_model",
+    "llm_pointwise": "llm_reranker_model",
+    "monot5": "monot5_model",
+    "flashrank": "flashrank_model",
+    "cohere": "cohere_rerank_model",
+}
 
 
 def _reranker_that_ran(component: Optional[str], task_config: Dict[str, Any]) -> Any:
@@ -2532,14 +2561,14 @@ def _corpus_cache_key(task: "BenchmarkTask") -> Optional[str]:
 
             _all_profile = resolve_ingestion_defaults(task.profile)
             _profile_ingestion = {
-                k: v for k, v in _all_profile.items() if k in _INGESTION_TIME_KEYS
+                k: v for k, v in _all_profile.items() if k in _ingestion_time_keys()
             }
         except Exception:
             pass  # fall back to empty
 
     # Explicit ingestion overrides take precedence over profile defaults
     _explicit_ingestion = {
-        k: v for k, v in (task.config_overrides or {}).items() if k in _INGESTION_TIME_KEYS
+        k: v for k, v in (task.config_overrides or {}).items() if k in _ingestion_time_keys()
     }
     merged = {**_profile_ingestion, **_explicit_ingestion}
     # A chunker or embedder component makes its own corpus: keyed by what the
@@ -3123,7 +3152,7 @@ async def _eval_live(
     # 1. _INGESTION_TIME_KEYS: affect corpus identity (chunking, embedding, etc.)
     # 2. _INGESTION_RUNTIME_KEYS: affect ingestion behavior but NOT corpus identity
     #    (e.g., enable_hybrid_search controls whether BM25 tokenization happens)
-    _combined_ingestion_keys = _INGESTION_TIME_KEYS | _INGESTION_RUNTIME_KEYS
+    _combined_ingestion_keys = _ingestion_time_keys() | _INGESTION_RUNTIME_KEYS
     _task_overrides = task.config_overrides or {}
 
     # Pull the profile's ingestion keys -- corpus-identity keys (embedder,
@@ -3138,7 +3167,7 @@ async def _eval_live(
         _all_profile = _resolve(task.profile)
         _from_profile = {k: v for k, v in _all_profile.items() if k in _combined_ingestion_keys}
     _merged_keys = {**_from_profile, **_task_overrides}
-    _has_signature_keys = any(k in _INGESTION_TIME_KEYS for k in _merged_keys)
+    _has_signature_keys = any(k in _ingestion_time_keys() for k in _merged_keys)
     _has_runtime_keys = any(k in _INGESTION_RUNTIME_KEYS for k in _merged_keys)
 
     if _has_signature_keys or _has_runtime_keys:

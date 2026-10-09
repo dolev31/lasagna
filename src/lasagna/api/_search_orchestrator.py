@@ -464,6 +464,9 @@ class SearchOrchestrator:
         component_fingerprint = "|".join(
             [
                 f"rr:{_component_identity(reranker)}",
+                # The retriever too: a retriever arm was served the cached
+                # results of an arm that searched the default way.
+                f"rt:{_component_identity(_retriever_override) if _retriever_override else ''}",
                 f"qe:{_component_identity(enhancer)}",
                 f"em:{_component_identity(effective_embedder)}",
                 # Every other setting (reranker model, thresholds, depth...):
