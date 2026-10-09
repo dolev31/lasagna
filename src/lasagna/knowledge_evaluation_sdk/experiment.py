@@ -3366,4 +3366,11 @@ async def run_benchmark(
     )
 
     exp = Experiment(config=config, eval_fn=eval_fn)
-    return await exp.run()
+    try:
+        return await exp.run()
+    finally:
+        # Milvus Lite's threads are not daemons; without this a script that
+        # ends with run_benchmark() never exits. A later call reopens it.
+        from ..api.rag_backend import close_backend
+
+        close_backend()

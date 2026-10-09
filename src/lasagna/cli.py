@@ -907,6 +907,7 @@ def benchmark_run(
 
     if results.failed_tasks:
         console.print(f"\n[red]{len(results.failed_tasks)} task(s) failed[/red]")
+    _release_backend()
     _exit_if_tasks_failed(results)
 
 
@@ -965,7 +966,25 @@ def benchmark_experiment(
             f"Output: [cyan]{output_dir}[/cyan]",
         )
     )
+    _release_backend()
     _exit_if_tasks_failed(results)
+
+
+def _release_backend() -> None:
+    """Close the shared backend so the process can exit.
+
+    Milvus Lite's gRPC threads are not daemons, and Python joins non-daemon
+    threads before atexit handlers run, so a finished experiment printed its
+    summary and then never exited -- which hangs CI jobs and batch scripts.
+    """
+    try:
+        from .api.rag_backend import close_backend
+
+        close_backend()
+    except Exception as exc:  # never let cleanup mask the run's outcome
+        from loguru import logger
+
+        logger.debug(f"Backend close failed: {exc}")
 
 
 def _exit_if_tasks_failed(results) -> None:
