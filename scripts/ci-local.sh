@@ -73,7 +73,8 @@ step "vector backend conformance"
 run "conformance" env HOME="$(mktemp -d)" \
   LASAGNA_MILVUS_DB_PATH="$(mktemp -d)/milvus_conformance.db" QDRANT_PATH="$(mktemp -d)/qdrant" \
   "$PY" -m pytest tests/test_vector_backend_conformance.py tests/test_milvus_reopen_in_new_process.py \
-  tests/test_corpus_preflight_is_bounded.py -q -p no:cacheprovider
+  tests/test_corpus_preflight_is_bounded.py tests/test_profile_guard_reads_a_real_store.py \
+  -q -p no:cacheprovider
 
 step "OpenSearch, pgvector and Docling unit tests"
 # A venv of its own, so .venv-ci keeps matching what CI's main suite runs on.

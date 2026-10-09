@@ -179,7 +179,9 @@ jobs:
         env:
           LASAGNA_MILVUS_DB_PATH: ${{ runner.temp }}/milvus_conformance.db
           QDRANT_PATH: ${{ runner.temp }}/qdrant_conformance
-        run: pytest tests/test_vector_backend_conformance.py tests/test_milvus_reopen_in_new_process.py tests/test_corpus_preflight_is_bounded.py -q
+        run: |
+          pytest tests/test_vector_backend_conformance.py tests/test_milvus_reopen_in_new_process.py \
+            tests/test_corpus_preflight_is_bounded.py tests/test_profile_guard_reads_a_real_store.py -q
 
       # The OpenSearch, pgvector and Docling unit tests mock the service but need
       # its client library, which [eval] does not install: without this step
