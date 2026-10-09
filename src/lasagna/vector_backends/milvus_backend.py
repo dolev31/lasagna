@@ -234,6 +234,11 @@ class MilvusBackend(VectorStoreAdapter):
         """Check if connected to Milvus."""
         return self._client is not None
 
+    @property
+    def is_lite(self) -> bool:
+        """Whether this is Milvus Lite (a local database file), not a server."""
+        return bool(self._db_path)
+
     def _ensure_connected(self) -> MilvusClient:
         """Ensure we're connected and return the client."""
         if not self._client:
@@ -414,6 +419,12 @@ class MilvusBackend(VectorStoreAdapter):
                 return
 
             # Otherwise, treat it as an IndexConfig object
+            if self.is_lite and getattr(index_config, "index_type", None) != IndexType.FLAT:
+                index_config = IndexConfig(
+                    index_type=IndexType.FLAT,
+                    metric_type=getattr(index_config, "metric_type", MetricType.COSINE),
+                    params={},
+                )
             index_params = client.prepare_index_params()
             index_params.add_index(
                 field_name=field_name,

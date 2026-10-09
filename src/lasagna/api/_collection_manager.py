@@ -21,6 +21,22 @@ from ..vector_backends import (
 from ..infrastructure.embedding import get_embedding_manager, EmbeddingManager
 
 
+def _dense_index_type(backend: Any, config: Any) -> str:
+    """The dense-vector index to build: FLAT on Milvus Lite, else the setting.
+
+    Milvus Lite 3.x builds an HNSW (or AUTOINDEX) index with faiss inside the
+    calling process when a collection is loaded. On macOS, once torch has
+    started its own OpenMP runtime, that build aborts with "OMP: Error #15" or
+    deadlocks, so any search from a new process crashed once a collection held
+    a few hundred chunks. FLAT avoids the build and is exact, which also keeps
+    approximate-search noise out of measured differences; Lite corpora are
+    small enough for brute force.
+    """
+    if getattr(backend, "is_lite", False):
+        return "FLAT"
+    return "HNSW" if config.index_type == "HNSW" else (config.index_type or "AUTOINDEX")
+
+
 class CollectionManager:
     """Manages vector backend lifecycle, collection creation, and schema migration.
 
@@ -239,7 +255,9 @@ class CollectionManager:
 
         abstract_schema = create_abstract_rag_schema(embedding_dim)
         index_config = IndexConfig(
-            index_type=IndexType.HNSW if config.index_type == "HNSW" else IndexType.AUTOINDEX,
+            index_type=IndexType.__members__.get(
+                _dense_index_type(backend, config), IndexType.AUTOINDEX
+            ),
             metric_type=MetricType.COSINE if config.metric_type == "COSINE" else MetricType.L2,
             params=config.index_params,
         )
@@ -258,7 +276,7 @@ class CollectionManager:
             index_params = backend.prepare_index_params()
             index_params.add_index(
                 field_name="embedding",
-                index_type=config.index_type,
+                index_type=_dense_index_type(backend, config),
                 metric_type=config.metric_type,
                 params=config.index_params,
             )
