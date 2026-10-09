@@ -41,6 +41,12 @@ HARNESS_KEYS = frozenset(
     }
 )
 
+#: The harness keys that change only what is recorded, not any number. Only
+#: these are left out of the task hash: metric_k and the over-fetch change
+#: the metrics, and leaving them out let --resume restore a result computed
+#: under the old values and label it with the new ones.
+RECORDING_ONLY_KEYS = frozenset({"allow_inert_overrides", "save_trajectories"})
+
 
 def _resolved_revision(adapter: Any, benchmark_name: str) -> str:
     """The upstream revision this benchmark was loaded at, or ``""``.
@@ -142,16 +148,20 @@ class BenchmarkTask:
         max_corpus_docs is included so that pilot runs (e.g. 500-doc)
         never collide with full-corpus runs in checkpoints.
 
-        ``HARNESS_KEYS`` are excluded. They change how the run is *recorded*,
-        not what it does, and hashing them made a run with trajectory logging
-        on incomparable to the same run with it off.
+        ``RECORDING_ONLY_KEYS`` are excluded. They change how the run is
+        *recorded*, not what it measures, and hashing them made a run with
+        trajectory logging on incomparable to the same run with it off. The
+        other harness keys (the IR cutoff, the over-fetch) change the numbers,
+        so a checkpoint made under one value never stands in for another.
         """
         import json
 
         hash_data: Dict[str, Any] = {
             "profile": self.profile,
             "overrides": {
-                k: v for k, v in (self.config_overrides or {}).items() if k not in HARNESS_KEYS
+                k: v
+                for k, v in (self.config_overrides or {}).items()
+                if k not in RECORDING_ONLY_KEYS
             },
         }
         if self.max_corpus_docs > 0:

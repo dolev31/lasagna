@@ -166,11 +166,20 @@ def test_results_without_manifests_are_unverified_not_passed():
 
 
 def test_declared_stages_come_from_settings_and_components():
-    assert declared_stages({"reranker": "x", "hybrid_alpha": 0.3, "metric_k": 10}) == {
+    assert declared_stages({"reranker": "x", "hybrid_alpha": 0.3, "a_new_knob": 10}) == {
         "reranker",
         "retriever",
         "other",
     }
+
+
+def test_harness_depth_settings_belong_to_retrieval():
+    # metric_k and the over-fetch set how deep retrieval goes; an arm that
+    # sweeps them must be neither flagged undeclared nor inert.
+    assert stage_of("metric_k") == "retriever"
+    assert stage_of("retrieval_chunk_overfetch") == "retriever"
+    assert stage_of("save_trajectories") is None
+    assert stage_of("allow_inert_overrides") is None
 
 
 def test_the_manifest_covers_every_stage_and_names_values():
@@ -180,3 +189,10 @@ def test_the_manifest_covers_every_stage_and_names_values():
     assert m["reranker"]["settings"]["reranker_model"] == "m"
     same = copy.deepcopy(m)
     assert same["embedder"]["digest"] == _manifest()["embedder"]["digest"]
+
+
+def test_a_depth_arm_is_neither_inert_nor_undeclared():
+    control = stage_manifest(_Config(**BASE), {}, harness={"metric_k": 10})
+    deep = stage_manifest(_Config(**BASE), {}, harness={"metric_k": 100})
+    rows = [_row("control", {}, control), _row("deep", {"metric_k": 100}, deep)]
+    assert isolation_report(rows) == {"undeclared": [], "inert": [], "unverified": []}

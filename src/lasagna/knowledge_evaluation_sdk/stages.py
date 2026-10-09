@@ -209,10 +209,22 @@ _PREFIXES: Tuple[Tuple[str, str], ...] = (
 )
 
 
+#: Harness settings: the IR cutoff and the over-fetch set how deep retrieval
+#: goes, so they count as retriever changes; the rest only steer recording.
+_HARNESS_STAGES: Dict[str, Optional[str]] = {
+    "metric_k": "retriever",
+    "retrieval_chunk_overfetch": "retriever",
+    "allow_inert_overrides": None,
+    "save_trajectories": None,
+}
+
+
 def stage_of(key: str) -> Optional[str]:
     """The stage a setting or component slot belongs to; None if operational."""
     if key in COMPONENT_STAGES:
         return COMPONENT_STAGES[key]
+    if key in _HARNESS_STAGES:
+        return _HARNESS_STAGES[key]
     if key in _OPERATIONAL:
         return None
     if key in _EXACT:
@@ -241,7 +253,11 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
-def stage_manifest(config: Any, components: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+def stage_manifest(
+    config: Any,
+    components: Optional[Mapping[str, Any]] = None,
+    harness: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
     """Digest every setting and component that reached each stage.
 
     Args:
@@ -249,6 +265,9 @@ def stage_manifest(config: Any, components: Optional[Mapping[str, Any]] = None) 
             resolved for the session and the arm's overrides).
         components: Component names the arm put in their slots, with their
             identity (registry name or ``module:function``).
+        harness: The harness settings the evaluation used (``metric_k``, the
+            over-fetch). They never reach the pipeline config, so they are
+            passed here and filed under their stage like any other setting.
 
     Returns:
         ``{stage: {"digest", "component", "settings"}}``. ``settings`` holds the
@@ -260,6 +279,10 @@ def stage_manifest(config: Any, components: Optional[Mapping[str, Any]] = None) 
         stage = stage_of(key)
         if stage is not None:
             by_stage[stage][key] = _effective(config, key)
+    for key, value in (harness or {}).items():
+        stage = stage_of(key)
+        if stage is not None:
+            by_stage[stage][key] = value
 
     manifest: Dict[str, Any] = {}
     for stage, settings in by_stage.items():

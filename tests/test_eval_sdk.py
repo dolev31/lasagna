@@ -491,6 +491,25 @@ class TestTaskKeyUniqueness:
         assert t_full.config_hash != t_capped.config_hash
         assert t_full.task_key != t_capped.task_key
 
+    def test_measurement_depth_is_part_of_the_checkpoint_key(self):
+        """--resume must not restore a result measured at another depth.
+
+        metric_k and the over-fetch change every IR number; recording-only
+        keys (trajectory logging) must not split checkpoints.
+        """
+        from lasagna.knowledge_evaluation_sdk.runner import BenchmarkTask
+
+        def task(**overrides):
+            return BenchmarkTask(
+                benchmark_name="bench", config_name="cfg", config_overrides=overrides, run_index=0
+            )
+
+        base = task()
+        assert task(metric_k=100).config_hash != base.config_hash
+        assert task(retrieval_chunk_overfetch=8).config_hash != base.config_hash
+        assert task(save_trajectories=True).config_hash == base.config_hash
+        assert task(allow_inert_overrides=True).config_hash == base.config_hash
+
     def test_corpus_cache_key_consistency_with_pre_register(self):
         """_corpus_cache_key produces correct keys based on ingestion params.
 

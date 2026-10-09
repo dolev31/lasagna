@@ -3563,6 +3563,7 @@ async def _eval_live(
                 for k, v in (task.config_overrides or {}).items()
                 if k in _COMPONENT_KEYS and isinstance(v, str)
             },
+            harness={"metric_k": _metric_k, "retrieval_chunk_overfetch": _chunk_overfetch},
         )
     except Exception as exc:  # the manifest must never cost a result
         logger.warning(f"Could not record the stage manifest: {exc}")
