@@ -1039,7 +1039,10 @@ def _print_isolation(results) -> None:
         for line in report["undeclared"]:
             console.print(f"  - {escape(line)}")
     elif rows and not report["unverified"]:
-        console.print("[green]Stage isolation: arms differ only in the stages they name.[/green]")
+        console.print(
+            "[green]Stage isolation: the configuration that reached each stage differs "
+            "only in the stages the arms name.[/green]"
+        )
     for line in report["inert"]:
         console.print(f"[yellow]Inert arm: {escape(line)}[/yellow]")
 
