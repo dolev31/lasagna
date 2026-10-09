@@ -341,6 +341,9 @@ class RAGConfig:
             "llm_reranker_window_size": 20,
             "llm_reranker_step_size": 10,
             "colbert_model": "colbert-ir/colbertv2.0",  # ColBERT late-interaction model
+            # Some cross-encoder rerankers ship their own modelling code (e.g.
+            # jinaai/jina-reranker-v2-base-multilingual) and load only with it.
+            "reranker_trust_remote_code": False,
             "enable_context_reordering": True,  # Lost-in-the-middle fix: place best results at start/end
             "enable_context_compression": False,  # Compress chunks to reduce noise/tokens
             "compression_method": "extractive",  # 'extractive' | 'abstractive'
@@ -1063,6 +1066,15 @@ class RAGConfig:
         """ColBERT late-interaction model name."""
         return self._get_knowledge_setting(
             "rag", "colbert_model", default=self._config["colbert_model"]
+        )
+
+    @property
+    def reranker_trust_remote_code(self) -> bool:
+        """Let the cross-encoder run modelling code shipped with its checkpoint."""
+        return self._get_knowledge_setting(
+            "rag",
+            "reranker_trust_remote_code",
+            default=self._config["reranker_trust_remote_code"],
         )
 
     @property

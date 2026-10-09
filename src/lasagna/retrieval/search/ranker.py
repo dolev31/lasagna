@@ -153,12 +153,46 @@ class RerankedResult:
     highlights: Optional[List[str]] = None
 
 
+#: sentence-transformers scores a causal-LM reranker (mixedbread-ai/mxbai-rerank-
+#: base-v2, Qwen3-Reranker) from its true/false token logits from 5.4 on.
+#: Earlier releases load one as a classifier with an untrained head.
+_CAUSAL_LM_RERANKERS_SINCE = (5, 4)
+
+
+def _refuse_unscorable_reranker(name: str, trust_remote_code: bool) -> None:
+    """Raise for a causal-LM reranker this sentence-transformers cannot score."""
+    try:
+        from importlib.metadata import version
+
+        installed = tuple(int(p) for p in version("sentence-transformers").split(".")[:2])
+    except Exception:
+        return
+    if installed >= _CAUSAL_LM_RERANKERS_SINCE:
+        return
+    from transformers import AutoConfig
+
+    config = AutoConfig.from_pretrained(name, trust_remote_code=trust_remote_code)
+    if any(a.endswith("ForCausalLM") for a in getattr(config, "architectures", None) or []):
+        raise RuntimeError(
+            f"{name!r} is a causal-LM reranker, which sentence-transformers "
+            f"{'.'.join(map(str, installed))} would score with an untrained head: "
+            f"pip install -U 'sentence-transformers>=5.4'"
+        )
+
+
 class CrossEncoderReranker:
     """Cross-encoder based reranker for improved precision.
 
     Cross-encoders jointly encode query and document, providing
     more accurate relevance scores than bi-encoders at the cost
     of being slower (can't pre-compute document embeddings).
+
+    Any sentence-transformers ``CrossEncoder`` checkpoint loads by name:
+    sequence classifiers (BAAI/bge-reranker-v2-m3, the ms-marco MiniLMs) and,
+    from sentence-transformers 5.4, causal-LM rerankers that ship their scoring
+    module (mixedbread-ai/mxbai-rerank-base-v2). A checkpoint with its own
+    modelling code (jinaai/jina-reranker-v2-base-multilingual) needs
+    ``reranker_trust_remote_code``.
     """
 
     #: Cross-encoders kept loaded at once. Sweep arms that differ in
@@ -211,19 +245,20 @@ class CrossEncoderReranker:
         """Load ``self.model_name`` (kept for callers of the old interface)."""
         self.model = self._model_for(self.model_name)
 
-    def _model_for(self, name: str) -> Any:
+    def _model_for(self, name: str, trust_remote_code: bool = False) -> Any:
         """The loaded cross-encoder for ``name``, loading it on first use.
 
         A model that cannot load raises, once per name: it used to be skipped,
         so an arm with a misspelled model scored the retrieval order, recorded
         the misspelled name as what ran, and retried the load on every query.
         """
+        key = f"{name}|trust_remote_code" if trust_remote_code else name
         with self._config_lock:
-            if name in self._failed:
-                raise RuntimeError(self._failed[name])
-            model = self._models.get(name)
+            if key in self._failed:
+                raise RuntimeError(self._failed[key])
+            model = self._models.get(key)
             if model is not None:
-                self._models.move_to_end(name)
+                self._models.move_to_end(key)
                 return model
             if not CROSS_ENCODER_AVAILABLE:
                 raise RuntimeError(
@@ -233,12 +268,14 @@ class CrossEncoderReranker:
                 device = _detect_device()
                 logger.info(f"Loading cross-encoder reranker: {name} on {device}")
                 warn_if_restricted(name, component="reranker")
+                _refuse_unscorable_reranker(name, trust_remote_code)
+                extra = {"trust_remote_code": True} if trust_remote_code else {}
                 with device_guard(device):
-                    model = CrossEncoder(name, device=device)
+                    model = CrossEncoder(name, device=device, **extra)
             except Exception as e:
-                self._failed[name] = f"Cannot load reranker model {name!r}: {e}"
-                raise RuntimeError(self._failed[name]) from e
-            self._models[name] = model
+                self._failed[key] = f"Cannot load reranker model {name!r}: {e}"
+                raise RuntimeError(self._failed[key]) from e
+            self._models[key] = model
             while len(self._models) > self.MAX_LOADED_MODELS:
                 self._models.popitem(last=False)
             if name == self.model_name:
@@ -282,7 +319,10 @@ class CrossEncoderReranker:
         # switched by another session between choosing a model and scoring.
         name = self.model_name if (self._pinned or config is None) else config.reranker_model
         batch_size = getattr(config, "reranker_batch_size", None) or self.batch_size
-        model = self._model_for(name)
+        trust = getattr(
+            config if config is not None else rag_config, "reranker_trust_remote_code", False
+        )
+        model = self._model_for(name, bool(trust))
 
         # Prepare query-document pairs
         pairs = []
