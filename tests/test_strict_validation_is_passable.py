@@ -61,3 +61,13 @@ def test_an_exercised_fallback_says_how_to_remove_it():
 def test_the_packaged_smoke_benchmark_is_pinned_by_its_content():
     pin = benchmark_registry.get("smoke").hf_revision
     assert pin.startswith("sha256:") and len(pin) > 10
+
+
+def test_missing_punkt_data_is_named_with_its_fix_and_only_when_used():
+    fb = ["sentence_split_without_punkt"]
+    fixed = {"chunking_strategy": "fixed", "preserve_headers": False, "preserve_tables": False}
+    assert exercised_fallbacks([_row(chunker=fixed)], fb) == []
+    integ = _integrity(
+        [_row(chunker={"preserve_headers": True})], {"environment": {"active_fallbacks": fb}}
+    )
+    assert "punkt_tab" in integ["fallbacks"][0]

@@ -612,6 +612,9 @@ def json_schema() -> Dict[str, Any]:
 #: What each stand-in changes, and how to remove it.
 FALLBACK_FIXES: Dict[str, str] = {
     "sentence_split_without_nltk": "sentences are split by punctuation; pip install 'lasagna-rag[eval]'",
+    "sentence_split_without_punkt": (
+        "sentences are split by punctuation; python -m nltk.downloader punkt_tab"
+    ),
     "bm25_without_stemming": "BM25 matches unstemmed words; pip install 'lasagna-rag[eval]'",
     "hybrid_without_bm25": "hybrid search has no sparse side; pip install rank-bm25",
     "docling_requested_but_missing": "documents are parsed without docling; pip install docling",
@@ -659,7 +662,7 @@ def exercised_fallbacks(rows: List[Dict[str, Any]], fallbacks: Optional[List[str
     if not _could_have_used(rows, _uses_hybrid):
         out = [f for f in out if f not in _NEEDS_BM25]
     if not _could_have_used(rows, _splits_sentences):
-        out = [f for f in out if f != "sentence_split_without_nltk"]
+        out = [f for f in out if not f.startswith("sentence_split_without_")]
     return out
 
 
