@@ -426,6 +426,22 @@ def _load_toml(path: str) -> Dict[str, Any]:
         return tomllib.load(f)
 
 
+def _fix_retrieval_depth(task_config: Dict[str, Any], depth: int) -> None:
+    """Make retrieval evaluation return ``depth`` uncached, untruncated results.
+
+    Answer-time policies are right for answering and wrong for measuring
+    retrieval at k: the search cache can serve a different arm's lists, the
+    relative similarity threshold and adaptive-k cut lists well below k, and
+    default_top_k can cap the candidates below the requested depth.
+    """
+    task_config["enable_search_cache"] = False
+    task_config["similarity_threshold"] = 0.0
+    ccr = dict(task_config.get("chunk_cite_retrieval") or {})
+    ccr["strategy"] = "fixed"
+    task_config["chunk_cite_retrieval"] = ccr
+    task_config["default_top_k"] = max(int(task_config.get("default_top_k") or 0), depth)
+
+
 class _StaleCorpusCleanupError(RuntimeError):
     """A partial corpus could not be removed before re-ingesting it."""
 
@@ -2546,6 +2562,20 @@ async def _eval_live(
         f"IR metrics at k={_metric_k}; requesting {_retrieval_depth} chunks per query "
         f"to yield {_metric_k} distinct documents after de-duplication"
     )
+
+    # Retrieval metrics measure the pipeline at a fixed depth, so the
+    # answer-time policies that shorten or reuse result lists are neutralized
+    # here. Each one changed what a sweep measured, without an error:
+    # - the search cache keyed on a dozen fields (not the reranker model), so
+    #   one arm was served another arm's lists, and repeated runs replayed run 0;
+    # - similarity_threshold is applied to per-query min-max-normalized scores,
+    #   a relative cut that left about 4 documents per query on SciFact;
+    # - adaptive-k cut reranked lists by score gap, to about 7 documents;
+    # - default_top_k capped the dense candidates below the requested depth.
+    _fix_retrieval_depth(task_config, _retrieval_depth)
+    # Generation keeps its answer-time policies (they are the system under
+    # test), but every run must execute rather than replay the cache.
+    gen_config["enable_search_cache"] = False
 
     try:
         # ── IR path ─────────────────────────────────────────────────────────

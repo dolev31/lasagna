@@ -39,6 +39,23 @@ from typing import Dict, List, Sequence, Union
 RelevanceMap = Dict[str, Union[int, float]]
 
 
+
+def _unique(retrieved: List[str]) -> List[str]:
+    """Keep the first occurrence of each document ID, in rank order.
+
+    A ranked list of chunks names a document once per retrieved chunk. Scoring
+    the repeats counted one relevant document several times: three chunks of
+    it gave NDCG@10 2.13 and Recall@10 3.0. trec_eval ignores repeated IDs;
+    so do these functions.
+    """
+    seen: set = set()
+    out: List[str] = []
+    for doc_id in retrieved:
+        if doc_id not in seen:
+            seen.add(doc_id)
+            out.append(doc_id)
+    return out
+
 def ndcg_at_k(
     relevance: RelevanceMap,
     retrieved: Sequence[str],
@@ -77,7 +94,7 @@ def ndcg_at_k(
 
     # DCG of the retrieved list
     dcg = 0.0
-    for i, doc_id in enumerate(retrieved[:k]):
+    for i, doc_id in enumerate(_unique(retrieved)[:k]):
         rel = relevance.get(doc_id, 0)
         dcg += _gain(rel) / math.log2(i + 2)  # i+2 because rank is 1-indexed
 
@@ -107,7 +124,7 @@ def precision_at_k(
     """
     if k <= 0:
         return 0.0
-    top_k = retrieved[:k]
+    top_k = _unique(retrieved)[:k]
     relevant_count = sum(1 for doc_id in top_k if relevance.get(doc_id, 0) > 0)
     return relevant_count / k
 
@@ -130,7 +147,7 @@ def recall_at_k(
     total_relevant = sum(1 for v in relevance.values() if v > 0)
     if total_relevant == 0 or k <= 0:
         return 0.0
-    top_k = retrieved[:k]
+    top_k = _unique(retrieved)[:k]
     relevant_retrieved = sum(1 for doc_id in top_k if relevance.get(doc_id, 0) > 0)
     return relevant_retrieved / total_relevant
 
@@ -154,7 +171,7 @@ def mrr(
     Returns:
         1/rank of first relevant document, or 0.0 if none found.
     """
-    eval_list = retrieved[:k] if k is not None else retrieved
+    eval_list = _unique(retrieved)[:k] if k is not None else _unique(retrieved)
     for rank, doc_id in enumerate(eval_list, 1):
         if relevance.get(doc_id, 0) > 0:
             return 1.0 / rank
@@ -185,7 +202,7 @@ def map_score(
     if total_relevant == 0:
         return 0.0
 
-    eval_list = retrieved[:k] if k is not None else retrieved
+    eval_list = _unique(retrieved)[:k] if k is not None else _unique(retrieved)
     ap_sum = 0.0
     relevant_so_far = 0
     for rank, doc_id in enumerate(eval_list, 1):
@@ -235,7 +252,7 @@ def hit_rate_at_k(
     """
     if k <= 0:
         return 0.0
-    for doc_id in retrieved[:k]:
+    for doc_id in _unique(retrieved)[:k]:
         if relevance.get(doc_id, 0) > 0:
             return 1.0
     return 0.0

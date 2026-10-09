@@ -387,6 +387,10 @@ class SearchOrchestrator:
                 f"rr:{_component_identity(reranker)}",
                 f"qe:{_component_identity(enhancer)}",
                 f"em:{_component_identity(effective_embedder)}",
+                # Every other setting (reranker model, thresholds, depth...):
+                # the cache keyed on a dozen fields, so one sweep arm could be
+                # served another arm's results.
+                f"cfg:{config.settings_fingerprint()}",
             ]
         )
 

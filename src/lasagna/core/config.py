@@ -85,6 +85,28 @@ class RAGConfig:
         config._query_overrides = {}
         return config
 
+    def settings_fingerprint(self) -> str:
+        """A short hash of everything that can differ between two searches.
+
+        Base settings are process-wide; what varies between calls is the
+        session's resolved config and the per-query overrides. The search cache
+        keys on this, so changing any setting (a reranker model, a threshold,
+        the candidate depth) is a cache miss rather than a stale result.
+        """
+        import hashlib
+        import json as _json
+
+        parts: Dict[str, Any] = {"query": getattr(self, "_query_overrides", None) or {}}
+        if self._session_id:
+            try:
+                from lasagna.providers import get_session_provider
+
+                parts["session"] = get_session_provider().get_resolved_config(self._session_id)
+            except Exception:
+                parts["session"] = {"_unresolved": self._session_id}
+        blob = _json.dumps(parts, sort_keys=True, default=str)
+        return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
     def with_query_overrides(self, overrides: Dict[str, Any]) -> "RAGConfig":
         """Create a config clone with per-query ephemeral overrides (highest priority).
 
