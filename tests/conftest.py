@@ -83,6 +83,14 @@ os.environ["HOME"] = os.path.join(_ISOLATED_DATA_DIR, "home")
 os.makedirs(os.environ["HOME"], exist_ok=True)
 os.environ["RAGAS_DO_NOT_TRACK"] = "true"
 
+# gRPC's fork handlers. Once a test has opened a Milvus connection, every later
+# subprocess the suite starts gets gRPC's "FD from fork parent still in poll
+# list" lines on its stderr, written by this process's handlers between fork
+# and exec. Tests that assert a child wrote nothing then failed in some test
+# orders only. The suite never uses a gRPC channel in a forked child, so the
+# handlers are not needed here. Must be set before grpc is first imported.
+os.environ.setdefault("GRPC_ENABLE_FORK_SUPPORT", "false")
+
 # Probe critical heavy dependencies at conftest-load time (before test
 # modules are imported).  If any are missing, tell pytest to skip every
 # file in this directory.

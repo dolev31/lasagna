@@ -29,6 +29,10 @@ env:
   # Without it the suite downloaded nltk data and posted ragas telemetry, and
   # passed, because nothing said it should not reach the network.
   NO_NETWORK: --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,localhost,::1
+  # pytest-randomly shuffles test order. -q hides the seed it would print, so
+  # pass one: the run id, visible in the command, reproduces the order with
+  # `pytest -p randomly --randomly-seed=<run id>`.
+  SHUFFLE: --randomly-seed=${{ github.run_id }}
 
 jobs:
   lint:
@@ -150,14 +154,14 @@ jobs:
         if: matrix.python-version != '3.12'
         env:
           HF_HUB_OFFLINE: "1"
-        run: pytest tests/ --ignore=tests/live --ignore=tests/stress -q $NO_NETWORK
+        run: pytest tests/ --ignore=tests/live --ignore=tests/stress -q $NO_NETWORK $SHUFFLE
 
       - name: Run tests with coverage floor
         if: matrix.python-version == '3.12'
         env:
           HF_HUB_OFFLINE: "1"
         run: |
-          pytest tests/ --ignore=tests/live --ignore=tests/stress -q $NO_NETWORK \
+          pytest tests/ --ignore=tests/live --ignore=tests/stress -q $NO_NETWORK $SHUFFLE \
             --cov --cov-report=term-missing:skip-covered
 
       # The only tests allowed the network: they load the configured embedding

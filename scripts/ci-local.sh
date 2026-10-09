@@ -45,6 +45,9 @@ uv pip install -q --python "$PY" -e ".[eval]" --group dev "qdrant-client>=1.7.0"
 HOME_CI="$(mktemp -d)"
 export HF_HUB_OFFLINE=1
 NO_NETWORK=(--disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,localhost,::1)
+# Test order is shuffled (pytest-randomly). Rerun a failing order with
+# RANDOMLY_SEED=<seed> scripts/ci-local.sh.
+SEED="${RANDOMLY_SEED:-$RANDOM}"
 
 step "lint"
 run "ruff check" uvx --quiet ruff@0.14.7 check .
@@ -65,9 +68,9 @@ else
 fi
 run "detect-secrets" sh -c 'git ls-files -z | xargs -0 uvx --quiet --from detect-secrets detect-secrets-hook --baseline .secrets.baseline'
 
-step "tests with coverage floor"
+step "tests with coverage floor (test order seed: $SEED)"
 run "pytest" env HOME="$HOME_CI" "$PY" -m pytest tests/ --ignore=tests/live --ignore=tests/stress \
-  -q -p no:cacheprovider "${NO_NETWORK[@]}" --cov --cov-report=term:skip-covered
+  -q -p no:cacheprovider "${NO_NETWORK[@]}" --randomly-seed="$SEED" --cov --cov-report=term:skip-covered
 
 step "vector backend conformance"
 run "conformance" env HOME="$(mktemp -d)" \
