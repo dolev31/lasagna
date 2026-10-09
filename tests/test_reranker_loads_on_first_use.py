@@ -19,11 +19,21 @@ def test_building_the_reranker_loads_nothing(monkeypatch):
     assert calls == []
 
 
+def _session(model="x", on=True):
+    return SimpleNamespace(
+        enable_reranking=on,
+        reranker_model=model,
+        reranker_batch_size=8,
+        rerank_top_k=5,
+        enable_mmr=False,
+    )
+
+
 def test_reranking_with_reranking_off_never_loads(monkeypatch):
     calls = []
     monkeypatch.setattr(ranker.CrossEncoderReranker, "_load_model", lambda self: calls.append(1))
     rr = ranker.CrossEncoderReranker(model_name="x")
-    off = SimpleNamespace(enable_reranking=False, rerank_top_k=5)
+    off = _session(on=False)
     rr.rerank("q", [{"id": "a", "content": "a", "score": 1.0, "metadata": {}}], top_k=1, config=off)
     assert calls == []
 
@@ -33,7 +43,45 @@ def test_first_rerank_with_reranking_on_loads_once(monkeypatch):
     monkeypatch.setattr(ranker.CrossEncoderReranker, "_load_model", lambda self: calls.append(1))
     monkeypatch.setattr(ranker, "CROSS_ENCODER_AVAILABLE", True)
     rr = ranker.CrossEncoderReranker(model_name="x")
-    on = SimpleNamespace(enable_reranking=True, rerank_top_k=5)
+    on = _session()
     hit = [{"id": "a", "content": "a", "score": 1.0, "metadata": {}}]
     rr.rerank("q", hit, top_k=1, config=on)
     assert calls == [1]  # attempted on first use (the stub leaves model None)
+
+
+class _FakeCrossEncoder:
+    def __init__(self, name, device=None):
+        self.name = name
+
+    def predict(self, pairs, batch_size=None, show_progress_bar=False):
+        return [float(len(doc)) for _, doc in pairs]
+
+
+def test_the_session_reranker_model_is_the_one_that_runs(monkeypatch):
+    # A sweep arm naming reranker_model got whatever model the backend had
+    # loaded at start; the arm's model must be the one scoring.
+    monkeypatch.setattr(ranker, "CrossEncoder", _FakeCrossEncoder)
+    monkeypatch.setattr(ranker, "CROSS_ENCODER_AVAILABLE", True)
+    rr = ranker.CrossEncoderReranker()
+    hit = [{"id": "a", "content": "aa", "score": 1.0, "metadata": {}}]
+    rr.rerank("q", hit, top_k=1, config=_session("small-model"))
+    assert rr.model.name == "small-model"
+    rr.rerank("q", hit, top_k=1, config=_session("other-model"))
+    assert rr.model.name == "other-model"
+
+
+def test_an_ensemble_keeps_its_members_and_their_models(monkeypatch):
+    # Lazy loading must not empty the ensemble (it kept members whose model
+    # had loaded), and a member keeps the model it was built for.
+    monkeypatch.setattr(ranker, "CrossEncoder", _FakeCrossEncoder)
+    monkeypatch.setattr(ranker, "CROSS_ENCODER_AVAILABLE", True)
+    ens = ranker.EnsembleReranker(
+        model_configs=[
+            ranker.RerankerModelConfig(model_name="m1", weight=0.5),
+            ranker.RerankerModelConfig(model_name="m2", weight=0.5),
+        ]
+    )
+    assert [r.model.name for r, _ in ens.rerankers] == ["m1", "m2"]
+    hit = [{"id": "a", "content": "aa", "score": 1.0, "metadata": {}}]
+    ens.rerank("q", hit, top_k=1, config=_session("session-default"))
+    assert [r.model.name for r, _ in ens.rerankers] == ["m1", "m2"]

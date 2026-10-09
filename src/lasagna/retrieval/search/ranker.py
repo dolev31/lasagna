@@ -168,6 +168,9 @@ class CrossEncoderReranker:
         """
         _config = config or rag_config
         self.model_name = model_name or _config.reranker_model
+        # A model named here (an ensemble member) stays; otherwise the
+        # session's reranker_model is followed on each call.
+        self._pinned = model_name is not None
         self.model: Optional[CrossEncoder] = None
         self.batch_size = _config.reranker_batch_size
         self._config_lock = threading.Lock()
@@ -188,7 +191,7 @@ class CrossEncoderReranker:
 
         with self._config_lock:
             needs_reload = self.model is None
-            if self.model_name != config.reranker_model:
+            if not self._pinned and self.model_name != config.reranker_model:
                 self.model_name = config.reranker_model
                 needs_reload = True
             if self.batch_size != config.reranker_batch_size:
@@ -197,6 +200,14 @@ class CrossEncoderReranker:
 
             if needs_reload and CROSS_ENCODER_AVAILABLE:
                 self._load_model()
+
+    def ensure_loaded(self) -> bool:
+        """Load the model if it is not loaded yet; True when it is usable."""
+        if self.model is None and CROSS_ENCODER_AVAILABLE:
+            with self._config_lock:
+                if self.model is None:
+                    self._load_model()
+        return self.model is not None
 
     def _load_model(self):
         """Load the cross-encoder model."""
@@ -233,10 +244,11 @@ class CrossEncoderReranker:
             top_k = top_k or rag_config.rerank_top_k
 
         enabled = config.enable_reranking if config else rag_config.enable_reranking
-        if enabled and self.model is None and CROSS_ENCODER_AVAILABLE:
-            with self._config_lock:
-                if self.model is None:
-                    self._load_model()
+        if config is not None:
+            # Follows the session's reranker_model and loads on first use.
+            self.configure(config)
+        elif enabled:
+            self.ensure_loaded()
         if not self.model or not enabled:
             # Return original results without reranking
             return self._convert_results(results, top_k)
@@ -695,7 +707,7 @@ class EnsembleReranker:
             if config.enabled:
                 try:
                     reranker = CrossEncoderReranker(model_name=config.model_name)
-                    if reranker.model is not None:
+                    if reranker.ensure_loaded():
                         self.rerankers.append((reranker, config.weight))
                         logger.info(
                             f"Ensemble: Added reranker {config.model_name} (weight={config.weight})"
