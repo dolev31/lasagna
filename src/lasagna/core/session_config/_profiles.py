@@ -519,22 +519,33 @@ class ProfileMixin:
         state = self.get_session_state(session_id)
 
         with self._lock:
+            previous = state.get_active_profile()
             profile_found = False
             for profile in state.profiles:
                 if profile.name == profile_name:
                     profile_found = True
                     if config:
                         state.session_overrides = config
+                    elif previous is not None and previous.name != profile_name:
+                        state.session_overrides = _without_echoes(
+                            state.session_overrides, previous.config
+                        )
                     break
 
             if not profile_found:
-                if config:
-                    new_profile = RAGProfile(
-                        name=profile_name,
-                        description=f"Custom profile: {profile_name}",
-                        config=config,
+                if not config:
+                    # Recording a name no profile has made `configure --profile
+                    # bogus` print "Applied profile: bogus" and change nothing.
+                    known = sorted(p.name for p in state.profiles)
+                    raise ValueError(
+                        f"Unknown profile {profile_name!r}. Available: {', '.join(known)}"
                     )
-                    state.profiles.append(new_profile)
+                new_profile = RAGProfile(
+                    name=profile_name,
+                    description=f"Custom profile: {profile_name}",
+                    config=config,
+                )
+                state.profiles.append(new_profile)
 
             state.active_profile = profile_name
             self._persist_session_states()
@@ -812,6 +823,22 @@ class ProfileMixin:
 
 
 # ---------------------------------------------------------------------------
+def _without_echoes(overrides: Dict[str, Any], profile_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Session overrides minus those that only repeat the profile being left.
+
+    The CLI and SDK clients write the active profile's values back as session
+    overrides, and overrides win over the profile. So after `configure
+    --profile speed` and an upload, switching to another profile was recorded
+    and changed nothing: search kept running speed's copied values. Values the
+    user actually changed differ from the old profile's and are kept.
+    """
+    return {
+        k: v
+        for k, v in (overrides or {}).items()
+        if not (k in (profile_config or {}) and profile_config[k] == v)
+    }
+
+
 # Standalone helpers (used by experiment runner for ingestion signatures)
 # ---------------------------------------------------------------------------
 

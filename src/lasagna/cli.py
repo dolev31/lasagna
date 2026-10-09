@@ -610,6 +610,36 @@ def serve(
 # ---------------------------------------------------------------------------
 
 
+def _embedding_dim_mismatch(session_id: str) -> Optional[tuple]:
+    """(stored, configured) embedding sizes when stored documents disagree, else None."""
+    from types import SimpleNamespace
+
+    from lasagna.api._collection_manager import CollectionManager
+    from lasagna.core.config import rag_config
+
+    config = rag_config.with_session(session_id)
+    backend = None
+    try:
+        backend = CollectionManager.create_vector_backend()
+        backend.connect()
+        # Both readers use only the backend they are handed.
+        shim = SimpleNamespace(_default_backend=backend)
+        if not CollectionManager.collection_has_documents(shim, config.collection_name):
+            return None
+        stored = CollectionManager.get_collection_embedding_dim(shim, config.collection_name)
+    except Exception:
+        return None  # no store yet, or unreadable: nothing to protect
+    finally:
+        if backend is not None:
+            try:
+                backend.disconnect()
+            except Exception:
+                pass
+    if stored is not None and int(stored) != int(config.embedding_dim):
+        return int(stored), int(config.embedding_dim)
+    return None
+
+
 @app.command()
 def configure(
     profile: Optional[str] = typer.Option(
@@ -619,6 +649,11 @@ def configure(
         help="Apply a preset profile (speed/standard/balanced/max_quality)",
     ),
     session_id: str = typer.Option("default", "--session", "-s", help="Session ID"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Apply even if the profile's embedding size differs from stored documents",
+    ),
 ):
     """Configure RAG settings.
 
@@ -632,11 +667,25 @@ def configure(
         _error(f"Failed to initialize config manager: {exc}")
 
     if profile:
+        previous = mgr.get_active_profile(session_id=session_id)
         try:
             mgr.set_active_profile(profile, session_id=session_id)
-            console.print(f"[green]Applied profile: {profile}[/green]")
         except ValueError as exc:
             _error(str(exc))
+        mismatch = _embedding_dim_mismatch(session_id)
+        if mismatch and not force:
+            # Search on a collection embedded at another size fails with a
+            # message whose remedies exist only in Python; say it here, before
+            # the switch, and leave the working profile in place.
+            mgr.set_active_profile(previous, session_id=session_id)
+            stored, wanted = mismatch
+            _error(
+                f"Profile {profile!r} embeds at {wanted} dimensions, but the stored "
+                f"documents were embedded at {stored}, so every search would fail. "
+                f"Kept profile {previous!r}. To use {profile!r}, point RAG_DB_DIR at a "
+                f"new directory and upload again, or pass --force to switch anyway."
+            )
+        console.print(f"[green]Applied profile: {profile}[/green]")
         return
 
     # List profiles
