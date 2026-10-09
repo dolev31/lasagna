@@ -1176,13 +1176,69 @@ class BenchmarkResults:
     # ------------------------------------------------------------------
 
     def leaderboard(self, metric: str = "ndcg@10") -> str:
-        """Generate a simple text leaderboard ranked by mean metric."""
-        agg = self.aggregate_by_pipeline(metric)
-        ranked = sorted(agg.items(), key=lambda x: x[1].mean, reverse=True)
+        """A text leaderboard, ranked within each benchmark.
 
-        lines = [f"Leaderboard — {metric}", "=" * 50]
-        for rank, (config, metrics) in enumerate(ranked, 1):
-            lines.append(f"  {rank}. {config:30s} {metrics}")
+        Configs are ranked only against configs that scored the same queries
+        on the same benchmark. This used to pool every task of a config across
+        benchmarks and drop failed ones, so a config that skipped the hard
+        benchmark outranked one that ran it, the printed ``± std (n=2)`` was
+        the spread between benchmarks, and an arm that scored 30 of 100
+        queries ranked above one that scored all 100.
+
+        A config that scored a different query set, failed some runs, failed
+        every run or never ran the benchmark is still listed, unranked or
+        annotated, so its absence cannot pass for a result.
+        """
+        lines = [
+            f"Leaderboard — {metric}",
+            "=" * 50,
+            "Ranked within each benchmark, over configs that scored the same queries.",
+        ]
+        for bench in self.benchmarks:
+            entries = []
+            for config in self.configs:
+                tasks = self._by_bench_config.get((bench, config), [])
+                ok = [t for t in tasks if not t.error and metric in t.metrics]
+                failed = sum(1 for t in tasks if t.error)
+                queries = set(_mean_by_sample(ok, metric))
+                entries.append((config, tasks, ok, failed, queries))
+
+            # The query set every complete config scored: the union, so a
+            # config missing any query is the one set apart.
+            universe = set().union(*(e[4] for e in entries))
+            width = max(len(e[0]) for e in entries)
+            ranked, unranked = [], []
+            for config, tasks, ok, failed, queries in entries:
+                failures = f"; {failed} of {len(tasks)} runs failed" if failed and ok else ""
+                if not tasks:
+                    unranked.append(f"  -  {config:{width}s}  not run")
+                elif not ok:
+                    reason = "failed" if failed else f"no {metric} recorded"
+                    unranked.append(f"  -  {config:{width}s}  {reason} ({len(tasks)} runs)")
+                else:
+                    agg = _aggregate([t.metrics[metric] for t in ok])
+                    runs = f"{agg.n_runs} run" + ("s" if agg.n_runs != 1 else "")
+                    spread = f" ± {agg.std:.4f}" if agg.n_runs > 1 else ""
+                    n_queries = f", {len(queries)} queries" if queries else ""
+                    cell = f"{agg.mean:.4f}{spread} ({runs}{n_queries}){failures}"
+                    if queries and queries != universe:
+                        unranked.append(
+                            f"  -  {config:{width}s}  {cell}; scored {len(queries)} of "
+                            f"{len(universe)} queries, not ranked against the others"
+                        )
+                    else:
+                        ranked.append((agg.mean, config, cell))
+
+            lines += ["", bench]
+            ranked.sort(key=lambda r: r[0], reverse=True)
+            for rank, (_, config, cell) in enumerate(ranked, 1):
+                lines.append(f"  {rank}. {config:{width}s}  {cell}")
+            lines += unranked
+            if not ranked and len(entries) > 1:
+                lines.append(
+                    "  No config scored every query. `lasagna results significance` "
+                    "compares two configs on the queries both scored."
+                )
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
