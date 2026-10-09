@@ -743,6 +743,8 @@ def config_for_speed() -> KnowledgeConfig:
         default_top_k=20,
         rerank_top_k=5,
         similarity_threshold=0.3,
+        # Fixed-k chunk selection, as the speed profile does.
+        chunk_retrieval_strategy=ChunkRetrievalStrategy.FIXED,
         chunk_retrieval_max=10,
         # Semantic chunking — no hierarchical overhead
         chunking_strategy=ChunkingStrategy.SEMANTIC,
