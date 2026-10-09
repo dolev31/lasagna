@@ -74,3 +74,22 @@ def test_agentic_search_inside_a_running_loop_raises_instead_of_falling_back():
 
     # The old behavior: the violation was caught and standard search served.
     orchestrator.search.assert_not_called()
+
+
+def test_two_custom_rerankers_have_different_cache_identities():
+    # Both used to be fingerprinted as the adapter class and shared cache entries.
+    from lasagna.api._search_orchestrator import _component_identity
+    from lasagna.core.base_components import BaseReranker
+    from lasagna.retrieval.search.ranker import PipelineRerankerAdapter
+
+    class LexicalReranker(BaseReranker):
+        def rerank(self, query, documents, top_k=5, **kwargs):
+            return documents[:top_k]
+
+    class LengthReranker(BaseReranker):
+        def rerank(self, query, documents, top_k=5, **kwargs):
+            return documents[:top_k]
+
+    a = _component_identity(PipelineRerankerAdapter(LexicalReranker()))
+    b = _component_identity(PipelineRerankerAdapter(LengthReranker()))
+    assert a != b

@@ -1297,6 +1297,21 @@ class PipelineRerankerAdapter:
         name = getattr(component, "name", None) or type(component).__name__
         self.cross_encoder = _PublicRerankerModel(name)
 
+    @property
+    def name(self) -> str:
+        """The wrapped component's identity, for cache keys and provenance.
+
+        Without it every custom reranker was fingerprinted as this adapter class,
+        so two custom rerankers in one process shared search-cache entries and
+        the second was served the first one's results.
+        """
+        inner = self._component
+        for attr in ("model_name_or_path", "model_name", "name"):
+            value = getattr(inner, attr, None)
+            if value and not callable(value):
+                return f"{type(inner).__module__}.{type(inner).__qualname__}:{value}"
+        return f"{type(inner).__module__}.{type(inner).__qualname__}"
+
     def rerank(
         self,
         query: str,
