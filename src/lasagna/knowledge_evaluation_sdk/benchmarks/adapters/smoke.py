@@ -242,8 +242,21 @@ _QUERIES: List[Dict[str, Any]] = [
 ]
 
 
+def _content_pin() -> str:
+    import hashlib
+    import json
+
+    blob = json.dumps([_CORPUS, _QUERIES], sort_keys=True, default=str)
+    return "sha256:" + hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
 class SmokeBenchmarkAdapter(BaseBenchmarkAdapter):
     """A 24-document, 12-query benchmark held entirely in this module."""
+
+    #: There is no upstream to move: the data is this module, so its content
+    #: hash is the pin. It was reported UNPINNED, so `validate --strict` could
+    #: not pass even on the benchmark that ships with the package.
+    hf_revision = _content_pin()
 
     def info(self) -> BenchmarkInfo:
         return BenchmarkInfo(

@@ -458,6 +458,60 @@ def json_schema() -> Dict[str, Any]:
     }
 
 
+#: What each stand-in changes, and how to remove it.
+FALLBACK_FIXES: Dict[str, str] = {
+    "sentence_split_without_nltk": "sentences are split by punctuation; pip install 'lasagna-rag[eval]'",
+    "bm25_without_stemming": "BM25 matches unstemmed words; pip install 'lasagna-rag[eval]'",
+    "hybrid_without_bm25": "hybrid search has no sparse side; pip install rank-bm25",
+    "docling_requested_but_missing": "documents are parsed without docling; pip install docling",
+}
+
+#: Benchmark corpora are loaded as text, so document parsing never runs.
+_NEVER_IN_A_BENCHMARK = frozenset({"docling_requested_but_missing"})
+_NEEDS_BM25 = frozenset({"bm25_without_stemming", "hybrid_without_bm25"})
+
+
+def _uses_hybrid(row: Dict[str, Any]) -> Optional[bool]:
+    stages = (row.get("system") or {}).get("stages") or {}
+    settings = (stages.get("retriever") or {}).get("settings")
+    if settings is None:
+        return None  # no manifest: cannot tell, so assume it might have
+    return bool(settings.get("enable_hybrid_search"))
+
+
+def _splits_sentences(row: Dict[str, Any]) -> Optional[bool]:
+    """Whether the task's chunking ran the sentence splitter (see
+    ``chunker.semantic.resolve_effective_strategy`` for the dispatch order)."""
+    stages = (row.get("system") or {}).get("stages") or {}
+    s = (stages.get("chunker") or {}).get("settings")
+    if s is None:
+        return None
+    if s.get("enable_hierarchical"):
+        return False  # fixed-size parents and children
+    if s.get("preserve_headers") or s.get("preserve_tables"):
+        return True  # structure-aware chunks each section semantically
+    return str(s.get("chunking_strategy")) in ("semantic", "sentence_window")
+
+
+def _could_have_used(rows: List[Dict[str, Any]], probe) -> bool:
+    seen = [probe(r) for r in rows if not r.get("error")]
+    return not seen or any(v is not False for v in seen)
+
+
+def exercised_fallbacks(rows: List[Dict[str, Any]], fallbacks: Optional[List[str]]) -> List[str]:
+    """The active fallbacks the run's tasks could have used.
+
+    A task without a manifest counts as having used every stand-in: the
+    question cannot be answered, so the reader is told.
+    """
+    out = [f for f in fallbacks or [] if f not in _NEVER_IN_A_BENCHMARK]
+    if not _could_have_used(rows, _uses_hybrid):
+        out = [f for f in out if f not in _NEEDS_BM25]
+    if not _could_have_used(rows, _splits_sentences):
+        out = [f for f in out if f != "sentence_split_without_nltk"]
+    return out
+
+
 def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str, Any]:
     """Machine-readable reasons a bundle should not be trusted or published.
 
@@ -483,8 +537,14 @@ def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str
 
     # A missing optional package swaps in a stand-in (sentence splitting,
     # BM25 without stemming) that changes the numbers; a reader comparing
-    # with a run on a fuller install needs to know.
-    if (run_meta.get("environment") or {}).get("active_fallbacks"):
+    # with a run on a fuller install needs to know. Only stand-ins this run
+    # could have exercised count: docling, requested by the default settings,
+    # never touches a benchmark corpus, and flagging it meant `--strict` could
+    # not pass on the documented install.
+    exercised = exercised_fallbacks(
+        rows, (run_meta.get("environment") or {}).get("active_fallbacks")
+    )
+    if exercised:
         warnings.append("ACTIVE_FALLBACKS")
 
     # A number computed against part of a corpus is not the benchmark's number,
@@ -576,6 +636,9 @@ def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str
         "warnings": sorted(set(warnings)),
         "blocking": sorted(set(blocking)),
         "isolation": isolation,
+        # Each exercised stand-in with what it changes and how to remove it, so
+        # ACTIVE_FALLBACKS is something a reader can act on.
+        "fallbacks": [f"{f}: {FALLBACK_FIXES.get(f, 'see lasagna doctor')}" for f in exercised],
     }
 
 
