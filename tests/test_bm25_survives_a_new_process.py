@@ -86,3 +86,43 @@ def test_falling_back_to_dense_only_is_a_warning_and_a_flag():
         logger.remove(sink)
     assert metrics["hybrid_mode"] == "dense_only_fallback"
     assert "WARNING" in seen
+
+
+class _FlakyStore(_Store):
+    failed = False
+
+    def iter_all(self, *a, **kw):
+        if not self.failed:
+            self.failed = True
+            self.scans += 1
+            raise TimeoutError("store busy")
+        return super().iter_all(*a, **kw)
+
+
+def test_a_scan_that_failed_is_tried_again():
+    # The collection was marked before the scan ran, so one timeout left BM25
+    # empty for the life of the process and hybrid search silently dense-only.
+    s, store = _searcher(), _FlakyStore(ROWS)
+    assert s.hydrate_session_index("sess", store, "chunks", "filter") == 0
+    assert s.hydrate_session_index("sess", store, "chunks", "filter") == 4
+    assert store.scans == 2
+
+
+def test_a_concurrent_first_search_waits_for_the_scan():
+    import threading
+    import time
+
+    class _SlowStore(_Store):
+        def iter_all(self, *a, **kw):
+            time.sleep(0.2)
+            return super().iter_all(*a, **kw)
+
+    s, store = _searcher(), _SlowStore(ROWS)
+    first = threading.Thread(target=s.hydrate_session_index, args=("sess", store, "chunks", "f"))
+    first.start()
+    time.sleep(0.05)  # the first call holds the scan
+    s.hydrate_session_index("sess", store, "chunks", "f")
+    # By the time the second call returns, the index is filled.
+    assert len(s.get_session_index("sess").documents) == 4
+    first.join()
+    assert store.scans == 1

@@ -353,8 +353,10 @@ class BM25FallbackIndex:
         self.tokenized_corpus: List[List[str]] = []
         self.bm25: Optional[BM25Okapi] = None
         self._is_built = False
-        # Collections whose stored chunks were loaded into this index.
+        # Collections whose stored chunks were loaded into this index, and
+        # the scans in progress (a concurrent first search waits on them).
         self.hydrated_from: set = set()
+        self.hydrating: Dict[str, threading.Event] = {}
 
         # Version counter for CAS-safe concurrent builds.
         # Incremented on every mutation (add/remove/clear).
@@ -561,6 +563,7 @@ class HybridSearcher:
 
     # Session cleanup configuration (defaults; overridden by config at __init__)
     SESSION_MAX_AGE_SECONDS = 3600 * 24  # 24 hours absolute max age from creation
+    _HYDRATION_WAIT_SECONDS = 600  # how long a search waits for another's scan
     CLEANUP_INTERVAL_SECONDS = 3600  # Run periodic cleanup every hour
 
     def __init__(
@@ -1345,37 +1348,59 @@ class HybridSearcher:
             # back with a fresh index is filled again.
             if collection_name in index.hydrated_from:
                 return 0
-            index.hydrated_from.add(collection_name)
+            scan = index.hydrating.get(collection_name)
+            owner = scan is None
+            if owner:
+                scan = index.hydrating[collection_name] = threading.Event()
             have = {str(d.get("chunk_id")) for d in index.documents}
-        if self.is_native_mode_available() or self._backend_supports_native_hybrid(session_id):
+        if not owner:
+            # Another search is filling the index. Searching now would score
+            # BM25 over an empty index: the hybrid result silently dense-only.
+            scan.wait(timeout=self._HYDRATION_WAIT_SECONDS)
             return 0
-        if backend is None or not hasattr(backend, "iter_all"):
-            return 0
+
+        done = False  # marked only after a scan that completed
         try:
-            rows = backend.iter_all(
-                collection_name=collection_name,
-                filter_expr=session_filter,
-                output_fields=["chunk_id", "content", "document_id", "metadata"],
-                partition_key=partition_key,
-            )
-            missing = [
-                {
-                    "chunk_id": r.get("chunk_id"),
-                    "content": r.get("content", ""),
-                    "document_id": r.get("document_id", ""),
-                    "metadata": r.get("metadata", {}) or {},
-                }
-                for r in rows
-                if r.get("chunk_id") and str(r.get("chunk_id")) not in have
-            ]
-        except Exception as e:
-            logger.warning(f"Could not load stored chunks into the BM25 index: {e}")
-            return 0
-        if missing:
-            self.index_chunks(missing, session_id, build_now=False)
-            self.build_session_index(session_id)
-            logger.info(f"BM25 index filled from the store: {len(missing)} chunks")
-        return len(missing)
+            if self.is_native_mode_available() or self._backend_supports_native_hybrid(session_id):
+                done = True
+                return 0
+            if backend is None or not hasattr(backend, "iter_all"):
+                done = True
+                return 0
+            try:
+                rows = backend.iter_all(
+                    collection_name=collection_name,
+                    filter_expr=session_filter,
+                    output_fields=["chunk_id", "content", "document_id", "metadata"],
+                    partition_key=partition_key,
+                )
+                missing = [
+                    {
+                        "chunk_id": r.get("chunk_id"),
+                        "content": r.get("content", ""),
+                        "document_id": r.get("document_id", ""),
+                        "metadata": r.get("metadata", {}) or {},
+                    }
+                    for r in rows
+                    if r.get("chunk_id") and str(r.get("chunk_id")) not in have
+                ]
+            except Exception as e:
+                # Not marked: the next search tries again. Marking before the
+                # scan meant one timeout left BM25 empty for the process.
+                logger.warning(f"Could not load stored chunks into the BM25 index: {e}")
+                return 0
+            if missing:
+                self.index_chunks(missing, session_id, build_now=False)
+                self.build_session_index(session_id)
+                logger.info(f"BM25 index filled from the store: {len(missing)} chunks")
+            done = True
+            return len(missing)
+        finally:
+            with self._session_lock:
+                if done:
+                    index.hydrated_from.add(collection_name)
+                index.hydrating.pop(collection_name, None)
+            scan.set()
 
     def build_session_index(self, session_id: str) -> bool:
         """Explicitly build/rebuild BM25 index for a session.
