@@ -21,6 +21,8 @@ from lasagna.core.base_components import BaseReranker
 def test_a_decorator_inside_an_entry_point_registers_without_hanging(monkeypatch):
     # lasagna.core re-exports the registry object under the module's name.
     registry_module = importlib.import_module("lasagna.core.registry")
+    # The registry is a singleton; build a fresh one and put the global back after.
+    monkeypatch.setattr(registry_module.ComponentRegistry, "_instance", None)
     reg = registry_module.ComponentRegistry()
 
     def load():

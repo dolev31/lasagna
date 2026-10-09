@@ -171,9 +171,9 @@ class CrossEncoderReranker:
         self.model: Optional[CrossEncoder] = None
         self.batch_size = _config.reranker_batch_size
         self._config_lock = threading.Lock()
-
-        if CROSS_ENCODER_AVAILABLE and _config.enable_reranking:
-            self._load_model()
+        # Loaded on first use, not here: the reranker is built at backend start,
+        # so loading eagerly downloaded the default 870 MB model even for the
+        # speed profile, which turns reranking off.
 
     def configure(self, config) -> None:
         """Update reranker configuration for the current session (thread-safe).
@@ -232,11 +232,12 @@ class CrossEncoderReranker:
         else:
             top_k = top_k or rag_config.rerank_top_k
 
-        if (
-            not self.model
-            or (config and not config.enable_reranking)
-            or (config is None and not rag_config.enable_reranking)
-        ):
+        enabled = config.enable_reranking if config else rag_config.enable_reranking
+        if enabled and self.model is None and CROSS_ENCODER_AVAILABLE:
+            with self._config_lock:
+                if self.model is None:
+                    self._load_model()
+        if not self.model or not enabled:
             # Return original results without reranking
             return self._convert_results(results, top_k)
 
