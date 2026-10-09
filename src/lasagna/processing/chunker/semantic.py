@@ -73,13 +73,17 @@ class SemanticChunker:
     creating coherent chunks that preserve meaning.
     """
 
-    def __init__(self, embedding_manager=None):
+    def __init__(self, embedding_manager=None, config: Optional[RAGConfig] = None):
         """Initialize semantic chunker.
 
         Args:
             embedding_manager: Optional embedding manager for semantic splitting
+            config: The settings to chunk with. Defaults to the process-wide
+                config; ``chunk_document`` passes the arm's, so a swept
+                ``chunk_size`` reaches the chunker instead of the global value.
         """
         self.embedding_manager = embedding_manager
+        self._config = config if config is not None else rag_config
         self._ensure_nltk()
 
     def _ensure_nltk(self):
@@ -134,9 +138,10 @@ class SemanticChunker:
             logger.warning("No embedding manager - falling back to fixed chunking")
             return self.chunk_fixed(text)
 
-        threshold = threshold or rag_config.semantic_threshold
-        min_size = min_size or rag_config.min_chunk_size
-        max_size = max_size or rag_config.max_chunk_size
+        # `is not None`, not `or`: a threshold of 0.0 is a value, not a gap.
+        threshold = threshold if threshold is not None else self._config.semantic_threshold
+        min_size = min_size if min_size is not None else self._config.min_chunk_size
+        max_size = max_size if max_size is not None else self._config.max_chunk_size
 
         sentences = self._split_sentences(text)
         if not sentences:
@@ -218,8 +223,8 @@ class SemanticChunker:
         Returns:
             List of Chunk objects
         """
-        chunk_size = chunk_size if chunk_size is not None else rag_config.chunk_size
-        overlap = overlap if overlap is not None else rag_config.chunk_overlap
+        chunk_size = chunk_size if chunk_size is not None else self._config.chunk_size
+        overlap = overlap if overlap is not None else self._config.chunk_overlap
 
         if not text or not text.strip():
             return []
@@ -280,8 +285,9 @@ class SemanticChunker:
         Raises:
             ValueError: If overlap >= window_size (would cause infinite loop)
         """
-        window_size = window_size or rag_config.window_size
-        overlap = overlap or rag_config.sentence_overlap
+        # `or` turned a requested overlap of 0 into the configured default of 1.
+        window_size = window_size if window_size is not None else self._config.window_size
+        overlap = overlap if overlap is not None else self._config.sentence_overlap
 
         # Validate to prevent infinite loop
         if overlap >= window_size:
@@ -350,8 +356,9 @@ class HierarchicalChunker:
         Returns:
             Tuple of (parent_chunks, child_chunks)
         """
-        parent_size = parent_size if parent_size is not None else rag_config.parent_chunk_size
-        child_size = child_size if child_size is not None else rag_config.child_chunk_size
+        cfg = self.semantic_chunker._config
+        parent_size = parent_size if parent_size is not None else cfg.parent_chunk_size
+        child_size = child_size if child_size is not None else cfg.child_chunk_size
 
         # Create parent chunks
         parent_chunks = self.semantic_chunker.chunk_fixed(text, chunk_size=parent_size, overlap=0)
@@ -437,7 +444,7 @@ class StructureAwareChunker:
                     current_header = section_header
 
                 # Handle special content types
-                if rag_config.preserve_tables:
+                if self.semantic_chunker._config.preserve_tables:
                     section_text, table_chunks = self._extract_tables(
                         section_text, len(chunks), current_header, page_number
                     )
@@ -622,7 +629,7 @@ def create_chunker(
     # fixed-size chunking under that name.
     effective = resolve_effective_strategy(config, strategy)
 
-    chunker = SemanticChunker(embedding_manager=embedding_manager)
+    chunker = SemanticChunker(embedding_manager=embedding_manager, config=config)
     # Carried on the instance so a caller can see what it actually got. The
     # previous version logged the requested strategy and returned a chunker
     # that ignored it, which made the log actively misleading.
@@ -746,7 +753,10 @@ def chunk_document(
         logger.info(f"Chunking with injected component: {component.name}")
     else:
         resolve_effective_strategy(config, strategy)
-    chunker = SemanticChunker(embedding_manager=embedding_manager)
+    # The arm's config, not the process-wide one: the strategies below read
+    # chunk_size and friends from it, and with the global config two arms
+    # sweeping chunk_size produced the same chunks.
+    chunker = SemanticChunker(embedding_manager=embedding_manager, config=config)
 
     parent_chunks_data: Optional[List[Dict[str, Any]]] = None
 
@@ -860,14 +870,15 @@ class SemanticChunkerAdapter(BaseChunker):
         self._inner = SemanticChunker(embedding_manager=embedding_manager)
 
     def chunk(self, text: str, **kwargs) -> List[BaseChunk]:
-        # Only forward kwargs accepted by chunk_semantic
+        # Only forward kwargs accepted by chunk_semantic, under its own names:
+        # passing min_chunk_size through as-is raised TypeError.
         accepted = {}
         if "threshold" in kwargs:
             accepted["threshold"] = kwargs["threshold"]
         if "min_chunk_size" in kwargs:
-            accepted["min_chunk_size"] = kwargs["min_chunk_size"]
+            accepted["min_size"] = kwargs["min_chunk_size"]
         if "max_chunk_size" in kwargs:
-            accepted["max_chunk_size"] = kwargs["max_chunk_size"]
+            accepted["max_size"] = kwargs["max_chunk_size"]
         return self._inner.chunk_semantic(text, **accepted)
 
 
