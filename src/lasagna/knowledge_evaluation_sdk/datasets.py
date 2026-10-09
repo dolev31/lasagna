@@ -590,6 +590,10 @@ def _convert_squad(ds) -> List[Dict[str, Any]]:
             sample: Dict[str, Any] = {
                 "question": question,
                 "ground_truth": ground_truth,
+                # Every annotator's answer: the official script takes the best
+                # match over all of them, and scoring against the first alone
+                # understated EM and F1.
+                "ground_truth_answers": list(dict.fromkeys(answer_texts)),
             }
             if context:
                 sample["context"] = context

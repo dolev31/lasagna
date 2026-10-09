@@ -60,7 +60,12 @@ class SQuADv2Adapter(BaseBenchmarkAdapter):
                 query_id=str(i),
                 question=row.get("question", ""),
                 ground_truth=row.get("ground_truth", ""),
+                ground_truth_answers=list(row.get("ground_truth_answers") or []),
                 context=row.get("context", ""),
+                # SQuAD v2 marks a question unanswerable by an empty answer set.
+                # Said explicitly so the harness scores the abstention instead
+                # of dropping the question as missing data.
+                metadata={"unanswerable": not (row.get("ground_truth") or "").strip()},
             )
             for i, row in enumerate(rows)
         ]

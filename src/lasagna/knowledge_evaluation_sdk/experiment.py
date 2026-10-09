@@ -135,9 +135,49 @@ def _is_abstention_answer(text: str) -> bool:
     """Quick check whether an answer is an abstention (no LLM call needed)."""
     if not text or not text.strip():
         return True
+    if text.strip().strip(".!").strip().lower() in ("unanswerable", "no answer"):
+        return True  # the reply _ABSTAIN_INSTRUCTION asks for
     from .answer_metrics import is_abstention
 
     return is_abstention(text)
+
+
+#: Added to the answer prompt only for a benchmark that has unanswerable
+#: questions (SQuAD v2), so every other benchmark's prompt is unchanged.
+_ABSTAIN_INSTRUCTION = "If the context does not contain the answer, reply exactly: unanswerable. "
+
+
+def _is_unanswerable(sample: Any) -> bool:
+    """Whether the benchmark marks this question as having no answer.
+
+    Marked by the adapter, not inferred from an empty ``ground_truth``: an empty
+    answer elsewhere is missing data, while SQuAD v2's unanswerable half is the
+    skill the benchmark exists to measure. Both used to be dropped, so a
+    system that never abstains scored EM 1.000 where the official rule gives
+    0.505.
+    """
+    return bool((getattr(sample, "metadata", None) or {}).get("unanswerable"))
+
+
+def _no_answer_em(answer: str) -> float:
+    """SQuAD v2's rule for an unanswerable question, made explicit: correct only
+    if the system abstained. An empty answer here means generation failed (it
+    is counted as a failure), so it does not count as an abstention."""
+    return 1.0 if answer.strip() and _is_abstention_answer(answer) else 0.0
+
+
+def _answerability_split(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+    """The official script's has_ans / no_ans breakdown, when there are both."""
+    no = [r for r in rows if r.get("_answerable") == 0.0 and "exact_match" in r]
+    if not no:
+        return {}
+    has = [r for r in rows if r.get("_answerable") == 1.0 and "exact_match" in r]
+    out: Dict[str, float] = {"n_unanswerable": float(len(no))}
+    for name, group in (("has_ans", has), ("no_ans", no)):
+        if group:
+            out[f"exact_match_{name}"] = sum(r["exact_match"] for r in group) / len(group)
+            out[f"token_f1_{name}"] = sum(r.get("token_f1", 0.0) for r in group) / len(group)
+    return out
 
 
 def _record_eval_usage(result: TaskResult, meter: UsageMeter) -> None:
@@ -1875,7 +1915,7 @@ async def _eval_offline(
     # Filter to samples with both ground_truth and context (required for
     # RAGAS metrics like faithfulness, context_recall, context_precision).
     # Samples without gold context need live-mode retrieval.
-    eval_samples = [s for s in samples if s.ground_truth and s.context]
+    eval_samples = [s for s in samples if (s.ground_truth or _is_unanswerable(s)) and s.context]
     if not eval_samples:
         # Fall back to samples with just ground_truth + factual_correctness
         eval_samples = [s for s in samples if s.ground_truth]
@@ -1892,7 +1932,7 @@ async def _eval_offline(
     if skipped:
         logger.info(
             f"Offline eval: using {len(eval_samples)}/{len(samples)} samples "
-            f"(skipped {skipped} without gold context)"
+            f"(skipped {skipped} without a gold answer or gold context)"
         )
 
     # Build RAGAS judge LLM
@@ -1920,6 +1960,10 @@ async def _eval_offline(
     ground_truths: List[str] = []
     per_sample_latencies: List[float] = []
     per_sample_usage: List[TokenUsage] = []
+    _has_unanswerable = any(_is_unanswerable(s) for s in eval_samples)
+    _abstain = _ABSTAIN_INSTRUCTION if _has_unanswerable else ""
+    # The judge needs a reference answer, so RAGAS scores the answerable ones.
+    _ans_idx = [i for i, s in enumerate(eval_samples) if not _is_unanswerable(s)]
 
     for sample in eval_samples:
         questions.append(sample.question)
@@ -1936,7 +1980,8 @@ async def _eval_offline(
             try:
                 context_str = "\n\n".join(ctx)
                 prompt = (
-                    f"Answer the following question based on the given context.\n\n"
+                    f"Answer the following question based on the given context. "
+                    f"{_abstain}\n\n"
                     f"Context:\n{context_str}\n\n"
                     f"Question: {sample.question}\n\n"
                     f"Answer:"
@@ -1990,16 +2035,22 @@ async def _eval_offline(
         # The judge's own spend, kept separate from the system's. It is often
         # the larger of the two, and reporting one total lets an expensive
         # judge masquerade as an expensive pipeline.
-        with eval_meter, eval_meter.scope(EVAL):
-            detailed = evaluator.evaluate_detailed(
-                questions=questions,
-                answers=answers,
-                contexts=contexts,
-                ground_truths=ground_truths,
-                metrics=eval_metrics,
-            )
-        metrics = detailed.aggregate
-        per_sample_scores = detailed.per_sample
+        if _ans_idx:
+            with eval_meter, eval_meter.scope(EVAL):
+                detailed = evaluator.evaluate_detailed(
+                    questions=[questions[i] for i in _ans_idx],
+                    answers=[answers[i] for i in _ans_idx],
+                    contexts=[contexts[i] for i in _ans_idx],
+                    ground_truths=[ground_truths[i] for i in _ans_idx],
+                    metrics=eval_metrics,
+                )
+            metrics = dict(detailed.aggregate)
+        # One row per sample, in sample order; the judge's rows go to the
+        # answerable samples they scored.
+        per_sample_scores = [{} for _ in eval_samples]
+        for j, i in enumerate(_ans_idx):
+            if detailed is not None and j < len(detailed.per_sample):
+                per_sample_scores[i] = dict(detailed.per_sample[j])
 
         # Add latency, tokens, EM/F1, and trajectory to per-sample scores
         for i, latency in enumerate(per_sample_latencies):
@@ -2027,15 +2078,16 @@ async def _eval_offline(
             _gt = ground_truths[i] if i < len(ground_truths) else ""
             _ans = answers[i] if i < len(answers) else ""
             _aliases = getattr(sample, "ground_truth_answers", None) or []
-            if _gt.strip() and _ans.strip():
+            if _is_unanswerable(sample):
+                ps["exact_match"] = ps["token_f1"] = _no_answer_em(_ans)
+            elif _gt.strip() and _ans.strip():
                 ps["exact_match"] = _em_fn(_ans, _gt, aliases=_aliases)
                 ps["token_f1"] = _tf1_fn(_ans, _gt, aliases=_aliases)
-            elif not _gt.strip() and (not _ans.strip() or _is_abstention_answer(_ans)):
-                ps["exact_match"] = 1.0
-                ps["token_f1"] = 1.0
             else:
                 ps["exact_match"] = 0.0
                 ps["token_f1"] = 0.0
+            if _has_unanswerable:
+                ps["_answerable"] = 0.0 if _is_unanswerable(sample) else 1.0
 
             # Trajectory
             if _save_traj == "full":
@@ -2055,6 +2107,7 @@ async def _eval_offline(
             metrics["exact_match"] = sum(_em_scores) / len(_em_scores)
             _f1_scores = [s.get("token_f1", 0.0) for s in per_sample_scores if "token_f1" in s]
             metrics["token_f1"] = sum(_f1_scores) / len(_f1_scores)
+            metrics.update(_answerability_split(per_sample_scores))
 
     except ImportError:
         return TaskResult(
@@ -2822,7 +2875,7 @@ async def _eval_live(
     # E2E samples (both expected_docs AND ground_truth) appear in BOTH lists.
     # They are queried twice: once with IR-forced config, once with gen config.
     ir_samples = [s for s in samples if s.expected_docs]
-    gen_samples = [s for s in samples if s.ground_truth]
+    gen_samples = [s for s in samples if s.ground_truth or _is_unanswerable(s)]
     if task.tracks:
         # Skipped by request, not by failure: nothing is scored for the
         # track that did not run.
@@ -3195,7 +3248,10 @@ async def _eval_live(
             gen_answers: List[str] = []
             gen_contexts: List[List[str]] = []
             gen_ground_truths: List[str] = []
+            gen_answerable: List[bool] = []
             gen_agentic_answers: List[str] = []  # agentic pipeline's own answers
+            _has_unanswerable = any(_is_unanswerable(s) for s in gen_samples)
+            _abstain = _ABSTAIN_INSTRUCTION if _has_unanswerable else ""
             # One meter for the whole generation phase, read as a delta at the
             # end of each sample. Re-entered around each region that can spend
             # tokens rather than wrapping the loop body, so the accounting does
@@ -3319,7 +3375,8 @@ async def _eval_live(
                     prompt = (
                         "Answer the following question in ONE concise sentence "
                         "based only on the provided context. "
-                        "Do not explain or elaborate.\n\n"
+                        "Do not explain or elaborate. "
+                        f"{_abstain}\n\n"
                         f"Context:\n{ctx_text}\n\n"
                         f"Question: {gen_sample.question}\n\nAnswer:"
                     )
@@ -3388,6 +3445,7 @@ async def _eval_live(
                 _ctx_k = 10 if _speculative else 5
                 gen_contexts.append(contexts[:_ctx_k])
                 gen_ground_truths.append(gen_sample.ground_truth)
+                gen_answerable.append(not _is_unanswerable(gen_sample))
                 gen_agentic_answers.append(_agentic_answer)
 
                 _src = (
@@ -3400,15 +3458,13 @@ async def _eval_live(
                 _f1_score_val = 0.0
                 _gt = gen_sample.ground_truth or ""
                 _gt_aliases = getattr(gen_sample, "ground_truth_answers", None) or []
-                if _gt.strip() and answer.strip():
+                if _is_unanswerable(gen_sample):
+                    _em_score = _f1_score_val = _no_answer_em(answer)
+                elif _gt.strip() and answer.strip():
                     from .answer_metrics import exact_match as _em_fn, token_f1 as _tf1_fn
 
                     _em_score = _em_fn(answer, _gt, aliases=_gt_aliases)
                     _f1_score_val = _tf1_fn(answer, _gt, aliases=_gt_aliases)
-                elif not _gt.strip() and (not answer.strip() or _is_abstention_answer(answer)):
-                    # Both empty / abstention on unanswerable → correct
-                    _em_score = 1.0
-                    _f1_score_val = 1.0
 
                 _gen_sample_metrics: Dict[str, Any] = {
                     "_sample_id": gen_sample.query_id,
@@ -3419,6 +3475,10 @@ async def _eval_live(
                     "exact_match": _em_score,
                     "token_f1": _f1_score_val,
                 }
+                if _has_unanswerable:
+                    _gen_sample_metrics["_answerable"] = (
+                        0.0 if _is_unanswerable(gen_sample) else 1.0
+                    )
 
                 # What this sample spent, as a delta against the phase meter.
                 _running = gen_meter.usage(SYSTEM)
@@ -3450,8 +3510,9 @@ async def _eval_live(
 
                 per_sample_scores.append(_gen_sample_metrics)
 
-            # Run RAGAS on all collected generation samples.
-            if gen_questions:
+            # Run RAGAS on all collected generation samples that have a
+            # reference answer (an unanswerable question has none).
+            if any(gen_answerable):
                 try:
                     from .ragas_evaluator import RAGASEvaluator
 
@@ -3471,12 +3532,16 @@ async def _eval_live(
                         with eval_meter, eval_meter.scope(EVAL):
                             ragas_eval = RAGASEvaluator(llm=_build_judge_llm())
                             return ragas_eval.evaluate_detailed(
-                                questions=gen_questions,
-                                answers=gen_answers,
-                                contexts=gen_contexts,
-                                ground_truths=gen_ground_truths,
+                                questions=[gen_questions[i] for i in _judged],
+                                answers=[gen_answers[i] for i in _judged],
+                                contexts=[gen_contexts[i] for i in _judged],
+                                ground_truths=[gen_ground_truths[i] for i in _judged],
                                 batch_size=4,
                             )
+
+                    # The judge needs a reference answer: unanswerable
+                    # questions are scored by EM/F1 above, not by RAGAS.
+                    _judged = [i for i, ok in enumerate(gen_answerable) if ok]
 
                     # 45-min timeout: guards against hung LLM gateway connections.
                     regen_result = await asyncio.wait_for(
@@ -3505,7 +3570,9 @@ async def _eval_live(
                     if regen_result.per_sample:
                         _n_gen_ps = len(regen_result.per_sample)
                         for i, ps in enumerate(regen_result.per_sample):
-                            _target_idx = _gen_ps_offset + i
+                            if i >= len(_judged):
+                                break
+                            _target_idx = _gen_ps_offset + _judged[i]
                             if _target_idx < len(per_sample_scores):
                                 for metric_name, score_val in ps.items():
                                     per_sample_scores[_target_idx][
@@ -3521,7 +3588,11 @@ async def _eval_live(
                     # aggregate agentic metric.
                     if has_agentic_answers:
                         # Build index of samples that actually have agentic answers.
-                        _ag_indices = filter_nonempty_agentic_indices(gen_agentic_answers)
+                        _ag_indices = [
+                            i
+                            for i in filter_nonempty_agentic_indices(gen_agentic_answers)
+                            if gen_answerable[i]
+                        ]
                         _ag_questions = [gen_questions[i] for i in _ag_indices]
                         _ag_answers = [gen_agentic_answers[i] for i in _ag_indices]
                         _ag_contexts = [gen_contexts[i] for i in _ag_indices]
@@ -3619,6 +3690,7 @@ async def _eval_live(
             if _gen_ps:
                 metrics["exact_match"] = sum(s["exact_match"] for s in _gen_ps) / len(_gen_ps)
                 metrics["token_f1"] = sum(s["token_f1"] for s in _gen_ps) / len(_gen_ps)
+                metrics.update(_answerability_split(_gen_ps))
 
     finally:
         # Release corpus ref — always called even if evaluation raises, so the
