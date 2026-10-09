@@ -45,22 +45,22 @@ def test_naming_a_reranker_turns_reranking_on():
     assert pipeline._config.get("enable_reranking") is True
 
 
-def test_a_chunker_sweep_is_refused_in_every_mode():
-    # Ingestion always runs the built-in chunker, so every chunker arm shared
-    # one corpus; only live mode warned, and the default mode is auto.
-    from lasagna.knowledge_evaluation_sdk.experiment import Experiment
+def test_a_chunker_arm_chunks_its_own_corpus():
+    # Ingestion always ran the built-in chunker, so every chunker arm shared one
+    # corpus. Each chunker arm now gets a corpus session of its own, chunked by
+    # its component; offline mode never ingests, and refuses the arm per task.
+    from lasagna.knowledge_evaluation_sdk.experiment import Experiment, _corpus_cache_key
 
-    for mode in ("auto", "live", "offline"):
-        exp = Experiment.from_dict(
-            {
-                "name": "chunkers",
-                "benchmarks": [{"name": "smoke"}],
-                "pipeline": {"chunkers": ["semantic"]},
-                "mode": mode,
-            }
-        )
-        with pytest.raises(ValueError, match="cannot swap"):
-            exp.generate_tasks()
+    exp = Experiment.from_dict(
+        {
+            "name": "chunkers",
+            "benchmarks": [{"name": "smoke"}],
+            "pipeline": {"chunkers": ["semantic", "hierarchical"]},
+            "mode": "live",
+        }
+    )
+    keys = {_corpus_cache_key(t) for t in exp.generate_tasks()}
+    assert len(keys) == 2 and None not in keys
 
 
 def test_naming_an_agentic_pipeline_swaps_it_in_and_turns_it_on():

@@ -1180,14 +1180,10 @@ class Experiment:
         unsweepable = sorted(all_override_keys & _UNSWEEPABLE_COMPONENTS)
         if unsweepable:
             raise ValueError(
-                f"Experiments cannot swap {unsweepable}: ingestion always uses the "
-                f"built-in chunker, document processor and embedder, so a swapped "
-                f"component would touch the queries only, or nothing, while the "
-                f"corpus kept the profile's. Sweep the ingestion settings instead, "
-                f"which re-ingest per arm: chunking_strategy, chunk_size, "
-                f"chunk_overlap and enable_hierarchical for chunking, embedding_model "
-                f"and embedding_dim for the embedder. Check a component on its own "
-                f"with `lasagna component validate`."
+                f"Experiments cannot swap {unsweepable}: benchmark corpora are loaded "
+                f"as text, so a document processor never runs on them and every arm "
+                f"would measure the same corpus. Check one on your own files with "
+                f"`lasagna component validate`."
             )
         if "agentic_pipeline" in all_override_keys:
             logger.warning(
@@ -1765,7 +1761,12 @@ _COMPONENT_KEYS = frozenset(
 #: Ingestion-time stages. The corpus is ingested once per ingestion setting,
 #: always with the built-ins, so an arm swapping one of these would measure
 #: queries embedded (or nothing changed) against the profile's corpus.
-_UNSWEEPABLE_COMPONENTS = frozenset({"chunker", "document_processor", "embedder"})
+_UNSWEEPABLE_COMPONENTS = frozenset({"document_processor"})
+
+#: Ingestion-time slots an arm can fill with a component: the arm's corpus is
+#: chunked or embedded with it, in its own corpus session (and, for an
+#: embedder, its own collection), keyed by the component's identity.
+_INGEST_COMPONENTS = ("chunker", "embedder")
 
 # Defined in `runner`, beside `BenchmarkTask.config_hash`, which must exclude
 # the same keys: a setting that steers reporting rather than the pipeline must
@@ -2275,6 +2276,50 @@ import threading as _threading  # noqa: E402
 _search_config_lock = _threading.Lock()
 
 
+def _corpus_doc_id(corpus_id: str, session_key: str = "") -> str:
+    """The stored document id for a benchmark document in one corpus session.
+
+    The shared corpus (no ``session_key``) keeps the original form, so corpora
+    ingested before per-session ids existed are still found.
+    """
+    import hashlib
+
+    raw = f"{session_key}|{corpus_id}" if session_key else corpus_id
+    return f"doc_{hashlib.md5(raw.encode()).hexdigest()[:16]}"
+
+
+def _ingest_component_fingerprint(slot: str, name: str) -> str:
+    """What a chunker or embedder component is, for corpus keys and collections.
+
+    The registered name and class, and for a function its code and simple
+    captured values (an edited function must not reuse the old corpus).
+    """
+    from lasagna.core.registry import registry
+
+    try:
+        cls = registry.get_class(slot, name)
+    except Exception:
+        return name  # unknown names are refused before any task runs
+    fn = getattr(cls, "_fn", None)
+    if fn is not None:
+        from lasagna.components import _code_digest, _identity
+
+        return f"{name}|{_identity(fn)}#{_code_digest(fn)}"
+    return f"{name}|{cls.__module__}.{cls.__qualname__}"
+
+
+def _ingest_components_for(task: "BenchmarkTask") -> Dict[str, Any]:
+    """The arm's chunker and embedder components, instantiated, by slot."""
+    from lasagna.core.registry import registry
+
+    out: Dict[str, Any] = {}
+    for slot in _INGEST_COMPONENTS:
+        name = (task.config_overrides or {}).get(slot)
+        if isinstance(name, str) and name:
+            out[slot] = registry.get(slot, name)
+    return out
+
+
 def _corpus_cache_key(task: "BenchmarkTask") -> Optional[str]:
     """Compute the corpus cache key for a task.
 
@@ -2311,6 +2356,12 @@ def _corpus_cache_key(task: "BenchmarkTask") -> Optional[str]:
         k: v for k, v in (task.config_overrides or {}).items() if k in _INGESTION_TIME_KEYS
     }
     merged = {**_profile_ingestion, **_explicit_ingestion}
+    # A chunker or embedder component makes its own corpus: keyed by what the
+    # component is, so a changed function is never served an old corpus.
+    for _slot in _INGEST_COMPONENTS:
+        _name = (task.config_overrides or {}).get(_slot)
+        if isinstance(_name, str) and _name:
+            merged[f"component:{_slot}"] = _ingest_component_fingerprint(_slot, _name)
 
     # A pooled-gold corpus IS the sample set -- it is built from those samples'
     # own context -- so two tasks drawing different samples are looking at
@@ -2436,6 +2487,7 @@ async def _ensure_corpus_ingested(
     corpus_key: Optional[str] = None,
     ingestion_overrides: Optional[Dict[str, Any]] = None,
     max_corpus_docs: int = 0,
+    components: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Ingest corpus once and return shared session info.
 
@@ -2452,6 +2504,8 @@ async def _ensure_corpus_ingested(
             the _SHARED_CORPUS_KEY map, then falls back to benchmark_name.
         ingestion_overrides: Config overrides applied to the session before
             document upload (for per-config ingestion of docling/chunking sweeps).
+        components: The arm's chunker and embedder components, by slot, when it
+            named them; ``corpus_key`` must already be keyed on them.
     """
     import hashlib as _hashlib
 
@@ -2575,9 +2629,16 @@ async def _ensure_corpus_ingested(
         # Build doc ID mappings
         corpus_to_valid: Dict[str, str] = {}
         valid_to_corpus: Dict[str, str] = {}
+        # A per-arm corpus session gets ids of its own. Derived from the corpus
+        # id alone, two sessions in one collection shared document and chunk
+        # ids: the documents table keeps one session per id and the vector
+        # store one row per chunk id, so the arm that ingested last took the
+        # other's documents and that arm's searches came back empty (0.0).
+        # The shared corpus keeps the plain ids, so nothing already ingested
+        # is orphaned.
+        _id_ns = cache_key if corpus_key is not None else ""
         for corpus_id in corpus:
-            hex_hash = _hashlib.md5(corpus_id.encode()).hexdigest()[:16]
-            valid_id = f"doc_{hex_hash}"
+            valid_id = _corpus_doc_id(corpus_id, _id_ns)
             corpus_to_valid[corpus_id] = valid_id
             valid_to_corpus[valid_id] = corpus_id
 
@@ -2752,6 +2813,8 @@ async def _ensure_corpus_ingested(
                 session_id=shared_session_id,
                 config=_session_cfg,
                 backend=_ingest_backend,
+                chunker=(components or {}).get("chunker"),
+                embedder=(components or {}).get("embedder"),
             )
             logger.info(
                 f"Fast ingestion complete: {total_chunks} chunks from "
@@ -2910,6 +2973,20 @@ async def _eval_live(
                 _ingestion_overrides.get("embedding_dim"),
             )
 
+    # Chunker and embedder components chunk and embed this arm's own corpus.
+    # The embedder gets a collection of its own at its own dimension; the
+    # query side already encodes with it through the pipeline's override.
+    _ingest_components = _ingest_components_for(task)
+    if "embedder" in _ingest_components:
+        _ingestion_overrides = dict(_ingestion_overrides or {})
+        _emb_dim = int(_ingest_components["embedder"].dimension)
+        _ingestion_overrides["embedding_dim"] = _emb_dim
+        _ingestion_overrides["collection_name"] = _embedder_collection_name(
+            "component:"
+            + _ingest_component_fingerprint("embedder", task.config_overrides["embedder"]),
+            _emb_dim,
+        )
+
     if _has_signature_keys and _ingestion_overrides:
         logger.info(
             f"Per-config corpus session for '{task.config_name}': "
@@ -2929,6 +3006,7 @@ async def _eval_live(
         corpus_key=_corpus_key,
         ingestion_overrides=_ingestion_overrides,
         max_corpus_docs=task.max_corpus_docs,
+        components=_ingest_components,
     )
 
     if corpus_info is None:
@@ -2950,6 +3028,11 @@ async def _eval_live(
 
     shared_session_id = corpus_info["session_id"]
     corpus_to_valid = corpus_info["corpus_to_valid"]
+    # Results name documents by the benchmark's own ids: the internal ids are
+    # per corpus session, and arms compared query by query need the same ids.
+    valid_to_corpus = corpus_info.get("valid_to_corpus") or {
+        v: c for c, v in corpus_to_valid.items()
+    }
 
     # Populate corpus_fingerprint on the task (used by ingestion signature)
     if hasattr(task, "corpus_fingerprint"):
@@ -3306,11 +3389,14 @@ async def _eval_live(
                 # The full list, not the first 20. The cap predated any reader:
                 # nothing consumed these, so nobody noticed that a run with
                 # top_k above 20 recorded a truncated view of its own results.
-                "_retrieved_ids": retrieved_ids,
-                "_retrieved": retrieved_detail,
+                "_retrieved_ids": [valid_to_corpus.get(d, d) for d in retrieved_ids],
+                "_retrieved": [
+                    {**r, "doc_id": valid_to_corpus.get(r["doc_id"], r["doc_id"])}
+                    for r in retrieved_detail
+                ],
                 # What the query was *supposed* to find, so a per-query row can
                 # be read without the dataset alongside it.
-                "_expected_docs": sorted(mapped_expected),
+                "_expected_docs": sorted(valid_to_corpus.get(d, d) for d in mapped_expected),
             }
 
             # What this query actually spent, measured at the provider rather

@@ -71,6 +71,13 @@ class MockEmbeddingManager:
     def encode_sparse(self, texts):
         return [{"token_1": 0.5, "token_2": 0.3} for _ in texts]
 
+    def encode_query(self, text, use_cache=True):
+        return self.encode_document(text)
+
+    def similarity(self, a, b):
+        # What semantic chunking asks of the manager between sentences.
+        return float(np.dot(a, b) / ((np.linalg.norm(a) * np.linalg.norm(b)) or 1.0))
+
 
 class MockVectorBackend:
     """Mock vector backend that stores inserts in memory."""
@@ -430,5 +437,4 @@ class TestWorkerCountRules:
             config=config,
             backend=backend,
         )
-        # Should complete (may have 0 chunks if semantic chunking fails without real embeddings)
-        assert isinstance(total, int)
+        assert isinstance(total, int) and not errors, "semantic chunking ran on every document"

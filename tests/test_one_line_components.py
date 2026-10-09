@@ -310,26 +310,54 @@ def test_a_sweep_refuses_a_component_that_skips_the_interface():
         registry.unregister_reranker("t_duck_sweep")
 
 
-def test_a_sweep_refuses_an_embedder_component(tmp_path):
-    # The corpus is ingested with the built-in embedder, so an embedder arm
-    # embedded only its queries: it measured two models against each other.
-    from lasagna.knowledge_evaluation_sdk.experiment import Experiment
+def test_an_embedder_or_chunker_arm_gets_a_corpus_of_its_own(tmp_path):
+    # The corpus used to be ingested with the built-in embedder, so an embedder
+    # arm embedded only its queries and measured two models against each
+    # other. Each component arm now has its own corpus, keyed by what the
+    # component is, so an edited function is never served the old corpus.
+    from lasagna.knowledge_evaluation_sdk.experiment import Experiment, _corpus_cache_key
 
-    (tmp_path / "t_emb_ideas.py").write_text(
-        "def e(texts):\n    return [[1.0, 0.0] for _ in texts]\n"
+    (tmp_path / "t_ingest_ideas.py").write_text(
+        "def e(texts):\n    return [[1.0, float(len(t))] for t in texts]\n"
+        "def c(text):\n    return text.split('. ')\n"
     )
     sweep = tmp_path / "sweep.yaml"
     sweep.write_text(
         textwrap.dedent(
             """
-            name: embedder arm
+            name: ingest arms
             benchmarks: [{name: smoke}]
             tracks: [retrieval]
             pipeline:
               base_profile: speed
-              embedders: [default, "t_emb_ideas:e"]
+              config_overrides:
+                - {name: control}
+                - {name: emb, embedder: "t_ingest_ideas:e"}
+                - {name: chk, chunker: "t_ingest_ideas:c"}
             """
         )
     )
-    with pytest.raises(ValueError, match="embedding_model"):
+    tasks = {t.config_name: t for t in Experiment.from_file(str(sweep)).generate_tasks()}
+    keys = {name: _corpus_cache_key(t) for name, t in tasks.items()}
+    assert len(set(keys.values())) == 3, keys
+
+
+def test_an_edited_function_gets_a_new_corpus():
+    from lasagna.knowledge_evaluation_sdk.experiment import _ingest_component_fingerprint
+
+    lasagna.embedder("t_fp_emb", lambda texts: [[1.0, 0.0] for _ in texts])
+    first = _ingest_component_fingerprint("embedder", "t_fp_emb")
+    lasagna.embedder("t_fp_emb", lambda texts: [[2.0, 0.0] for _ in texts])
+    assert _ingest_component_fingerprint("embedder", "t_fp_emb") != first
+
+
+def test_a_document_processor_sweep_is_still_refused(tmp_path):
+    from lasagna.knowledge_evaluation_sdk.experiment import Experiment
+
+    sweep = tmp_path / "sweep.yaml"
+    sweep.write_text(
+        "name: dp\nbenchmarks: [{name: smoke}]\ntracks: [retrieval]\n"
+        "pipeline: {base_profile: speed, config_overrides: [{name: a, document_processor: default}]}\n"
+    )
+    with pytest.raises(ValueError, match="loaded as text"):
         Experiment.from_file(str(sweep)).generate_tasks()

@@ -19,6 +19,7 @@ Thread safety:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import queue
 import threading
 import time
@@ -35,6 +36,11 @@ from loguru import logger
 # ---------------------------------------------------------------------------
 
 
+#: More failed documents than this share stops the ingest instead of
+#: evaluating on what is left.
+_MAX_CHUNK_FAILURE_RATE = 0.1
+
+
 def _chunk_one_doc(
     corpus_id: str,
     text: str,
@@ -43,8 +49,12 @@ def _chunk_one_doc(
     filename: str,
     config,
     embedding_manager=None,
+    chunker=None,
 ) -> Tuple[str, List[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
     """Chunk one document from in-memory text.
+
+    ``chunker`` is the arm's chunker component, when it named one; otherwise
+    the built-in dispatch on the config's chunking settings runs.
 
     Returns:
         (valid_id, child_chunks, parent_chunks_or_None)
@@ -55,15 +65,32 @@ def _chunk_one_doc(
     from ..processing.chunker.semantic import chunk_document
 
     enable_hierarchical = getattr(config, "enable_hierarchical", False)
-    result = chunk_document(
-        text=text,
-        document_id=valid_id,
-        session_id=session_id,
-        filename=filename,
-        embedding_manager=embedding_manager,
-        config=config,
-        return_parents=enable_hierarchical,
-    )
+    if chunker is not None:
+        # The component owns the split; hierarchical parents are the built-in
+        # chunker's feature, not layered on top of someone else's algorithm.
+        enable_hierarchical = False
+        result = [
+            (
+                c.content,
+                {
+                    **(c.metadata or {}),
+                    "chunk_index": i,
+                    "start_char": c.start_char,
+                    "end_char": c.end_char,
+                },
+            )
+            for i, c in enumerate(chunker.chunk(text))
+        ]
+    else:
+        result = chunk_document(
+            text=text,
+            document_id=valid_id,
+            session_id=session_id,
+            filename=filename,
+            embedding_manager=embedding_manager,
+            config=config,
+            return_parents=enable_hierarchical,
+        )
 
     if enable_hierarchical and isinstance(result, tuple):
         child_tuples, parent_dicts = result
@@ -103,6 +130,12 @@ def _chunk_one_doc(
             for chunk, enriched in zip(chunk_dicts, enriched_texts):
                 chunk["content"] = enriched
         except Exception as e:
+            from ..core.strict import strict_stages
+
+            if strict_stages():
+                # An evaluation of contextual retrieval that quietly ingested
+                # plain chunks would score the baseline under its name.
+                raise RuntimeError(f"Contextual enrichment failed: {e}") from e
             logger.warning(f"Contextual enrichment failed for {valid_id}: {e}")
 
     # GraphRAG entity extraction
@@ -239,6 +272,7 @@ def _embed_stage(
     enable_late_chunking: bool,
     enable_sparse: bool,
     max_content_length: int,
+    embedder=None,
 ):
     """Drain chunk_queue, batch-embed cross-doc, push to insert_queue."""
     pending_chunks: List[Dict[str, Any]] = []
@@ -274,6 +308,7 @@ def _embed_stage(
                 insert_queue,
                 enable_late_chunking,
                 enable_sparse,
+                embedder=embedder,
             )
             pending_chunks = []
             progress.update(docs_processed)
@@ -286,6 +321,7 @@ def _embed_stage(
             insert_queue,
             enable_late_chunking,
             enable_sparse,
+            embedder=embedder,
         )
     insert_queue.put(None)  # sentinel
 
@@ -296,8 +332,13 @@ def _embed_and_forward(
     insert_queue: queue.Queue,
     enable_late_chunking: bool,
     enable_sparse: bool,
+    embedder=None,
 ):
-    """Embed a batch of chunks and push to insert_queue."""
+    """Embed a batch of chunks and push to insert_queue.
+
+    ``embedder`` is the arm's embedder component, when it named one: the
+    corpus is embedded by the same model that embeds the queries.
+    """
     if not chunks:
         return
 
@@ -313,7 +354,11 @@ def _embed_and_forward(
     # Embed chunks that need it
     if need_embedding:
         texts = [c["content"] for c in need_embedding]
-        if enable_late_chunking and need_embedding[0].get("_full_text"):
+        if embedder is not None:
+            vectors = np.asarray(embedder.encode(list(texts)), dtype=np.float32)
+            for chunk, emb in zip(need_embedding, vectors):
+                chunk["embedding"] = emb
+        elif enable_late_chunking and need_embedding[0].get("_full_text"):
             # Group by document for late chunking
             doc_groups: Dict[str, List[Dict[str, Any]]] = {}
             for chunk in need_embedding:
@@ -496,6 +541,8 @@ async def fast_ingest_corpus(
     session_id: str,
     config,
     backend,
+    chunker=None,
+    embedder=None,
 ) -> Tuple[int, Set[str], Set[str]]:
     """3-stage fast corpus ingestion pipeline.
 
@@ -506,6 +553,8 @@ async def fast_ingest_corpus(
         session_id: shared session ID for this corpus
         config: RAGConfig (with session applied)
         backend: RAGBackend instance
+        chunker: The arm's chunker component, or None for the built-in.
+        embedder: The arm's embedder component, or None for the built-in.
 
     Returns:
         (total_chunks_inserted, ingested_doc_ids, error_doc_ids)
@@ -543,7 +592,13 @@ async def fast_ingest_corpus(
     )
     chunking_strategy = getattr(config, "chunking_strategy", "fixed")
     _uses_semantic = chunking_strategy in ("semantic",)
-    n_workers = 1 if (_uses_semantic or _uses_llm_features) else rag_config.ingest_extract_workers
+    # One worker for a component: nothing says a researcher's chunker is
+    # thread-safe, and a deterministic corpus matters more than speed here.
+    n_workers = (
+        1
+        if (_uses_semantic or _uses_llm_features or chunker is not None)
+        else rag_config.ingest_extract_workers
+    )
     embed_batch_size = rag_config.ingest_embed_batch_size
     insert_batch_size = rag_config.ingest_insert_batch_size
 
@@ -585,6 +640,7 @@ async def fast_ingest_corpus(
                     enable_late_chunking,
                     enable_sparse,
                     max_content_length,
+                    embedder=embedder,
                 )
             except Exception as exc:
                 error_channel.put(("embed", exc))
@@ -610,17 +666,26 @@ async def fast_ingest_corpus(
                 error_channel.put(("insert", exc))
 
         # Start B and C (non-daemon)
-        embed_thread = threading.Thread(target=_embed_safe, name="ingest-embed")
-        insert_thread = threading.Thread(target=_insert_safe, name="ingest-insert")
+        # Each thread runs in a copy of this context, so an evaluation's strict
+        # stages reach model loads and enrichment there too (threads do not
+        # inherit context variables on their own).
+        embed_thread = threading.Thread(
+            target=contextvars.copy_context().run, args=(_embed_safe,), name="ingest-embed"
+        )
+        insert_thread = threading.Thread(
+            target=contextvars.copy_context().run, args=(_insert_safe,), name="ingest-insert"
+        )
         embed_thread.start()
         insert_thread.start()
 
         # Stage A: parallel chunking
         t0 = time.perf_counter()
+        first_chunk_error = ""
         with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="ingest-chunk") as pool:
             futures = []
             for corpus_id, text, valid_id in docs_to_ingest:
                 fut = pool.submit(
+                    contextvars.copy_context().run,
                     _chunk_one_doc,
                     corpus_id,
                     text,
@@ -629,6 +694,7 @@ async def fast_ingest_corpus(
                     f"{valid_id}.txt",
                     config,
                     embedding_manager if (_uses_semantic or _uses_llm_features) else None,
+                    chunker,
                 )
                 futures.append((valid_id, text, fut))
 
@@ -644,6 +710,7 @@ async def fast_ingest_corpus(
                     chunk_queue.put((doc_id, chunks, full_text))
                 except Exception as exc:
                     logger.warning(f"Chunking failed for {valid_id}: {exc}")
+                    first_chunk_error = first_chunk_error or f"{type(exc).__name__}: {exc}"
                     error_doc_ids.add(valid_id)
                     # Push empty to keep doc count accurate for Stage B
                     chunk_queue.put((valid_id, [], None))
@@ -666,7 +733,15 @@ async def fast_ingest_corpus(
 
         if not error_channel.empty():
             stage, exc = error_channel.get()
-            raise RuntimeError(f"Fast ingest pipeline failed in {stage} stage") from exc
+            raise RuntimeError(f"Fast ingest pipeline failed in {stage} stage: {exc}") from exc
+
+        if len(error_doc_ids) > _MAX_CHUNK_FAILURE_RATE * total_docs:
+            # A chunker that fails on most documents leaves a corpus that
+            # scores near zero, and the number would read as the method's.
+            raise RuntimeError(
+                f"Chunking failed for {len(error_doc_ids)} of {total_docs} documents "
+                f"(first: {first_chunk_error})"
+            )
 
         # Register the documents themselves.
         #
