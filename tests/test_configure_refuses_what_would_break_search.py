@@ -50,7 +50,10 @@ def test_an_unknown_profile_is_refused_and_names_the_real_ones(tmp_path):
 
 def test_a_profile_that_would_break_search_is_refused_and_the_old_one_kept(tmp_path):
     assert _cli(tmp_path, "configure", "--profile", "speed").returncode == 0
-    stub = "cli._embedding_dim_mismatch = lambda sid: (384, 1024)"
+    stub = (
+        "import lasagna.api._profile_guard as g\n"
+        "g.stored_dimension_mismatch = lambda sid, vb=None: (384, 1024)"
+    )
     result = _cli(tmp_path, "configure", "--profile", "balanced", extra=stub)
     assert result.returncode != 0
     assert "384" in result.stdout and "1024" in result.stdout

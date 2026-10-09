@@ -77,13 +77,13 @@ async def set_active_profile(
 ):
     """Set the active profile and optionally apply config overrides."""
     try:
+        from lasagna.api._profile_guard import EmbeddingSizeConflict, set_profile_checked
+
         mgr = get_knowledge_config_manager(session_id=session_id)
-        data = mgr.set_active_profile(
-            profile_name=body.active_profile,
-            config=body.config or None,
-            session_id=session_id,
-        )
+        data = set_profile_checked(mgr, body.active_profile, session_id, config=body.config or None)
         return _to_response(data)
+    except EmbeddingSizeConflict as conflict:
+        raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:

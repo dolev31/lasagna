@@ -216,8 +216,17 @@ async def apply_profile(
     try:
         from lasagna.core.session_config import get_knowledge_config_manager
 
+        from lasagna.api._profile_guard import EmbeddingSizeConflict, set_profile_checked
+
         mgr = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        mgr.set_active_profile(profile_name, session_id=session_id)
+        set_profile_checked(
+            mgr,
+            profile_name,
+            session_id,
+            vector_backend=getattr(backend, "_vector_backend", None),
+        )
+    except EmbeddingSizeConflict as conflict:
+        raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as ve:
         logger.warning(f"Validation error applying profile {profile_name}: {ve}")
         raise HTTPException(status_code=422, detail=str(ve))
