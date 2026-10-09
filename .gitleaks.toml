@@ -96,3 +96,14 @@ tarballs, not credentials, and high-entropy by construction.
 """
 paths = ['''package-lock\.json$''']
 regexes = ['''"integrity":\s*"sha\d+-[A-Za-z0-9+/=]+"''']
+
+[[allowlists]]
+description = """
+Test fixtures that stand in for a server secret. The auth tests need a value
+long enough to pass the 32-character minimum, so it looks high-entropy; each
+such line in tests/ is marked by hand with the detect-secrets pragma. Scoped
+to tests/ and to marked lines only.
+"""
+paths = ['''^tests/''']
+regexTarget = "line"
+regexes = ['''#\s*pragma: allowlist secret''']
