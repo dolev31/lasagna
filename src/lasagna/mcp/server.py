@@ -1900,7 +1900,10 @@ def reindex_document(
 
     :param document_id: The document ID to reindex.
     :param session_id: Session identifier — used to verify ownership.
-    :param force_rebuild: If true, rebuild the collection if embedding dimension changed.
+    :param force_rebuild: If true, recreate the collection at the configured
+        embedding dimension when it differs, but only while the collection is
+        empty. A collection holding documents is never dropped from here:
+        every session's documents live in it.
     :returns: Confirmation or error message.
     """
     session_id, _user_id = _resolve_session(session_id, session_token)
@@ -1933,11 +1936,37 @@ def reindex_document(
         config = backend.get_session_config(session_id)
 
         if force_rebuild:
+            from lasagna.api._collection_manager import collection_is_empty
+
             collection_dim = backend.get_collection_embedding_dim(config.collection_name)
             rebuild_signature = f"{config.collection_name}:{config.embedding_dim}"
             with _rebuild_lock:
                 if _get_rebuild_signature() != rebuild_signature:
                     if collection_dim is None or collection_dim != config.embedding_dim:
+                        # A session-scoped tool dropping the shared collection let
+                        # any tenant, after one patch of its own embedding_dim,
+                        # delete every other tenant's vectors with no admin token.
+                        if not collection_is_empty(
+                            backend.get_vector_backend(session_id), config.collection_name
+                        ):
+                            duration_ms = (time.time() - start_time) * 1000
+                            _log_tool_result(
+                                "reindex_document", False, "Collection not empty", duration_ms
+                            )
+                            stored = (
+                                f"{collection_dim} dimensions"
+                                if collection_dim is not None
+                                else "a size that could not be read"
+                            )
+                            return (
+                                f"Failed to reindex document: the collection "
+                                f"{config.collection_name!r} is embedded at {stored} and "
+                                f"holds documents, possibly other sessions'. Rebuilding it "
+                                f"for {config.embedding_dim} would delete all of them, so "
+                                f"reindex_document never does. Use a profile at the stored "
+                                f"size, or have an operator run rebuild_collection (admin "
+                                f"token, confirm=true)."
+                            )
                         logger.info(
                             "Rebuild requested: "
                             f"collection_dim={collection_dim}, "
