@@ -35,7 +35,7 @@ from datetime import datetime
 from functools import lru_cache
 from itertools import product
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from loguru import logger
 
@@ -570,6 +570,27 @@ def _check_components_exist(pipeline_configs: List[Dict[str, Any]]) -> None:
         )
 
 
+def _known_override_keys() -> set:
+    """Every key an arm can set: settings, component slots and harness keys."""
+    from lasagna.core.config import RAGConfig, rag_config
+
+    keys = set(getattr(rag_config, "_config", {}) or {})
+    keys |= {n for n, v in vars(RAGConfig).items() if isinstance(v, property)}
+    return keys | set(_COMPONENT_KEYS) | set(HARNESS_KEYS)
+
+
+def _check_override_keys(pipeline_configs: List[Dict[str, Any]]) -> None:
+    """Refuse an arm setting a key nothing reads, before any corpus is ingested.
+
+    ``enable_rerankng: true`` reached no stage, so the arm ran the control's
+    pipeline under its own name; the isolation check could not see it, since
+    an unknown key belongs to no stage whose output it could compare.
+    """
+    known = _known_override_keys()
+    for pc in pipeline_configs:
+        _refuse_unknown(pc.get("overrides") or {}, known, f"arm {pc.get('name')!r}")
+
+
 def _load_component_references(
     pipeline_configs: List[Dict[str, Any]], search_paths: List[str]
 ) -> None:
@@ -708,23 +729,56 @@ _PIPELINE_KEYS = frozenset(
 )
 
 
+_FACTORIAL_KEYS = frozenset({"factor_a", "factor_b", "held_fixed"})
+_BENCHMARK_KEYS = frozenset({"name", "split", "n_samples", "filters"})
+
+
+def _did_you_mean(key: str, known: Iterable[str]) -> str:
+    import difflib
+
+    close = difflib.get_close_matches(key, sorted(known), n=1, cutoff=0.6)
+    return f" (did you mean {close[0]!r}?)" if close else ""
+
+
+def _refuse_unknown(keys: Iterable[str], known: Iterable[str], where: str) -> None:
+    """Refuse keys a section does not read, naming the likely intended one.
+
+    An unknown key used to be dropped, at most with a warning among hundreds of
+    log lines: ``rerankrs: [...]`` gave a one-arm run of the stock pipeline with
+    exit 0, which reads exactly like a score for the component and is not one.
+    """
+    known = set(known)
+    unknown = sorted(set(keys) - known)
+    if not unknown:
+        return
+    parts = []
+    for key in unknown:
+        if where == "the top level" and key in _PIPELINE_KEYS:
+            parts.append(f"{key!r} (a pipeline setting: put it under `pipeline:`)")
+        else:
+            parts.append(f"{key!r}{_did_you_mean(key, known)}")
+    raise ValueError(
+        f"Unknown key(s) at {where}: {', '.join(parts)}. Known: {', '.join(sorted(known))}."
+    )
+
+
 def _parse_config(data: Dict[str, Any]) -> ExperimentConfig:
     """Parse a raw config dict into :class:`ExperimentConfig`."""
-    # A pipeline key at the top level used to vanish without a word, and the
-    # sweep silently collapsed to the baseline configuration.
-    unknown = sorted(set(data) - _TOP_LEVEL_KEYS)
-    misplaced = [k for k in unknown if k in _PIPELINE_KEYS]
-    if misplaced:
-        logger.warning(
-            f"Ignoring top-level keys {misplaced}: pipeline settings belong under `pipeline:`"
-        )
-    if set(unknown) - set(misplaced):
-        logger.warning(f"Ignoring unknown experiment keys {sorted(set(unknown) - set(misplaced))}")
+    _refuse_unknown(data, _TOP_LEVEL_KEYS, "the top level")
+    pipeline_raw = data.get("pipeline") or {}
+    if not isinstance(pipeline_raw, dict):
+        raise ValueError(f"`pipeline:` must be a mapping, got {type(pipeline_raw).__name__}")
+    _refuse_unknown(pipeline_raw, _PIPELINE_KEYS, "`pipeline:`")
+    if isinstance(pipeline_raw.get("factorial"), dict):
+        _refuse_unknown(pipeline_raw["factorial"], _FACTORIAL_KEYS, "`pipeline.factorial:`")
     benchmarks = []
     for b in data.get("benchmarks", []):
         if isinstance(b, str):
             benchmarks.append(BenchmarkSpec(name=b))
         elif isinstance(b, dict):
+            _refuse_unknown(b, _BENCHMARK_KEYS, f"benchmark {b.get('name', '?')!r}")
+            if "name" not in b:
+                raise ValueError(f"A benchmark entry needs a `name`; got {b!r}")
             benchmarks.append(
                 BenchmarkSpec(
                     name=b["name"],
@@ -1003,6 +1057,7 @@ class Experiment:
                 "agentic_pipeline arms change generation metrics only: retrieval "
                 "metrics are measured on the standard tier for every arm."
             )
+        _check_override_keys(pipeline_configs)
         _load_component_references(pipeline_configs, [cfg.base_dir] if cfg.base_dir else [])
         _check_components_exist(pipeline_configs)
         _check_components_conform(pipeline_configs)
