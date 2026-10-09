@@ -9,9 +9,17 @@ byte-identical chunks, so the sweep reported that chunk size does not matter.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from lasagna.core.config import rag_config
 from lasagna.processing.chunker.semantic import SemanticChunkerAdapter, chunk_document
+
+
+@pytest.fixture(autouse=True)
+def _no_nltk_download(monkeypatch):
+    """Sentence splitting uses installed NLTK data or its regex fallback, never a download."""
+    monkeypatch.setattr("lasagna.processing.chunker.semantic._NLTK_CHECKED", True)
+
 
 _FLAT = {"enable_hierarchical": False, "preserve_headers": False, "preserve_tables": False}
 

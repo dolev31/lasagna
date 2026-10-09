@@ -26,6 +26,10 @@ from lasagna.core.config import rag_config, RAGConfig
 from lasagna.core.base_components import Chunk as _BaseChunk
 
 
+#: Whether this process has looked for (and tried to fetch) NLTK's Punkt data.
+_NLTK_CHECKED = False
+
+
 class ChunkingStrategy(str, Enum):
     """Available chunking strategies."""
 
@@ -87,7 +91,13 @@ class SemanticChunker:
         self._ensure_nltk()
 
     def _ensure_nltk(self):
-        """Ensure NLTK resources are available."""
+        """Ensure NLTK resources are available (checked once per process)."""
+        global _NLTK_CHECKED
+        if _NLTK_CHECKED:
+            return
+        # Before the download attempt: a chunker is built per document and per
+        # call, and offline each one retried the download.
+        _NLTK_CHECKED = True
         if NLTK_AVAILABLE:
             try:
                 nltk.data.find("tokenizers/punkt")
@@ -113,6 +123,19 @@ class SemanticChunker:
         # Fallback: simple regex-based splitting
         sentences = re.split(r"(?<=[.!?])\s+", text)
         return [s.strip() for s in sentences if s.strip()]
+
+    @staticmethod
+    def _sentence_starts(text: str, sentences: List[str]) -> List[int]:
+        """Where each sentence starts in ``text``, searching forward in order."""
+        starts = []
+        pos = 0
+        for sentence in sentences:
+            start = text.find(sentence, pos)
+            if start == -1:
+                start = pos  # the tokenizer changed the sentence; keep the order
+            starts.append(start)
+            pos = start + len(sentence)
+        return starts
 
     def chunk_semantic(
         self,
@@ -159,14 +182,7 @@ class SemanticChunker:
         current_start = 0
 
         # Pre-compute sentence start positions for accurate char tracking
-        sentence_starts = []
-        pos = 0
-        for sentence in sentences:
-            start = text.find(sentence, pos)
-            if start == -1:
-                start = pos  # fallback if sentence was modified by tokenizer
-            sentence_starts.append(start)
-            pos = start + len(sentence)
+        sentence_starts = self._sentence_starts(text, sentences)
 
         for i, (sentence, embedding) in enumerate(zip(sentences, embeddings)):
             current_chunk.append(sentence)
@@ -300,6 +316,7 @@ class SemanticChunker:
         sentences = self._split_sentences(text)
         if not sentences:
             return []
+        starts = self._sentence_starts(text, sentences)
 
         chunks = []
         i = 0
@@ -312,16 +329,24 @@ class SemanticChunker:
         while i < len(sentences):
             window = sentences[i : i + window_size]
             chunk_content = " ".join(window)
+            last = i + len(window) - 1
 
             if chunk_content.strip():
                 chunks.append(
                     Chunk(
                         content=chunk_content.strip(),
                         chunk_index=len(chunks),
+                        start_char=starts[i],
+                        end_char=starts[last] + len(sentences[last]),
                         metadata={"sentence_start": i, "sentence_end": i + len(window)},
                     )
                 )
 
+            # The window that reaches the last sentence is the last one. Going
+            # on emitted trailing windows wholly inside the one before, each a
+            # duplicate retrieval hit.
+            if i + window_size >= len(sentences):
+                break
             i += step
 
         logger.info(f"Sentence window chunking: {len(sentences)} sentences -> {len(chunks)} chunks")
@@ -907,6 +932,46 @@ class HierarchicalChunkerAdapter(BaseChunker):
             Tuple of (parent_chunks, child_chunks).
         """
         return self._inner.chunk_hierarchical(text, **self._filter_kwargs(kwargs))
+
+
+class SentenceWindowChunkerAdapter(BaseChunker):
+    """Sliding windows of whole sentences: the ``sentence_window`` strategy.
+
+    Each chunk is ``window_size`` consecutive sentences, and consecutive chunks
+    share ``sentence_overlap`` of them. Sentences come from NLTK's Punkt
+    tokenizer when its data is installed, else a regex on terminal punctuation.
+    The chunk text joins its sentences with single spaces; ``start_char`` and
+    ``end_char`` span them in the source.
+
+    Not LlamaIndex's ``SentenceWindowNodeParser``, which indexes single
+    sentences and swaps in their neighbours after retrieval.
+
+    Settings: ``window_size``, ``sentence_overlap``.
+    """
+
+    # Reads the arm's window_size and sentence_overlap.
+    _forwards_session_config = True
+
+    def __init__(
+        self,
+        config=None,
+        window_size: Optional[int] = None,
+        sentence_overlap: Optional[int] = None,
+        **kwargs,
+    ):
+        self._config = config
+        self._window_size = window_size
+        self._overlap = sentence_overlap
+
+    @property
+    def name(self) -> str:
+        return "sentence_window"
+
+    def chunk(self, text: str, **kwargs) -> List[BaseChunk]:
+        inner = SemanticChunker(config=kwargs.get("config") or self._config)
+        return inner.chunk_sentence_window(
+            text, window_size=self._window_size, overlap=self._overlap
+        )
 
 
 class StructureAwareChunkerAdapter(BaseChunker):

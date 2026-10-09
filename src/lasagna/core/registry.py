@@ -403,6 +403,23 @@ class ComponentRegistry:
                 "https://github.com/langchain-ai/langchain/tree/master/libs/text-splitters",
                 [],
             ),
+            (
+                "chunker",
+                "sentence_window",
+                _c + "SentenceWindowChunkerAdapter",
+                "Sliding windows of window_size whole sentences",
+                None,
+                [],
+            ),
+            (
+                "chunker",
+                "markdown_header",
+                "lasagna.processing.chunker.markdown:MarkdownHeaderChunker",
+                "Markdown sections with their header path in metadata "
+                "(LangChain MarkdownHeaderTextSplitter)",
+                "https://github.com/langchain-ai/langchain/tree/master/libs/text-splitters",
+                [],
+            ),
         ]
         for stage, name, factory, description, paper, aliases in builtins:
             try:

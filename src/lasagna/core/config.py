@@ -305,6 +305,10 @@ class RAGConfig:
             # RecursiveCharacterTextSplitter default exactly.
             "recursive_separators": ["\n\n", "\n", ". ", "? ", "! ", " ", ""],
             "recursive_keep_separator": "end",  # 'end' or 'start': which piece a separator stays with
+            # Markdown header chunker (LangChain MarkdownHeaderTextSplitter semantics)
+            "markdown_header_levels": 6,  # split on # .. ###### up to this depth
+            "markdown_strip_headers": True,  # header text goes to metadata, not the chunk
+            "markdown_split_long_sections": True,  # split sections over chunk_size recursively
             "preserve_tables": True,
             "preserve_headers": True,
             "extract_metadata": True,
@@ -904,6 +908,29 @@ class RAGConfig:
         """Whether a separator ends the piece before it ('end') or starts the next ('start')."""
         return self._get_knowledge_setting(
             "rag", "recursive_keep_separator", default=self._config["recursive_keep_separator"]
+        )
+
+    @property
+    def markdown_header_levels(self) -> int:
+        """Deepest Markdown header level the markdown_header chunker splits on (1-6)."""
+        return self._get_knowledge_setting(
+            "rag", "markdown_header_levels", default=self._config["markdown_header_levels"]
+        )
+
+    @property
+    def markdown_strip_headers(self) -> bool:
+        """Leave header lines out of markdown_header chunk text (they are in metadata)."""
+        return self._get_knowledge_setting(
+            "rag", "markdown_strip_headers", default=self._config["markdown_strip_headers"]
+        )
+
+    @property
+    def markdown_split_long_sections(self) -> bool:
+        """Split Markdown sections longer than chunk_size with the recursive chunker."""
+        return self._get_knowledge_setting(
+            "rag",
+            "markdown_split_long_sections",
+            default=self._config["markdown_split_long_sections"],
         )
 
     @property
