@@ -46,3 +46,20 @@ def test_stemming_changes_the_key():
     a = held_fixed_from(_row({"bm25_stemming": True}), declared)
     b = held_fixed_from(_row({"bm25_stemming": False}), declared)
     assert comparability_key(a) != comparability_key(b)
+
+
+def test_structural_settings_are_recorded_as_the_chunker_that_ran():
+    # The speed profile asks for "semantic", but preserve_headers sends every
+    # document through structure-aware chunking; the record said "semantic".
+    from lasagna.knowledge_evaluation_sdk.experiment import _ran_system
+
+    ingestion = {
+        "chunking_strategy": "semantic",
+        "enable_hierarchical": False,
+        "preserve_headers": True,
+        "preserve_tables": False,
+    }
+    assert _ran_system("m", 384, ingestion, {})["chunker"] == "structure_aware"
+
+    plain = dict(ingestion, preserve_headers=False)
+    assert _ran_system("m", 384, plain, {})["chunker"] == "semantic"

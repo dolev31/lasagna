@@ -450,10 +450,12 @@ def _ran_system(
         return value if value is not None else getattr(rag_config, name, None)
 
     # The strategy that ran, not the one requested: structural settings
-    # (hierarchical) override a requested "semantic" at ingest.
-    chunker = _ingest("chunking_strategy")
+    # override it at ingest, in the order resolve_effective_strategy applies.
+    chunker = getattr(_ingest("chunking_strategy"), "value", _ingest("chunking_strategy"))
     if _ingest("enable_hierarchical"):
         chunker = "hierarchical"
+    elif _ingest("preserve_headers") or _ingest("preserve_tables"):
+        chunker = "structure_aware"
     try:
         from lasagna.retrieval.search.hybrid import STEMMER_AVAILABLE as bm25_stemming
     except Exception:  # pragma: no cover - hybrid search always importable here
