@@ -895,8 +895,13 @@ def chunk_document(
         resolve_effective_strategy(config, strategy)
     # The arm's config, not the process-wide one: the strategies below read
     # chunk_size and friends from it, and with the global config two arms
-    # sweeping chunk_size produced the same chunks.
-    chunker = SemanticChunker(embedding_manager=embedding_manager, config=config)
+    # sweeping chunk_size produced the same chunks. Only the built-in
+    # strategies need it (and its NLTK check).
+    chunker = (
+        SemanticChunker(embedding_manager=embedding_manager, config=config)
+        if component is None
+        else None
+    )
 
     parent_chunks_data: Optional[List[Dict[str, Any]]] = None
 

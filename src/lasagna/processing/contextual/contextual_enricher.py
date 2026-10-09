@@ -25,11 +25,11 @@ class ContextualEnricher:
     Uses LRU caching to avoid re-computation for identical (document, chunk) pairs.
     """
 
+    # Anthropic's published prompt, verbatim.
     CONTEXT_PROMPT = (
-        "Here is the full document:\n"
-        "<document>\n{document}\n</document>\n\n"
-        "Here is the chunk we want to situate within the document:\n"
-        "<chunk>\n{chunk}\n</chunk>\n\n"
+        "<document>\n{document}\n</document>\n"
+        "Here is the chunk we want to situate within the whole document\n"
+        "<chunk>\n{chunk}\n</chunk>\n"
         "Please give a short succinct context to situate this chunk within "
         "the overall document for the purposes of improving search retrieval "
         "of the chunk. Answer only with the succinct context and nothing else."
@@ -37,12 +37,16 @@ class ContextualEnricher:
 
     # Default max cache entries to prevent unbounded memory growth
     DEFAULT_MAX_CACHE_SIZE = 10000
+    # Characters of the document shown to the LLM
+    DEFAULT_MAX_DOCUMENT_CHARS = 50000
 
     def __init__(
         self,
         llm_provider=None,
         cache: Optional[Dict[str, str]] = None,
         max_cache_size: int = DEFAULT_MAX_CACHE_SIZE,
+        max_document_chars: Optional[int] = DEFAULT_MAX_DOCUMENT_CHARS,
+        strict: bool = False,
     ):
         """Initialize the contextual enricher.
 
@@ -52,10 +56,23 @@ class ContextualEnricher:
                          or `agenerate(prompt: str) -> str` async method.
             cache: Optional pre-populated cache mapping (doc_hash, chunk_hash) -> context
             max_cache_size: Maximum cache entries before LRU eviction
+            max_document_chars: Characters of the document put in the prompt;
+                None for all of it.
+            strict: Raise when no context can be generated, instead of
+                returning the chunk unchanged. The ``contextual`` chunker sets
+                it: an arm named for contextual retrieval that quietly indexed
+                plain chunks would score as the control.
         """
         self._llm = llm_provider
         self._cache: OrderedDict[str, str] = OrderedDict(cache or {})
         self._max_cache_size = max_cache_size
+        self._max_document_chars = max_document_chars
+        self._strict = strict
+
+    def _document_for_prompt(self, document: str) -> str:
+        if self._max_document_chars is None:
+            return document
+        return document[: self._max_document_chars]
 
     def _cache_put(self, key: str, value: str) -> None:
         """Add to cache with LRU eviction."""
@@ -94,11 +111,13 @@ class ContextualEnricher:
             return f"{context}\n\n{chunk}"
 
         if self._llm is None:
+            if self._strict:
+                raise RuntimeError("contextual retrieval needs an LLM, and none is configured")
             logger.warning("No LLM provider configured for contextual retrieval")
             return chunk
 
         prompt = self.CONTEXT_PROMPT.format(
-            document=full_document[:50000],  # Truncate very large docs
+            document=self._document_for_prompt(full_document),
             chunk=chunk,
         )
 
@@ -108,6 +127,8 @@ class ContextualEnricher:
             elif hasattr(self._llm, "invoke"):
                 context = self._llm.invoke(prompt)
             else:
+                if self._strict:
+                    raise TypeError("the contextual retrieval LLM has no generate() or invoke()")
                 logger.warning("LLM provider has no generate/invoke method")
                 return chunk
 
@@ -123,6 +144,8 @@ class ContextualEnricher:
             return f"{context}\n\n{chunk}"
 
         except Exception as e:
+            if self._strict:
+                raise
             logger.warning(f"Contextual enrichment failed: {e}")
             return chunk
 
@@ -136,10 +159,12 @@ class ContextualEnricher:
             return f"{context}\n\n{chunk}"
 
         if self._llm is None:
+            if self._strict:
+                raise RuntimeError("contextual retrieval needs an LLM, and none is configured")
             return chunk
 
         prompt = self.CONTEXT_PROMPT.format(
-            document=full_document[:50000],
+            document=self._document_for_prompt(full_document),
             chunk=chunk,
         )
 
@@ -152,6 +177,8 @@ class ContextualEnricher:
                 loop = asyncio.get_running_loop()
                 context = await loop.run_in_executor(None, self._llm.generate, prompt)
             else:
+                if self._strict:
+                    raise TypeError("the contextual retrieval LLM has no generate() or invoke()")
                 return chunk
 
             if hasattr(context, "content"):
@@ -161,8 +188,18 @@ class ContextualEnricher:
             return f"{context}\n\n{chunk}"
 
         except Exception as e:
+            if self._strict:
+                raise
             logger.warning(f"Async contextual enrichment failed: {e}")
             return chunk
+
+    def context_for(self, full_document: str, chunk: str) -> str:
+        """The generated context alone, without the chunk appended."""
+        enriched = self.enrich(full_document, chunk)
+        suffix = f"\n\n{chunk}"
+        if enriched.endswith(suffix):
+            return enriched[: -len(suffix)]
+        return ""
 
     def enrich_batch(
         self,

@@ -420,6 +420,22 @@ class ComponentRegistry:
                 "https://github.com/langchain-ai/langchain/tree/master/libs/text-splitters",
                 [],
             ),
+            (
+                "chunker",
+                "proposition",
+                "lasagna.processing.chunker.llm_chunkers:PropositionChunker",
+                "Propositions written by an LLM as retrieval units (Dense X Retrieval)",
+                "arxiv:2312.06648",
+                [],
+            ),
+            (
+                "chunker",
+                "contextual",
+                "lasagna.processing.chunker.llm_chunkers:ContextualChunker",
+                "Chunks prefixed with LLM-written document context (Contextual Retrieval)",
+                "https://www.anthropic.com/news/contextual-retrieval",
+                [],
+            ),
         ]
         for stage, name, factory, description, paper, aliases in builtins:
             try:

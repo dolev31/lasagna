@@ -314,6 +314,13 @@ class RAGConfig:
             "markdown_header_levels": 6,  # split on # .. ###### up to this depth
             "markdown_strip_headers": True,  # header text goes to metadata, not the chunk
             "markdown_split_long_sections": True,  # split sections over chunk_size recursively
+            # Proposition chunker (Dense X Retrieval, arXiv:2312.06648)
+            "proposition_model": None,  # None = the configured default LLM
+            "proposition_passage_size": 100,  # words per passage handed to the LLM (paper: 100)
+            # Contextual chunker (Anthropic Contextual Retrieval)
+            "contextual_base_chunker": "recursive",  # registered chunker that makes the chunks
+            "contextual_model": None,  # None = the configured default LLM
+            "contextual_max_document_chars": 50000,  # document shown per call; None = all of it
             "preserve_tables": True,
             "preserve_headers": True,
             "extract_metadata": True,
@@ -961,6 +968,43 @@ class RAGConfig:
             "rag",
             "markdown_split_long_sections",
             default=self._config["markdown_split_long_sections"],
+        )
+
+    @property
+    def proposition_model(self) -> Optional[str]:
+        """LLM that writes propositions; None uses the configured default."""
+        return self._get_knowledge_setting(
+            "rag", "proposition_model", default=self._config["proposition_model"]
+        )
+
+    @property
+    def proposition_passage_size(self) -> int:
+        """Words per passage the proposition chunker hands to the LLM."""
+        return self._get_knowledge_setting(
+            "rag", "proposition_passage_size", default=self._config["proposition_passage_size"]
+        )
+
+    @property
+    def contextual_base_chunker(self) -> str:
+        """Registered chunker whose chunks the contextual chunker situates."""
+        return self._get_knowledge_setting(
+            "rag", "contextual_base_chunker", default=self._config["contextual_base_chunker"]
+        )
+
+    @property
+    def contextual_model(self) -> Optional[str]:
+        """LLM that writes each chunk's context; None uses the configured default."""
+        return self._get_knowledge_setting(
+            "rag", "contextual_model", default=self._config["contextual_model"]
+        )
+
+    @property
+    def contextual_max_document_chars(self) -> Optional[int]:
+        """Characters of the document in each context prompt; None for all of it."""
+        return self._get_knowledge_setting(
+            "rag",
+            "contextual_max_document_chars",
+            default=self._config["contextual_max_document_chars"],
         )
 
     @property
