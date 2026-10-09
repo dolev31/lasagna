@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 #: Bump when a metric definition changes. Numbers computed under different
@@ -719,20 +720,24 @@ def aggregate_mismatches(rows: List[Dict[str, Any]], tol: float = 1e-6) -> List[
 
     The run id catches a bundle edited after it was built, but not one built
     from an edited results.json: a headline NDCG@10 of 0.665 over per-query
-    scores averaging 0.609 validated. Checked only where every query has a
-    finite score under the metric's own name, so metrics aggregated another way
-    (or with unjudged queries left out) are not second-guessed.
+    scores averaging 0.609 validated.
+
+    Each metric is checked against the per-query rows that carry it. An
+    end-to-end task lists a retrieval row and a generation row per query, and
+    requiring every row to carry the metric skipped every metric of every
+    e2e task. Metrics no row carries, or with an unscored (NaN) query, are not
+    second-guessed, since they are aggregated another way.
     """
     problems: List[str] = []
     for row in rows:
-        samples = row.get("per_sample_scores") or []
+        samples = [s for s in (row.get("per_sample_scores") or []) if isinstance(s, dict)]
         if not samples:
             continue
         for name, value in (row.get("metrics") or {}).items():
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 continue
-            scores = [s.get(name) if isinstance(s, dict) else None for s in samples]
-            if any(
+            scores = [s[name] for s in samples if name in s]
+            if not scores or any(
                 isinstance(v, bool) or not isinstance(v, (int, float)) or v != v for v in scores
             ):
                 continue
@@ -742,6 +747,52 @@ def aggregate_mismatches(rows: List[Dict[str, Any]], tol: float = 1e-6) -> List[
                     f"{row.get('config_name')!r} run {row.get('run_index')}: {name} is "
                     f"{value:.6g} but its {len(scores)} per-query scores average {mean:.6g}"
                 )
+    return problems
+
+
+#: Binary IR metrics a validator can recompute from the exported ranked list.
+_RECHECKABLE = re.compile(r"^(precision|hit_rate|mrr)@(\d+)$")
+
+
+def ranked_list_mismatches(rows: List[Dict[str, Any]], tol: float = 1e-9) -> List[str]:
+    """Per-query scores higher than their own exported ranked list supports.
+
+    Each retrieval row exports ``_retrieved_ids`` (the ranked list) and
+    ``_expected_docs`` (the judged documents), so precision, hit rate and MRR
+    at k can be recomputed. That catches a score raised, or a list reordered,
+    without the other, which recomputing the run id cannot: anyone who edits a
+    number can recompute the id.
+
+    One-sided on purpose. Grades are not exported, and ``_expected_docs`` can
+    include documents judged non-relevant; counting all of them as relevant
+    can only raise these three metrics, so an honest score never exceeds the
+    recomputed one. Graded metrics (NDCG) and recall-based ones are not
+    rechecked, for the same reason.
+    """
+    from .ir_metrics import hit_rate_at_k, mrr, precision_at_k
+
+    recompute = {"precision": precision_at_k, "hit_rate": hit_rate_at_k, "mrr": mrr}
+    problems: List[str] = []
+    for row in rows:
+        for i, sample in enumerate(row.get("per_sample_scores") or []):
+            if not isinstance(sample, dict):
+                continue
+            ranked, expected = sample.get("_retrieved_ids"), sample.get("_expected_docs")
+            if not isinstance(ranked, list) or not isinstance(expected, (list, dict)):
+                continue
+            relevance = {str(d): 1 for d in expected}
+            for name, stored in sample.items():
+                match = _RECHECKABLE.match(name)
+                if not match or isinstance(stored, bool) or not isinstance(stored, (int, float)):
+                    continue
+                kind, k = match.group(1), int(match.group(2))
+                bound = recompute[kind](relevance, [str(d) for d in ranked], k)
+                if stored > bound + tol:
+                    problems.append(
+                        f"{row.get('config_name')!r} run {row.get('run_index')} query "
+                        f"{sample.get('_sample_id', i)!r}: {name} is {stored:.6g} but its "
+                        f"ranked list gives at most {bound:.6g}"
+                    )
     return problems
 
 

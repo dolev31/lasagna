@@ -1366,6 +1366,7 @@ def results_validate(
         _content_hash,
         aggregate_mismatches,
         comparability_key,
+        ranked_list_mismatches,
     )
 
     bundle = json.loads(Path(bundle_path).read_text())
@@ -1396,6 +1397,10 @@ def results_validate(
         f"aggregate disagrees with per-query scores: {m}"
         for m in aggregate_mismatches(bundle.get("results") or [])
     )
+    problems.extend(
+        f"per-query score above what its ranked list supports: {m}"
+        for m in ranked_list_mismatches(bundle.get("results") or [])
+    )
 
     env = (bundle.get("experiment") or {}).get("environment") or {}
     for required in ("lasagna_version", "python", "platform"):
@@ -1419,9 +1424,9 @@ def results_validate(
             console.print(f"  - {escape(p)}")
         raise typer.Exit(1)
 
-    console.print(f"[green]VALID[/green] (schema {schema}, run_id {bundle['run_id']})")
+    console.print(f"[green]VALID[/green] (schema {escape(schema)}, run_id {bundle['run_id']})")
     if warnings:
-        console.print(f"[yellow]  warnings: {', '.join(warnings)}[/yellow]")
+        console.print(f"[yellow]  warnings: {escape(', '.join(warnings))}[/yellow]")
 
 
 @results_app.command("compare")
