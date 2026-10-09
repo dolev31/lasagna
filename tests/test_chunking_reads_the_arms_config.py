@@ -12,7 +12,12 @@ import numpy as np
 import pytest
 
 from lasagna.core.config import rag_config
-from lasagna.processing.chunker.semantic import SemanticChunkerAdapter, chunk_document
+from lasagna.processing.chunker.semantic import (
+    HierarchicalChunkerAdapter,
+    SemanticChunkerAdapter,
+    StructureAwareChunkerAdapter,
+    chunk_document,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -73,4 +78,25 @@ def test_the_semantic_adapter_accepts_its_size_keywords():
         "Short one.",
         "Another short one.",
         "A third short sentence here.",
+    ]
+
+
+def test_the_hierarchical_component_sizes_children_by_the_arm():
+    arm = rag_config.with_query_overrides({"parent_chunk_size": 400, "child_chunk_size": 100})
+    out = chunk_document(TEXT, "d", "s", "f", config=arm, chunker=HierarchicalChunkerAdapter())
+    assert max(len(c) for c, _ in out) <= 100
+
+
+def test_the_structure_aware_component_chunks_text_semantically():
+    text = "# Pets\n\nA cat sat. The cat purred.\n\n# Cars\n\nA car sped. The car honked."
+    chunks = StructureAwareChunkerAdapter(embedding_manager=_OrthogonalEmbedder()).chunk(
+        text, config=rag_config.with_query_overrides({"min_chunk_size": 1, "preserve_tables": True})
+    )
+    # Every sentence pair is dissimilar to the stub, so each sentence is a
+    # chunk; size-based chunking would have kept each section whole.
+    assert [(c.content, c.section_header) for c in chunks] == [
+        ("A cat sat.", "Pets"),
+        ("The cat purred.", "Pets"),
+        ("A car sped.", "Cars"),
+        ("The car honked.", "Cars"),
     ]

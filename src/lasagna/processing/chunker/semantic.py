@@ -1087,15 +1087,27 @@ class HierarchicalChunkerAdapter(BaseChunker):
 
     _ACCEPTED_KWARGS = frozenset({"parent_size", "child_size"})
 
-    def __init__(self, semantic_chunker=None, **kwargs):
-        sc = semantic_chunker or SemanticChunker()
+    # Reads the arm's parent_chunk_size and child_chunk_size.
+    _forwards_session_config = True
+
+    def __init__(self, semantic_chunker=None, config=None, **kwargs):
+        self._fixed_chunker = semantic_chunker is not None
+        sc = semantic_chunker or SemanticChunker(config=config)
         self._inner = HierarchicalChunker(sc)
 
     def _filter_kwargs(self, kwargs: dict) -> dict:
         return {k: v for k, v in kwargs.items() if k in self._ACCEPTED_KWARGS}
 
+    def _for(self, kwargs: dict) -> HierarchicalChunker:
+        config = kwargs.get("config")
+        if config is None or self._fixed_chunker:
+            return self._inner
+        return HierarchicalChunker(SemanticChunker(config=config))
+
     def chunk(self, text: str, **kwargs) -> List[BaseChunk]:
-        _parents, children = self._inner.chunk_hierarchical(text, **self._filter_kwargs(kwargs))
+        _parents, children = self._for(kwargs).chunk_hierarchical(
+            text, **self._filter_kwargs(kwargs)
+        )
         return children
 
     def chunk_with_parents(self, text: str, **kwargs) -> Tuple[List[BaseChunk], List[BaseChunk]]:
@@ -1104,7 +1116,7 @@ class HierarchicalChunkerAdapter(BaseChunker):
         Returns:
             Tuple of (parent_chunks, child_chunks).
         """
-        return self._inner.chunk_hierarchical(text, **self._filter_kwargs(kwargs))
+        return self._for(kwargs).chunk_hierarchical(text, **self._filter_kwargs(kwargs))
 
 
 class SentenceWindowChunkerAdapter(BaseChunker):
@@ -1148,12 +1160,33 @@ class SentenceWindowChunkerAdapter(BaseChunker):
 
 
 class StructureAwareChunkerAdapter(BaseChunker):
-    """Adapts ``StructureAwareChunker`` to the public ``BaseChunker`` ABC."""
+    """Adapts ``StructureAwareChunker`` to the public ``BaseChunker`` ABC.
 
-    def __init__(self, semantic_chunker=None, **kwargs):
-        sc = semantic_chunker or SemanticChunker()
-        self._inner = StructureAwareChunker(sc)
+    Tables become chunks of their own and headers mark sections; the text in
+    between is chunked semantically, as on the built-in path, with the arm's
+    embedding model. Without an ``embedding_manager`` it loads that model
+    (once per process) rather than chunking the text by size, which is what it
+    did unannounced when built with no arguments.
+    """
+
+    # Reads the arm's table, semantic and embedding settings.
+    _forwards_session_config = True
+
+    def __init__(self, semantic_chunker=None, config=None, embedding_manager=None, **kwargs):
+        self._semantic_chunker = semantic_chunker
+        self._config = config
+        self._embedding_manager = embedding_manager
 
     def chunk(self, text: str, **kwargs) -> List[BaseChunk]:
-        # chunk_with_structure() accepts no extra parameters
-        return self._inner.chunk_with_structure(text)
+        if not text or not text.strip():
+            return []
+        sc = self._semantic_chunker
+        if sc is None:
+            config = kwargs.get("config") or self._config or rag_config
+            manager = self._embedding_manager
+            if manager is None:
+                from lasagna.infrastructure.embedding.manager import shared_embedding_manager
+
+                manager = shared_embedding_manager(config)
+            sc = SemanticChunker(embedding_manager=manager, config=config)
+        return StructureAwareChunker(sc).chunk_with_structure(text)
