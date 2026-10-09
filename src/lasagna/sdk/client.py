@@ -375,6 +375,8 @@ class KnowledgeClient:
         """
         if self._is_remote:
             return
+        from ..api._profile_guard import EmbeddingSizeConflict
+
         try:
             from ..providers import get_session_provider
             from ._config_bridge import get_runtime_overrides
@@ -405,6 +407,10 @@ class KnowledgeClient:
             logger.debug(
                 f"Runtime config applied to session {self._session_id}: {len(overrides)} keys"
             )
+        except EmbeddingSizeConflict:
+            # The store refused this client's embedding size. Skipping quietly
+            # would run its searches on the session's other model instead.
+            raise
         except Exception as e:
             logger.debug(f"Runtime config bridge skipped: {e}")
 
