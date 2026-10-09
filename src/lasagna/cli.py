@@ -154,7 +154,7 @@ def _load_profile_config(session_id: str):
 
 def _error(msg: str, exit_code: int = 1):
     """Print error and exit."""
-    console.print(f"[red]Error: {msg}[/red]")
+    console.print(f"[red]Error: {escape(msg)}[/red]")
     raise typer.Exit(exit_code)
 
 
@@ -432,10 +432,12 @@ def search(
         _error(f"Search failed: {exc}")
 
     if context:
-        console.print(Panel(str(result), title="LLM Context", border_style="cyan"))
+        # Chunk text is data, not markup: Rich deleted "[metrics](...)" and
+        # "[copy.deepcopy(d) ...]" from what it printed.
+        console.print(Panel(escape(str(result)), title="LLM Context", border_style="cyan"))
         return
 
-    table = Table(title=f'Search: "{query}"', show_lines=True)
+    table = Table(title=f'Search: "{escape(query)}"', show_lines=True)
     table.add_column("#", style="dim", width=3)
     table.add_column("Score", style="green", width=8)
     table.add_column("Content", ratio=1)
@@ -446,8 +448,10 @@ def search(
         content = content_text[:200].replace("\n", " ")
         if len(content_text) > 200:
             content += "..."
-        doc_id = (r.chunk.document_id or "")[:12] + "..."
-        table.add_row(str(i), f"{r.score:.3f}", content, doc_id)
+        source = getattr(getattr(r, "document", None), "filename", None) or (
+            (r.chunk.document_id or "")[:12] + "..."
+        )
+        table.add_row(str(i), f"{r.score:.3f}", escape(content), escape(source))
 
     console.print(table)
     console.print(f"[dim]{len(result)} result(s)[/dim]")
