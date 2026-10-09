@@ -426,6 +426,22 @@ def _load_toml(path: str) -> Dict[str, Any]:
         return tomllib.load(f)
 
 
+def _agentic_fell_back(agentic_requested: bool, search_results: List[Any]) -> bool:
+    """Whether an agentic request was served by standard retrieval instead.
+
+    The orchestrator stamps the tier that ran on the first result. A failed
+    agentic run falls back to standard search and still returns results, so an
+    empty list is not the only sign of a fallback.
+    """
+    if not agentic_requested:
+        return False
+    if not search_results:
+        return True
+    first_chunk = getattr(search_results[0], "chunk", None)
+    tier_used = (getattr(first_chunk, "metadata", None) or {}).get("_routing_tier_used")
+    return tier_used == "standard_fallback"
+
+
 _TOP_LEVEL_KEYS = frozenset(
     {
         "name",
@@ -2724,10 +2740,12 @@ async def _eval_live(
                     if hasattr(r, "chunk") and hasattr(r.chunk, "content") and r.chunk.content
                 ]
 
-                # Track agentic fallback: if use_agentic_rag was requested but
-                # 0 results were returned, the router likely downgraded to standard.
+                # Track agentic fallback. The orchestrator stamps the tier that
+                # actually ran on the first result; a failed agentic run falls
+                # back to standard retrieval and returns results, so an empty
+                # list is not the only sign of it.
                 agentic_requested = gen_config.get("use_agentic_rag", False)
-                fallback = agentic_requested and len(search_results) == 0
+                fallback = _agentic_fell_back(agentic_requested, search_results)
 
                 # Extract agentic pipeline's own answer if available.
                 # _convert_agentic_results() stashes it in the first chunk's
@@ -3052,6 +3070,12 @@ async def _eval_live(
                     )
                     if agentic_fallbacks:
                         metrics["agentic_fallback_count"] = float(agentic_fallbacks)
+                    if gen_config.get("use_agentic_rag", False) and per_sample_scores:
+                        # Always reported for agentic configs, so a 0 is a
+                        # measurement rather than a missing key.
+                        metrics["agentic_fallback_rate"] = agentic_fallbacks / len(
+                            per_sample_scores
+                        )
 
                 except Exception as exc:
                     logger.error(

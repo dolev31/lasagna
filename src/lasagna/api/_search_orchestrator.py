@@ -1895,7 +1895,7 @@ class SearchOrchestrator:
         except Exception as e:
             logger.error(f"Comprehensive search failed, falling back to standard: {e}")
             # Fallback to standard search on transient/runtime failure
-            return self.search(
+            fallback_results = self.search(
                 query=query,
                 session_id=session_id,
                 top_k=top_k,
@@ -1906,6 +1906,11 @@ class SearchOrchestrator:
                 _reranker_override=_reranker_override,
                 _enhancer_override=_enhancer_override,
             )
+            # Mark the substitution so an evaluation can tell these standard
+            # results from agentic ones instead of scoring them as agentic.
+            if fallback_results:
+                fallback_results[0].chunk.metadata["_routing_tier_used"] = "standard_fallback"
+            return fallback_results
 
         # Metrics parity — include pipeline identity for observability
         pipeline_identity = (
@@ -2022,6 +2027,7 @@ class SearchOrchestrator:
 
         if search_results:
             first_meta = search_results[0].chunk.metadata
+            first_meta["_routing_tier_used"] = "comprehensive"
             if agent_summary:
                 first_meta["_agentic_answer"] = agent_summary
             if formatted_context:
