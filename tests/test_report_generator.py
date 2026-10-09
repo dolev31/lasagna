@@ -160,3 +160,25 @@ class TestItSurvivesDegenerateInput:
             ]
         )
         assert isinstance(ReportGenerator(results).markdown_report(), str)
+
+
+def test_an_untestable_pair_is_listed_in_the_report():
+    """`pairwise_significance` now returns pairs it could not test, with p None."""
+    from lasagna.knowledge_evaluation_sdk.reporting import ReportGenerator
+    from lasagna.knowledge_evaluation_sdk.runner import TaskResult
+
+    results = _results({"a": [0.4 + 0.01 * (i % 7) for i in range(20)], "b": [0.6] * 20})
+    results = BenchmarkResults(
+        list(results._results)
+        + [
+            TaskResult(
+                task_key="c",
+                benchmark_name="bench",
+                config_name="c",
+                run_index=0,
+                per_sample_scores=[{"_sample_id": "elsewhere", "ndcg@10": 0.5}],
+            )
+        ]
+    )
+    text = ReportGenerator(results).markdown_report()
+    assert "untestable" in text

@@ -704,6 +704,17 @@ class BenchmarkResults:
     ) -> List[Dict[str, Any]]:
         """All-pairs significance tests with multiple comparison correction.
 
+        Every pair asked about stays in the family. A pair that cannot be tested
+        (no query scored on both sides) is returned with ``p_value`` None and
+        the reason in ``untestable``, and is counted in the Holm family as if
+        its p were 1. Dropping it, as this used to, shrank the family and made
+        the correction less strict without saying so.
+
+        Sampled sign-flip p-values cannot go below ``1 / (resamples + 1)``, so
+        the resample count grows with the family until that floor is a tenth of
+        the smallest Holm threshold, ``alpha / m``. At the old fixed 10,000, a
+        grid of 34 configs (561 pairs) could not reject anything.
+
         Args:
             metric: Metric to compare.
             benchmark: Benchmark (required).
@@ -713,40 +724,73 @@ class BenchmarkResults:
         Returns:
             List of dicts with ``config_a``, ``config_b``, ``p_value`` (raw),
             ``p_adjusted`` (Holm-adjusted under ``"holm"``, else raw),
-            ``significant``, ``corrected_alpha``.
+            ``significant``, ``corrected_alpha``, ``n_paired``, ``n_dropped_a``,
+            ``n_dropped_b`` and ``test``; tested pairs first, by p.
         """
+        import math
+
         configs = [c for c in self.configs if self._by_bench_config.get((benchmark, c))]
         pairs = [
             (configs[i], configs[j])
             for i in range(len(configs))
             for j in range(i + 1, len(configs))
         ]
+        if not pairs:
+            return []
+
+        m = len(pairs)
+        resamples = max(10_000, math.ceil(10 * m / alpha))
+        if resamples > 10_000:
+            logger.info(
+                f"{m} comparisons: drawing {resamples:,} sign patterns per sampled "
+                f"test so the smallest p-value ({1 / (resamples + 1):.1e}) is below "
+                f"the smallest Holm threshold ({alpha / m:.1e})."
+            )
 
         raw_results = []
+        untestable = []
         for ca, cb in pairs:
             try:
-                sig = self.significance_test(ca, cb, metric, benchmark)
-                raw_results.append(
+                sig = self.significance_test(ca, cb, metric, benchmark, n_bootstrap=resamples)
+            except ValueError as exc:
+                untestable.append(
                     {
                         "config_a": ca,
                         "config_b": cb,
-                        "p_value": sig["p_value"],
-                        "effect_size": sig["effect_size"],
-                        "difference": sig["difference"],
+                        "p_value": None,
+                        "p_adjusted": None,
+                        "effect_size": None,
+                        "difference": None,
+                        "significant": False,
+                        "corrected_alpha": None,
+                        "n_paired": 0,
+                        "untestable": str(exc),
                     }
                 )
-            except ValueError:
                 continue
+            raw_results.append(
+                {
+                    "config_a": ca,
+                    "config_b": cb,
+                    "p_value": sig["p_value"],
+                    "effect_size": sig["effect_size"],
+                    "difference": sig["difference"],
+                    "n_paired": sig.get("n_paired"),
+                    "n_dropped_a": sig.get("n_dropped_a", 0),
+                    "n_dropped_b": sig.get("n_dropped_b", 0),
+                    "test": sig.get("test"),
+                }
+            )
 
         if not raw_results:
-            return []
+            return untestable
 
         # Apply Holm-Bonferroni step-down correction:
         # Sort by p-value ascending. Test i has threshold alpha/(m-i).
         # Once a test fails to reject, all subsequent tests also fail.
+        # m counts the untestable pairs too; they sort last, as p = 1.
         if correction == "holm":
             raw_results.sort(key=lambda x: x["p_value"])
-            m = len(raw_results)
             rejected_so_far = True
             running_max = 0.0
             for i, r in enumerate(raw_results):
@@ -767,7 +811,7 @@ class BenchmarkResults:
                 r["p_adjusted"] = r["p_value"]
                 r["significant"] = r["p_value"] < alpha
 
-        return raw_results
+        return raw_results + untestable
 
     def _get_per_sample_scores(
         self,

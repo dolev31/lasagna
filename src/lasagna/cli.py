@@ -20,6 +20,7 @@ from typing import List, Optional
 import typer
 from rich.console import Console
 from rich.markup import escape
+from rich.measure import Measurement
 from rich.panel import Panel
 from rich.table import Table
 
@@ -1583,37 +1584,64 @@ def results_significance(
         )
 
     label = "Holm-Bonferroni" if correction == "holm" else "uncorrected"
-    console.print(f"[bold]{metric}[/bold] on {benchmark} — {len(rows)} pairs, {label}")
+    console.print(
+        f"[bold]{escape(metric)}[/bold] on {escape(benchmark)} — {len(rows)} pairs, {label}"
+    )
     console.print()
 
-    table = Table(box=None, pad_edge=False)
-    # Config names are what identifies a pair; wrap them rather than cut them.
-    table.add_column("A", overflow="fold")
-    table.add_column("B", overflow="fold")
-    table.add_column("diff", justify="right")
-    table.add_column("d_z", justify="right")
-    table.add_column("p", justify="right")
-    if correction == "holm":
-        table.add_column("p (Holm)", justify="right")
-    table.add_column("", justify="left")
+    tested = [r for r in rows if r.get("p_value") is not None]
+    untestable = [r for r in rows if r.get("p_value") is None]
+    any_dropped = any(r.get("n_dropped_a") or r.get("n_dropped_b") for r in tested)
 
-    shown = 0
-    for row in rows:
-        if not show_all and not row.get("significant"):
-            continue
-        shown += 1
-        significant = row.get("significant")
-        cells = [
-            escape(str(row["config_a"])),
-            escape(str(row["config_b"])),
-            f"{row['difference']:+.4f}",
-            _format_effect_size(row.get("effect_size")),
-            f"{row['p_value']:.4f}",
-        ]
+    shown_rows = [r for r in tested if show_all or r.get("significant")]
+
+    def _table(label, between: str) -> Table:
+        table = Table(box=None, pad_edge=False)
+        table.add_column("pair", no_wrap=True)
+        table.add_column("diff", justify="right", no_wrap=True)
+        table.add_column("d_z", justify="right", no_wrap=True)
+        table.add_column("p", justify="right", no_wrap=True)
         if correction == "holm":
-            cells.append(f"{row.get('p_adjusted', row['p_value']):.4f}")
-        cells.append("[green]significant[/green]" if significant else "[dim]—[/dim]")
-        table.add_row(*cells)
+            table.add_column("p (Holm)", justify="right", no_wrap=True)
+        # How many queries the test actually paired, and how many each side
+        # scored that the other did not.
+        table.add_column("n", justify="right", no_wrap=True)
+        if any_dropped:
+            table.add_column("dropped", justify="right", no_wrap=True)
+        table.add_column("", justify="left", no_wrap=True)
+        for row in shown_rows:
+            cells = [
+                f"{label(row['config_a'])}{between}vs {label(row['config_b'])}",
+                f"{row['difference']:+.4f}",
+                _format_effect_size(row.get("effect_size")),
+                _format_p(row["p_value"]),
+            ]
+            if correction == "holm":
+                cells.append(_format_p(row.get("p_adjusted", row["p_value"])))
+            cells.append(str(row.get("n_paired", "")))
+            if any_dropped:
+                cells.append(f"{row.get('n_dropped_a', 0)}/{row.get('n_dropped_b', 0)}")
+            cells.append("[green]significant[/green]" if row.get("significant") else "[dim]—[/dim]")
+            table.add_row(*cells)
+        return table
+
+    # Config names are what identifies a pair, so they are printed whole: one
+    # per line when the table fits, numbered with a legend when it does not.
+    # Folding them (`reranker=cross_e / ncoder`) or truncating them made two
+    # arms impossible to tell apart.
+    table = _table(lambda name: escape(str(name)), "\n")
+    natural = Measurement.get(console, console.options.update_width(10_000), table).maximum
+    if natural > console.width:
+        numbered = {
+            name: f"[{i}]"
+            for i, name in enumerate(
+                sorted({str(r[k]) for r in shown_rows for k in ("config_a", "config_b")}), 1
+            )
+        }
+        for name, tag in numbered.items():
+            console.print(f"  {escape(tag)} {escape(name)}")
+        console.print()
+        table = _table(lambda name: escape(numbered[str(name)]), " ")
     console.print(table)
 
     survivors = sum(1 for r in rows if r.get("significant"))
@@ -1628,8 +1656,33 @@ def results_significance(
             f"[yellow]uncorrected[/yellow] — with {len(rows)} comparisons, expect "
             f"about {len(rows) * alpha:.1f} of these by chance."
         )
-    if not show_all and shown < len(rows):
-        console.print(f"  {len(rows) - shown} non-significant pairs hidden; --all shows them.")
+    if any_dropped:
+        console.print(
+            "  [yellow]dropped[/yellow] is queries only A / only B scored. Those pairs "
+            "compare a shared subset, not each config's full run."
+        )
+    if untestable:
+        console.print(
+            f"  [yellow]{len(untestable)} pair(s) could not be tested[/yellow] and count in "
+            "the family as p = 1:"
+        )
+        for row in untestable:
+            console.print(
+                f"    {escape(str(row['config_a']))} vs {escape(str(row['config_b']))}: "
+                f"{escape(str(row.get('untestable', '')))}"
+            )
+    hidden = len(tested) - len(shown_rows)
+    if not show_all and hidden:
+        console.print(f"  {hidden} non-significant pairs hidden; --all shows them.")
+
+
+def _format_p(p: float) -> str:
+    """Four decimals, or scientific notation below 0.0001 rather than 0.0000.
+
+    An exact sign-flip p over 25 queries can be 6e-8, and "0.0000" reads as a
+    probability of zero.
+    """
+    return f"{p:.4f}" if p >= 1e-4 else f"{p:.1e}"
 
 
 @results_app.command("per-query")

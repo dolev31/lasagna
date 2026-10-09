@@ -55,6 +55,17 @@ def _results_file(tmp_path, per_query):
     return str(path)
 
 
+def _table_rows(output):
+    """Table rows as single lines: a pair prints as `A` over `vs B`."""
+    rows = []
+    for line in output.splitlines():
+        if line.startswith("vs ") and rows:
+            rows[-1] = f"{rows[-1]} {line}"
+        else:
+            rows.append(line)
+    return rows
+
+
 @pytest.fixture
 def three_configs(tmp_path):
     """One config clearly better, two indistinguishable."""
@@ -92,7 +103,7 @@ class TestItRuns:
         has to be named, not just one member of it.
         """
         result = runner.invoke(app, ["results", "significance", three_configs, "--all"])
-        for line in result.output.splitlines():
+        for line in _table_rows(result.output):
             if "baseline " in line and "same_as_baseline" in line and "much_better" not in line:
                 assert "significant" not in line
                 return
@@ -288,3 +299,57 @@ class TestItRefusesRatherThanGuessing:
         result = runner.invoke(app, ["results", "significance", path])
         assert result.exit_code != 0
         assert "two configs" in result.output
+
+
+class TestEveryRowSaysWhatItCompared:
+    """A p-value printed without its sample count hid that a pair compared 30
+    shared queries out of 100, and folded config names (`reranker=cross_e /
+    ncoder`) made two arms hard to tell apart."""
+
+    def _file(self, tmp_path, per_query):
+        task_results = [
+            {
+                "task_key": config,
+                "run_index": 0,
+                "benchmark_name": "bench",
+                "config_name": config,
+                "metrics": {},
+                "per_sample_scores": [{"_sample_id": sid, "ndcg@10": s} for sid, s in scores],
+                "error": None,
+            }
+            for config, scores in per_query.items()
+        ]
+        path = tmp_path / "results.json"
+        path.write_text(json.dumps({"results": task_results}))
+        return str(path)
+
+    def test_the_paired_count_and_drops_are_shown(self, tmp_path):
+        full = [(f"q{i}", 0.5 + 0.01 * (i % 7)) for i in range(40)]
+        partial = [(sid, s + 0.2) for sid, s in full[:25]]
+        path = self._file(tmp_path, {"full": full, "partial": partial})
+        result = runner.invoke(app, ["results", "significance", path, "--all"])
+        assert result.exit_code == 0, result.output
+        assert " 25 " in result.output, "the paired count is missing"
+        assert "15/0" in result.output, "the per-side drop counts are missing"
+
+    def test_long_config_names_are_printed_whole(self, tmp_path):
+        a = [(f"q{i}", 0.5 + 0.01 * (i % 7)) for i in range(30)]
+        b = [(sid, s + 0.1) for sid, s in a]
+        path = self._file(
+            tmp_path, {"reranker=cross_encoder": a, "reranker=my_tech:soft_overlap": b}
+        )
+        result = runner.invoke(app, ["results", "significance", path, "--all"])
+        assert result.exit_code == 0, result.output
+        assert "reranker=cross_encoder" in result.output
+        assert "reranker=my_tech:soft_overlap" in result.output
+
+    def test_an_untestable_pair_is_listed_not_dropped(self, tmp_path):
+        a = [(f"q{i}", 0.5 + 0.01 * (i % 7)) for i in range(30)]
+        b = [(sid, s + 0.1) for sid, s in a]
+        elsewhere = [(f"other{i}", 0.5) for i in range(5)]
+        path = self._file(tmp_path, {"a": a, "b": b, "elsewhere": elsewhere})
+        result = runner.invoke(app, ["results", "significance", path])
+        assert result.exit_code == 0, result.output
+        assert "3 pairs" in result.output
+        assert "could not be tested" in result.output
+        assert "elsewhere" in result.output
