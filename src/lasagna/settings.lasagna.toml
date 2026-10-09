@@ -120,12 +120,12 @@ use_gpu = true                # MPS enabled for faster embedding
 # model_name = "llama3.2"
 # # Set OLLAMA_BASE_URL env var if not on localhost:11434
 #
-# --- HuggingFace Transformers (in-process, pip install lasagna-rag[local-huggingface]) ---
+# --- HuggingFace Transformers (in-process, pip install "lasagna-rag[local]") ---
 # platform = "huggingface"
 # model_name = "microsoft/Phi-3-mini-4k-instruct"
 # # Or set HF_MODEL_ID env var
 #
-# --- llama.cpp GGUF (in-process, pip install lasagna-rag[local-llamacpp]) ---
+# --- llama.cpp GGUF (in-process, pip install langchain-community llama-cpp-python) ---
 # platform = "llamacpp"
 # model_path = "/path/to/model.gguf"
 # # Or set LLAMACPP_MODEL_PATH env var

@@ -499,7 +499,12 @@ lasagna doctor --issue        # a redacted block to paste into a bug report
 
 ```bash
 pip install lasagna-rag                    # core: ingest, embed, search, serve
+python -m nltk.downloader punkt_tab        # once: nltk's sentence tokenizer data
 ```
+
+Lasagna never downloads the tokenizer data by itself. Without it, sentences are
+split with a regular expression, which can move chunk boundaries, and run
+bundles record that as the `sentence_split_without_punkt` fallback.
 
 To reproduce a result exactly, install the versions the release was tested with:
 
@@ -510,7 +515,7 @@ pip install "lasagna-rag[eval]==0.1.0a1" -c https://raw.githubusercontent.com/do
 | Extra | Adds |
 |---|---|
 | `eval` | RAGAS metrics, benchmark loaders, statistics, plots |
-| `ingest` | OCR and semantic chunking |
+| `ingest` | EasyOCR for scanned documents |
 | `docling` | structure-aware document conversion |
 | `vector-backends` | Pinecone, Qdrant, Weaviate clients |
 | `opensearch` / `pgvector` | those backends |
@@ -518,6 +523,11 @@ pip install "lasagna-rag[eval]==0.1.0a1" -c https://raw.githubusercontent.com/do
 | `graphrag` | entity-linked retrieval |
 | `storage-all` | S3, GCS, Azure document storage |
 | `local` | local LLM inference (HF, Ollama) |
+| `providers` | LLM providers beyond OpenAI: Anthropic, Google, Mistral, Cohere, NVIDIA |
+| `ocr` | Tesseract and PaddleOCR engines (Tesseract also needs the `tesseract` program) |
+| `web` | web search fallback for corrective RAG |
+| `lifecycle` | scheduled document expiry and cleanup |
+| `production` | Redis, Celery, Prometheus, OpenTelemetry and PostgreSQL: what `settings.lasagna_production.toml` turns on |
 | `all` | everything above |
 
 > **`pip` cannot resolve `eval` together with `storage-all`**, and so cannot

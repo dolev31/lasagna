@@ -50,7 +50,7 @@ asyncio.run(main())
 ## Installation
 
 ```bash
-pip install lasagna-rag[rag]
+pip install lasagna-rag
 ```
 
 **Prerequisites:** Set one LLM API key in your environment. The SDK auto-detects from 15+ supported platforms:

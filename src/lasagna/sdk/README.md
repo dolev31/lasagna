@@ -31,7 +31,7 @@ asyncio.run(main())
 ```
 
 ```bash
-pip install lasagna-rag[rag]
+pip install lasagna-rag
 ```
 
 ## Start Here

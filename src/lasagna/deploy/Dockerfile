@@ -66,29 +66,24 @@ WORKDIR /app
 COPY --from=models /root/.cache/huggingface /home/rag/.cache/huggingface
 RUN chown -R rag:rag /home/rag/.cache
 
-# Copy project files needed for pip install
-COPY pyproject.toml ./
-# Placeholder so pip doesn't warn about missing readme referenced in pyproject.toml
-RUN touch README.md
+# Copy project files needed for pip install. LICENSE and NOTICE go into the
+# built package's metadata (pyproject's license-files), and Apache-2.0 section
+# 4(d) requires NOTICE to travel with every redistribution; the README is the
+# package's long description.
+COPY pyproject.toml LICENSE NOTICE README.md ./
 COPY src/lasagna/ ./src/lasagna/
 
-# Install Python dependencies
+# Install Python dependencies. `production` is what the production settings turn
+# on (Redis, Celery, Prometheus, OpenTelemetry, PostgreSQL); the others are the
+# backends and embedder the compose overlays select.
 # Pin setuptools<78 so that pkg_resources remains available (required by milvus-lite)
 RUN pip install --no-cache-dir "setuptools<78" && \
-    pip install --no-cache-dir ".[rag]" \
-    "redis[hiredis]>=5.0.0" \
-    "celery>=5.3.0" \
-    "asyncpg>=0.29.0" \
-    "psycopg[binary]>=3.1.0" \
-    "psycopg-pool>=3.1.0" \
-    "pgvector>=0.3.0" \
-    "prometheus-client>=0.20.0" \
-    "opentelemetry-api>=1.24.0" \
-    "opentelemetry-sdk>=1.24.0" \
-    "msgpack>=1.0.0" \
-    "gunicorn>=22.0.0" \
-    "FlagEmbedding>=1.3.0" \
-    "opensearch-py>=2.4.0"
+    pip install --no-cache-dir ".[production,pgvector,opensearch,flag-embedding]" \
+    "gunicorn>=22.0.0"
+
+# nltk's sentence tokenizer data. Nothing downloads it at runtime, so bake it in
+# where nltk looks by default.
+RUN python -m nltk.downloader -d /usr/local/share/nltk_data punkt_tab
 
 # Models already baked in from Stage 1 (COPY --from=models above)
 

@@ -217,7 +217,7 @@ Create a separate package with entry-points (see Method C above). Install alongs
 ```dockerfile
 # Dockerfile
 FROM python:3.11-slim
-RUN pip install lasagna-rag[rag] my-custom-pipeline
+RUN pip install lasagna-rag my-custom-pipeline
 ENV RAG_AGENTIC_PIPELINE=my_custom_rag
 ```
 

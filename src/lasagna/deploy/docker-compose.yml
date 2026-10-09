@@ -76,7 +76,9 @@ x-logging: &default-logging
     max-file: "3"
 
 x-build: &common-build
-  context: ../../../../..
+  # The repository root, three levels up from src/lasagna/deploy: the image
+  # copies pyproject.toml, LICENSE, NOTICE, README.md and src/lasagna/ from it.
+  context: ../../..
   dockerfile: src/lasagna/deploy/Dockerfile
 
 services:

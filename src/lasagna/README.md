@@ -471,11 +471,9 @@ Encapsulates a full retrieval pipeline as a reproducible, serializable object. C
 pip install lasagna-rag
 
 # With specific vector backends
-pip install lasagna-rag[qdrant]
-pip install lasagna-rag[pinecone]
-pip install lasagna-rag[weaviate]
-pip install lasagna-rag[pgvector]
-pip install lasagna-rag[opensearch]
+pip install "lasagna-rag[vector-backends]"   # Qdrant, Pinecone and Weaviate clients
+pip install "lasagna-rag[pgvector]"
+pip install "lasagna-rag[opensearch]"
 
 # With Docling document processing (tables, OCR, layout analysis)
 pip install lasagna-rag[docling]
@@ -818,7 +816,7 @@ python -m pytest tests/
 Contributions are welcome. To get started:
 
 1. **Fork and clone** the repository.
-2. **Install dev dependencies**: `pip install -e ".[dev]"`.
+2. **Install dev dependencies**: `pip install -e ".[eval]" --group dev` (the dev group needs pip 25.1 or later, or use `uv pip`).
 3. **Run the test suite** before making changes: `python -m pytest tests/ -v`.
 4. **Create a feature branch** from `main`.
 5. **Follow existing patterns** -- the codebase uses the facade pattern (`RAGBackend`), mixin composition (`KnowledgeConfigManager`), and provider abstraction for decoupling.
