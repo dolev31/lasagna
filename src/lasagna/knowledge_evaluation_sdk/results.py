@@ -868,10 +868,17 @@ class BenchmarkResults:
         calculation needs a variance estimate nobody has yet, and picking one
         turns the sample-size decision into a guess dressed as arithmetic.
 
-        Normal quantiles, not the t distribution: a bootstrap makes no
-        parametric claim about the differences, so this is a scale reference
-        rather than a test, and it is anti-conservative at very small n.
-        Reported n makes that visible.
+        Normal quantiles, not the t distribution: this is a scale reference
+        rather than a test, and it is anti-conservative at very small n (about
+        0.91 of the t-based MDE at n=12). Reported n makes that visible.
+
+        Power is the chance that a run this size detects a true effect of the
+        MDE. The report also carries the pair's own sign-flip p-value
+        (uncorrected), because a difference below the MDE can still be
+        significant: it was detected, and the MDE says only that a replication
+        at this size would detect an effect that small less often than
+        ``power``. The report used to call such a pair "would have been
+        missed", next to a `results significance` table calling it significant.
         """
         import math
 
@@ -904,6 +911,40 @@ class BenchmarkResults:
         degenerate = sd == 0.0
         underpowered = (not degenerate) and abs(mean_diff) < mde
 
+        p_value = self.significance_test(config_a, config_b, metric, benchmark, alpha=alpha)[
+            "p_value"
+        ]
+        significant = p_value < alpha
+        detects = f"a run this size detects a true difference of {mde:.4f} {power:.0%} of the time"
+        if degenerate:
+            interpretation = (
+                "every paired difference was identical, so any non-zero effect "
+                "would have been detected"
+            )
+        elif significant:
+            interpretation = (
+                f"the difference ({mean_diff:+.4f}) is significant on its own "
+                f"(p={p_value:.4f}, uncorrected; `results significance` corrects "
+                f"across every pair). {detects[0].upper()}{detects[1:]}"
+                + (
+                    ", and a smaller one like this less often, so a replication at "
+                    "this size could miss it"
+                    if underpowered
+                    else ""
+                )
+            )
+        elif underpowered:
+            interpretation = (
+                f"not significant (p={p_value:.4f}), and the observed difference "
+                f"({mean_diff:+.4f}) is below {mde:.4f}: {detects}, and a smaller "
+                "one less often, so a real effect this size could easily go "
+                "undetected -- inconclusive, not evidence of no difference"
+            )
+        else:
+            interpretation = (
+                f"not significant (p={p_value:.4f}); {detects}, and a larger one more often"
+            )
+
         return {
             "benchmark": benchmark,
             "config_a": config_a,
@@ -922,18 +963,9 @@ class BenchmarkResults:
             "n_needed_for_observed_effect": (
                 _samples_for_effect(abs(mean_diff), sd, alpha, power) if mean_diff else None
             ),
-            "interpretation": (
-                "every paired difference was identical, so any non-zero effect "
-                "would have been detected"
-                if degenerate
-                else (
-                    f"the observed difference ({mean_diff:+.4f}) is smaller than the "
-                    f"smallest this run could detect ({mde:.4f}), so a real effect of "
-                    f"this size would have been missed -- inconclusive, not null"
-                    if underpowered
-                    else f"the run could detect differences of {mde:.4f} or larger"
-                )
-            ),
+            "p_value": p_value,
+            "significant": significant,
+            "interpretation": interpretation,
         }
 
     # ------------------------------------------------------------------

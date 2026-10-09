@@ -197,6 +197,39 @@ class TestItSeparatesInconclusiveFromNull:
         assert report["zero_variance"]
         assert not report["underpowered"]
 
+    def test_a_significant_pair_is_reported_as_significant(self):
+        """`results power` said "a real effect of this size would have been
+        missed -- inconclusive" about a pair `results significance` had just
+        called significant (p=0.035). A significant difference below the MDE
+        was detected; what the MDE says is that a run this size detects one
+        that small only some of the time."""
+        import random
+
+        rng = random.Random(4)
+        base = [rng.uniform(0.2, 0.8) for _ in range(50)]
+        cand = [b + 0.04 + rng.gauss(0, 0.12) for b in base]
+        res = _paired(base, cand)
+        report = res.minimum_detectable_effect("scifact", "baseline", "candidate", "ndcg@10")
+        sig = res.significance_test("baseline", "candidate", "ndcg@10", "scifact")
+
+        assert sig["significant"], "the premise: this pair is significant"
+        assert report["underpowered"], "the premise: its difference is below the MDE"
+        assert report["significant"] and report["p_value"] == pytest.approx(sig["p_value"])
+        text = report["interpretation"]
+        assert "significant" in text and "not significant" not in text
+        assert "would have been missed" not in text and "inconclusive" not in text
+        assert "80% of the time" in text, "power is the chance of detecting the MDE"
+
+    def test_a_non_significant_pair_below_the_mde_is_inconclusive(self):
+        base = [0.1, 0.9, 0.2, 0.8, 0.5, 0.3]
+        cand = [0.11, 0.89, 0.21, 0.79, 0.51, 0.31]
+        report = _paired(base, cand).minimum_detectable_effect(
+            "scifact", "baseline", "candidate", "ndcg@10"
+        )
+        assert not report["significant"]
+        assert "not significant" in report["interpretation"]
+        assert "inconclusive" in report["interpretation"]
+
     def test_one_shared_sample_is_refused(self):
         with pytest.raises(ValueError, match="fewer than two"):
             _paired([0.5], [0.6]).minimum_detectable_effect(
@@ -309,3 +342,42 @@ class TestDatasetRevisions:
                 raise RuntimeError("boom")
 
         assert _resolved_revision(_Hostile(), "no_such_benchmark") == ""
+
+
+class TestThePowerCommandAgreesWithSignificance:
+    def test_a_significant_pair_prints_as_significant(self, tmp_path):
+        import json
+        import random
+
+        typer_testing = pytest.importorskip("typer.testing")
+        from lasagna.cli import app
+
+        rng = random.Random(4)
+        base = [rng.uniform(0.2, 0.8) for _ in range(50)]
+        cand = [b + 0.04 + rng.gauss(0, 0.12) for b in base]
+        path = tmp_path / "results.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "results": [
+                        {
+                            "task_key": name,
+                            "run_index": 0,
+                            "benchmark_name": "scifact",
+                            "config_name": name,
+                            "metrics": {},
+                            "per_sample_scores": [
+                                {"_sample_id": f"q{i}", "ndcg@10": s} for i, s in enumerate(v)
+                            ],
+                        }
+                        for name, v in (("baseline", base), ("candidate", cand))
+                    ]
+                }
+            )
+        )
+        out = typer_testing.CliRunner().invoke(
+            app, ["results", "power", str(path), "baseline", "candidate"]
+        )
+        assert out.exit_code == 0, out.output
+        assert "is significant" in out.output
+        assert "would have been missed" not in out.output

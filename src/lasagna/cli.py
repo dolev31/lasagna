@@ -1475,13 +1475,22 @@ def results_power(
     except ValueError as exc:
         _error(str(exc))
 
-    console.print(f"[bold]{metric}[/bold] on {benchmark}: {config_b} vs {config_a}")
+    console.print(
+        f"[bold]{escape(metric)}[/bold] on {escape(benchmark)}: "
+        f"{escape(config_b)} vs {escape(config_a)}"
+    )
     console.print(f"  paired queries       : {report['n_paired']}")
     console.print(f"  observed difference  : {report['observed_difference']:+.4f}")
     console.print(f"  sd of differences    : {report['sd_of_differences']:.4f}")
-    colour = "yellow" if report["underpowered"] else "green"
     console.print(
-        f"  [bold]detectable at {int(report['power'] * 100)}% power[/bold]: "
+        f"  p, uncorrected       : {report['p_value']:.4f}"
+        + ("  [green]significant[/green]" if report["significant"] else "")
+    )
+    # Yellow only when a miss is the likely story: a significant pair was
+    # detected, whatever its size relative to the MDE.
+    colour = "yellow" if report["underpowered"] and not report["significant"] else "green"
+    console.print(
+        f"  [bold]effect detected {int(report['power'] * 100)}% of the time[/bold]: "
         f"[{colour}]{report['minimum_detectable_effect']:.4f}[/{colour}]"
     )
     if report["n_needed_for_observed_effect"]:
@@ -1489,7 +1498,7 @@ def results_power(
             f"  queries needed for the observed effect: {report['n_needed_for_observed_effect']}"
         )
     console.print()
-    console.print(f"  {report['interpretation']}")
+    console.print(f"  {escape(report['interpretation'])}")
 
 
 def _format_effect_size(effect: Optional[float]) -> str:
