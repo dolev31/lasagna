@@ -524,7 +524,8 @@ class BenchmarkResults:
             alpha: Family-wise significance level.
 
         Returns:
-            List of dicts with ``config_a``, ``config_b``, ``p_value``,
+            List of dicts with ``config_a``, ``config_b``, ``p_value`` (raw),
+            ``p_adjusted`` (Holm-adjusted under ``"holm"``, else raw),
             ``significant``, ``corrected_alpha``.
         """
         configs = [c for c in self.configs if self._by_bench_config.get((benchmark, c))]
@@ -560,9 +561,14 @@ class BenchmarkResults:
             raw_results.sort(key=lambda x: x["p_value"])
             m = len(raw_results)
             rejected_so_far = True
+            running_max = 0.0
             for i, r in enumerate(raw_results):
                 corrected_alpha = alpha / (m - i)
                 r["corrected_alpha"] = corrected_alpha
+                # The value a reader compares with alpha. Only the raw p was
+                # returned, and printed under a Holm header.
+                running_max = max(running_max, min(1.0, (m - i) * r["p_value"]))
+                r["p_adjusted"] = running_max
                 if rejected_so_far and r["p_value"] <= corrected_alpha:
                     r["significant"] = True
                 else:
@@ -571,6 +577,7 @@ class BenchmarkResults:
         else:
             for r in raw_results:
                 r["corrected_alpha"] = alpha
+                r["p_adjusted"] = r["p_value"]
                 r["significant"] = r["p_value"] < alpha
 
         return raw_results

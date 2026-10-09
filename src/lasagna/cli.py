@@ -1520,6 +1520,8 @@ def results_significance(
     table.add_column("diff", justify="right")
     table.add_column("d_z", justify="right")
     table.add_column("p", justify="right")
+    if correction == "holm":
+        table.add_column("p (Holm)", justify="right")
     table.add_column("", justify="left")
 
     shown = 0
@@ -1528,14 +1530,17 @@ def results_significance(
             continue
         shown += 1
         significant = row.get("significant")
-        table.add_row(
-            str(row["config_a"]),
-            str(row["config_b"]),
+        cells = [
+            escape(str(row["config_a"])),
+            escape(str(row["config_b"])),
             f"{row['difference']:+.4f}",
             _format_effect_size(row.get("effect_size")),
             f"{row['p_value']:.4f}",
-            "[green]significant[/green]" if significant else "[dim]—[/dim]",
-        )
+        ]
+        if correction == "holm":
+            cells.append(f"{row.get('p_adjusted', row['p_value']):.4f}")
+        cells.append("[green]significant[/green]" if significant else "[dim]—[/dim]")
+        table.add_row(*cells)
     console.print(table)
 
     survivors = sum(1 for r in rows if r.get("significant"))
