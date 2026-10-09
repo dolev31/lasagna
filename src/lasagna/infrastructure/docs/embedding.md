@@ -2,7 +2,7 @@
 
 ## Overview
 
-`EmbeddingManager` handles vector generation for the RAG pipeline. It supports two backends (BGE-M3 via FlagEmbedding, sentence-transformers), optional GPU acceleration, and an LRU embedding cache.
+`EmbeddingManager` handles vector generation for the RAG pipeline. It supports two backends (BGE-M3 via FlagEmbedding, sentence-transformers), optional GPU acceleration, and an LRU embedding cache. It is the `default` embedder component. The other five (`sentence_transformers`, `bge_m3`, `openai`, `cohere`, `voyage`) live in `embedding/embedders.py` and are described in the [infrastructure README](../README.md#embedder-components).
 
 ---
 
@@ -27,8 +27,27 @@ embedding_backend = "auto" (default)
 ### Sentence-Transformers
 
 - Universal fallback for any HuggingFace model
-- Explicit query prefix applied: `"Represent this sentence for searching relevant passages: "`
+- Query and document prefixes follow the model's card, resolved from the model name, a specific family before a general one (see [Model-Card Prefixes](#model-card-prefixes))
 - `encode_sparse()` returns `None` (not supported)
+
+### Model-Card Prefixes
+
+| Model family (matched in the name) | Query prefix | Document prefix |
+| ---------------------------------- | ------------ | --------------- |
+| Qwen3-Embedding, gte-Qwen, E5-Mistral, E5 instruct | `Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:` | none |
+| E5 | `query: ` | `passage: ` |
+| BGE-M3 | none (it is trained without a query instruction) | none |
+| BGE (Chinese, `-zh`) | the Chinese BGE retrieval instruction | none |
+| BGE v1.5, mxbai-embed, Arctic-Embed v1 | `Represent this sentence for searching relevant passages: ` | none |
+| Arctic-Embed v2 | `query: ` | none |
+| Nomic | `search_query: ` | `search_document: ` |
+| anything else (MiniLM, GTE, ...) | none | none |
+
+BGE-M3 used to get the BGE v1.5 instruction on the sentence-transformers backend; it no longer does, which changes its query vectors there. FlagEmbedding never applied a prefix.
+
+### Late Chunking
+
+With `enable_late_chunking`, `EmbeddingManager` embeds the whole document once, and each chunk's vector is the mean of the token embeddings inside its span (Günther et al., arXiv:2409.04701). The chunk boundaries do not change, so it works with any chunker. A document longer than the model's window is processed as overlapping windows: consecutive windows share `late_chunking_overlap` tokens (512, capped at half a window), and a shared token keeps its embedding from the earlier window, where it had context on its left. It needs a sentence-transformers model with a fast tokenizer and no Dense projection. When it cannot run (the FlagEmbedding backend, another model, a chunk that is not a slice of the document), it falls back to standard encoding outside evaluation and raises under evaluation. It warns once when the model was not trained with mean pooling.
 
 ---
 
@@ -57,10 +76,10 @@ Thread-safe LRU cache for computed embeddings.
 key = SHA256(f"{prefix}:{text}")[:16]   # 16 hex chars = 64-bit key space
 ```
 
-- **Query prefix**: `"Represent this sentence for searching relevant passages: "`
-- **Document prefix**: `""` (empty)
+- **Query prefix**: the model's query prefix (for BGE v1.5, `"Represent this sentence for searching relevant passages: "`)
+- **Document prefix**: the model's document prefix (empty for most models)
 
-Queries and documents for the same text produce different cache keys due to different prefixes.
+Queries and documents for the same text produce different cache keys when their prefixes differ.
 
 ### Collision Analysis
 
@@ -124,7 +143,8 @@ class EmbeddingManagerAdapter(BaseEmbedder):
 
     def encode(self, texts: List[str]) -> np.ndarray:  # ABC method
         results = self._inner.encode_documents_batch(texts)
-        # Guard: replace None entries with zero vectors
+        # A failed entry raises under evaluation (a zero vector is a document
+        # no query can find); outside evaluation it becomes a zero vector.
         return np.array(results)
 
     def encode_query(self, query: str) -> np.ndarray:   # ABC method

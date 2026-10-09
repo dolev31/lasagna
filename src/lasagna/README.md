@@ -22,10 +22,11 @@ A **state-of-the-art**, plug-and-play RAG engine that works standalone with any 
 - **Query Decomposition** -- LLM-based breakdown of complex questions into focused sub-queries
 - **Structured Graph Mode** -- explicit LangGraph StateGraph with 13 nodes for debuggable multi-hop retrieval
 - **Adaptive-K** -- score-gap detection to return only relevant results
-- **Lost-in-the-Middle Reordering** -- +15 percentage points on recall benchmarks
+- **Lost-in-the-Middle Reordering** -- the best passages go at the start and end of the context
+- **Published agentic loops** -- Self-Ask, IRCoT, FLARE, Adaptive-RAG and Self-RAG beside the built-in graph
 - **6 Vector Backends** -- Milvus, Pinecone, Qdrant, Weaviate, PgVector, OpenSearch (BYOVDB)
 - **Multi-Tenant SaaS** -- partition isolation, per-tenant quotas, adaptive rate limiting
-- **Component Registry** -- swap-and-measure any pipeline component for research
+- **Eight swappable stages** -- retriever, reranker, query enhancer, agentic pipeline, generator, chunker, embedder and document processor, each with built-in components from the published literature, so one change can be measured with the rest held fixed
 - **RAGAS Evaluation** -- built-in evaluation integration with ablation sweeps
 
 ---
@@ -114,30 +115,23 @@ Four built-in profiles (`config_for_speed`, `config_for_standard`, `config_for_b
 
 ### For Researchers
 
-Use the **Component Registry** to swap any pipeline component and benchmark against built-ins:
+Use the **component registry** to swap one pipeline stage and measure it against the built-ins, with everything else held fixed. A plain function becomes a component with one decorator:
 
 ```python
-from lasagna.retrieval.registry import component_registry
+import lasagna
+from lasagna.core.registry import registry
 
-# Register a custom reranker
-class MyColBERTReranker:
-    def rerank(self, query, results, top_k=5, config=None):
-        ...
 
-component_registry.register_reranker("my_colbert", MyColBERTReranker)
+@lasagna.reranker("keyword_overlap")
+def keyword_overlap(query, text):
+    return len(set(query.lower().split()) & set(text.lower().split()))
 
-# List all registered components
-print(component_registry.list_rerankers())
-# [{"name": "cross_encoder", ...}, {"name": "combined", ...}, {"name": "my_colbert", ...}]
 
-# Create instances via factory
-reranker = component_registry.create_reranker("my_colbert")
-
-# Use via config: set custom_reranker in settings.lasagna.toml
-# custom_reranker = "my_colbert"
+print(registry.list("reranker"))
+# {'reranker': ['cross_encoder', 'combined', ..., 'cohere', 'keyword_overlap']}
 ```
 
-Four component categories are supported: **rerankers**, **embedders**, **chunkers**, and **query enhancers**. Built-in components are auto-registered; custom ones integrate without modifying package source code.
+Eight stages are swappable: `retriever`, `reranker`, `query_enhancer`, `agentic_pipeline`, `generator`, `chunker`, `embedder` and `document_processor`. Each has built-in components that implement published methods (listed under [Component Registry](#component-registry) below). A sweep names any of them, or your function as `module:function`, with no packaging. The [guide](../../docs/guide.md) walks through the whole workflow.
 
 Evaluate results with the built-in evaluation SDK:
 
@@ -196,17 +190,17 @@ Configurator documentation: [configurator/README.md](configurator/README.md)
 | ------ | ------ | ---------- | ------ |
 | **sdk** | [sdk/](sdk/README.md) | [12 guides](sdk/docs/) | KnowledgeClient, config, remote client, UI components |
 | **api** | [api/](api/README.md) | [3 docs](api/docs/) | REST endpoints, middleware, FastAPI |
-| **agentic** | [agentic/](agentic/README.md) | [4 docs](agentic/docs/) | Multi-hop pipeline, nodes, state, CRAG |
+| **agentic** | [agentic/](agentic/README.md) | [4 docs](agentic/docs/) | Structured graph, published loops (Self-Ask, IRCoT, FLARE, Adaptive-RAG, Self-RAG), nodes, state |
 | **core** | [core/](core/README.md) | [5 docs](core/docs/) | Config (160 properties), database, sessions, schema |
-| **retrieval** | [retrieval/](retrieval/README.md) | — | Search pipeline, reranking, query routing |
-| **processing** | [processing/](processing/README.md) | — | Docling, OCR, semantic chunking |
+| **retrieval** | [retrieval/](retrieval/README.md) | — | Retrievers, rerankers, query enhancers, query routing |
+| **processing** | [processing/](processing/README.md) | — | Document processors, OCR, chunkers |
 | **infrastructure** | [infrastructure/](infrastructure/README.md) | [5 docs](infrastructure/docs/) | Embedding, caching, LLM manager |
 | **vector_backends** | [vector_backends/](vector_backends/README.md) | — | 6 backends, BYOVDB, filters, pooling |
 | **storage** | [storage/](storage/README.md) | — | File storage (local, S3, fsspec) |
 | **providers** | [providers/](providers/README.md) | — | LLM, config, session providers |
 | **deploy** | [deploy/](deploy/README.md) | — | Docker, Kubernetes, monitoring, security |
 | **configurator** | [configurator/](configurator/README.md) | [3 docs](configurator/docs/) | Web UI, profiles, validation |
-| **mcp** | [mcp/](mcp/README.md) | — | MCP server, 33 tools |
+| **mcp** | [mcp/](mcp/README.md) | — | MCP server, 31 tools |
 | **evaluation** | [knowledge_evaluation_sdk/](knowledge_evaluation_sdk/README.md) | [3 docs](knowledge_evaluation_sdk/docs/) | Benchmarks, IR metrics, ablation |
 | **utils** | [utils/](utils/README.md) | — | Monitoring, tracing, model utilities |
 
@@ -373,7 +367,7 @@ Prepends the first 100 tokens of each source document (title, abstract, introduc
 
 ### Docling Document Processing
 
-An open-source document understanding engine. Performs layout analysis, TableFormer table extraction, OCR for scanned pages, and structure-aware chunking that preserves headings, lists, and code blocks.
+An open-source document understanding engine. Performs layout analysis, TableFormer table extraction, OCR for scanned pages, and structure-aware chunking that preserves headings, lists, and code blocks. The `docling` document processor component runs the same converter for extraction only and leaves chunking to the arm's chunker, so comparing it with `markitdown`, `pymupdf4llm` or the built-in extraction compares parsers alone.
 
 ### Contextual Retrieval
 
@@ -402,14 +396,15 @@ Generates a hypothetical answer document to use for embedding-based search inste
 
 ### Query Decomposition
 
-For complex multi-faceted questions, the LLM decomposes the original question into 2-4 focused sub-queries. Each sub-query is processed as a separate retrieval loop with results accumulated. The global retrieval budget is shared across all sub-queries to prevent runaway costs. Configure via `enable_query_decomposition`.
+For complex multi-faceted questions, the LLM decomposes the original question into 2-4 focused sub-queries. Each sub-query is processed as a separate retrieval loop with results accumulated. The global retrieval budget is shared across all sub-queries to prevent runaway costs. Configure via `enable_query_decomposition`. The `query_decomposition` query enhancer is a different component: the decomposition stage of least-to-most prompting (Zhou et al. 2022), whose sub-questions are searched beside the question and fused.
 
 ### Pluggable Agentic Pipelines
 
-The agentic retrieval layer supports three execution modes, controlled by the `agentic_pipeline` config key:
+The `agentic_pipeline` config key picks the multi-step retrieval loop:
 
 - **`"legacy_react"`** (default) -- LangChain ReAct agent loop with tool-based retrieval.
 - **`"default"`** -- Built-in LangGraph `StateGraph` with 13 explicit nodes and 6 conditional edges. Provides deterministic, debuggable retrieval with CRAG grading, quality gates, and query decomposition.
+- **`"self_ask"`, `"ircot"`, `"flare"`, `"adaptive"`, `"self_rag"`** -- Published loops: Self-Ask, IRCoT, FLARE, Adaptive-RAG and Self-RAG. Each searches through the complete pipeline, with the arm's components. Adaptive-RAG and Self-RAG are prompted variants: their papers train a classifier or a critic model, and these prompt a general LLM instead.
 - **Custom pipelines** -- Any `BaseAgenticPipeline` subclass registered in the `agentic_pipeline` namespace of the component registry.
 
 Individual graph nodes within the structured pipeline can also be overridden via `node_overrides` or the `graph_node` callable registry, without replacing the entire pipeline.
@@ -422,17 +417,17 @@ Analyzes score gaps between consecutive search results to dynamically determine 
 
 ### Lost-in-the-Middle Reordering
 
-Reorders retrieved passages so the most relevant ones appear at the beginning and end of the context window, counteracting the well-documented tendency of LLMs to under-attend to information in the middle. Measured improvement: +15 percentage points on recall benchmarks.
+Reorders retrieved passages so the most relevant ones appear at the beginning and end of the context window, counteracting the well-documented tendency of LLMs to under-attend to information in the middle. Whether it helps on your corpus is a measurement: sweep `enable_context_reordering`.
 
 ### Intelligent Query Routing (Adaptive-RAG)
 
-Inspired by [Adaptive-RAG (NAACL 2024)](https://arxiv.org/abs/2403.14403), the router classifies each query and selects the optimal retrieval tier:
+Inspired by [Adaptive-RAG (NAACL 2024)](https://arxiv.org/abs/2403.14403), the router classifies each query with rules and selects a retrieval tier. (The `adaptive` agentic pipeline follows the paper itself, with a prompted classifier in place of its trained one.) The tiers:
 
 - **FAST** -- Vector-only (~50-100ms). Short factual/navigational queries.
 - **STANDARD** -- Hybrid + reranking + HyDE (~200-400ms). Most queries (default).
 - **COMPREHENSIVE** -- Agentic multi-hop (~1-5s). Complex multi-hop or cross-document queries. Optionally enhanced with structured graph mode, quality gates, and query decomposition.
 
-Reduces average latency by 30-40% and costs by ~28% while improving accuracy on complex queries by ~8%. Configure via `enable_query_routing`, `routing_strategy`, and `routing_default_tier` in config, profiles, REST API, MCP, or SDK.
+Configure via `enable_query_routing`, `routing_strategy`, and `routing_default_tier` in config, profiles, REST API, MCP, or SDK.
 
 ```python
 # Auto-routing (default)
@@ -444,23 +439,24 @@ results = await client.search_documents("Compare X with Y across all docs", rout
 
 ### Component Registry
 
-A research-oriented system for swapping any pipeline component at runtime. Register custom implementations, run ablation studies, and compare results across configurations. The registry supports seven component namespaces and a separate callable store:
+A research-oriented system for swapping any pipeline component at runtime. Register custom implementations, run ablation studies, and compare results across configurations. The registry has eight component namespaces, one per stage, and a separate callable store. Every built-in implements its stage's interface, so any two components of a stage are interchangeable:
 
-| Namespace | Description |
-| --------- | ----------- |
-| `embedder` | Text-to-vector encoding |
-| `chunker` | Document segmentation |
-| `reranker` | Result reranking |
-| `retriever` | Vector/hybrid retrieval |
-| `document_processor` | Text extraction from files |
-| `query_enhancer` | Query rewriting and expansion |
-| `agentic_pipeline` | Pluggable agentic RAG pipelines (e.g. `"default"`, `"legacy_react"`, custom) |
+| Namespace | Description | Built-in components |
+| --------- | ----------- | ------------------- |
+| `retriever` | First-stage retrieval | `dense`, `bm25`, `splade`, `hybrid_rrf`, `hybrid_convex` |
+| `reranker` | Result reranking | `cross_encoder`, `colbert`, `monot5`, `llm_listwise` (RankGPT), `llm_pointwise`, `flashrank`, `cohere`, `mmr`, `ensemble`, `combined` |
+| `query_enhancer` | Query rewriting and expansion | `hyde`, `query2doc`, `step_back`, `rewrite`, `multi_query` (RAG-Fusion), `query_expansion`, `query_decomposition` (least-to-most), `combined` |
+| `agentic_pipeline` | Multi-step retrieval loops | `default` (the structured graph), `legacy_react`, `self_ask`, `ircot`, `flare`, `adaptive`, `self_rag` |
+| `generator` | Answer generation | `concise`, `cited` (ALCE), `chain_of_thought`, `chain_of_note` |
+| `chunker` | Document segmentation | `fixed`, `recursive`, `sentence_window`, `markdown_header`, `semantic`, `hierarchical`, `structure_aware`, `proposition`, `contextual` |
+| `embedder` | Text-to-vector encoding | `default` (the configured model), `sentence_transformers`, `bge_m3`, `openai`, `cohere`, `voyage` |
+| `document_processor` | Text extraction from files | `default` (pypdf, pdfplumber, OCR), `docling`, `markitdown`, `pymupdf4llm` |
 
-Additionally, `graph_node` callables are stored in a separate registry (not in `COMPONENT_TYPES`) to avoid accidental instantiation. Use `registry.register_graph_node()` and `registry.get_graph_node()` to manage them.
+`registry.list_all()` returns every name, and `registry.list_rerankers()` and the other `list_*` helpers add each component's description and paper. Additionally, `graph_node` callables are stored in a separate registry (not in `COMPONENT_TYPES`) to avoid accidental instantiation. Use `registry.register_graph_node()` and `registry.get_graph_node()` to manage them.
 
 ### KnowledgePipeline
 
-Encapsulates a full retrieval pipeline as a reproducible, serializable object. Combined with `sweep()` and `RAGASEvaluator`, enables systematic experimentation across datasets and configurations.
+Encapsulates a full retrieval pipeline as a reproducible, serializable object. `replace(stage, name)` swaps one component, and `generate(query, contexts)` writes an answer with the pipeline's generator (`concise` unless replaced). Combined with `sweep()` and `RAGASEvaluator`, enables systematic experimentation across datasets and configurations.
 
 ---
 
@@ -478,10 +474,14 @@ pip install "lasagna-rag[opensearch]"
 # With Docling document processing (tables, OCR, layout analysis)
 pip install lasagna-rag[docling]
 
+# The markitdown and pymupdf4llm document processors (pymupdf4llm is AGPL-3.0)
+pip install "lasagna-rag[markitdown]"
+pip install "lasagna-rag[pymupdf4llm]"
+
 # With RAGAS evaluation
 pip install lasagna-rag[eval]
 
-# Everything
+# Everything except the markitdown and pymupdf4llm extras
 pip install lasagna-rag[all]
 ```
 
@@ -562,7 +562,7 @@ python -m lasagna.mcp --port 8005
 python -m lasagna.mcp --transport stdio
 ```
 
-Any MCP client connects to `http://localhost:8005/sse` and gets access to 33 tools across these categories:
+Any MCP client connects to `http://localhost:8005/sse` and gets access to 31 tools, including these:
 
 | Category | Tools |
 | -------- | ----- |
@@ -823,7 +823,7 @@ Contributions are welcome. To get started:
 4. **Create a feature branch** from `main`.
 5. **Follow existing patterns** -- the codebase uses the facade pattern (`RAGBackend`), mixin composition (`KnowledgeConfigManager`), and provider abstraction for decoupling.
 6. **Adding a new vector backend**: implement `VectorStoreAdapter`, add one YAML fragment, one Kustomize overlay -- zero changes to existing files.
-7. **Adding a new pipeline component**: extend the appropriate base class (`BaseEmbedder`, `BaseChunker`, `BaseReranker`, `BaseRetriever`, `BaseQueryEnhancer`, `BaseDocumentProcessor`), register it in the component registry, and add tests.
+7. **Adding a new pipeline component**: extend the appropriate base class (`BaseEmbedder`, `BaseChunker`, `BaseReranker`, `BaseRetriever`, `BaseQueryEnhancer`, `BaseDocumentProcessor`, `BaseAgenticPipeline`, `BaseGenerator`), register it in the component registry, and add tests.
 8. **Submit a PR** with tests covering your changes.
 
 ---

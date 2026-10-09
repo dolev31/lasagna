@@ -92,8 +92,9 @@ A Milvus server address is read from `MILVUS_URI` (and `MILVUS_TOKEN`) by the ba
 
 | Property | Type | Default | Description |
 |---|---|---|---|
-| `chunking_strategy` | str | `"semantic"` | Chunking algorithm |
-| `chunk_size` | int | 800 | Target chunk size (characters) |
+| `chunking_strategy` | str | `"semantic"` | Built-in strategy: `semantic`, `fixed`, `sentence_window` or `recursive` (applies when `enable_hierarchical`, `preserve_headers` and `preserve_tables` are off) |
+| `chunk_size` | int | 800 | Target chunk size, in `chunk_unit` |
+| `chunk_unit` | str | `"chars"` | `chars`, `words` or `tokens` (of `chunk_tokenizer`), for the `fixed` and `recursive` chunkers |
 | `chunk_overlap` | int | 0 | Overlap between chunks |
 | `enable_hierarchical` | bool | `True` | Enable parent-child chunking |
 
@@ -152,6 +153,10 @@ A Milvus server address is read from `MILVUS_URI` (and `MILVUS_TOKEN`) by the ba
 |---|---|---|---|
 | `cache_backend` | str | `"memory"` | `"memory"` or `"redis"` |
 | `redis_url` | str | `"redis://localhost:6379"` | Redis connection URL |
+
+### Component Settings
+
+Each built-in component reads its own settings, documented beside it: retrievers, rerankers and query enhancers in [retrieval/README.md](../../retrieval/README.md#built-in-components), chunkers and document processors in [processing/README.md](../../processing/README.md), embedders in [infrastructure/README.md](../../infrastructure/README.md#embedder-components), and the published agentic loops in [agentic/docs/config.md](../../agentic/docs/config.md#published-loop-settings). They resolve through the same chain as every property above.
 
 ## Session-Scoped Config
 

@@ -43,6 +43,56 @@ The retrieval layer provides hybrid search, reranking, query enhancement, and in
                             Results
 ```
 
+When a sweep arm or a pipeline names a retriever component, its ranked list replaces the hybrid search box: it is the first stage, and it is not fused with BM25 again afterwards. Reranking and the stages after it run as usual.
+
+## Built-in Components
+
+Every component below is registered in the core registry (`lasagna.core.registry.registry`) and implements its stage's interface, so any two of a stage are interchangeable in a sweep. Each reads the arm's settings. One that needs a model, package, key or LLM raises when it is missing, instead of returning the input order and scoring as the control.
+
+### Retrievers (`retrievers.py`)
+
+| Name | Method | Settings (default) |
+|------|--------|--------------------|
+| `dense` | Dense vector search with the configured embedder (DPR's bi-encoder setting, Karpukhin et al. 2020). The default first stage as a component: use it as the control in a retriever sweep | the embedder's settings |
+| `bm25` | Okapi BM25 over the session's chunks (Robertson and Zaragoza 2009), lowercased and Porter-stemmed as the hybrid index tokenizes | `bm25_k1` (1.2), `bm25_b` (0.75), `enable_bm25_stemming` (true) |
+| `splade` | SPLADE learned sparse retrieval (Formal et al. 2021): query and passages encoded by a masked language model, scored by dot product | `splade_model` (`naver/splade-cocondenser-ensembledistil`, non-commercial license) |
+| `hybrid_rrf` | Dense and BM25 lists fused by Reciprocal Rank Fusion (Cormack et al. 2009), unweighted | `rrf_k` (60), `hybrid_fusion_depth` (1000) |
+| `hybrid_convex` | Convex combination of normalized dense and BM25 scores (Bruch et al. 2023). A chunk missing from one list has that score computed, not set to zero | `hybrid_alpha` (0.7), `hybrid_convex_normalization` (`tmm`, or `minmax`, `zscore`), `hybrid_fusion_depth` (1000) |
+
+BM25 and SPLADE score every passage of the session, so `bm25_k1`, `bm25_b` and `splade_model` take effect on every vector backend, including ones whose native BM25 fixes its parameters at index time.
+
+### Rerankers
+
+| Name | Method | Settings (default) |
+|------|--------|--------------------|
+| `cross_encoder` | Cross-encoder scoring. Loads current Hugging Face rerankers by name (for example `BAAI/bge-reranker-v2-m3`); `mixedbread-ai/mxbai-rerank-base-v2` needs sentence-transformers 5.4 or later and is refused on older versions | `reranker_model` (`mixedbread-ai/mxbai-rerank-large-v1`), `reranker_trust_remote_code` (false) |
+| `colbert` | ColBERT late interaction, token-level MaxSim (Khattab and Zaharia 2020) | `colbert_model` (`colbert-ir/colbertv2.0`) |
+| `monot5` | monoT5 (Nogueira et al. 2020): the log-probability of "true" from a seq2seq relevance model | `monot5_model` (`castorini/monot5-base-msmarco-10k`) |
+| `llm_listwise` | RankGPT (Sun et al. 2023): the LLM orders windows of passages, sliding from the bottom of the list to the top | `llm_reranker_model` (empty: the configured LLM), `llm_reranker_window_size` (20), `llm_reranker_step_size` (10) |
+| `llm_pointwise` | LLM relevance grade per passage on a 0 to 3 scale (Thomas et al. 2023, in UMBRELA's form); ties keep retrieval order | `llm_reranker_model` |
+| `flashrank` | FlashRank's small ONNX cross-encoders on the CPU. Needs `pip install flashrank` | `flashrank_model` (`ms-marco-TinyBERT-L-2-v2`) |
+| `cohere` | Cohere's hosted Rerank API. Needs `pip install cohere` and `COHERE_API_KEY` (or `CO_API_KEY`) | `cohere_rerank_model` (`rerank-v3.5`) |
+| `mmr` | Maximal Marginal Relevance diversity reranking (Carbonell and Goldstein 1998) | `mmr_lambda` (0.5), `mmr_score_normalization` (`sigmoid`) |
+| `ensemble` | Weighted ensemble of cross-encoders | `ensemble_reranker_*` |
+| `combined` | Cross-encoder, then a relevance filter, then MMR | the cross-encoder and MMR settings |
+
+Built-ins that load a model record `component:model` as the reranker that ran, so two arms with different checkpoints stay distinguishable.
+
+### Query Enhancers
+
+Each returns the original query first, then what its method adds. The pipeline searches every returned query and fuses the lists with weighted reciprocal rank fusion: the original at weight 2, each addition at weight 1. That fusion is held fixed across enhancers, so comparing two measures what each adds to the original query. A method that searches only its rewrite in its paper (Query2doc, Rewrite-Retrieve-Read) is therefore measured fused with the original here. The LLM enhancers use the stage's model (`hyde_model`) at temperature 0, so a sweep across enhancers holds the model fixed. The pipeline caps the additions at its variation count (`max_query_variations`, or `rag_fusion_n_queries` when `enable_rag_fusion` is on).
+
+| Name | Method | Settings (default) |
+|------|--------|--------------------|
+| `hyde` | HyDE (Gao et al. 2022): the query plus one hypothetical answer passage | `hyde_model` |
+| `query2doc` | Query2doc (Wang et al. 2023): the query followed by an LLM-written pseudo-document, with the paper's prompt | `query2doc_format` (`dense`, or `sparse`), `query2doc_query_repeats` (5), `query2doc_max_tokens` (128) |
+| `step_back` | Step-back prompting (Zheng et al. 2023): the question and a more generic step-back question | `hyde_model` |
+| `rewrite` | Rewrite-Retrieve-Read (Ma et al. 2023): search queries rewritten by a frozen LLM | `hyde_model` |
+| `multi_query` | RAG-Fusion (Rackauckas 2024): LLM-generated search queries | `hyde_model` |
+| `query_expansion` | LLM paraphrases of the query | `max_query_variations` (3) |
+| `query_decomposition` | Least-to-most prompting's decomposition (Zhou et al. 2022): the paper's few-shot prompt, parsed into the ordered sub-questions | `hyde_model` |
+| `combined` | Diverse LLM reformulations of the query (RAG-Fusion style) | the pipeline's variation count |
+
 ## Subpackages
 
 ### `search/`
@@ -56,6 +106,9 @@ The retrieval layer provides hybrid search, reranking, query enhancement, and in
 | `MMRReranker` | Maximal Marginal Relevance for result diversity. Normalized relevance scores ensure comparability with cosine similarity diversity term. Pre-fetched embeddings avoid re-embedding. |
 | `CombinedReranker` | Pipeline: cross-encoder reranking -> pre-MMR relevance filter (sigmoid >= 0.1) -> MMR diversity. Supports adaptive-k score-gap analysis (EMNLP 2025). |
 | `EnsembleReranker` | Multi-model reranking ensemble with weighted score averaging. Reduces model-specific biases. |
+| `ColBERTReranker`, `LLMListwiseReranker` | ColBERT late interaction, and RankGPT's sliding-window LLM reranking. |
+| `DenseRetriever`, `BM25Retriever`, `SPLADERetriever`, `HybridRRFRetriever`, `HybridConvexRetriever` | `retrievers.py`: the five retriever components. |
+| `MonoT5Reranker`, `LLMPointwiseReranker`, `FlashRankReranker`, `CohereReranker` | `rerankers.py`: the monoT5, LLM pointwise, FlashRank and Cohere reranker components. |
 
 ### `enhancement/`
 
@@ -63,7 +116,8 @@ The retrieval layer provides hybrid search, reranking, query enhancement, and in
 |-------|-------------|
 | `HyDEGenerator` | Hypothetical Document Embeddings — generates hypothetical answers to bridge query/document embedding gap. Supports multi-document HyDE with embedding averaging or max-similarity selection. Thread-safe LLM initialization. |
 | `QueryExpander` | LLM-based query paraphrasing for improved recall. Generates alternative phrasings with different terminology. |
-| `QueryDecomposer` | Breaks complex multi-part queries into simpler sub-queries for targeted retrieval. |
+| `QueryDecomposer` | Least-to-most decomposition (Zhou et al. 2022): the paper's few-shot prompt, parsed into the ordered sub-questions a question needs. |
+| `StepBackEnhancer`, `Query2DocEnhancer`, `RewriteEnhancer`, `MultiQueryEnhancer` | `augmentation.py`: the `step_back`, `query2doc`, `rewrite` and `multi_query` components, each with its paper's prompt. |
 | `QueryEnhancer` | Combined pipeline orchestrating HyDE, expansion, and decomposition. Provides both async and sync interfaces. |
 | `QueryClassifier` | Rule-based query type classification (FACTUAL, CONCEPTUAL, NAVIGATIONAL, COMPARATIVE). Zero LLM overhead. Recommends retrieval parameters per type (alpha, HyDE strategy, expansion). |
 | `CoverageScorer` | Keyword-based aspect coverage analysis. Extracts query aspects, checks chunk coverage via word-boundary matching with pre-compiled regex. Provides confidence scores and follow-up suggestions. |
@@ -88,7 +142,12 @@ The retrieval layer provides hybrid search, reranking, query enhancement, and in
 | MMR | Carbonell & Goldstein 1998 | Balancing relevance and diversity via lambda-weighted scoring |
 | Adaptive-k | EMNLP 2025 | Score-gap analysis to dynamically determine optimal result count |
 | Adaptive-RAG | NAACL 2024 | Query complexity routing to select retrieval tier |
-| BM25 (Okapi) | Robertson et al. 1995 | Sparse keyword retrieval with optional Porter stemming |
+| BM25 (Okapi) | Robertson et al. 1995; Robertson and Zaragoza 2009 | Sparse keyword retrieval with optional Porter stemming |
+| SPLADE | Formal et al. 2021, 2022 | Learned sparse retrieval (`splade` retriever, `sparse_method = "splade"`) |
+| Convex score fusion | Bruch et al. 2023 | `hybrid_convex` retriever |
+| monoT5 | Nogueira et al. 2020 | `monot5` reranker |
+| RankGPT | Sun et al. 2023 | `llm_listwise` reranker |
+| Query2doc, Step-back, Rewrite-Retrieve-Read, RAG-Fusion, least-to-most | Wang et al. 2023; Zheng et al. 2023; Ma et al. 2023; Rackauckas 2024; Zhou et al. 2022 | Query enhancer components |
 
 ## Configuration
 
@@ -137,7 +196,7 @@ Every retrieval parameter is configurable across multiple surfaces. Configuratio
 
 ## Component Registry
 
-Custom rerankers and query enhancers can be registered via the component registry:
+Custom retrievers, rerankers and query enhancers can be registered via the component registry. In a sweep, name the component instead (`rerankers: [cross_encoder, my_colbert]`, or `{name: mine, retriever: my_retriever}`):
 
 ```python
 from lasagna.retrieval.registry import component_registry
@@ -156,7 +215,7 @@ config = KnowledgeConfig(custom_reranker="my_colbert")
 component_registry.list_rerankers()
 ```
 
-Built-in registrations, each implementing its stage's interface: `cross_encoder`, `combined`, `ensemble`, `mmr`, `colbert`, `llm_listwise` (rerankers); `hyde`, `query_expansion`, `query_decomposition`, `combined` (enhancers). The older `*_adapted` names still resolve to the same classes.
+`component_registry` is the core registry (`lasagna.core.registry.registry`) under another name, so a component registered either way is the one a sweep names. The built-in retrievers, rerankers and query enhancers are listed under [Built-in Components](#built-in-components). The older `*_adapted` names still resolve to the same classes.
 
 ## Thread Safety
 

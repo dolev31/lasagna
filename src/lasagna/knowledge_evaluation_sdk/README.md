@@ -6,9 +6,9 @@ The Knowledge Evaluation SDK provides three complementary evaluation workflows f
 
 1. **QA testing with LLM-as-Judge** -- Upload a knowledge document, run queries from a ground-truth JSONL file through the RAG pipeline, and score each response on a 1--5 scale using an LLM judge. Produces per-case scores for relevance, completeness, and factual accuracy alongside aggregate pass rates and latency statistics.
 
-2. **IR benchmark evaluation** -- Evaluate retrieval quality against 31 standard academic benchmarks (BEIR, SQuAD, HotpotQA, TriviaQA, MS MARCO, Natural Questions, PopQA, MuSiQue, Bamboogle, KILT, FEVER, and more) via a unified benchmark adapter registry. Computes NDCG@k, MAP, MRR, Precision, Recall, F1, and Hit Rate using pure-Python IR metric implementations.
+2. **IR benchmark evaluation** -- Evaluate retrieval quality against 31 standard academic benchmarks (BEIR, SQuAD, HotpotQA, TriviaQA, MS MARCO, Natural Questions, PopQA, MuSiQue, Bamboogle, KILT, FEVER, and more) via a unified benchmark adapter registry. Computes NDCG@k, MAP, MRR, Precision, Recall, F1, Hit Rate, R-precision and complete (all-gold) recall using pure-Python IR metric implementations. Answers are scored too: exact match, token F1, ROUGE-L, answer containment, answer similarity, ALCE citation recall and precision, abstention, and the judged RAGAS metrics. [docs/metrics.md](docs/metrics.md) defines each one.
 
-3. **Ablation / grid-search research** -- Sweep pipeline components (rerankers, query enhancers and retrievers as components; embedding models and chunking through their settings, which re-ingest per arm) across variant lists, collect per-sample scores, and run paired sign-flip significance tests with t intervals and Holm--Bonferroni correction. Export results to Markdown tables, LaTeX (publication-ready), pandas DataFrames, and matplotlib plots (radar, heatmap).
+3. **Ablation / grid-search research** -- Sweep pipeline components across variant lists: rerankers, query enhancers, retrievers, agentic pipelines and generators as components; chunkers and embedders as components too, each arm on a corpus it chunked or embedded itself; and any setting, with every chunking and embedding setting re-ingesting per arm. Document processors do not sweep, since benchmark corpora are loaded as text. Sweeps collect per-sample scores and run paired sign-flip significance tests with t intervals and Holm--Bonferroni correction. Export results to Markdown tables, LaTeX (publication-ready), pandas DataFrames, and matplotlib plots (radar, heatmap).
 
 ---
 
@@ -80,7 +80,9 @@ print(f"p={sig['p_value']:.4f}, significant={sig['significant']}")
 | `judge.py` | `LLMJudge` -- structured 1--5 scoring with relevance/completeness/factual accuracy sub-scores |
 | `experiment.py` | `Experiment` / `ExperimentConfig` -- YAML/TOML config loader, Cartesian product task generation, execution orchestrator |
 | `runner.py` | `BenchmarkRunner` / `BenchmarkTask` / `TaskResult` -- parallel execution engine with semaphore, session isolation, and checkpoint resumption |
-| `ir_metrics.py` | Pure-Python IR metrics: `ndcg_at_k`, `precision_at_k`, `recall_at_k`, `mrr`, `map_score`, `f1_at_k`, `hit_rate_at_k`, `corpus_metrics` |
+| `ir_metrics.py` | Pure-Python IR metrics: `ndcg_at_k`, `precision_at_k`, `recall_at_k`, `mrr`, `map_score`, `f1_at_k`, `hit_rate_at_k`, `r_precision`, `complete_recall_at_k`, `corpus_metrics` |
+| `answer_metrics.py` | Answer metrics without a judge: exact match, token F1, ROUGE-L, answer containment, abstention, answer similarity, ALCE citation precision and recall |
+| `stages.py` | Which stage each setting belongs to, the per-task stage manifest, and the isolation check across arms |
 | `datasets.py` | HuggingFace dataset loaders with local caching, format converters for 14 benchmark formats |
 | `ablation.py` | `sweep()` (single-component), `grid_search()` (multi-component Cartesian), `AblationResults` with significance testing |
 | `results.py` | `BenchmarkResults` -- multi-dimensional aggregation (benchmark x config x run), leaderboard, pairwise significance, export |
