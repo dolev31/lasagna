@@ -477,6 +477,30 @@ class ComponentRegistry:
                 "https://docs.voyageai.com/docs/embeddings",
                 [],
             ),
+            (
+                "document_processor",
+                "docling",
+                "lasagna.processing.docling_processor:DoclingDocumentProcessor",
+                "Docling layout analysis, TableFormer tables and OCR, exported as Markdown",
+                "arxiv:2408.09869",
+                [],
+            ),
+            (
+                "document_processor",
+                "markitdown",
+                "lasagna.processing.markdown_converters:MarkItDownProcessor",
+                "Microsoft MarkItDown: PDF, Office, HTML and more to Markdown",
+                "https://github.com/microsoft/markitdown",
+                [],
+            ),
+            (
+                "document_processor",
+                "pymupdf4llm",
+                "lasagna.processing.markdown_converters:PyMuPDF4LLMProcessor",
+                "PyMuPDF4LLM: PDF to Markdown with headers and tables (AGPL-3.0)",
+                "https://github.com/pymupdf/pymupdf4llm",
+                [],
+            ),
         ]
         for stage, name, factory, description, paper, aliases in builtins:
             try:

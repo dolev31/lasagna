@@ -137,6 +137,11 @@ ingest = [
 ]
 # Structure-aware document conversion (tables, layout analysis)
 docling = ["docling>=2.70.0"]
+# Document to Markdown with Microsoft MarkItDown (the `markitdown` processor)
+markitdown = ["markitdown[pdf,docx,pptx,xlsx]>=0.1.0"]
+# PDF to Markdown (the `pymupdf4llm` processor). AGPL-3.0, so it is its own
+# extra and deliberately not part of `all`.
+pymupdf4llm = ["pymupdf4llm>=0.0.17"]
 # BGE-M3 dense+sparse+ColBERT embedding
 flag-embedding = ["FlagEmbedding>=1.3.0"]
 # Entity-linked retrieval over a knowledge graph
