@@ -493,3 +493,21 @@ def test_each_loops_settings_are_sweep_keys_of_the_agentic_stage(name):
         assert key in rag_config._config, key  # a sweep accepts it
         assert stage_of(key) == "agentic_pipeline", key  # and files it under this stage
         assert getattr(rag_config, key) == rag_config._config[key], key
+
+
+@pytest.mark.parametrize("name", LOOPS)
+async def test_each_loops_answer_and_passages_reach_the_harness(name, monkeypatch):
+    # The orchestrator turns a pipeline's result into SearchResults; the
+    # evaluation reads the contexts off them and the loop's own answer off the
+    # first one's metadata, and judges that answer against those contexts.
+    from lasagna.api._search_orchestrator import SearchOrchestrator
+
+    install_backend(monkeypatch, {}, default=[hit("a", "Ada wrote the first program.")])
+    inp = pipeline_input("Who wrote the first program?", ScriptedLLM(SHORT_RUNS[name]))
+    result = await _loop(name).run(inp)
+
+    results = SearchOrchestrator._convert_agentic_results(None, result, "arm-session")
+    assert [r.chunk.content for r in results] == ["Ada wrote the first program."]
+    assert results[0].chunk.metadata["_agentic_answer"] == result.agent_summary
+    assert results[0].chunk.metadata["_routing_tier_used"] == "comprehensive"
+    assert results[0].document.document_id == "doc-a" and results[0].document.filename == "a.txt"
