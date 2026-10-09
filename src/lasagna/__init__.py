@@ -49,9 +49,18 @@ Lazy imports: All public names are lazily loaded on first access to avoid
 pulling heavy dependencies (langchain, sentence-transformers, pymilvus, etc.)
 at package-import time.  This lets lightweight consumers (tests, CLI helpers)
 ``import lasagna`` without triggering the full dependency tree.
+
+Logging: as a library, Lasagna stays silent unless asked. Its loguru messages
+are disabled here and turned on by the ``lasagna`` and ``lasagna-mcp``
+commands, the REST app, and the experiment CLI. To see them when using the
+package from your own code, call ``loguru.logger.enable("lasagna")``.
 """
 
 import importlib as _importlib
+
+from loguru import logger as _logger
+
+_logger.disable("lasagna")
 
 # Mapping: public_name -> (submodule, attribute)
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {

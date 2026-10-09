@@ -32,6 +32,7 @@ Tools exposed:
 import os
 import sys
 import json
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -78,8 +79,15 @@ _configure_rag_logging("DEBUG")
 _server_host = "127.0.0.1"
 _server_port = 8005
 
-# Create the MCP server instance (host/port set at runtime before run())
+# Create the MCP server instance (host/port set at runtime before run()).
+# FastMCP configures the stdlib root logger in its constructor; an application
+# that merely imports this module must not have its logging rewired, so the
+# root logger is put back as it was.
+_root_logger = logging.getLogger()
+_root_state = (list(_root_logger.handlers), _root_logger.level)
 mcp = FastMCP("rag_knowledge", host=_server_host, port=_server_port)
+_root_logger.handlers[:] = _root_state[0]
+_root_logger.setLevel(_root_state[1])
 
 # Shared backend factory — both MCP and REST API use the same RAGBackend
 # singleton via get_rag_backend(). Mutable state uses thread-safe locking.
@@ -3581,6 +3589,7 @@ def main():
     import argparse
 
     # Enable logging ownership — we're the main process.
+    logger.enable("lasagna")
     if not _owns_logging:
         _owns_logging = True
         _configure_rag_logging("DEBUG")

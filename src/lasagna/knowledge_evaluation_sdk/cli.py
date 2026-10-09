@@ -204,6 +204,9 @@ async def main_async(args: argparse.Namespace) -> int:
 
 def main() -> None:
     """CLI entry point."""
+    from loguru import logger
+
+    logger.enable("lasagna")
     args = parse_args()
     setup_logging(args.verbose)
 

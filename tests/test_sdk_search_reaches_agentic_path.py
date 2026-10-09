@@ -52,7 +52,9 @@ def test_sdk_search_awaits_the_async_backend_path():
 
 def test_agentic_search_inside_a_running_loop_raises_instead_of_falling_back():
     orchestrator = MagicMock(spec=SearchOrchestrator)
-    orchestrator._get_session_config.return_value = SimpleNamespace(max_agent_iterations=1, rerank_top_k=5)
+    orchestrator._get_session_config.return_value = SimpleNamespace(
+        max_agent_iterations=1, rerank_top_k=5
+    )
 
     async def call_from_inside_a_loop():
         return SearchOrchestrator._search_comprehensive(

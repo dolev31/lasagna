@@ -206,7 +206,9 @@ class CitationManager:
                 return False
             # Valid while the cited document still exists in this session.
             backend = await self._client._get_backend()
-            document = backend.get_document_by_id(row.get("document_id", ""), self._client.session_id)
+            document = backend.get_document_by_id(
+                row.get("document_id", ""), self._client.session_id
+            )
             return document is not None
 
         except Exception as e:

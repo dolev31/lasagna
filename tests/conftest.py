@@ -20,6 +20,8 @@ import shutil
 import sys
 import tempfile
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Data isolation — MUST run before any ``lasagna`` import.
 #
@@ -119,3 +121,14 @@ def pytest_collection_modifyitems(config, items):
     )
     for item in marked:
         item.add_marker(skip)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _lasagna_logs_enabled():
+    """The package disables its own logs on import (library default); several
+    tests capture them, so turn them back on once everything is imported."""
+    import lasagna  # noqa: F401  - make sure its disable() has already run
+    from loguru import logger
+
+    logger.enable("lasagna")
+    yield

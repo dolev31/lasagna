@@ -31,8 +31,14 @@ def _client(backend, session_id="s1"):
 def test_documents_get_uses_the_backend_method_that_exists():
     backend = MagicMock(spec=RAGBackend)
     backend.get_document_by_id.return_value = SimpleNamespace(
-        document_id="d1", filename="a.pdf", session_id="s1", status="ready",
-        file_path="/x/a.pdf", file_type="pdf", file_size=10, chunks_count=3,
+        document_id="d1",
+        filename="a.pdf",
+        session_id="s1",
+        status="ready",
+        file_path="/x/a.pdf",
+        file_type="pdf",
+        file_size=10,
+        chunks_count=3,
         upload_date=datetime.now(timezone.utc),
     )
     doc = asyncio.run(DocumentManager(_client(backend)).get("d1"))
@@ -42,8 +48,14 @@ def test_documents_get_uses_the_backend_method_that_exists():
 
 def _citation_row(session_id="s1"):
     return {
-        "citation_id": "c1", "session_id": session_id, "chunk_id": "k1", "document_id": "d1",
-        "document_name": "a.pdf", "page_number": 2, "content_preview": "text", "score": 0.9,
+        "citation_id": "c1",
+        "session_id": session_id,
+        "chunk_id": "k1",
+        "document_id": "d1",
+        "document_name": "a.pdf",
+        "page_number": 2,
+        "content_preview": "text",
+        "score": 0.9,
         "hop_index": 0,
     }
 
@@ -72,10 +84,16 @@ def test_create_agentic_rag_binds_the_llm_not_the_backend():
     from lasagna import standalone
 
     llm = MagicMock(name="llm")
-    with patch.object(standalone, "create_rag_backend") as make_backend, patch(
-        "lasagna.providers.get_llm_provider", return_value=SimpleNamespace(get_llm=lambda: llm)
-    ), patch("lasagna.agentic.agentic_rag.AgenticRAG") as agentic_cls:
-        standalone.create_agentic_rag(llm_provider="ollama", rag_settings={"max_agent_iterations": 2})
+    with (
+        patch.object(standalone, "create_rag_backend") as make_backend,
+        patch(
+            "lasagna.providers.get_llm_provider", return_value=SimpleNamespace(get_llm=lambda: llm)
+        ),
+        patch("lasagna.agentic.agentic_rag.AgenticRAG") as agentic_cls,
+    ):
+        standalone.create_agentic_rag(
+            llm_provider="ollama", rag_settings={"max_agent_iterations": 2}
+        )
     make_backend.assert_called_once()
     assert agentic_cls.call_args.kwargs["llm"] is llm
     assert agentic_cls.call_args.kwargs["max_iterations"] == 2

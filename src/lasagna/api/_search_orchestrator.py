@@ -31,7 +31,7 @@ from ..retrieval.search.ranker import CombinedReranker, RerankedResult
 from ..retrieval.enhancement.enhancer import QueryEnhancer
 from ..retrieval.routing import get_query_router, RoutingTier
 from lasagna.agentic.citation_manager import CitationManager, Citation
-from lasagna.utils.monitoring import METRICS, log_json, log_json_debug, trunc_text, hash_text
+from lasagna.utils.monitoring import METRICS, log_json, log_json_debug, hash_text
 from lasagna.utils.tracing import TRACER
 from lasagna.sdk.config_validation import validate_runtime
 
@@ -782,7 +782,6 @@ class SearchOrchestrator:
                 "rag_search_query",
                 {
                     "session_id": session_id,
-                    "query_truncated": trunc_text(query, max_len=200),
                     "query_hash": query_hash,
                     "query_len": query_len,
                 },
@@ -1122,7 +1121,6 @@ class SearchOrchestrator:
             "rag_search_query",
             {
                 "session_id": session_id,
-                "query_truncated": trunc_text(query, max_len=200),
                 "query_hash": query_hash,
                 "query_len": query_len,
             },
@@ -1369,7 +1367,6 @@ class SearchOrchestrator:
             "rag_citation_query",
             {
                 "session_id": session_id,
-                "query_truncated": trunc_text(query, max_len=200),
                 "query_hash": query_hash,
                 "query_len": len(query) if query else 0,
             },

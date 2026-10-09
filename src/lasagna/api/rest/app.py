@@ -63,6 +63,8 @@ _EXEMPT_PREFIXES = (
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Initialise the RAG backend on startup, clean up on shutdown."""
+    # Serving: turn on the package logs the library keeps off by default.
+    logger.enable("lasagna")
     logger.info("RAG REST API starting — initialising backend...")
     try:
         from lasagna.api.rag_backend import get_rag_backend

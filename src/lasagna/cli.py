@@ -68,6 +68,9 @@ def _cli(
         False, "--verbose", "-v", help="Show INFO and DEBUG logs (default: warnings only)"
     ),
 ):
+    from loguru import logger
+
+    logger.enable("lasagna")
     _configure_cli_logging(verbose)
 
 
