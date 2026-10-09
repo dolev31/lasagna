@@ -491,7 +491,11 @@ class TestProfileLifecycle:
 
     @pytest.fixture
     def session_id(self):
-        return "test-session-001"
+        # Sessions persist in the suite's one database, and one restored with a
+        # saved active profile keeps it: a shared id leaked between tests.
+        import uuid
+
+        return f"test-session-{uuid.uuid4().hex[:8]}"
 
     # ── List built-in profiles ───────────────────────────────────────────
 

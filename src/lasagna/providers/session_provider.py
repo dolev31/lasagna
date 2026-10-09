@@ -485,8 +485,8 @@ class PersistentSessionProvider(SessionConfigProvider):
                 if k in state.session_overrides:
                     del state.session_overrides[k]
                     changed = True
-            if changed and hasattr(manager, "_persist_session_states"):
-                manager._persist_session_states()
+            if changed and hasattr(manager, "_persist_single_session"):
+                manager._persist_single_session(session_id)
         except Exception as e:
             logger.debug(f"Failed to remove config overrides for session {session_id}: {e}")
 

@@ -613,7 +613,7 @@ class ProfileMixin:
                 state.profiles.append(copy.deepcopy(profile))
             state.session_overrides = overrides
             state.active_profile = profile_name
-            self._persist_session_states()
+            self._persist_single_session(session_id or "default")
 
         # Without this the profile switch is recorded and never applied:
         # search resolves through the session provider, not this manager.
@@ -722,7 +722,7 @@ class ProfileMixin:
 
             self._persist_global_profiles()
             if set_active:
-                self._persist_session_states()
+                self._persist_single_session(session_id or "default")
 
             logger.info(
                 f"Saved profile '{profile_name}' globally "
@@ -789,7 +789,7 @@ class ProfileMixin:
 
             state.profiles = self._ensure_default_profile(state.profiles)
             self._persist_global_profiles()
-            self._persist_session_states()
+            self._persist_single_session(session_id or "default")
 
             logger.info(f"Renamed profile '{old_name}' to '{new_name}' globally")
 
@@ -840,7 +840,7 @@ class ProfileMixin:
 
             state.profiles = self._ensure_default_profile(state.profiles)
             self._persist_global_profiles()
-            self._persist_session_states()
+            self._persist_single_session(session_id or "default")
 
             logger.info(f"Deleted profile '{profile_name}' globally")
 
@@ -874,7 +874,7 @@ class ProfileMixin:
 
             state.profiles = self._ensure_default_profile(state.profiles)
             self._persist_global_profiles()
-            self._persist_session_states()
+            self._persist_single_session(session_id or "default")
 
         return state.to_dict()
 

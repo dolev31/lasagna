@@ -7,6 +7,7 @@ replacing the legacy JSON file persistence.
 import json
 import os
 import time
+from typing import Any, Dict, Optional
 
 from loguru import logger
 
@@ -254,6 +255,50 @@ class PersistenceMixin:
             db.delete_session(session_id)
         except Exception as exc:
             logger.warning(f"Failed to delete session {session_id} from database: {exc}")
+
+    def _read_persisted_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """The session as stored, or None when it is not stored or cannot be read."""
+        try:
+            row = _get_db().get_session(session_id)
+        except Exception as exc:
+            logger.debug(f"Could not read session {session_id} from database: {exc}")
+            return None
+        if not row:
+            return None
+        return {
+            "active_profile": row.get("active_profile", "default"),
+            "session_overrides": row.get("session_overrides", {}),
+            "rag_enabled": row.get("rag_enabled", True),
+            "focused_document_ids": row.get("focused_document_ids", []),
+            "last_accessed": row.get("last_accessed", time.time()),
+            "user_id": row.get("user_id", "__anonymous__"),
+        }
+
+    def _persist_single_session(self, session_id: str) -> None:
+        """Persist one session.
+
+        Writing every cached session on each change put this process's stale
+        copies of sessions another process had changed back over them.
+        """
+        state = self._session_states.get(session_id)
+        if state is None:
+            return
+        try:
+            _get_db().save_session(
+                session_id,
+                {
+                    "user_id": getattr(
+                        state, "user_id", getattr(self, "_user_id", "__anonymous__")
+                    ),
+                    "active_profile": state.active_profile,
+                    "session_overrides": state.session_overrides,
+                    "rag_enabled": state.rag_enabled,
+                    "focused_document_ids": state.focused_document_ids,
+                    "last_accessed": state.last_accessed,
+                },
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to persist session {session_id} to database: {exc}")
 
     def _persist_session_states(self) -> None:
         """Persist session states to SQLite."""

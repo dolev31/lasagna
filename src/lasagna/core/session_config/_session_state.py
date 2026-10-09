@@ -21,6 +21,21 @@ from ._data_models import (
 )
 
 
+#: How stale a cached session may be before it is compared with the store.
+_RECHECK_SECONDS = 1.0
+
+
+def _persisted_view(state: Any) -> tuple:
+    """The fields the session table keeps, from a state or a stored row."""
+    get = state.get if isinstance(state, dict) else lambda k, d=None: getattr(state, k, d)
+    return (
+        get("active_profile", "default"),
+        get("session_overrides", {}),
+        bool(get("rag_enabled", True)),
+        list(get("focused_document_ids", []) or []),
+    )
+
+
 class SessionStateMixin:
     """Mixin for session state management.
 
@@ -53,7 +68,16 @@ class SessionStateMixin:
         profile_names = {p.name for p in profiles}
         active_profile = data.get("active_profile") or "default"
         if active_profile not in profile_names:
-            active_profile = "default"
+            # The session table keeps the active profile's name, not the
+            # profile: a saved custom profile is found among the saved ones.
+            # Without this every restart put such a session back on default.
+            saved = next(
+                (p for p in self._global_custom_profiles if p.name == active_profile), None
+            )
+            if saved is not None:
+                profiles.append(copy.deepcopy(saved))
+            else:
+                active_profile = "default"
 
         session_overrides = data.get("session_overrides", {})
         if not isinstance(session_overrides, dict):
@@ -82,12 +106,13 @@ class SessionStateMixin:
         )
 
     def get_session_state(self, session_id: Optional[str] = None) -> KnowledgeConfigState:
-        """Get or create session state."""
+        """Get or create session state, as last written by any process."""
         session_id = session_id or "default"
 
         with self._lock:
             self._reload_if_changed()
             self._cleanup_old_sessions()
+            self._adopt_persisted_session(session_id)
 
             if session_id not in self._session_states:
                 all_profiles = [copy.deepcopy(p) for p in self._default_profiles]
@@ -118,6 +143,33 @@ class SessionStateMixin:
                 self._session_states[session_id].last_accessed = time.time()
 
             return self._session_states[session_id]
+
+    def _adopt_persisted_session(self, session_id: str) -> None:
+        """Take the stored session when another process changed it since we looked.
+
+        `lasagna configure` and a running `lasagna serve` share one store, and
+        each read it only when it started. So a profile set from the CLI never
+        reached the running server (it answered "default" for that session),
+        and the server's next write put its stale copy back over the CLI's.
+        Checked at most once a second per session: search reads the session's
+        config once per setting.
+        """
+        now = time.monotonic()
+        cached = self._session_states.get(session_id)
+        checked = self._session_checked_at.get(session_id, float("-inf"))
+        if cached is not None and now - checked < _RECHECK_SECONDS:
+            return
+        self._session_checked_at[session_id] = now
+        stored = self._read_persisted_session(session_id)
+        if stored is None:
+            return
+        if cached is not None and _persisted_view(cached) == _persisted_view(stored):
+            return
+        state = self._state_from_dict(stored)
+        if cached is not None:
+            # Per-request results, never persisted.
+            state.last_citations, state.last_chunks = cached.last_citations, cached.last_chunks
+        self._session_states[session_id] = state
 
     def get_config(
         self, session_id: Optional[str] = None, user_id: str = ANONYMOUS
@@ -214,7 +266,7 @@ class SessionStateMixin:
                 force=force,
             )
             _deep_merge(state.session_overrides, patch)
-            self._persist_session_states()
+            self._persist_single_session(session_id or "default")
 
         self._publish_to_search(session_id)
         return state.to_dict()
@@ -241,7 +293,7 @@ class SessionStateMixin:
                 state.session_overrides = {}
             else:
                 state.session_overrides = {}
-            self._persist_session_states()
+            self._persist_single_session(session_id or "default")
 
         self._publish_to_search(session_id)
         active = state.get_active_profile()
@@ -341,7 +393,7 @@ class SessionStateMixin:
             state.profiles = profiles
             state.active_profile = active
             state.session_overrides = new_overrides
-            self._persist_session_states()
+            self._persist_single_session(session_id or "default")
 
         # Without this an import was recorded and search kept the old settings.
         self._publish_to_search(session_id)
@@ -368,7 +420,7 @@ class SessionStateMixin:
                     f"{session_id} (RAG disabled)"
                 )
 
-            self._persist_session_states()
+            self._persist_single_session(session_id or "default")
 
     def is_rag_enabled(
         self,
@@ -392,7 +444,7 @@ class SessionStateMixin:
                 f"Set focused_document_ids for session {session_id}: "
                 f"{len(state.focused_document_ids)} documents"
             )
-            self._persist_session_states()
+            self._persist_single_session(session_id or "default")
 
     def get_focused_document_ids(
         self,

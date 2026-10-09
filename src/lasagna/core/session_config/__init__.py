@@ -124,6 +124,8 @@ class KnowledgeConfigManager(
         self._profiles_mtime: Optional[float] = None  # unused (kept for compat)
         self._sessions_mtime: Optional[float] = None  # unused (kept for compat)
         self._last_cleanup_time: float = 0
+        # When each cached session was last compared with the store.
+        self._session_checked_at: Dict[str, float] = {}
 
         self._load_defaults()
         # Migration chain: move straggler JSON files first, then import into SQLite
