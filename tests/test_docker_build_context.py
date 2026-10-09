@@ -17,7 +17,6 @@ from tests._paths import DEPLOY_DIR, PACKAGE_DIR
 
 
 class TestBuildContext:
-
     @staticmethod
     def _context():
         if PACKAGE_DIR.parent.name != "src":
