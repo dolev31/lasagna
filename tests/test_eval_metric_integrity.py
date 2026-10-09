@@ -50,15 +50,14 @@ class TestNaNJudgementsAreAccountedFor:
         This is the exact shape of a prior incident: a completely failed
         evaluation surfaced as faithfulness=0.0 and was read as a real result.
         """
-        score = _extract_score({"faithfulness": [NAN, NAN, NAN]}, "faithfulness")
-        joined = "".join(captured_logs)
+        from lasagna.knowledge_evaluation_sdk.ragas_evaluator import UnusableMetric
 
-        # Still a number, because these scores are JSON-serialised and NaN is
-        # not valid JSON — but it must be impossible to miss in the log.
-        assert score == 0.0
-        assert "NOT a real" in joined, (
-            f"a fully failed metric must say so explicitly; got: {joined}"
-        )
+        # No number at all: callers record the metric as failed and fail the
+        # task, so a total failure can never be read as a score of zero.
+        with pytest.raises(UnusableMetric):
+            _extract_score({"faithfulness": [NAN, NAN, NAN]}, "faithfulness")
+        joined = "".join(captured_logs)
+        assert "unusable" in joined, f"a fully failed metric must say so; got: {joined}"
 
     def test_scalar_results_pass_through(self):
         assert _extract_score({"faithfulness": 0.9}, "faithfulness") == 0.9

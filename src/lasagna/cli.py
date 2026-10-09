@@ -907,6 +907,7 @@ def benchmark_run(
 
     if results.failed_tasks:
         console.print(f"\n[red]{len(results.failed_tasks)} task(s) failed[/red]")
+    _exit_if_tasks_failed(results)
 
 
 @benchmark_app.command("experiment")
@@ -964,6 +965,20 @@ def benchmark_experiment(
             f"Output: [cyan]{output_dir}[/cyan]",
         )
     )
+    _exit_if_tasks_failed(results)
+
+
+def _exit_if_tasks_failed(results) -> None:
+    """Name each failed task and exit non-zero, so a script or CI job notices.
+
+    A failed task's numbers are left out of every aggregate and report; a run
+    that printed "Failed: 3" and exited 0 was easy to mistake for a result.
+    """
+    if not results.failed_tasks:
+        return
+    for task in results.failed_tasks:
+        console.print(f"  [red]failed[/red] {task.task_key}: {task.error}")
+    raise typer.Exit(code=1)
 
 
 @benchmark_app.command("compare")

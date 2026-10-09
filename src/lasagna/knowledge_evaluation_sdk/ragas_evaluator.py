@@ -76,6 +76,10 @@ _RAGAS_KEY_MAP = {
 }
 
 
+class UnusableMetric(Exception):
+    """Every judgement for a metric was unusable; it has no score."""
+
+
 def _extract_score(result: Any, metric_name: str) -> float:
     """Extract a scalar score from a RAGAS result for a given metric.
 
@@ -93,17 +97,15 @@ def _extract_score(result: Any, metric_name: str) -> float:
             dropped = len(val) - len(nums)
 
             if not nums:
-                # Every judgement failed. Returning 0.0 here is indistinguishable
-                # from the model genuinely scoring zero, which is how a totally
-                # failed evaluation has previously been mistaken for a real
-                # result. Say so loudly; the caller still gets a number because
-                # these scores are JSON-serialised and NaN is not valid JSON.
+                # Every judgement failed. A 0.0 here was indistinguishable from
+                # the model genuinely scoring zero, and runs were reported as
+                # successful zeros. Raise so the caller records the metric as
+                # failed and leaves it out of the scores.
                 logger.error(
                     f"Metric '{metric_name}': all {len(val)} judgements were "
-                    f"unusable (NaN). Reporting 0.0, but this is NOT a real "
-                    f"score -- treat this run as failed, not as zero."
+                    f"unusable (NaN); recording the metric as failed."
                 )
-                return 0.0
+                raise UnusableMetric(metric_name)
 
             if dropped:
                 # The mean is over survivors, so the denominator silently
@@ -206,7 +208,10 @@ class RAGASEvaluator:
             scores = {}
             for name in metric_names:
                 try:
-                    scores[name] = _extract_score(result, name)
+                    try:
+                        scores[name] = _extract_score(result, name)
+                    except UnusableMetric:
+                        continue  # failed, not zero
                 except KeyError:
                     # A requested metric RAGAS never returned. Silently omitting
                     # it makes the metric look un-requested rather than failed.
@@ -272,7 +277,10 @@ class RAGASEvaluator:
             scores = {}
             for name in metric_names:
                 try:
-                    scores[name] = _extract_score(result, name)
+                    try:
+                        scores[name] = _extract_score(result, name)
+                    except UnusableMetric:
+                        continue  # failed, not zero
                 except KeyError:
                     # A requested metric RAGAS never returned. Silently omitting
                     # it makes the metric look un-requested rather than failed.
@@ -359,9 +367,12 @@ class RAGASEvaluator:
 
             # Extract aggregate scores (RAGAS v0.4 returns lists, not scalars)
             aggregate: Dict[str, float] = {}
+            failed_metrics: List[str] = []
             for name in active_metric_names:
                 try:
                     aggregate[name] = _extract_score(result, name)
+                except UnusableMetric:
+                    failed_metrics.append(name)
                 except KeyError:
                     logger.warning(
                         f"Metric '{name}' was requested but absent from the "
@@ -435,11 +446,15 @@ class RAGASEvaluator:
                     logger.warning(f"List-based fallback also failed: {e2}")
                     per_sample = []
 
-            return DetailedEvalResult(aggregate=aggregate, per_sample=per_sample)
+            return DetailedEvalResult(
+                aggregate=aggregate, per_sample=per_sample, failed_metrics=failed_metrics
+            )
 
         except Exception as e:
             logger.error(f"RAGAS detailed evaluation failed: {e}")
-            return DetailedEvalResult(aggregate={}, per_sample=[])
+            return DetailedEvalResult(
+                aggregate={}, per_sample=[], failed_metrics=list(active_metric_names)
+            )
 
 
 @dataclass
@@ -450,10 +465,14 @@ class DetailedEvalResult:
         aggregate: Dict mapping metric name to aggregate score.
         per_sample: List of dicts, one per sample, mapping metric name to score.
             Empty list if per-sample extraction failed.
+        failed_metrics: Metrics that were requested but could not be scored
+            (every judgement unusable, or the evaluation itself failed). They
+            are absent from ``aggregate``, never reported as 0.0.
     """
 
     aggregate: Dict[str, float] = field(default_factory=dict)
     per_sample: List[Dict[str, float]] = field(default_factory=list)
+    failed_metrics: List[str] = field(default_factory=list)
 
     def scores_for_metric(self, metric: str) -> List[float]:
         """Extract per-sample scores for a single metric.

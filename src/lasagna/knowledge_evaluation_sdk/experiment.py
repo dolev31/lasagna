@@ -442,6 +442,10 @@ def _fix_retrieval_depth(task_config: Dict[str, Any], depth: int) -> None:
     task_config["default_top_k"] = max(int(task_config.get("default_top_k") or 0), depth)
 
 
+#: Above this share of failed answer generations, a task is failed, not scored.
+_MAX_FAILED_GENERATION_RATE = 0.1
+
+
 class _StaleCorpusCleanupError(RuntimeError):
     """A partial corpus could not be removed before re-ingesting it."""
 
@@ -1490,6 +1494,8 @@ async def _eval_offline(
     # Generate answers from gold context using the LLM, then score with RAGAS
     questions: List[str] = []
     answers: List[str] = []
+    _offline_failed_generations = 0
+    detailed = None
     contexts: List[List[str]] = []
     ground_truths: List[str] = []
     per_sample_latencies: List[float] = []
@@ -1523,14 +1529,16 @@ async def _eval_offline(
                 answer = response.content if hasattr(response, "content") else str(response)
                 per_sample_latencies.append((time.monotonic() - q_start) * 1000)
             except Exception as exc:
+                # The gold context used to stand in as the answer here, which a
+                # judge then scored as perfectly faithful. No answer is a failure.
                 logger.warning(f"Answer generation failed: {exc}")
-                answer = "\n\n".join(ctx)  # fall back to context as answer
+                answer = ""
+                _offline_failed_generations += 1
                 per_sample_latencies.append(0.0)
-        elif ctx:
-            answer = "\n\n".join(ctx)  # no LLM, use context as answer
-            per_sample_latencies.append(0.0)
         else:
-            answer = ""  # no context, no answer
+            # No generator configured, or no context: nothing was generated.
+            answer = ""
+            _offline_failed_generations += 1
             per_sample_latencies.append(0.0)
 
         answers.append(answer)
@@ -1660,6 +1668,19 @@ async def _eval_offline(
         duration_seconds=time.monotonic() - start,
         n_samples=len(eval_samples),
     )
+    _offline_failures: List[str] = []
+    if getattr(detailed, "failed_metrics", None):
+        _offline_failures.append(
+            "judge produced no usable scores for " + ", ".join(detailed.failed_metrics)
+        )
+    if eval_samples:
+        result.metrics["generations_failed"] = float(_offline_failed_generations)
+        if _offline_failed_generations / len(eval_samples) > _MAX_FAILED_GENERATION_RATE:
+            _offline_failures.append(
+                f"{_offline_failed_generations} of {len(eval_samples)} answers could not be "
+                f"generated (failed, or no generator configured)"
+            )
+    result.error = "; ".join(_offline_failures) or None
     result.compute_latency_stats()
     _record_eval_usage(result, eval_meter)
     return result
@@ -2526,6 +2547,11 @@ async def _eval_live(
     relevances: List[Dict[str, int]] = []
     retrieved_lists: List[List[str]] = []
     per_sample_scores: List[Dict[str, float]] = []
+    #: Reasons this task's numbers cannot be trusted. Any entry fails the task
+    #: (TaskResult.error) instead of letting a failure stand in as a score.
+    _eval_failures: List[str] = []
+    _n_generations = 0
+    _failed_generations = 0
     total_dropped = 0
     #: The judge's spend, accumulated across every RAGAS pass in this task.
     eval_meter = UsageMeter()
@@ -2912,6 +2938,11 @@ async def _eval_live(
                                     f"'{gen_sample.question[:50]}': {exc}"
                                 )
 
+                _n_generations += 1
+                if not (answer or "").strip():
+                    # No answer: no context, no generator, or every attempt
+                    # failed. Scored, it would read as an unfaithful answer.
+                    _failed_generations += 1
                 gen_questions.append(gen_sample.question)
                 gen_answers.append(answer)
                 # Pass the SAME contexts used for generation to RAGAS.
@@ -3015,6 +3046,11 @@ async def _eval_live(
                         asyncio.to_thread(_ragas_regen_in_thread),
                         timeout=2700,  # 45 min
                     )
+                    if getattr(regen_result, "failed_metrics", None):
+                        _eval_failures.append(
+                            "judge produced no usable scores for "
+                            + ", ".join(regen_result.failed_metrics)
+                        )
                     # Store aggregate scores (prefix with _regen when agentic
                     # answers are also available, otherwise use plain names).
                     has_agentic_answers = any(a for a in gen_agentic_answers)
@@ -3138,6 +3174,7 @@ async def _eval_live(
                         f"RAGAS evaluation failed for {task.task_key} [{type(exc).__name__}]: {exc}"
                     )
                     logger.exception(f"RAGAS evaluation failed for {task.task_key}")
+                    _eval_failures.append(f"RAGAS evaluation failed: {type(exc).__name__}: {exc}")
 
             # ── Aggregate EM / Token-F1 (outside RAGAS try block) ─────────
             # Computed per-sample above; now aggregate across gen samples.
@@ -3151,6 +3188,15 @@ async def _eval_live(
         # shared corpus is not leaked when a task errors or is cancelled.
         await _release_corpus(task.benchmark_name, corpus_key=_corpus_key)
 
+    if _n_generations:
+        metrics["generations_failed"] = float(_failed_generations)
+        # A few failures (a content filter, one timeout) are reported; more than
+        # a tenth means the generation metrics describe the outage, not the system.
+        if _failed_generations / _n_generations > _MAX_FAILED_GENERATION_RATE:
+            _eval_failures.append(
+                f"{_failed_generations} of {_n_generations} answers could not be generated"
+            )
+
     result = TaskResult(
         task_key=task.task_key,
         benchmark_name=task.benchmark_name,
@@ -3161,6 +3207,7 @@ async def _eval_live(
         duration_seconds=time.monotonic() - start,
         # Deduplicate: e2e samples appear in both ir_samples and gen_samples
         n_samples=len({s.query_id for s in ir_samples} | {s.query_id for s in gen_samples}),
+        error="; ".join(_eval_failures) or None,
     )
     result.compute_latency_stats()
     _record_eval_usage(result, eval_meter)

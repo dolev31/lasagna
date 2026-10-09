@@ -39,7 +39,6 @@ from typing import Dict, List, Sequence, Union
 RelevanceMap = Dict[str, Union[int, float]]
 
 
-
 def _unique(retrieved: List[str]) -> List[str]:
     """Keep the first occurrence of each document ID, in rank order.
 
@@ -55,6 +54,7 @@ def _unique(retrieved: List[str]) -> List[str]:
             seen.add(doc_id)
             out.append(doc_id)
     return out
+
 
 def ndcg_at_k(
     relevance: RelevanceMap,
