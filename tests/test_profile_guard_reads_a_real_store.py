@@ -1,9 +1,9 @@
-"""The profile guard's size check works against a real Milvus Lite store.
+"""The profile guard reads the stored embedding size from a real Milvus Lite store.
 
-``lasagna configure`` refuses a profile whose embedding size differs from the
-stored documents', using ``stored_dimension_mismatch``. Its only other test
-replaces that function with a stub, so the detection itself had never run under
-test. This runs it against a real collection.
+Every config write that changes the embedding size is checked against the
+stored documents (``refuse_embedding_change``), and the check rests on
+``stored_embedding_dim``. Its other tests replace that function with a stub, so
+reading a real collection had never run under test. This does.
 
 Opt-in like the conformance suite (it starts Milvus Lite), so a plain
 ``pytest`` stays hermetic:
@@ -14,7 +14,6 @@ Opt-in like the conformance suite (it starts Milvus Lite), so a plain
 from __future__ import annotations
 
 import os
-import uuid
 
 import pytest
 
@@ -63,37 +62,44 @@ def _collection(backend, name: str, dim: int, rows: int) -> None:
         )
 
 
-@pytest.fixture
-def session():
-    from lasagna.core.config import rag_config
+def test_the_stored_size_is_read_from_the_collection(store):
+    from lasagna.api._profile_guard import stored_embedding_dim
 
-    session_id = f"guard_{uuid.uuid4().hex[:8]}"
-    return session_id, rag_config.with_session(session_id)
-
-
-def test_documents_stored_at_another_size_are_detected(store, session):
-    from lasagna.api._profile_guard import stored_dimension_mismatch
-
-    session_id, config = session
-    stored = 384 if int(config.embedding_dim) != 384 else 768
-    _collection(store, config.collection_name, stored, rows=2)
-
-    assert stored_dimension_mismatch(session_id, store) == (stored, int(config.embedding_dim))
+    _collection(store, "guard_sized", 384, rows=2)
+    assert stored_embedding_dim("guard_sized", store) == 384
 
 
-def test_documents_stored_at_the_same_size_pass(store, session):
-    from lasagna.api._profile_guard import stored_dimension_mismatch
+def test_an_empty_collection_has_nothing_to_protect(store):
+    from lasagna.api._profile_guard import stored_embedding_dim
 
-    session_id, config = session
-    _collection(store, config.collection_name, int(config.embedding_dim), rows=2)
-
-    assert stored_dimension_mismatch(session_id, store) is None
+    _collection(store, "guard_empty", 384, rows=0)
+    assert stored_embedding_dim("guard_empty", store) is None
 
 
-def test_an_empty_collection_has_nothing_to_protect(store, session):
-    from lasagna.api._profile_guard import stored_dimension_mismatch
+def test_a_missing_collection_has_nothing_to_protect(store):
+    from lasagna.api._profile_guard import stored_embedding_dim
 
-    session_id, config = session
-    _collection(store, config.collection_name, 384, rows=0)
+    assert stored_embedding_dim("guard_absent", store) is None
 
-    assert stored_dimension_mismatch(session_id, store) is None
+
+def test_a_change_to_another_size_is_refused_against_real_documents(store):
+    from lasagna.api._profile_guard import EmbeddingSizeConflict, refuse_embedding_change
+
+    _collection(store, "guard_refuse", 384, rows=2)
+    before = {"embedding_dim": 384, "collection_name": "guard_refuse"}
+    after = {"embedding_dim": 1024, "collection_name": "guard_refuse"}
+    with pytest.raises(EmbeddingSizeConflict, match="384"):
+        refuse_embedding_change(
+            before=before, after=after, change="switching", kept="speed", vector_backend=store
+        )
+
+
+def test_a_change_to_the_stored_size_is_allowed(store):
+    from lasagna.api._profile_guard import refuse_embedding_change
+
+    _collection(store, "guard_allow", 768, rows=2)
+    before = {"embedding_dim": 384, "collection_name": "guard_allow"}
+    after = {"embedding_dim": 768, "collection_name": "guard_allow"}
+    refuse_embedding_change(
+        before=before, after=after, change="switching", kept="speed", vector_backend=store
+    )
