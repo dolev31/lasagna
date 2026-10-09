@@ -122,6 +122,8 @@ class KnowledgeClient:
 
         # Lazy-initialized backend
         self._backend = None
+        #: Uploads still processing; close() waits for them.
+        self._in_flight_documents: set = set()
         self._backend_lock = asyncio.Lock()
 
         # Lazy-initialized managers
@@ -807,11 +809,29 @@ class KnowledgeClient:
     # Lifecycle
     # =========================================================================
 
-    async def close(self) -> None:
+    async def close(self, processing_timeout: float = 600.0) -> None:
         """Close client and cleanup resources.
 
-        Call this when done using the client to release connections.
+        Call this when done using the client to release connections. Documents
+        this client uploaded that are still processing are waited for first
+        (up to ``processing_timeout`` seconds): closing used to shut the vector
+        store down under the worker, which then retried against a dead
+        connection for minutes and left the document failed.
         """
+        pending = list(self._in_flight_documents)
+        if pending and self._document_manager is not None:
+            logger.info(f"Waiting for {len(pending)} document(s) to finish processing")
+            results = await asyncio.gather(
+                *(
+                    self._document_manager.wait_for_processing(d, timeout=processing_timeout)
+                    for d in pending
+                ),
+                return_exceptions=True,
+            )
+            for doc_id, outcome in zip(pending, results):
+                if isinstance(outcome, BaseException):
+                    logger.warning(f"Document {doc_id} did not finish processing: {outcome}")
+
         # Clear cached managers
         self._document_manager = None
         self._search_manager = None

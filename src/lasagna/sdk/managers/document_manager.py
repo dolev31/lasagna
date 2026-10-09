@@ -169,13 +169,26 @@ class DocumentManager:
 
             processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
 
+            status = _resolve_status(doc.status)
+            queued = str(getattr(status, "value", status)).lower() in ("processing", "pending")
+            if queued:
+                # close() waits for these, so shutting down never pulls the
+                # vector store out from under a worker that is still writing.
+                in_flight = getattr(self._client, "_in_flight_documents", None)
+                if in_flight is not None:
+                    in_flight.add(doc.document_id)
             return UploadResult(
                 document_id=doc.document_id,
                 filename=doc.filename,
-                status=_resolve_status(doc.status),
+                status=status,
                 chunk_count=doc.chunks_count,
                 processing_time_ms=processing_time,
-                message="Document uploaded and indexed successfully.",
+                message=(
+                    "Document queued for processing; await "
+                    "client.documents.wait_for_processing(document_id) before searching it."
+                    if queued
+                    else "Document uploaded and indexed successfully."
+                ),
             )
 
         except Exception as e:
@@ -263,6 +276,16 @@ class DocumentManager:
             DocumentNotFoundError: If the document disappears.
             TimeoutError: If timeout is exceeded.
         """
+        try:
+            return await self._wait_for_processing(document_id, timeout, poll_interval)
+        finally:
+            in_flight = getattr(self._client, "_in_flight_documents", None)
+            if in_flight is not None:
+                in_flight.discard(document_id)
+
+    async def _wait_for_processing(
+        self, document_id: str, timeout: float, poll_interval: float
+    ) -> Document:
         import time as _time
 
         backend = await self._client._get_backend()

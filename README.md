@@ -132,8 +132,9 @@ import asyncio
 from lasagna.sdk import KnowledgeClient
 
 async def main():
-    client = KnowledgeClient()
-    await client.upload("paper.pdf")
+    client = KnowledgeClient(session_id="quickstart")   # same session on every run
+    doc = await client.upload("paper.pdf")
+    await client.documents.wait_for_processing(doc.document_id)  # upload returns once queued
 
     results = await client.search_documents("What did the ablation show?")
     for r in results.results:

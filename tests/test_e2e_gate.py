@@ -655,7 +655,7 @@ class TestDocumentManagerWaitForProcessing:
 
         # Comments here necessarily mention the very construct being banned,
         # so check the executable source only.
-        src = executable_source(document_manager.DocumentManager.wait_for_processing)
+        src = executable_source(document_manager.DocumentManager._wait_for_processing)
         assert "upload_date=" not in src, (
             "wait_for_processing must not pass upload_date= to Document(); "
             "the public field is created_at"
