@@ -1279,6 +1279,56 @@ class CrossEncoderRerankerAdapter(BaseReranker):
         return [scored_document_from_reranked(r) for r in results]
 
 
+class ColBERTRerankerAdapter(BaseReranker):
+    """Adapts ``ColBERTReranker`` (late-interaction MaxSim) to ``BaseReranker``."""
+
+    # Wraps an internal reranker that reads the session config.
+    _forwards_session_config = True
+
+    def __init__(self, **kwargs):
+        self._inner = ColBERTReranker(**kwargs)
+
+    @property
+    def model_name(self) -> str:
+        return self._inner.model_name
+
+    def rerank(
+        self,
+        query: str,
+        documents: List[ScoredDocument],
+        top_k: int = 5,
+        **kwargs,
+    ) -> List[ScoredDocument]:
+        dicts = [scored_document_to_dict(d) for d in documents]
+        results = self._inner.rerank(query, dicts, top_k=top_k, config=kwargs.get("config"))
+        return [scored_document_from_reranked(r) for r in results]
+
+
+class LLMListwiseRerankerAdapter(BaseReranker):
+    """Adapts ``LLMListwiseReranker`` (RankGPT-style sliding window) to ``BaseReranker``."""
+
+    # Wraps an internal reranker that reads the session config.
+    _forwards_session_config = True
+
+    def __init__(self, **kwargs):
+        self._inner = LLMListwiseReranker(**kwargs)
+
+    @property
+    def model_name(self) -> str:
+        return self._inner.model_name
+
+    def rerank(
+        self,
+        query: str,
+        documents: List[ScoredDocument],
+        top_k: int = 5,
+        **kwargs,
+    ) -> List[ScoredDocument]:
+        dicts = [scored_document_to_dict(d) for d in documents]
+        results = self._inner.rerank(query, dicts, top_k=top_k, config=kwargs.get("config"))
+        return [scored_document_from_reranked(r) for r in results]
+
+
 class _PublicRerankerModel:
     """Stands in for ``CrossEncoderReranker`` where only its name is read."""
 

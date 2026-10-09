@@ -131,6 +131,7 @@ steps = {}
 metrics = {}
 
 OWN = {NAME, CONTROL}
+DUCK = "p4_duck_typed"
 
 
 class _Skip(Exception):
@@ -377,25 +378,28 @@ try:
     if registered:
         step("replace", do_replace)
 
-    # -- 7. selecting a non-conforming built-in warns, and names an
+    # -- 7. selecting a non-conforming component warns, and names an
     #       alternative that is conforming ---------------------------------
     def do_warning():
+        # Every listed built-in conforms, so a non-conforming component can
+        # only come from a registration that skips the interface. Register one
+        # (duck-typed, no ABC) and check the warning still fires on it.
+        class _DuckTyped:
+            def rerank(self, query, documents, top_k=5):
+                return documents[:top_k]
+
+        registry.register_class("reranker", DUCK, _DuckTyped, override=True)
         entries = {e["name"]: e for e in registry.list_rerankers()}
-        non_conforming = sorted(
+        built_in_bad = sorted(
             n for n, e in entries.items()
-            if n not in OWN and e.get("implements_contract") is False
+            if n not in OWN | {DUCK} and e.get("implements_contract") is False
         )
-        if not non_conforming:
-            # Nothing for the warning to fire on. That is a legitimate state
-            # (every built-in conforms), and it is not evidence the warning
-            # works — so it is a skip, not a pass.
-            raise _Skip(
-                "no non-conforming built-in reranker is registered, so the "
-                "interchangeability warning has nothing to fire on "
-                "(rerankers: %s)" % (sorted(entries),)
+        if built_in_bad:
+            raise AssertionError(
+                "every listed built-in should implement BaseReranker; these do not: %s"
+                % built_in_bad
             )
-        # Prefer the one the README documents, so the repro matches the docs.
-        chosen = "cross_encoder" if "cross_encoder" in non_conforming else non_conforming[0]
+        chosen = DUCK
         metrics["warning_component"] = chosen
 
         # A plain script sees Python warnings; the package's own log lines are
@@ -424,7 +428,7 @@ try:
         # naming 'cross_encoder' cannot be read as naming 'cross_encoder_x'.
         alternatives = sorted(
             n for n, e in entries.items()
-            if n not in OWN and n != chosen and e.get("implements_contract") is True
+            if n not in OWN | {DUCK} and n != chosen and e.get("implements_contract") is True
         )
         named = [n for n in alternatives if mentions(text, n)]
         if not named:

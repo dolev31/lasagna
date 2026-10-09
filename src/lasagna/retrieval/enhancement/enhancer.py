@@ -391,6 +391,26 @@ Hypothetical answer:"""
 _DEFAULT_ENHANCER_TEMPERATURE = 0.0
 
 
+def _numbered_lines(content: str, exclude: Optional[str] = None) -> List[str]:
+    """One query per line from an LLM reply, with list numbering removed."""
+    out: List[str] = []
+    for line in content.strip().split("\n"):
+        line = line.strip()
+        if line and len(line) > 5:
+            if line[0].isdigit() and line[1] in ".):":
+                line = line[2:].strip()
+            elif line[:2].isdigit() and line[2] in ".):":
+                line = line[3:].strip()
+            if line and line != exclude:
+                out.append(line)
+    return out
+
+
+def _invoke_sync(llm: Any, prompt: str) -> str:
+    response = llm.invoke([{"role": "user", "content": prompt}])
+    return response.content if hasattr(response, "content") else str(response)
+
+
 class QueryExpander:
     """Query expansion through paraphrasing.
 
@@ -494,6 +514,21 @@ Alternative questions:"""
             return []
 
 
+def _expand_query_sync(
+    expander: "QueryExpander", query: str, n: int, max_tokens: int = 300
+) -> List[str]:
+    """``QueryExpander.expand_query`` without an event loop, ungated by config."""
+    llm = expander._get_llm(expander.model or rag_config.hyde_model, max_tokens)
+    if not llm:
+        return []
+    try:
+        content = _invoke_sync(llm, expander.EXPANSION_PROMPT.format(query=query, n=n))
+        return _numbered_lines(content)[:n]
+    except Exception as e:
+        logger.error(f"Query expansion failed: {e}")
+        return []
+
+
 class QueryDecomposer:
     """Query decomposition for complex questions.
 
@@ -586,6 +621,21 @@ Sub-questions:"""
         except Exception as e:
             logger.error(f"Query decomposition failed: {e}")
             return []
+
+
+def _decompose_query_sync(
+    decomposer: "QueryDecomposer", query: str, max_tokens: int = 300
+) -> List[str]:
+    """``QueryDecomposer.decompose_query`` without an event loop, ungated by config."""
+    llm = decomposer._get_llm(decomposer.model or rag_config.hyde_model, max_tokens)
+    if not llm:
+        return []
+    try:
+        content = _invoke_sync(llm, decomposer.DECOMPOSITION_PROMPT.format(query=query))
+        return _numbered_lines(content, exclude=query)
+    except Exception as e:
+        logger.error(f"Query decomposition failed: {e}")
+        return []
 
 
 class QueryEnhancer:
@@ -901,3 +951,45 @@ class QueryEnhancerAdapter(BaseQueryEnhancer):
         # ABC contract: "may include the original" — always include it
         # so callers can rely on at least one result
         return [query] + variations
+
+
+class HyDEEnhancerAdapter(BaseQueryEnhancer):
+    """HyDE behind the public ``BaseQueryEnhancer`` contract.
+
+    Returns the query and one hypothetical passage written to answer it; the
+    pipeline searches both and fuses the lists. Without an LLM it returns the
+    query alone, and search runs unchanged.
+    """
+
+    def __init__(self, model: Optional[str] = None, **kwargs):
+        self._inner = HyDEGenerator(model=model)
+
+    def enhance(self, query: str, **kwargs) -> List[str]:
+        doc = self._inner.generate_hypothetical_document_sync(query) if query.strip() else None
+        return [query] + ([doc] if doc else [])
+
+
+class QueryExpansionAdapter(BaseQueryEnhancer):
+    """LLM paraphrasing behind the public ``BaseQueryEnhancer`` contract.
+
+    Naming the component is the request, so it runs whatever
+    ``enable_query_expansion`` says. Without an LLM it returns the query alone.
+    """
+
+    def __init__(self, model: Optional[str] = None, n: Optional[int] = None, **kwargs):
+        self._inner = QueryExpander(model=model)
+        self._n = n
+
+    def enhance(self, query: str, **kwargs) -> List[str]:
+        n = int(kwargs.get("n") or self._n or rag_config.max_query_variations or 3)
+        return [query] + (_expand_query_sync(self._inner, query, n) if query.strip() else [])
+
+
+class QueryDecompositionAdapter(BaseQueryEnhancer):
+    """Sub-question decomposition behind the public ``BaseQueryEnhancer`` contract."""
+
+    def __init__(self, model: Optional[str] = None, **kwargs):
+        self._inner = QueryDecomposer(model=model)
+
+    def enhance(self, query: str, **kwargs) -> List[str]:
+        return [query] + (_decompose_query_sync(self._inner, query) if query.strip() else [])

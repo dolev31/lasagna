@@ -155,7 +155,7 @@ config = KnowledgeConfig(reranker="my_colbert")
 component_registry.list_rerankers()
 ```
 
-Built-in registrations: `cross_encoder`, `combined`, `ensemble` (rerankers); `hyde`, `query_expansion`, `query_decomposition`, `combined` (enhancers). ABC-adapted variants (`cross_encoder_adapted`, `combined_adapted`, `ensemble_adapted`, `mmr_adapted`) are also available.
+Built-in registrations, each implementing its stage's interface: `cross_encoder`, `combined`, `ensemble`, `mmr`, `colbert`, `llm_listwise` (rerankers); `hyde`, `query_expansion`, `query_decomposition`, `combined` (enhancers). The older `*_adapted` names still resolve to the same classes.
 
 ## Thread Safety
 

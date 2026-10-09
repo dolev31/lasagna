@@ -159,7 +159,7 @@ class _Registration:
     resolved on first access to avoid heavy imports at registry init.
     """
 
-    __slots__ = ("cls", "description", "paper", "claims", "version", "_factory")
+    __slots__ = ("cls", "description", "paper", "claims", "version", "_factory", "hidden")
 
     def __init__(
         self,
@@ -169,7 +169,9 @@ class _Registration:
         claims: Optional[Dict[str, Any]] = None,
         version: Optional[str] = None,
         _factory: Optional[str] = None,
+        hidden: bool = False,
     ):
+        self.hidden = hidden
         self.cls = cls
         self.description = description
         self.paper = paper
@@ -226,6 +228,8 @@ class ComponentRegistry:
         self._data_lock = threading.Lock()
 
         self._builtins_registered = False
+        # (stage, name) of everything the package itself registers.
+        self._builtin_names: set = set()
 
     # =========================================================================
     # Built-in Registration (deferred until first access)
@@ -253,182 +257,151 @@ class ComponentRegistry:
 
     def _register_builtins(self) -> None:
         """Register built-in component implementations from the retrieval layer."""
-        # --- Rerankers ---
-        try:
-            from ..retrieval.search.ranker import CrossEncoderReranker
-
-            self._components["reranker"]["cross_encoder"] = _Registration(
-                cls=CrossEncoderReranker,
-                description="Cross-encoder reranker (ms-marco)",
+        # Every listed built-in implements its stage's interface, so any two
+        # components of a stage are interchangeable: comparing them measures
+        # the algorithms, never an interface difference. Names ending in
+        # "_adapted" predate that and stay resolvable as unlisted aliases.
+        _r = "lasagna.retrieval.search.ranker:"
+        _e = "lasagna.retrieval.enhancement.enhancer:"
+        _c = "lasagna.processing.chunker.semantic:"
+        builtins = [
+            # (stage, name, "module:Class", description, paper, aliases)
+            (
+                "reranker",
+                "cross_encoder",
+                _r + "CrossEncoderRerankerAdapter",
+                "Cross-encoder reranker (the configured reranker_model)",
+                None,
+                ["cross_encoder_adapted"],
+            ),
+            (
+                "reranker",
+                "combined",
+                _r + "CombinedRerankerAdapter",
+                "Cross-encoder followed by MMR diversity",
+                None,
+                ["combined_adapted"],
+            ),
+            (
+                "reranker",
+                "ensemble",
+                _r + "EnsembleRerankerAdapter",
+                "Weighted ensemble of cross-encoders",
+                None,
+                ["ensemble_adapted"],
+            ),
+            (
+                "reranker",
+                "mmr",
+                _r + "MMRRerankerAdapter",
+                "MMR diversity reranking",
+                None,
+                ["mmr_adapted"],
+            ),
+            (
+                "reranker",
+                "colbert",
+                _r + "ColBERTRerankerAdapter",
+                "ColBERT late-interaction reranker with token-level MaxSim",
+                "arxiv:2004.12832",
+                [],
+            ),
+            (
+                "reranker",
+                "llm_listwise",
+                _r + "LLMListwiseRerankerAdapter",
+                "LLM listwise reranker with sliding-window Borda aggregation (RankGPT-style)",
+                "arxiv:2304.09542",
+                [],
+            ),
+            (
+                "query_enhancer",
+                "hyde",
+                _e + "HyDEEnhancerAdapter",
+                "HyDE: the query plus a hypothetical answer passage, searched and fused",
+                "arxiv:2212.10496",
+                [],
+            ),
+            (
+                "query_enhancer",
+                "query_expansion",
+                _e + "QueryExpansionAdapter",
+                "LLM paraphrases of the query, searched and fused",
+                None,
+                [],
+            ),
+            (
+                "query_enhancer",
+                "query_decomposition",
+                _e + "QueryDecompositionAdapter",
+                "Sub-questions of a complex query, searched and fused",
+                None,
+                [],
+            ),
+            (
+                "query_enhancer",
+                "combined",
+                _e + "QueryEnhancerAdapter",
+                "Diverse LLM reformulations of the query (RAG Fusion style)",
+                None,
+                ["combined_adapted"],
+            ),
+            (
+                "chunker",
+                "semantic",
+                _c + "SemanticChunkerAdapter",
+                "Semantic chunker",
+                None,
+                ["semantic_adapted"],
+            ),
+            (
+                "chunker",
+                "hierarchical",
+                _c + "HierarchicalChunkerAdapter",
+                "Hierarchical parent-child chunker",
+                None,
+                ["hierarchical_adapted"],
+            ),
+            (
+                "chunker",
+                "structure_aware",
+                _c + "StructureAwareChunkerAdapter",
+                "Structure-aware chunker",
+                None,
+                ["structure_aware_adapted"],
+            ),
+            (
+                "embedder",
+                "default",
+                "lasagna.infrastructure.embedding.manager:EmbeddingManagerAdapter",
+                "The configured embedding model",
+                None,
+                ["default_adapted"],
+            ),
+            (
+                "document_processor",
+                "default",
+                "lasagna.processing.document_processor:DocumentProcessorAdapter",
+                "Built-in extraction (pypdf and pdfplumber, OCR when enabled)",
+                None,
+                ["default_adapted"],
+            ),
+        ]
+        for stage, name, factory, description, paper, aliases in builtins:
+            try:
+                cls = _resolve_factory(factory)
+            except (ImportError, AttributeError) as exc:
+                logger.warning(f"Built-in {stage} '{name}' unavailable: {exc}")
+                continue
+            self._components[stage][name] = _Registration(
+                cls=cls, description=description, paper=paper
             )
-        except ImportError as exc:
-            logger.warning(f"Built-in reranker 'cross_encoder' unavailable: {exc}")
-
-        try:
-            from ..retrieval.search.ranker import CombinedReranker
-
-            self._components["reranker"]["combined"] = _Registration(
-                cls=CombinedReranker,
-                description="Cross-encoder + MMR diversity pipeline",
-            )
-        except ImportError as exc:
-            logger.warning(f"Built-in reranker 'combined' unavailable: {exc}")
-
-        try:
-            from ..retrieval.search.ranker import EnsembleReranker
-
-            self._components["reranker"]["ensemble"] = _Registration(
-                cls=EnsembleReranker,
-                description="Weighted ensemble of multiple cross-encoders",
-            )
-        except ImportError as exc:
-            logger.warning(f"Built-in reranker 'ensemble' unavailable: {exc}")
-
-        try:
-            from ..retrieval.search.ranker import ColBERTReranker
-
-            self._components["reranker"]["colbert"] = _Registration(
-                cls=ColBERTReranker,
-                description="ColBERT late-interaction reranker with token-level MaxSim",
-                paper="arxiv:2004.12832",
-            )
-        except ImportError as exc:
-            logger.warning(f"Built-in reranker 'colbert' unavailable: {exc}")
-
-        try:
-            from ..retrieval.search.ranker import LLMListwiseReranker
-
-            self._components["reranker"]["llm_listwise"] = _Registration(
-                cls=LLMListwiseReranker,
-                description="LLM-based listwise reranker with sliding window Borda aggregation (RankGPT-style)",
-                paper="arxiv:2304.09542",
-            )
-        except ImportError as exc:
-            logger.warning(f"Built-in reranker 'llm_listwise' unavailable: {exc}")
-
-        # --- Query Enhancers ---
-        try:
-            from ..retrieval.enhancement.enhancer import HyDEGenerator
-
-            self._components["query_enhancer"]["hyde"] = _Registration(
-                cls=HyDEGenerator,
-                description="Hypothetical Document Embeddings (HyDE)",
-            )
-        except ImportError as exc:
-            logger.warning(f"Built-in query_enhancer 'hyde' unavailable: {exc}")
-
-        try:
-            from ..retrieval.enhancement.enhancer import QueryExpander
-
-            self._components["query_enhancer"]["query_expansion"] = _Registration(
-                cls=QueryExpander,
-                description="LLM-based query paraphrasing",
-            )
-        except ImportError as exc:
-            logger.warning(f"Built-in query_enhancer 'query_expansion' unavailable: {exc}")
-
-        try:
-            from ..retrieval.enhancement.enhancer import QueryDecomposer
-
-            self._components["query_enhancer"]["query_decomposition"] = _Registration(
-                cls=QueryDecomposer,
-                description="Complex query decomposition into sub-queries",
-            )
-        except ImportError as exc:
-            logger.warning(f"Built-in query_enhancer 'query_decomposition' unavailable: {exc}")
-
-        try:
-            from ..retrieval.enhancement.enhancer import QueryEnhancer
-
-            self._components["query_enhancer"]["combined"] = _Registration(
-                cls=QueryEnhancer,
-                description="Combined HyDE + expansion + decomposition pipeline",
-            )
-        except ImportError as exc:
-            logger.warning(f"Built-in query_enhancer 'combined' unavailable: {exc}")
-
-        # --- ABC-compliant adapters ---
-        # These wrap the internal implementations with the public ABC interface
-        # (ScoredDocument / Chunk types). Registered with "_adapted" suffix to
-        # coexist with the internal registrations above.
-        try:
-            from ..retrieval.search.ranker import (
-                CrossEncoderRerankerAdapter,
-                CombinedRerankerAdapter,
-                EnsembleRerankerAdapter,
-                MMRRerankerAdapter,
-            )
-
-            self._components["reranker"]["cross_encoder_adapted"] = _Registration(
-                cls=CrossEncoderRerankerAdapter,
-                description="Cross-encoder reranker (BaseReranker-compliant)",
-            )
-            self._components["reranker"]["combined_adapted"] = _Registration(
-                cls=CombinedRerankerAdapter,
-                description="Cross-encoder + MMR (BaseReranker-compliant)",
-            )
-            self._components["reranker"]["ensemble_adapted"] = _Registration(
-                cls=EnsembleRerankerAdapter,
-                description="Weighted ensemble (BaseReranker-compliant)",
-            )
-            self._components["reranker"]["mmr_adapted"] = _Registration(
-                cls=MMRRerankerAdapter,
-                description="MMR diversity reranker (BaseReranker-compliant)",
-            )
-        except ImportError as exc:
-            logger.warning(f"Built-in reranker adapters unavailable: {exc}")
-
-        try:
-            from ..processing.chunker.semantic import (
-                SemanticChunkerAdapter,
-                HierarchicalChunkerAdapter,
-                StructureAwareChunkerAdapter,
-            )
-
-            self._components["chunker"]["semantic_adapted"] = _Registration(
-                cls=SemanticChunkerAdapter,
-                description="Semantic chunker (BaseChunker-compliant)",
-            )
-            self._components["chunker"]["hierarchical_adapted"] = _Registration(
-                cls=HierarchicalChunkerAdapter,
-                description="Hierarchical parent-child chunker (BaseChunker-compliant)",
-            )
-            self._components["chunker"]["structure_aware_adapted"] = _Registration(
-                cls=StructureAwareChunkerAdapter,
-                description="Structure-aware chunker (BaseChunker-compliant)",
-            )
-        except ImportError as exc:
-            logger.warning(f"Built-in chunker adapters unavailable: {exc}")
-
-        try:
-            from ..infrastructure.embedding.manager import EmbeddingManagerAdapter
-
-            self._components["embedder"]["default_adapted"] = _Registration(
-                cls=EmbeddingManagerAdapter,
-                description="Embedding manager (BaseEmbedder-compliant)",
-            )
-        except ImportError as exc:
-            logger.warning(f"Built-in embedder adapter unavailable: {exc}")
-
-        try:
-            from ..retrieval.enhancement.enhancer import QueryEnhancerAdapter
-
-            self._components["query_enhancer"]["combined_adapted"] = _Registration(
-                cls=QueryEnhancerAdapter,
-                description="Query enhancer (BaseQueryEnhancer-compliant)",
-            )
-        except ImportError as exc:
-            logger.warning(f"Built-in query_enhancer adapter unavailable: {exc}")
-
-        try:
-            from ..processing.document_processor import DocumentProcessorAdapter
-
-            self._components["document_processor"]["default_adapted"] = _Registration(
-                cls=DocumentProcessorAdapter,
-                description="Document processor (BaseDocumentProcessor-compliant)",
-            )
-        except ImportError as exc:
-            logger.warning(f"Built-in document_processor adapter unavailable: {exc}")
+            self._builtin_names.add((stage, name))
+            for alias in aliases:
+                self._components[stage][alias] = _Registration(
+                    cls=cls, description=f"alias of {name}", paper=paper, hidden=True
+                )
+                self._builtin_names.add((stage, alias))
 
         # --- Agentic Pipelines (deferred to avoid heavy agentic imports) ---
         self._components["agentic_pipeline"]["default"] = _Registration(
@@ -438,6 +411,9 @@ class ComponentRegistry:
         self._components["agentic_pipeline"]["legacy_react"] = _Registration(
             description="Legacy ReAct agent with monolithic search tool",
             _factory="lasagna.agentic.agentic_rag:LegacyReActPipeline",
+        )
+        self._builtin_names.update(
+            {("agentic_pipeline", "default"), ("agentic_pipeline", "legacy_react")}
         )
 
         # --- Built-in Graph Nodes (deferred) ---
@@ -777,13 +753,22 @@ class ComponentRegistry:
                     f"Unknown component type '{component_type}'. "
                     f"Valid types: {sorted(COMPONENT_TYPES)}"
                 )
-            return {canonical: list(self._components[canonical].keys())}
-        return {ct: list(names.keys()) for ct, names in self._components.items() if names}
+            return {canonical: self._listed(self._components[canonical])}
+        return {ct: self._listed(names) for ct, names in self._components.items() if names}
 
     def list_all(self) -> Dict[str, List[str]]:
         """List all registered components across all types."""
         self._ensure_builtins()
-        return {ct: list(names.keys()) for ct, names in self._components.items()}
+        return {ct: self._listed(names) for ct, names in self._components.items()}
+
+    @staticmethod
+    def _listed(store: Dict[str, "_Registration"]) -> List[str]:
+        return [name for name, reg in store.items() if not reg.hidden]
+
+    def is_builtin(self, component_type: str, name: str) -> bool:
+        """Whether the package itself registered this name (not a plugin or user)."""
+        self._ensure_builtins()
+        return (_resolve_category(component_type), name) in self._builtin_names
 
     def has(self, component_type: str, name: str) -> bool:
         """Check if a component is registered.
@@ -1087,6 +1072,8 @@ class ComponentRegistry:
         expected_abc = _get_expected_abc(category) if category else None
         result = []
         for name, reg in store.items():
+            if reg.hidden:
+                continue
             if reg.cls is not None:
                 cls_name = reg.cls.__name__
             elif reg._factory:

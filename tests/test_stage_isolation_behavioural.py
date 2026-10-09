@@ -243,17 +243,9 @@ class TestChunksAreIndependent:
 # Recorded rather than fixed: re-typing them is a behavioural change that needs
 # its own pass. The point of the allowlist is that it cannot grow silently --
 # anything newly registered must conform.
-KNOWN_NON_CONFORMING = {
-    ("reranker", "cross_encoder"),
-    ("reranker", "combined"),
-    ("reranker", "ensemble"),
-    ("reranker", "colbert"),
-    ("reranker", "llm_listwise"),
-    ("query_enhancer", "hyde"),
-    ("query_enhancer", "query_expansion"),
-    ("query_enhancer", "query_decomposition"),
-    ("query_enhancer", "combined"),
-}
+#: Empty since every listed built-in got a conforming implementation. Kept
+#: as the place a regression would have to be written down.
+KNOWN_NON_CONFORMING: set = set()
 
 
 def _stage_abcs():
@@ -323,27 +315,34 @@ class TestInterchangeabilityIsVisible:
         assert all("implements_contract" in e for e in entries), (
             "every reranker listing must say whether it implements the contract"
         )
-        assert any(e["implements_contract"] for e in entries), "expected some to conform"
-        assert any(not e["implements_contract"] for e in entries), (
-            "expected the known non-conforming built-ins to be reported as such"
+        assert all(e["implements_contract"] for e in entries), (
+            "every listed built-in reranker implements BaseReranker"
         )
 
     def test_selecting_a_non_interchangeable_component_warns(self):
         from loguru import logger
         from lasagna.core.pipeline import KnowledgePipeline
 
+        # No built-in is non-conforming any more; a duck-typed registration is
+        # how one appears now, and it must still be called out.
+        class DuckTyped:
+            def rerank(self, query, documents, top_k=5):
+                return documents[:top_k]
+
+        registry.register_class("reranker", "_duck_typed_probe", DuckTyped, override=True)
         seen = []
         sink = logger.add(lambda m: seen.append(str(m)), level="WARNING")
         try:
-            KnowledgePipeline().replace("reranker", "cross_encoder")
+            KnowledgePipeline().replace("reranker", "_duck_typed_probe")
         finally:
             logger.remove(sink)
+            registry.unregister_reranker("_duck_typed_probe")
 
         joined = "".join(seen)
         assert "not interchangeable" in joined, (
             f"choosing a non-conforming component for a comparison must say so; got: {joined!r}"
         )
-        assert "cross_encoder_adapted" in joined, (
+        assert "cross_encoder" in joined, (
             "the warning must name a comparable alternative, not just complain"
         )
 
