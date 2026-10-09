@@ -39,8 +39,11 @@ from lasagna.core.registry import registry
                    paper="Someone et al. 2026", claims={"ndcg@10": 0.42})
 class MyReranker(BaseReranker):
     def rerank(self, query, documents, top_k=5, **kwargs):
+        terms = set(query.lower().split())
         out = [copy.deepcopy(d) for d in documents]
-        out.sort(key=lambda d: self.score(query, d), reverse=True)
+        for d in out:  # your scoring goes here; this one counts shared words
+            d.score = float(len(terms & set(d.content.lower().split())))
+        out.sort(key=lambda d: d.score, reverse=True)
         return out[:top_k]
 ```
 
@@ -110,13 +113,29 @@ name: does my reranker help
 benchmarks:
   - name: beir/scifact
     n_samples: 200
+tracks: [retrieval]                                 # no LLM or RAGAS needed
 pipeline:
-  rerankers: [cross_encoder, my_reranker]   # a control and your component
+  base_profile: speed                               # no LLM key, small models
+  rerankers: [cross_encoder_adapted, my_reranker]   # a control and your component
 n_runs: 3
 ```
 
 ```bash
 lasagna benchmark experiment sweep.yaml
+lasagna results significance <output>/results.json -m ndcg@10 --all
+```
+
+The control is `cross_encoder_adapted`, not `cross_encoder`: the adapted one
+implements the reranker contract, so the comparison measures the algorithms
+rather than an interface difference. Naming a reranker turns reranking on for
+that arm, even on `speed`. The second command prints each pair with the
+difference, the effect size and both the raw and the Holm-adjusted p:
+
+```
+ndcg@10 on beir/scifact — 1 pairs, Holm-Bonferroni
+
+A                      B            diff    d_z       p  p (Holm)
+cross_encoder_adapted  my_reranker  ...
 ```
 
 Three things this enforces that a hand-rolled comparison does not:

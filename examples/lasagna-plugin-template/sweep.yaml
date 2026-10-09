@@ -4,7 +4,7 @@
 #
 # The point is the `rerankers` list below. It runs the SAME benchmark, the same
 # corpus, the same sample and the same everything-else through two rerankers:
-# the built-in `cross_encoder` as a control, and `template_length` from this
+# the built-in `cross_encoder_adapted` as a control, and `template_length` from this
 # package. Because only that one stage differs, the gap between the two numbers
 # is attributable to the component.
 #
@@ -26,10 +26,17 @@ benchmarks:
   - name: smoke
     split: test
 
+# Score retrieval only: comparing rerankers needs no LLM and no RAGAS, and on
+# a core install the generation track cannot run at all.
+tracks: [retrieval]
+
 pipeline:
+  # Keyless and small: no LLM, an 80 MB embedder. Naming a reranker turns
+  # reranking on for its arm.
+  base_profile: speed
   rerankers:
-    - cross_encoder      # the control
-    - template_length    # this package's component
+    - cross_encoder_adapted  # the control; implements the reranker contract
+    - template_length        # this package's component
 
 # Retrieval metrics move between runs. One run cannot separate a real gap from
 # noise, and per-sample scores are paired by sample identity so that a

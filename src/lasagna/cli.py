@@ -920,7 +920,11 @@ def benchmark_run(
     # Summary
     metric_names = results.get_metric_names()
     if metric_names:
-        primary = metric_names[0]
+        # A retrieval run has no generated answers, so leading with the first
+        # metric printed "exact_match 0.0000" beside a real NDCG.
+        primary = next(
+            (m for m in ("ndcg@10", "recall@10", "mrr") if m in metric_names), metric_names[0]
+        )
         console.print(f"\n[bold]Results ({primary}):[/bold]")
         console.print(results.leaderboard(primary))
     else:
@@ -1524,8 +1528,9 @@ def results_significance(
     console.print()
 
     table = Table(box=None, pad_edge=False)
-    table.add_column("A")
-    table.add_column("B")
+    # Config names are what identifies a pair; wrap them rather than cut them.
+    table.add_column("A", overflow="fold")
+    table.add_column("B", overflow="fold")
     table.add_column("diff", justify="right")
     table.add_column("d_z", justify="right")
     table.add_column("p", justify="right")
