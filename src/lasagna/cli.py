@@ -15,7 +15,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import typer
 from rich.console import Console
@@ -1831,7 +1831,9 @@ def results_interaction(
     except ValueError as exc:
         _error(str(exc))
 
-    table = Table(title=f"{metric} on {benchmark} (n={report['n_paired']} paired queries)")
+    table = Table(
+        title=f"{escape(metric)} on {escape(benchmark)} (n={report['n_paired']} paired queries)"
+    )
     table.add_column("Cell")
     table.add_column("Mean", justify="right")
     table.add_column("vs neither", justify="right")
@@ -1844,8 +1846,10 @@ def results_interaction(
     ):
         mean = report["means"][name]
         delta = "—" if name == neither else f"{mean - base:+.4f}"
-        table.add_row(f"{label}  [dim]{name}[/dim]", f"{mean:.4f}", delta)
+        table.add_row(f"{label}  [dim]{escape(name)}[/dim]", f"{mean:.4f}", delta)
     console.print(table)
+    for line in _identical_cells(results, benchmark, [neither, only_a, only_b, both]):
+        console.print(f"[yellow]{escape(line)}[/yellow]")
 
     console.print()
     console.print(f"  expected if additive : {report['expected_if_additive']:+.4f}")
@@ -1853,8 +1857,8 @@ def results_interaction(
     colour = "green" if report["significant"] else "yellow"
     console.print(
         f"  [bold]interaction[/bold]          : [{colour}]{report['interaction']:+.4f}[/{colour}]"
-        f"  95% CI [{report['ci_lower']:+.4f}, {report['ci_upper']:+.4f}]"
-        f"  p={report['p_value']:.4f}"
+        f"  {report['confidence_level']:.0%} CI [{report['ci_lower']:+.4f}, {report['ci_upper']:+.4f}]"
+        f"  p={_format_p(report['p_value'])}"
     )
     if report["composition_efficiency"] is not None:
         console.print(
@@ -1863,6 +1867,40 @@ def results_interaction(
         )
     console.print()
     console.print(f"  [bold]{report['verdict']}[/bold]")
+
+
+def _identical_cells(results, benchmark: str, cells: List[str]) -> List[str]:
+    """Pairs of cells that returned the same ranked list on every shared query.
+
+    A factor that never changed retrieval in a cell still yields an
+    interaction estimate, and a confident one: in a rerank x MMR factorial on
+    `speed` the MMR cell matched `neither` on 12 of 12 queries and the command
+    reported a significant redundancy.
+    """
+    lists: Dict[str, Dict[Any, tuple]] = {}
+    for name in cells:
+        seen: Dict[Any, tuple] = {}
+        for task in results._by_bench_config.get((benchmark, name), []):
+            if task.error:
+                continue
+            for i, sample in enumerate(task.per_sample_scores or []):
+                ids = sample.get("_retrieved_ids")
+                if isinstance(ids, list):
+                    seen.setdefault(sample.get("_sample_id", i), tuple(ids))
+        lists[name] = seen
+
+    lines = []
+    for i, a in enumerate(cells):
+        for b in cells[i + 1 :]:
+            shared = set(lists[a]) & set(lists[b])
+            if shared and all(lists[a][sid] == lists[b][sid] for sid in shared):
+                lines.append(
+                    f"Cells {a!r} and {b!r} returned identical ranked lists on all "
+                    f"{len(shared)} shared queries. If the factor that separates them "
+                    "acts on retrieval, it did nothing in that cell, and the interaction "
+                    "below reflects that rather than an overlap between the techniques."
+                )
+    return lines
 
 
 skills_app = typer.Typer(
