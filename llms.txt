@@ -1,0 +1,86 @@
+# Retrieval Augmented Generation Compositionality
+
+> Retrieval-augmented generation techniques are typically evaluated one at a time, so it remains unclear whether their isolated gains survive composition. We pre-declare three hypotheses and test 450 configurations across eight benchmarks and corpora from 5K to 200K documents with LASAGNA, an open-source framework for controlled RAG evaluation.
+
+By Ido Levy (IBM, Weizmann Institute of Science), Segev Shlomov (IBM), Leshem Choshen (IBM, Weizmann Institute of Science), 2026.
+
+## What is this paper about?
+
+The paper measures whether gains from individual RAG pipeline components survive when the components are combined, using LASAGNA, an open-source framework for controlled RAG evaluation, across 450 configurations, eight benchmarks, and corpora from 5K to 200K documents.
+
+## Important context
+
+- The findings concern how techniques compose, not the merit of any single technique.
+- Retrieval quality (NDCG@10) and answer faithfulness are measured separately and favor different design choices.
+- LASAGNA: An open-source framework for controlled RAG evaluation, in which each pipeline stage sits behind a fixed interface.
+- Answer faithfulness: Measures whether generated claims are supported by the retrieved context.
+- NDCG@10: The retrieval-quality metric; it follows the BEIR convention, with retrieved chunks de-duplicated by parent document ID before scoring.
+- Composition shortfall: How far a combined pipeline's gain falls below the gain predicted from its techniques measured one at a time: a 63% shortfall for the three strongest retrieval techniques.
+
+## Data and methods
+
+Three pre-declared hypotheses; a 167-configuration D-optimal design over eight pipeline dimensions, 138 non-factorial ablation configurations across 24 targeted experiments, and a corpus-scaling sweep from 5K to 200K documents, on one corpus that unifies five BEIR retrieval sets and three QA sets.
+
+## Key results
+
+- Three retrieval techniques predict a +47% combined NDCG@10 improvement but deliver +17% together; across 17 combinations the shortfall ranges from 7% to 72%, with a median of 41%.
+- Faithfulness gains transfer near-additively: +28% predicted, +32% realized.
+- The design leading at small corpora trails by 13.7% NDCG@10 at 200K, with a rank flip visible from 25K.
+
+## Limitations and scope
+
+- The pre-declared test of H1, a threshold on interaction variance in faithfulness, was not met; a focused follow-up found the flagged interaction real but small.
+- One constructed English multi-domain test bed; multilingual corpora, real enterprise or private data, open-weight generators, and cross-organizational large corpora are not tested.
+- Faithfulness is measured under two generator models, a sensitivity check rather than a sweep.
+
+## Navigation guide
+
+- Results section: the three hypotheses and their verdicts
+- Appendix: per-configuration results, pre-registration deviations, judge validation, and the generator-substitution check
+
+## Publication status
+
+Preprint.
+
+## Questions and answers
+
+### Do RAG improvements measured one component at a time hold when the components are combined?
+
+Not reliably. In a study of 450 configurations across eight benchmarks, three retrieval techniques that each helped on their own predict a +47% NDCG@10 improvement but deliver +17% when combined. Across 17 tested combinations the shortfall ranges from 7% to 72%, with a median of 41%. Faithfulness gains behave differently and transfer near-additively: +28% predicted, +32% realized. The study uses LASAGNA, an open-source framework for controlled RAG evaluation.
+
+### What is LASAGNA?
+
+LASAGNA is an open-source framework for controlled evaluation of retrieval-augmented generation. Each pipeline stage sits behind a fixed interface, so swapping one method cannot silently change the implementation at another. Adding a new technique is a single line of code, and the framework tests it inside a complete modern pipeline without reimplementing the surrounding stack. It was used to test 450 configurations across eight benchmarks and corpora from 5K to 200K documents.
+
+### Does the best RAG pipeline on a small corpus stay the best at large scale?
+
+Not necessarily. In a corpus-scaling sweep from 5K to 200K documents, the design leading at small corpora trails by 13.7% NDCG@10 at 200K, with a rank flip visible from 25K documents. Rankings from small-corpus ablations should therefore be rechecked at the intended corpus scale before a pipeline is chosen.
+
+### Do retrieval quality and answer faithfulness favor the same RAG design choices?
+
+No. Across the factorial study, embedding, enrichment, and reranking dominate the retrieval-quality metric (NDCG@10), whereas query augmentation and agentic gating dominate answer faithfulness, which measures whether generated claims are supported by the retrieved context. Optimizing one metric can hurt the other, so new RAG components should be evaluated on both.
+
+### Which benchmarks does the study use?
+
+Eight benchmarks unified into one multi-domain corpus: five BEIR sets for retrieval (NFCorpus, FiQA, SciFact, ArguAna, HotpotQA) and three question-answering sets for generation (SQuAD v2, HotpotQA, MuSiQue). Each configuration is evaluated on a retrieval track and an end-to-end generation track, with corpora scaled from 5K to 200K documents in the scaling study.
+
+## Links
+
+- [Project page](https://dolev31.github.io/lasagna/): overview, results and citation
+- [Code](https://github.com/dolev31/lasagna): The LASAGNA framework and evaluation harness: swap one RAG pipeline stage, hold the rest fixed, and benchmark the change. Apache-2.0.
+- [Preregistration](https://github.com/dolev31/Lasagna-Retrieval-Augmented-Generation-Compositionality): The pre-declared hypotheses and analysis plan.
+
+## Abstract
+
+Retrieval Augmented Generation (RAG) grounds large language models in external knowledge. Modern pipelines combine embedding, chunking, retrieval, reranking, query augmentation, context compression, and agentic verification, yet these techniques are typically evaluated one at a time. It remains unclear whether their isolated gains survive composition, whether retrieval quality and answer faithfulness favor the same design choices, and whether conclusions from small corpora hold at large scale. We pre-declare three hypotheses and introduce Lasagna, an open-source framework for controlled RAG evaluation. We test 450 configurations across eight benchmarks and corpora ranging from 5K to 200K documents. Three findings emerge. First, individually strong techniques from different phases of a RAG pipeline do not necessarily compose: three retrieval techniques predict a +47% combined improvement but deliver only +17% when used together. Second, component gains stack differently for retrieval and faithfulness, and optimizing one can hurt the other. Third, the best composition changes as the corpus grows: the combination that wins on a small corpus may not remain best at large scale. These findings show that gains measured in isolation are not reliable predictors of realistic performance, and that new RAG techniques should be tested with the full surrounding stack. We call on researchers to do so and supply Lasagna to simplify these experiments.
+
+## Citation
+
+```bibtex
+@article{levy2026retrieval,
+  title   = {Retrieval Augmented Generation Compositionality},
+  author  = {Levy, Ido and Shlomov, Segev and Choshen, Leshem},
+  journal = {arXiv preprint},
+  year    = {2026}
+}
+```

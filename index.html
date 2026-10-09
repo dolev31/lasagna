@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retrieval Augmented Generation Compositionality</title>
+<script>(function(){var d=document.documentElement;d.classList.add("js");setTimeout(function(){if(!window.siteReady)d.classList.remove("js");},3000);try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")d.setAttribute("data-theme",t);}catch(e){}})();</script>
+<meta name="theme-color" content="#FBFAF7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D0F12" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preload" href="video/poster.webp" as="image" type="image/webp" fetchpriority="high">
+<link rel="preload" href="fonts/newsreader-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/newsreader-italic-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css">
+<script src="site.js" defer></script>
+<!-- PEO:HEAD:BEGIN -->
+<meta name="description" content="Do gains from individual RAG components survive when combined? 450 configurations, eight benchmarks, 5K to 200K documents, tested with LASAGNA.">
+<meta name="author" content="Ido Levy, Segev Shlomov, Leshem Choshen">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+<link rel="canonical" href="https://dolev31.github.io/lasagna/">
+<link rel="alternate" type="text/plain" href="llms.txt" title="llms.txt">
+<meta name="keywords" content="retrieval-augmented generation, RAG evaluation, compositionality, ablation study, corpus scaling, answer faithfulness, BEIR">
+<!-- Google Scholar (Highwire Press) -->
+<meta name="citation_title" content="Retrieval Augmented Generation Compositionality">
+<meta name="citation_author" content="Levy, Ido">
+<meta name="citation_author_institution" content="IBM">
+<meta name="citation_author_institution" content="Weizmann Institute of Science">
+<meta name="citation_author" content="Shlomov, Segev">
+<meta name="citation_author_institution" content="IBM">
+<meta name="citation_author" content="Choshen, Leshem">
+<meta name="citation_author_institution" content="IBM">
+<meta name="citation_author_institution" content="Weizmann Institute of Science">
+<meta name="citation_publication_date" content="2026">
+<meta name="citation_language" content="en">
+<meta name="citation_abstract_html_url" content="https://dolev31.github.io/lasagna/">
+<meta name="citation_keywords" content="retrieval-augmented generation; RAG evaluation; compositionality; ablation study; corpus scaling; answer faithfulness; BEIR">
+<!-- Open Graph and Twitter cards -->
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="LASAGNA">
+<meta property="og:title" content="Retrieval Augmented Generation Compositionality">
+<meta property="og:description" content="Retrieval-augmented generation techniques are typically evaluated one at a time, so it remains unclear whether their isolated gains survive composition. We pre-declare three hypotheses and test 450 configurations across eight benchmarks and corpora from 5K to 200K documents with LASAGNA, an open-source framework for controlled RAG evaluation.">
+<meta property="og:url" content="https://dolev31.github.io/lasagna/">
+<meta property="og:image" content="https://dolev31.github.io/lasagna/assets/social.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Retrieval Augmented Generation Compositionality, by Ido Levy, Segev Shlomov and Leshem Choshen. Predicted versus realized gain: retrieval quality (NDCG@10) +47% predicted, +17% realized; answer faithfulness +28% predicted, +32% realized.">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Retrieval Augmented Generation Compositionality">
+<meta name="twitter:description" content="Retrieval-augmented generation techniques are typically evaluated one at a time, so it remains unclear whether their isolated gains survive composition. We pre-declare three hypotheses and test 450 configurations across eight benchmarks and corpora from 5K to 200K documents with LASAGNA, an open-source framework for controlled RAG evaluation.">
+<meta name="twitter:image" content="https://dolev31.github.io/lasagna/assets/social.png">
+<meta name="twitter:image:alt" content="Retrieval Augmented Generation Compositionality, by Ido Levy, Segev Shlomov and Leshem Choshen. Predicted versus realized gain: retrieval quality (NDCG@10) +47% predicted, +17% realized; answer faithfulness +28% predicted, +32% realized.">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "ScholarlyArticle",
+   "@id": "https://dolev31.github.io/lasagna/#paper",
+   "headline": "Retrieval Augmented Generation Compositionality",
+   "name": "Retrieval Augmented Generation Compositionality",
+   "abstract": "Retrieval Augmented Generation (RAG) grounds large language models in external knowledge. Modern pipelines combine embedding, chunking, retrieval, reranking, query augmentation, context compression, and agentic verification, yet these techniques are typically evaluated one at a time. It remains unclear whether their isolated gains survive composition, whether retrieval quality and answer faithfulness favor the same design choices, and whether conclusions from small corpora hold at large scale. We pre-declare three hypotheses and introduce Lasagna, an open-source framework for controlled RAG evaluation. We test 450 configurations across eight benchmarks and corpora ranging from 5K to 200K documents. Three findings emerge. First, individually strong techniques from different phases of a RAG pipeline do not necessarily compose: three retrieval techniques predict a +47% combined improvement but deliver only +17% when used together. Second, component gains stack differently for retrieval and faithfulness, and optimizing one can hurt the other. Third, the best composition changes as the corpus grows: the combination that wins on a small corpus may not remain best at large scale. These findings show that gains measured in isolation are not reliable predictors of realistic performance, and that new RAG techniques should be tested with the full surrounding stack. We call on researchers to do so and supply Lasagna to simplify these experiments.",
+   "description": "Retrieval-augmented generation techniques are typically evaluated one at a time, so it remains unclear whether their isolated gains survive composition. We pre-declare three hypotheses and test 450 configurations across eight benchmarks and corpora from 5K to 200K documents with LASAGNA, an open-source framework for controlled RAG evaluation.",
+   "keywords": [
+    "retrieval-augmented generation",
+    "RAG evaluation",
+    "compositionality",
+    "ablation study",
+    "corpus scaling",
+    "answer faithfulness",
+    "BEIR"
+   ],
+   "author": [
+    {
+     "@type": "Person",
+     "name": "Ido Levy",
+     "givenName": "Ido",
+     "familyName": "Levy",
+     "affiliation": [
+      {
+       "@type": "Organization",
+       "name": "IBM"
+      },
+      {
+       "@type": "Organization",
+       "name": "Weizmann Institute of Science"
+      }
+     ]
+    },
+    {
+     "@type": "Person",
+     "name": "Segev Shlomov",
+     "givenName": "Segev",
+     "familyName": "Shlomov",
+     "affiliation": [
+      {
+       "@type": "Organization",
+       "name": "IBM"
+      }
+     ]
+    },
+    {
+     "@type": "Person",
+     "name": "Leshem Choshen",
+     "givenName": "Leshem",
+     "familyName": "Choshen",
+     "affiliation": [
+      {
+       "@type": "Organization",
+       "name": "IBM"
+      },
+      {
+       "@type": "Organization",
+       "name": "Weizmann Institute of Science"
+      }
+     ]
+    }
+   ],
+   "inLanguage": "en",
+   "isAccessibleForFree": true,
+   "url": "https://dolev31.github.io/lasagna/",
+   "mainEntityOfPage": "https://dolev31.github.io/lasagna/",
+   "image": "https://dolev31.github.io/lasagna/assets/social.png",
+   "about": [
+    {
+     "@type": "DefinedTerm",
+     "name": "LASAGNA",
+     "description": "An open-source framework for controlled RAG evaluation, in which each pipeline stage sits behind a fixed interface."
+    },
+    {
+     "@type": "DefinedTerm",
+     "name": "Answer faithfulness",
+     "description": "Measures whether generated claims are supported by the retrieved context."
+    },
+    {
+     "@type": "DefinedTerm",
+     "name": "NDCG@10",
+     "description": "The retrieval-quality metric; it follows the BEIR convention, with retrieved chunks de-duplicated by parent document ID before scoring."
+    },
+    {
+     "@type": "DefinedTerm",
+     "name": "Composition shortfall",
+     "description": "How far a combined pipeline's gain falls below the gain predicted from its techniques measured one at a time: a 63% shortfall for the three strongest retrieval techniques."
+    }
+   ]
+  },
+  {
+   "@type": "SoftwareSourceCode",
+   "codeRepository": "https://github.com/dolev31/lasagna",
+   "@id": "https://github.com/dolev31/lasagna",
+   "name": "Code",
+   "url": "https://github.com/dolev31/lasagna",
+   "subjectOf": {
+    "@id": "https://dolev31.github.io/lasagna/#paper"
+   }
+  }
+ ]
+}
+</script>
+<!-- PEO:HEAD:END -->
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#top" aria-label="LASAGNA, back to top">
+      <svg class="brand-mark" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect width="32" height="32" rx="8" fill="currentColor"/><rect x="7" y="8.6" width="18" height="3.4" rx="1.7" fill="var(--on-accent)"/><rect x="7" y="14.3" width="18" height="3.4" rx="1.7" fill="var(--on-accent)" fill-opacity=".72"/><rect x="7" y="20" width="18" height="3.4" rx="1.7" fill="var(--on-accent)" fill-opacity=".46"/></svg>
+      <span class="brand-name">LASAGNA</span>
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#overview">Overview</a>
+      <a href="#findings">Findings</a>
+      <a href="#results">Results</a>
+      <a href="#figures">Figures</a>
+      <a href="#use">Use</a>
+      <a href="#faq">FAQ</a>
+      <a href="#citation">Cite</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Dark theme" aria-pressed="false" title="Toggle dark theme">
+      <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20.5 14.6A8.5 8.5 0 0 1 9.4 3.5a8.5 8.5 0 1 0 11.1 11.1Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero" id="top" aria-labelledby="title">
+  <div class="wrap hero-inner">
+    <div class="motif" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <p class="eyebrow">Preprint · 2026</p>
+    <h1 id="title">Retrieval Augmented Generation <span class="title-accent">Compositionality</span></h1>
+    <p class="dek">Retrieval-augmented generation techniques are typically evaluated one at a time, so it remains unclear whether their isolated gains survive composition.</p>
+
+    <ul class="authors">
+      <li>Ido Levy<sup>1,2</sup></li>
+      <li>Segev Shlomov<sup>1</sup></li>
+      <li>Leshem Choshen<sup>1,2</sup></li>
+    </ul>
+    <ul class="affils">
+      <li><sup>1</sup>IBM</li>
+      <li><sup>2</sup>Weizmann Institute of Science</li>
+    </ul>
+
+    <ul class="actions">
+      <li><span class="btn btn-soon" aria-disabled="true"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 1.5h6l3 3v10h-9z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M9.5 1.5v3h3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>Paper<span class="soon">coming soon</span></span></li>
+      <li><a class="btn btn-primary" href="https://github.com/dolev31/lasagna"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>Code</a></li>
+      <li><a class="btn" href="https://github.com/dolev31/Lasagna-Retrieval-Augmented-Generation-Compositionality"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 2.5h8v11H4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M6 6h4M6 8.5h4M6 11h2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Preregistration</a></li>
+      <li><a class="btn" href="#citation"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2.5 3.5h4.25v4.25H4.9c0 1.45.55 2.35 1.85 2.95l-.62 1.55C3.7 11.4 2.5 9.75 2.5 7.2zm6.75 0h4.25v4.25h-1.85c0 1.45.55 2.35 1.85 2.95l-.62 1.55c-2.43-.85-3.63-2.5-3.63-5.05z"/></svg>BibTeX</a></li>
+    </ul>
+
+    <figure class="video-card">
+      <div class="video-shell" id="video-shell">
+        <video id="explainer" width="1920" height="1080" muted playsinline loop controls preload="none" poster="video/poster.webp" aria-label="Explainer video: the question, LASAGNA, the study, the findings, and the takeaway">
+          <source src="video/explainer.mp4" type="video/mp4">
+        </video>
+        <button class="play" id="play" type="button" aria-label="Watch the explainer (muted video)">
+          <span class="play-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg></span>
+          <span class="play-label">Watch the explainer</span>
+        </button>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<section class="section band" id="tldr" aria-labelledby="tldr-title">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <p class="kicker">In short</p>
+      <h2 id="tldr-title">TL;DR</h2>
+      <p class="section-lede">We pre-declare three hypotheses and test 450 configurations across eight benchmarks and corpora from 5K to 200K documents with LASAGNA, an open-source framework for controlled RAG evaluation.</p>
+    </div>
+    <ul class="stats">
+      <li class="stat reveal">
+        <p class="stat-value"><span class="was"><span class="sr-only">Predicted </span>+47%</span><span class="arrow" aria-hidden="true">→</span><span class="now"><span class="sr-only">, realized </span>+17%</span></p>
+        <p class="stat-label">Retrieval gain (NDCG@10) predicted from the three strongest single techniques, versus what the combined pipeline delivers</p>
+      </li>
+      <li class="stat reveal">
+        <p class="stat-value"><span class="was"><span class="sr-only">Predicted </span>+28%</span><span class="arrow" aria-hidden="true">→</span><span class="now"><span class="sr-only">, realized </span>+32%</span></p>
+        <p class="stat-label">Faithfulness gain predicted one factor at a time, versus the best full pipeline: faithfulness gains carry over</p>
+      </li>
+      <li class="stat reveal">
+        <p class="stat-value"><span class="now">13.7%</span></p>
+        <p class="stat-label">NDCG@10 gap at 200K documents for the design that leads at small corpora; the rank flip is visible from 25K</p>
+      </li>
+      <li class="stat reveal">
+        <p class="stat-value"><span class="now">450</span></p>
+        <p class="stat-label">Configurations across eight benchmarks and corpora from 5K to 200K documents</p>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<section class="section" id="abstract" aria-labelledby="abstract-title">
+  <div class="wrap split">
+    <div class="split-head reveal">
+      <p class="kicker">Paper</p>
+      <h2 id="abstract-title">Abstract</h2>
+    </div>
+    <div class="split-body reveal">
+      <p class="abstract">Retrieval Augmented Generation (RAG) grounds large language models in external knowledge. Modern pipelines combine embedding, chunking, retrieval, reranking, query augmentation, context compression, and agentic verification, yet these techniques are typically evaluated one at a time. It remains unclear whether their isolated gains survive composition, whether retrieval quality and answer faithfulness favor the same design choices, and whether conclusions from small corpora hold at large scale. We pre-declare three hypotheses and introduce Lasagna, an open-source framework for controlled RAG evaluation. We test 450 configurations across eight benchmarks and corpora ranging from 5K to 200K documents. Three findings emerge. First, individually strong techniques from different phases of a RAG pipeline do not necessarily compose: three retrieval techniques predict a +47% combined improvement but deliver only +17% when used together. Second, component gains stack differently for retrieval and faithfulness, and optimizing one can hurt the other. Third, the best composition changes as the corpus grows: the combination that wins on a small corpus may not remain best at large scale. These findings show that gains measured in isolation are not reliable predictors of realistic performance, and that new RAG techniques should be tested with the full surrounding stack. We call on researchers to do so and supply Lasagna to simplify these experiments.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section band" id="overview" aria-labelledby="question-title">
+  <div class="wrap">
+    <div class="duo">
+      <div class="duo-item reveal">
+        <p class="kicker">Overview</p>
+        <h2 id="question-title">The question</h2>
+        <p>Modern RAG pipelines combine embedding, chunking, retrieval, reranking, query augmentation, context compression, and agentic verification, yet these techniques are typically evaluated one at a time. It remains unclear whether their isolated gains survive composition, whether retrieval quality and answer faithfulness favor the same design choices, and whether conclusions from small corpora hold at large scale.</p>
+      </div>
+      <div class="duo-item reveal" id="lasagna">
+        <p class="kicker">The framework</p>
+        <h2>LASAGNA</h2>
+        <p>LASAGNA is an open-source framework for controlled RAG evaluation. Each stage sits behind a fixed interface, so swapping one method cannot silently change the implementation at another. Adding a new technique is a single line of code; the framework tests it inside a complete modern pipeline without reimplementing the surrounding stack.</p>
+      </div>
+    </div>
+
+    <figure class="figure figure-key reveal">
+      <a class="zoom plate" href="assets/fig-overview.png" data-zoom>
+        <picture>
+          <source srcset="assets/fig-overview.webp" type="image/webp">
+          <img src="assets/fig-overview.png" width="1431" height="1017" loading="lazy" decoding="async" alt="LASAGNA overview: (a) seven functional blocks, (b) eight dimensions in a 167-configuration D-optimal design, (c) faithfulness versus latency for four operational profiles.">
+        </picture>
+        <span class="zoom-hint" aria-hidden="true">Enlarge</span>
+      </a>
+      <figcaption>LASAGNA overview. (a) Seven functional blocks. (b) Eight dimensions in a 167-configuration D-optimal design. (c) Faithfulness versus latency for four operational profiles; faded points show other configurations.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="section" id="findings" aria-labelledby="findings-title">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <p class="kicker">Findings</p>
+      <h2 id="findings-title">Three findings</h2>
+    </div>
+    <ol class="findings">
+      <li class="finding reveal">
+        <h3>Gains do not simply add up.</h3>
+        <p>Three retrieval techniques predict a +47% combined improvement but deliver only +17% together. Across 17 tested combinations the shortfall ranges from 7% to 72%, with a median of 41%.</p>
+      </li>
+      <li class="finding reveal">
+        <h3>Retrieval and faithfulness favor different choices.</h3>
+        <p>Embedding, enrichment, and reranking dominate retrieval quality, whereas query augmentation and agentic gating dominate answer faithfulness, so optimizing one metric can hurt the other.</p>
+      </li>
+      <li class="finding reveal">
+        <h3>The best composition changes with corpus size.</h3>
+        <p>The design leading at small corpora trails by 13.7% NDCG@10 at 200K, with a rank flip visible from 25K.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section class="section band" id="results" aria-labelledby="results-title">
+  <div class="wrap narrow">
+    <div class="section-head reveal">
+      <p class="kicker">Composition</p>
+      <h2 id="results-title">Predicted versus realized gains</h2>
+      <p class="section-lede">Gain predicted by adding up separately measured improvements, versus the gain the combined pipeline delivers. Retrieval is NDCG@10 over the stock pipeline; faithfulness is relative to a reference configuration.</p>
+    </div>
+    <div class="table-card reveal">
+      <table>
+        <thead>
+          <tr><th scope="col">Comparison</th><th scope="col">Metric</th><th scope="col" class="num">Predicted</th><th scope="col" class="num">Realized</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Three strongest retrieval techniques</th>
+            <td data-label="Metric">NDCG@10</td>
+            <td class="num" data-label="Predicted"><span class="cell-val">+47%</span><span class="bar bar-pred" style="--v:47" aria-hidden="true"></span></td>
+            <td class="num" data-label="Realized"><strong class="cell-val">+17%</strong><span class="bar bar-real" style="--v:17" aria-hidden="true"></span></td>
+          </tr>
+          <tr>
+            <th scope="row">Best faithfulness components</th>
+            <td data-label="Metric">Faithfulness</td>
+            <td class="num" data-label="Predicted"><span class="cell-val">+28%</span><span class="bar bar-pred" style="--v:28" aria-hidden="true"></span></td>
+            <td class="num" data-label="Realized"><strong class="cell-val">+32%</strong><span class="bar bar-real" style="--v:32" aria-hidden="true"></span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="figures" aria-labelledby="figures-title">
+  <div class="wrap"><div class="fig-wrap">
+    <div class="section-head reveal">
+      <p class="kicker">Figures</p>
+      <h2 id="figures-title">Interactions and corpus scale</h2>
+    </div>
+    <div class="fig-pair">
+      <figure class="figure reveal">
+        <a class="zoom plate" href="assets/fig-interactions.png" data-zoom>
+          <picture>
+            <source srcset="assets/fig-interactions.webp" type="image/webp">
+            <img src="assets/fig-interactions.png" width="1099" height="950" loading="lazy" decoding="async" alt="Heatmap of main effects and pairwise interactions across eight RAG pipeline factors, retrieval in the upper triangle and faithfulness in the lower triangle.">
+          </picture>
+          <span class="zoom-hint" aria-hidden="true">Enlarge</span>
+        </a>
+        <figcaption>Main effects and pairwise interactions across eight RAG pipeline factors: retrieval (167 configurations, NDCG@10) in the upper triangle, faithfulness (122 configurations, RAGAS) in the lower triangle. Embedding and enrichment matter most for retrieval, whereas query augmentation and agentic gating matter most for faithfulness.</figcaption>
+      </figure>
+      <figure class="figure reveal">
+        <a class="zoom plate" href="assets/fig-scaling.png" data-zoom>
+          <picture>
+            <source srcset="assets/fig-scaling.webp" type="image/webp">
+            <img src="assets/fig-scaling.png" width="2013" height="1233" loading="lazy" decoding="async" alt="Retrieval NDCG@10 versus corpus size from 5K to 200K documents for four profiles.">
+          </picture>
+          <span class="zoom-hint" aria-hidden="true">Enlarge</span>
+        </a>
+        <figcaption>Retrieval NDCG@10 versus corpus size (log scale), four profiles, 3 seeds per size. The design leading at small corpora trails by 13.7% NDCG@10 at 200K, with a rank flip visible from 25K.</figcaption>
+      </figure>
+    </div>
+  </div></div>
+</section>
+
+<section class="section takeaway" id="takeaway" aria-labelledby="takeaway-title">
+  <div class="wrap narrow reveal">
+    <p class="kicker">Takeaway</p>
+    <h2 id="takeaway-title">What to do with it</h2>
+    <p class="takeaway-text">New techniques should be tested in representative complete pipelines, on both metrics, and at the intended scale.</p>
+    <p class="takeaway-sub">LASAGNA is released to make such studies practical and reproducible.</p>
+  </div>
+</section>
+
+<section class="section" id="use" aria-labelledby="use-title">
+  <div class="wrap use">
+    <div class="use-text reveal">
+      <p class="kicker">Code</p>
+      <h2 id="use-title">Use LASAGNA</h2>
+      <p>The framework and evaluation harness let you swap one RAG pipeline stage, hold the rest fixed, and benchmark the change.</p>
+      <p><a class="link-arrow" href="https://github.com/dolev31/lasagna#quickstart">Quickstart in the repository README<span aria-hidden="true"> →</span></a></p>
+      <p><a class="link-arrow" href="https://github.com/dolev31/lasagna">Source code on GitHub<span aria-hidden="true"> →</span></a></p>
+    </div>
+    <div class="use-code reveal">
+      <div class="code-block">
+        <div class="code-head"><span>Install</span><button class="copy" type="button" data-copy="code-install" aria-label="Copy the install command">Copy</button></div>
+        <pre id="code-install"><code>pip install lasagna-rag</code></pre>
+      </div>
+      <div class="code-block">
+        <div class="code-head"><span>Python</span><button class="copy" type="button" data-copy="code-sdk" aria-label="Copy the Python example">Copy</button></div>
+        <pre id="code-sdk"><code><span class="tok-k">from</span> lasagna.sdk <span class="tok-k">import</span> KnowledgeClient
+
+client = KnowledgeClient()
+<span class="tok-k">await</span> client.upload(<span class="tok-s">"report.pdf"</span>)
+results = <span class="tok-k">await</span> client.search_documents(<span class="tok-s">"..."</span>)
+context = <span class="tok-k">await</span> client.get_context(<span class="tok-s">"..."</span>)</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section band" id="terms" aria-labelledby="terms-title">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <p class="kicker">Glossary</p>
+      <h2 id="terms-title">Terms</h2>
+    </div>
+    <dl class="terms">
+      <div class="term reveal"><dt>LASAGNA</dt><dd>An open-source framework for controlled RAG evaluation, in which each pipeline stage sits behind a fixed interface.</dd></div>
+      <div class="term reveal"><dt>Answer faithfulness</dt><dd>Measures whether generated claims are supported by the retrieved context.</dd></div>
+      <div class="term reveal"><dt>NDCG@10</dt><dd>The retrieval-quality metric; it follows the BEIR convention, with retrieved chunks de-duplicated by parent document ID before scoring.</dd></div>
+      <div class="term reveal"><dt>Composition shortfall</dt><dd>How far a combined pipeline’s gain falls below the gain predicted from its techniques measured one at a time: a 63% shortfall for the three strongest retrieval techniques.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<section class="section" id="faq" aria-labelledby="faq-title">
+  <div class="wrap narrow">
+    <div class="section-head reveal">
+      <p class="kicker">FAQ</p>
+      <h2 id="faq-title">Questions</h2>
+    </div>
+    <div class="faq reveal">
+      <details>
+        <summary><h3>Do RAG improvements measured one component at a time hold when the components are combined?</h3></summary>
+        <p>Not reliably. In a study of 450 configurations across eight benchmarks, three retrieval techniques that each helped on their own predict a +47% NDCG@10 improvement but deliver +17% when combined. Across 17 tested combinations the shortfall ranges from 7% to 72%, with a median of 41%. Faithfulness gains behave differently and transfer near-additively: +28% predicted, +32% realized. The study uses LASAGNA, an open-source framework for controlled RAG evaluation.</p>
+      </details>
+      <details>
+        <summary><h3>What is LASAGNA?</h3></summary>
+        <p>LASAGNA is an open-source framework for controlled evaluation of retrieval-augmented generation. Each pipeline stage sits behind a fixed interface, so swapping one method cannot silently change the implementation at another. Adding a new technique is a single line of code, and the framework tests it inside a complete modern pipeline without reimplementing the surrounding stack. It was used to test 450 configurations across eight benchmarks and corpora from 5K to 200K documents.</p>
+      </details>
+      <details>
+        <summary><h3>Does the best RAG pipeline on a small corpus stay the best at large scale?</h3></summary>
+        <p>Not necessarily. In a corpus-scaling sweep from 5K to 200K documents, the design leading at small corpora trails by 13.7% NDCG@10 at 200K, with a rank flip visible from 25K documents. Rankings from small-corpus ablations should therefore be rechecked at the intended corpus scale before a pipeline is chosen.</p>
+      </details>
+      <details>
+        <summary><h3>Do retrieval quality and answer faithfulness favor the same RAG design choices?</h3></summary>
+        <p>No. Across the factorial study, embedding, enrichment, and reranking dominate the retrieval-quality metric (NDCG@10), whereas query augmentation and agentic gating dominate answer faithfulness, which measures whether generated claims are supported by the retrieved context. Optimizing one metric can hurt the other, so new RAG components should be evaluated on both.</p>
+      </details>
+      <details>
+        <summary><h3>Which benchmarks does the study use?</h3></summary>
+        <p>Eight benchmarks unified into one multi-domain corpus: five BEIR sets for retrieval (NFCorpus, FiQA, SciFact, ArguAna, HotpotQA) and three question-answering sets for generation (SQuAD v2, HotpotQA, MuSiQue). Each configuration is evaluated on a retrieval track and an end-to-end generation track, with corpora scaled from 5K to 200K documents in the scaling study.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section class="section band" id="citation" aria-labelledby="citation-title">
+  <div class="wrap narrow reveal">
+    <p class="kicker">Cite</p>
+    <h2 id="citation-title">Citation</h2>
+    <div class="code-block code-bib">
+      <div class="code-head"><span>BibTeX</span><button class="copy" type="button" data-copy="bibtex" aria-label="Copy the BibTeX entry">Copy</button></div>
+      <!-- TODO(arXiv id): once arXiv assigns the identifier, add these fields to the entry below
+           (and set arxiv_id / arxiv_date in peo/paper.toml, then rerun peo_page.py --adopt):
+             eprint        = {XXXX.XXXXX},
+             archivePrefix = {arXiv},
+             primaryClass  = {cs.IR},                                                          -->
+      <pre id="bibtex"><code>@misc{levy2026retrieval,
+  title  = {Retrieval Augmented Generation Compositionality},
+  author = {Levy, Ido and Shlomov, Segev and Choshen, Leshem},
+  year   = {2026},
+  note   = {Preprint}
+}</code></pre>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <p class="footer-authors">Ido Levy, Segev Shlomov, Leshem Choshen · 2026</p>
+    <ul class="footer-links">
+      <li><a href="https://github.com/dolev31/lasagna">Code</a></li>
+      <li><a href="https://github.com/dolev31/Lasagna-Retrieval-Augmented-Generation-Compositionality">Preregistration</a></li>
+      <li><a href="llms.txt">llms.txt</a></li>
+      <li><a href="#top">Back to top</a></li>
+    </ul>
+  </div>
+</footer>
+
+<dialog class="lightbox" id="lightbox" aria-labelledby="lightbox-caption">
+  <div class="lightbox-inner">
+    <form method="dialog"><button class="lightbox-close" type="submit" aria-label="Close figure">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button></form>
+    <img id="lightbox-img" src="data:," width="1431" height="1017" alt="Enlarged figure">
+    <p id="lightbox-caption" class="lightbox-caption"></p>
+  </div>
+</dialog>
+
+<p class="sr-only" id="live" aria-live="polite"></p>
+</body>
+</html>

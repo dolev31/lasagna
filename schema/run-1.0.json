@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dolev31.github.io/lasagna/schema/run-1.0.json",
+  "title": "Lasagna results bundle",
+  "description": "One evaluation run, self-contained. Carries enough provenance for a reader to decide whether these numbers may be compared with theirs.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "metrics_version",
+    "run_id",
+    "experiment",
+    "configs",
+    "results",
+    "integrity"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\."
+    },
+    "metrics_version": {
+      "type": "string",
+      "description": "Metric definitions. Numbers computed under different values are not comparable."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Hash of the bundle contents. Recomputed on validation, so an edited number no longer matches."
+    },
+    "submitter": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "affiliation": {
+          "type": "string"
+        }
+      }
+    },
+    "experiment": {
+      "type": "object",
+      "required": [
+        "environment"
+      ],
+      "properties": {
+        "environment": {
+          "type": "object",
+          "required": [
+            "lasagna_version",
+            "python",
+            "platform"
+          ],
+          "description": "No paths, hostnames or credential names: bundles are published."
+        },
+        "variance_source": {
+          "enum": [
+            "run",
+            "sample"
+          ]
+        },
+        "determinism": {
+          "const": "seeded",
+          "description": "Never 'reproducible': LLM judges and GPU kernels defeat that claim."
+        }
+      }
+    },
+    "configs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "comparability_key",
+          "held_fixed"
+        ],
+        "properties": {
+          "comparability_key": {
+            "type": "string",
+            "description": "Hash of held_fixed. Recomputed on validation."
+          },
+          "held_fixed": {
+            "type": "object",
+            "required": [
+              "metrics_version",
+              "benchmark",
+              "split",
+              "n_samples",
+              "sampling_seed",
+              "sample_id_digest",
+              "corpus_fingerprint",
+              "resolved_mode",
+              "embedder_model",
+              "embedder_dim",
+              "chunker",
+              "retriever_top_k",
+              "vector_backend",
+              "judge_model"
+            ]
+          },
+          "varied_levels": {
+            "type": "object",
+            "description": "The value each varied dimension took, so the cells of a factorial are distinguishable."
+          },
+          "varied_dimensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What this config changed: component slots (`reranker`) or config flags (`enable_hyde`). Excluded from the comparability key by design."
+          }
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "benchmark_name",
+          "config_name",
+          "metrics"
+        ]
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "required": [
+        "warnings",
+        "blocking"
+      ],
+      "properties": {
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "blocking": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
