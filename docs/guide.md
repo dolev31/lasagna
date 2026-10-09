@@ -388,7 +388,6 @@ available datasets, see
 | Run a different vector database | [Vector backends](../src/lasagna/vector_backends/README.md) |
 | Understand the retrieval internals | [Architecture](../src/lasagna/core/docs/architecture.md) |
 | Deploy it | [Deployment](../src/lasagna/deploy/README.md) |
-| Know what is *not* verified | [Honest limitations](../README.md#honest-limitations) |
 
 ### Two honest warnings
 

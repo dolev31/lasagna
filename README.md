@@ -11,7 +11,6 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/dolev31/lasagna/blob/main/LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12%20|%203.13-blue.svg)](https://www.python.org/downloads/)
 [![Tests](https://github.com/dolev31/lasagna/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/dolev31/lasagna/actions/workflows/tests.yml)
-[![Coverage](https://img.shields.io/badge/coverage-38%25-yellow.svg)](#testing)
 
 [Guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md) · [Quickstart](#quickstart) · [Why](#the-problem) · [Compare components](#compare-a-component) · [What's inside](#whats-inside) · [Docs](#documentation)
 
@@ -576,6 +575,10 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install lasagna-rag
 ```
 
+On Apple Silicon, model calls on the GPU (MPS) run one at a time, because two at
+once crash Metal; concurrent sweep arms wait for each other there. To run
+everything on the CPU instead, set `RAG_USE_GPU=false`.
+
 > **Name collision.** `pip install lasagna` installs a different project
 > (`lasagna-ai`, an LLM-agent framework), which also provides a top-level
 > `lasagna` import package. Installing both in one environment makes them
@@ -673,65 +676,6 @@ Reference material for each subsystem sits in that subsystem's directory, next
 to the code it describes. Only the guide, this README and `CONTRIBUTING.md` have
 their examples executed by the gate — treat the rest as reference that may
 drift, and report anything that does not work.
-
----
-
-## Honest limitations
-
-A framework that hides its gaps wastes your time. As of this release:
-
-- **Three of six vector backends** (pgvector, Weaviate, OpenSearch) have a
-  conformance suite but need their service running to execute it. Pinecone is
-  excluded from conformance entirely — it is SaaS-only.
-- **The behavioural contract is deeper for some stages than others.** Every
-  listed built-in implements its stage's interface, and rerankers, chunkers,
-  query enhancers and embedders are checked behaviourally (types, `top_k`, empty
-  input, no mutation). Retrievers and document processors are checked for their
-  interface and output types only, since a real check needs a collection or a
-  file; agentic pipelines need an LLM and are not run by the pre-flight.
-  **`retriever` has no built-in component**: the default search is not
-  registered as one, so a retriever sweep compares yours against search with no
-  retriever override.
-- **On Apple Silicon, models take turns on the GPU.** Two threads using MPS at
-  once crash Metal, which aborted every multi-arm sweep on a Mac, so all model
-  calls on MPS now run one at a time and concurrent arms wait for each other
-  there. To run everything on the CPU instead, set `RAG_USE_GPU=false`.
-- **Stage isolation is verified for live tasks.** `generation_only` tasks
-  never build the pipeline, record no stage manifest, and are reported as
-  unverified rather than passed.
-- **`list_document_ids` fails past ~16k chunks on Milvus** — the backend
-  emulates offset as `limit + offset`, which exceeds Milvus's cap. Affects
-  iteration speed, not correctness. See [CHANGELOG](https://github.com/dolev31/lasagna/blob/main/CHANGELOG.md).
-- **Coverage is 38%.** That is coverage.py's combined statement+branch TOTAL,
-  which is what `fail_under` gates on; branch coverage alone is lower.
-  Measured, floored, and ratcheting up — but not yet
-  where it should be. The evaluation SDK and MCP server are the thinnest.
-- **Pooled-gold corpora are an easier task than the benchmarks they come from.**
-  SQuAD v2, HotpotQA, MuSiQue and RAGBench ship no corpus, so one is assembled
-  from the samples' own gold context. HotpotQA and MuSiQue drop their distractor
-  paragraphs at conversion, so the pool has no hard negatives and recall reads
-  higher than against a real corpus. Runs are stamped
-  `corpus_provenance: pooled_gold`, which is in the comparability key — but the
-  number itself is still easier than BEIR's. Natural Questions and TriviaQA
-  cannot be pooled at all and stay generation-only.
-- **Large BEIR corpora are capped unless you raise the limit.** `max_corpus_docs`
-  defaults to 0, which now genuinely means unlimited — but 8 of the 13 BEIR
-  corpora exceed 100,000 documents, and the largest is 8.8M, which is hours of
-  embedding and tens of GB of index. If you set a cap instead, a run that leaves
-  documents behind is stamped `corpus_truncated` and `lasagna results validate`
-  blocks the bundle: a metric computed against part of a corpus is not that
-  benchmark's metric, and it simply comes out lower with nothing else to show
-  for it. Where more than half the judged documents fall outside the cap the run
-  aborts rather than reporting a number.
-- **No dataset revisions are pinned.** `pin_dataset_revision()` and
-  `LASAGNA_DATASET_REVISIONS` exist and are recorded on every result, but the
-  catalogue ships no SHAs — writing ones not resolved against the Hub would be
-  a fabricated provenance record. Until you pin, `UNPINNED_DATASET` is warned
-  and `--strict` will refuse to publish.
-- **Token counts, not dollars.** Every LLM call is counted at the provider and
-  split system-vs-judge. There is no price table, deliberately: a rate frozen
-  into a published bundle is indistinguishable from a measurement to whoever
-  reads it next year.
 
 ---
 
