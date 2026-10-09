@@ -552,6 +552,10 @@ class StructureAwareChunker:
         return remaining_text.strip(), table_chunks
 
 
+#: (requested, effective) chunking pairs already warned about in this process.
+_WARNED_OVERRIDES: set = set()
+
+
 def resolve_effective_strategy(config, requested=None) -> str:
     """The strategy that will actually run, given the structural flags.
 
@@ -584,7 +588,10 @@ def resolve_effective_strategy(config, requested=None) -> str:
     else:
         effective = str(requested)
 
-    if effective != str(requested):
+    if effective != str(requested) and (str(requested), effective) not in _WARNED_OVERRIDES:
+        # Once per (requested, effective) pair: it is called per document, and
+        # a corpus ingest printed this thousands of times.
+        _WARNED_OVERRIDES.add((str(requested), effective))
         # loguru formats with braces, not %-style: a "%r" here renders
         # literally and the names never appear.
         logger.warning(

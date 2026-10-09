@@ -474,6 +474,54 @@ def _ran_system(
     }
 
 
+#: Rows one presence query may return; below Milvus's limit+offset ceiling.
+_PRESENCE_QUERY_ROWS = 16_000
+
+
+def _present_document_ids(
+    backend: Any, collection_name: str, session_id: str, expected_ids: Any
+) -> set:
+    """Which of ``expected_ids`` already have chunks in this session.
+
+    Asked in bounded batches (``document_id in [...]``) instead of listing the
+    whole collection. The listing streamed every row through Milvus Lite's
+    query iterator, which on a re-run or a resume could block forever at 0%
+    CPU; this asks the question the pre-flight actually has, with a known
+    number of plain queries. A batch whose reply fills the row cap is split
+    and asked again, so a document with many chunks is never reported missing.
+    """
+    from lasagna.vector_backends.filters import FilterExpression as _FE
+
+    ids = sorted(expected_ids)
+    if not ids:
+        return set()
+    try:
+        present: set = set()
+        pending = [ids[i : i + 400] for i in range(0, len(ids), 400)]
+        while pending:
+            batch = pending.pop()
+            rows = backend.query(
+                collection_name=collection_name,
+                filter_expr=_FE.and_(
+                    _FE.eq("session_id", session_id), _FE.in_list("document_id", batch)
+                ),
+                output_fields=["document_id"],
+                limit=_PRESENCE_QUERY_ROWS,
+            )
+            if len(rows) >= _PRESENCE_QUERY_ROWS and len(batch) > 1:
+                half = len(batch) // 2
+                pending.extend([batch[:half], batch[half:]])
+                continue
+            present.update(r.get("document_id") for r in rows if r.get("document_id"))
+        return present
+    except NotImplementedError:
+        return set(
+            backend.list_document_ids(
+                collection_name=collection_name, session_id=session_id, limit=len(ids) + 1000
+            )
+        )
+
+
 def _fix_retrieval_depth(task_config: Dict[str, Any], depth: int) -> None:
     """Make retrieval evaluation return ``depth`` uncached, untruncated results.
 
@@ -2167,12 +2215,8 @@ async def _ensure_corpus_ingested(
             # every n, so any corpus above 16K documents looked partial and was
             # deleted and re-ingested on every run. list_document_ids pages
             # with a cursor, so asking for the true size is safe.
-            existing_doc_ids = set(
-                _resolved.list_document_ids(
-                    collection_name=_coll_name,
-                    session_id=shared_session_id,
-                    limit=len(expected_valid_ids) + 1000,
-                )
+            existing_doc_ids = _present_document_ids(
+                _resolved, _coll_name, shared_session_id, expected_valid_ids
             )
             missing_ids = expected_valid_ids - existing_doc_ids
 

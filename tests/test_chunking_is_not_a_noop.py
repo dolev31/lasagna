@@ -70,6 +70,14 @@ class TestTheShadowingIsAnnounced:
     whether or not the warning existed.
     """
 
+    @pytest.fixture(autouse=True)
+    def _fresh_warning_state(self):
+        # The warning is issued once per (requested, effective) pair per process.
+        from lasagna.processing.chunker import semantic
+
+        semantic._WARNED_OVERRIDES.clear()
+        yield
+
     @pytest.fixture
     def warnings(self):
         from loguru import logger

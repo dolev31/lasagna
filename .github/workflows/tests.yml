@@ -145,7 +145,7 @@ jobs:
         env:
           LASAGNA_MILVUS_DB_PATH: ${{ runner.temp }}/milvus_conformance.db
           QDRANT_PATH: ${{ runner.temp }}/qdrant_conformance
-        run: pytest tests/test_vector_backend_conformance.py tests/test_milvus_reopen_in_new_process.py -q
+        run: pytest tests/test_vector_backend_conformance.py tests/test_milvus_reopen_in_new_process.py tests/test_corpus_preflight_is_bounded.py -q
 
   # The rest of the suite runs from inside the repo, with src/ on sys.path.
   # This job is the only thing that checks the package the way a user meets it:
