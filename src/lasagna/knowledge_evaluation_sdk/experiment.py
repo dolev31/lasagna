@@ -3099,6 +3099,8 @@ async def _eval_live(
         map_score,
         f1_at_k,
         hit_rate_at_k,
+        r_precision,
+        complete_recall_at_k,
     )
 
     relevances: List[Dict[str, int]] = []
@@ -3276,6 +3278,11 @@ async def _eval_live(
                 f"mrr@{_metric_k}": mrr_score(mapped_expected, retrieved_ids, k=_metric_k),
                 f"map@{_metric_k}": map_score(mapped_expected, retrieved_ids, k=_metric_k),
                 f"hit_rate@{_metric_k}": hit_rate_at_k(mapped_expected, retrieved_ids, k=_metric_k),
+                # Over the list already cut to k, so the key names the cutoff.
+                f"r_precision@{_metric_k}": r_precision(mapped_expected, retrieved_ids),
+                f"complete_recall@{_metric_k}": complete_recall_at_k(
+                    mapped_expected, retrieved_ids, k=_metric_k
+                ),
                 "latency_ms": query_latency_ms,
                 # The full list, not the first 20. The cap predated any reader:
                 # nothing consumed these, so nobody noticed that a run with

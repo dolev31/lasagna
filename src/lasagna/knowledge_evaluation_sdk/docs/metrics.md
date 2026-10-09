@@ -21,6 +21,16 @@ Every function follows the same calling convention:
 Binary relevance is determined by `rel > 0` (any positive score counts as
 relevant).
 
+A document ID that repeats in `retrieved` (several chunks of one document) is
+counted once, at its first rank, as `trec_eval` does. Every definition below
+agrees with `trec_eval` 9.0.8 (`ndcg_cut`, `P`, `recall`, `map_cut`,
+`recip_rank`, `success`, `Rprec`) on the hand-computed cases in
+`tests/test_retrieval_metrics_match_trec_eval.py`.
+
+In live mode the harness scores each query's ranked list of `metric_k`
+distinct documents (default 10), and every per-query key carries that cutoff:
+`ndcg@10`, `map@10`, `mrr@10`, `r_precision@10` and so on.
+
 ### NDCG@k (Normalised Discounted Cumulative Gain)
 
 Primary ranking metric. Accounts for both relevance grades and rank position.
@@ -123,6 +133,42 @@ Hit@k = 1.0  if any relevant doc in top-k
 ```
 
 Function: `hit_rate_at_k(relevance, retrieved, k=10)`
+
+### R-Precision
+
+Precision at rank `R`, where `R` is the number of relevant documents
+(`trec_eval`'s `Rprec`; KILT's page-level retrieval metric). The cutoff adapts
+to the query, so a one-document query is scored at rank 1 and a four-hop query
+at rank 4. At rank `R`, precision equals recall.
+
+```
+R-Prec = |{relevant docs in top-R}| / R
+```
+
+Returns `0.0` when there are no relevant documents. The harness reports it as
+`r_precision@k` because it scores the list cut at `k`: when `R > k` the ranks
+past `k` count as misses, so the value is a lower bound (at most `k / R`) on
+the uncut `Rprec`.
+
+Function: `r_precision(relevance, retrieved)`
+
+### Complete Recall@k (all-gold recall)
+
+`1.0` only if every relevant document is in the top-k. This is the retrieval
+measure multi-hop QA needs (HotpotQA, MuSiQue, 2WikiMultihop, MultiHop-RAG): a
+two-hop question cannot be answered from one of its two supporting documents,
+yet Recall@k gives that query 0.5 and Hit@k gives it 1.0. It is the
+document-level form of the "paragraph EM" that multi-hop retrievers report.
+
+```
+CompleteRecall@k = 1.0  if R@k == 1
+                   0.0  otherwise
+```
+
+With one relevant document it equals Hit@k; with more than `k` it is always
+`0.0`.
+
+Function: `complete_recall_at_k(relevance, retrieved, k=10)`
 
 ---
 
@@ -294,8 +340,9 @@ than Bonferroni correction.
 
 `corpus_metrics(relevances, retrieved_lists, k=10)`
 
-Computes all seven IR metrics (NDCG@k, Precision@k, Recall@k, F1@k, MRR@k,
-MAP@k, Hit Rate@k) for each query, then averages across queries.
+Computes all nine IR metrics (NDCG@k, Precision@k, Recall@k, F1@k, MRR@k,
+MAP@k, Hit Rate@k, R-Precision over the top-k list, Complete Recall@k) for
+each query, then averages across queries.
 
 ```
 corpus_metric = (1/N) * sum_{q=1}^{N} metric(q)
