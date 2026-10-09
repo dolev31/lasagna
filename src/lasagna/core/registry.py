@@ -474,6 +474,12 @@ class ComponentRegistry:
                 "Adaptive-RAG: a complexity classifier picks no, single-step or multi-step retrieval",
                 "arxiv:2403.14403",
             ),
+            (
+                "self_rag",
+                _l + "self_rag:SelfRAGPipeline",
+                "Self-RAG (prompted critic): retrieve on demand, critique each passage's answer",
+                "arxiv:2310.11511",
+            ),
         ]:
             self._components["agentic_pipeline"][name] = _Registration(
                 description=description, paper=paper, _factory=factory

@@ -364,6 +364,11 @@ class RAGConfig:
             "flare_confidence_source": "auto",  # 'auto' | 'logprobs' | 'self_reported'
             "adaptive_rag_classifier_model": "",  # Adaptive-RAG classifier (empty = loop's LLM)
             "adaptive_rag_single_step_docs": 5,  # Adaptive-RAG: documents for the single-step route
+            "self_rag_passages": 5,  # Self-RAG: passages retrieved and critiqued
+            "self_rag_weight_rel": 1.0,  # Self-RAG critique weights (ISREL, ISSUP, ISUSE)
+            "self_rag_weight_sup": 1.0,
+            "self_rag_weight_use": 0.5,
+            "self_rag_retrieval": "adaptive",  # 'adaptive' (Retrieve judgement) | 'always'
             "enable_mmr": True,
             "mmr_lambda": 0.5,  # SOTA default (LangChain, LlamaIndex). Pre-MMR filter ensures only relevant items.
             "mmr_score_normalization": "sigmoid",  # Options: 'sigmoid', 'minmax', 'sigmoid_minmax', 'none'. Plain sigmoid preserves cross-encoder calibration.
@@ -2112,6 +2117,41 @@ class RAGConfig:
             "rag",
             "adaptive_rag_single_step_docs",
             default=self._config["adaptive_rag_single_step_docs"],
+        )
+
+    @property
+    def self_rag_passages(self) -> int:
+        """Self-RAG: passages retrieved, each answered from and critiqued."""
+        return self._get_knowledge_setting(
+            "rag", "self_rag_passages", default=self._config["self_rag_passages"]
+        )
+
+    @property
+    def self_rag_weight_rel(self) -> float:
+        """Self-RAG: weight of the relevance critique (ISREL)."""
+        return self._get_knowledge_setting(
+            "rag", "self_rag_weight_rel", default=self._config["self_rag_weight_rel"]
+        )
+
+    @property
+    def self_rag_weight_sup(self) -> float:
+        """Self-RAG: weight of the support critique (ISSUP)."""
+        return self._get_knowledge_setting(
+            "rag", "self_rag_weight_sup", default=self._config["self_rag_weight_sup"]
+        )
+
+    @property
+    def self_rag_weight_use(self) -> float:
+        """Self-RAG: weight of the utility critique (ISUSE)."""
+        return self._get_knowledge_setting(
+            "rag", "self_rag_weight_use", default=self._config["self_rag_weight_use"]
+        )
+
+    @property
+    def self_rag_retrieval(self) -> str:
+        """Self-RAG: 'adaptive' (the model judges) or 'always' retrieve."""
+        return self._get_knowledge_setting(
+            "rag", "self_rag_retrieval", default=self._config["self_rag_retrieval"]
         )
 
     @property

@@ -216,6 +216,7 @@ _PREFIXES: Tuple[Tuple[str, str], ...] = (
     ("ircot_", "agentic_pipeline"),
     ("flare_", "agentic_pipeline"),
     ("adaptive_rag_", "agentic_pipeline"),
+    ("self_rag_", "agentic_pipeline"),
 )
 
 

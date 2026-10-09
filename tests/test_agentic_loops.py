@@ -371,6 +371,67 @@ SHORT_RUNS["adaptive"] = ["B", "So the answer is: Ada."]
 
 
 # ---------------------------------------------------------------------------
+# Self-RAG
+# ---------------------------------------------------------------------------
+
+
+async def test_self_rag_answers_alone_when_it_judges_retrieval_unneeded(monkeypatch):
+    backend = install_backend(monkeypatch, {})
+    llm = ScriptedLLM(["[No] It is common knowledge.", "Paris"])
+    result = await _loop("self_rag").run(pipeline_input("What is the capital of France?", llm))
+    assert backend.calls == [] and result.agent_summary == "Paris" and result.chunks == []
+    assert llm.prompts[0].endswith("Instruction:What is the capital of France?\nNeed retrieval?: ")
+
+
+async def test_self_rag_keeps_the_answer_its_critiques_score_highest(monkeypatch):
+    backend = install_backend(
+        monkeypatch,
+        {Q_BIDEN: [hit("d1", "Biden was a senator."), hit("d2", "Biden: Syracuse Law, 1968.")]},
+    )
+    llm = ScriptedLLM(
+        [
+            "[Yes]",
+            # passage d1: irrelevant, unsupported, low utility
+            "[Irrelevant]",
+            "He went to Delaware.",
+            "[No support / Contradictory]",
+            "Perceived utility: 2",
+            # passage d2: relevant, fully supported, high utility
+            "[Relevant]",
+            "[Relevant] Syracuse University College of Law. [Utility:5]",
+            "[Fully supported]",
+            "Perceived utility: 5",
+        ]
+    )
+    result = await _loop("self_rag").run(pipeline_input(Q_BIDEN, llm))
+
+    assert [c["query"] for c in backend.calls] == [Q_BIDEN]
+    assert result.agent_summary == "Syracuse University College of Law."
+    # The answer comes back with the passage it was written from.
+    assert [c["chunk_id"] for c in result.chunks] == ["d2"]
+    assert "[Retrieval]<paragraph>d2.txt\nBiden: Syracuse Law, 1968.</paragraph>" in llm.prompts[6]
+    assert [c["issup"] for c in result.metrics.loop_trace["critiques"]] == [0.0, 1.0]
+
+
+async def test_self_rag_always_mode_skips_the_retrieval_judgement(monkeypatch):
+    backend = install_backend(monkeypatch, {Q_BIDEN: [hit("d1", "Biden: Syracuse Law.")]})
+    llm = ScriptedLLM(["[Relevant]", "Syracuse.", "[Fully supported]", "4"])
+    config = ArmConfig(self_rag_retrieval="always")
+    result = await _loop("self_rag").run(pipeline_input(Q_BIDEN, llm, config))
+    assert len(backend.calls) == 1 and result.agent_summary == "Syracuse."
+
+
+LOOP_SETTINGS["self_rag"] = [
+    "self_rag_passages",
+    "self_rag_weight_rel",
+    "self_rag_weight_sup",
+    "self_rag_weight_use",
+    "self_rag_retrieval",
+]
+SHORT_RUNS["self_rag"] = ["[Yes]", "[Relevant]", "Ada.", "[Fully supported]", "5"]
+
+
+# ---------------------------------------------------------------------------
 # Every loop: registration, the stage contract, search and settings
 # ---------------------------------------------------------------------------
 
