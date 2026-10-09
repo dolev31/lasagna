@@ -426,6 +426,10 @@ def _load_toml(path: str) -> Dict[str, Any]:
         return tomllib.load(f)
 
 
+class _StaleCorpusCleanupError(RuntimeError):
+    """A partial corpus could not be removed before re-ingesting it."""
+
+
 def _agentic_fell_back(agentic_requested: bool, search_results: List[Any]) -> bool:
     """Whether an agentic request was served by standard retrieval instead.
 
@@ -2066,13 +2070,16 @@ async def _ensure_corpus_ingested(
         ready_ids: set = set()
         _skip_ingest = False
         try:
-            # limit must exceed corpus size to avoid false "partial" detection
-            # on large corpora (default list_document_ids limit is 10k).
+            # limit must exceed corpus size to avoid false "partial" detection.
+            # It was min(max(n + 1000, 50_000), 16_000), which is 16,000 for
+            # every n, so any corpus above 16K documents looked partial and was
+            # deleted and re-ingested on every run. list_document_ids pages
+            # with a cursor, so asking for the true size is safe.
             existing_doc_ids = set(
                 _resolved.list_document_ids(
                     collection_name=_coll_name,
                     session_id=shared_session_id,
-                    limit=min(max(len(expected_valid_ids) + 1000, 50_000), 16_000),
+                    limit=len(expected_valid_ids) + 1000,
                 )
             )
             missing_ids = expected_valid_ids - existing_doc_ids
@@ -2118,9 +2125,17 @@ async def _ensure_corpus_ingested(
                             _filt = _FE.eq("session_id", shared_session_id)
                         _resolved.delete(collection_name=_coll_name, filter_expr=_filt)
                     except Exception as _del_exc:
-                        logger.warning(f"Could not delete stale vectors: {_del_exc}")
+                        # Re-ingesting on top of vectors that could not be
+                        # deleted duplicates chunks and changes rankings.
+                        raise _StaleCorpusCleanupError(
+                            f"Could not delete stale vectors for session "
+                            f"{shared_session_id}: {_del_exc}. Delete that session "
+                            f"or collection and rerun."
+                        ) from _del_exc
                     _ingest_backend.hybrid_searcher.clear_session(shared_session_id)
                     ready_ids = set()
+        except _StaleCorpusCleanupError:
+            raise
         except Exception as exc:
             logger.warning(f"Could not check existing vectors (will ingest fresh): {exc}")
             ready_ids = set()
@@ -2758,10 +2773,21 @@ async def _eval_live(
                     _agentic_answer = first_meta.get("_agentic_answer", "")
 
                 # Agentic pipeline makes many parallel LLM calls which can
-                # saturate a hosted endpoint's rate limit.  Give it
-                # 10 s to recover before the answer-generation call.
-                if agentic_requested:
-                    await asyncio.sleep(10.0)
+                # saturate a hosted endpoint's rate limit. An optional pause
+                # before the answer-generation call (pipeline setting
+                # post_agentic_cooldown_s, or LASAGNA_AGENTIC_COOLDOWN_S). It
+                # was a fixed 10 s for every agentic sample, which costs 2.8 h
+                # per 1,000 samples even against a local model; the default is
+                # now 0 and the generation call's own retry handles 429s.
+                _cooldown = float(
+                    gen_config.get(
+                        "post_agentic_cooldown_s",
+                        os.environ.get("LASAGNA_AGENTIC_COOLDOWN_S", 0),
+                    )
+                    or 0
+                )
+                if agentic_requested and _cooldown > 0:
+                    await asyncio.sleep(_cooldown)
 
                 # Generate answer from retrieved context.  The generation prompt
                 # is identical across configs — what differs is WHAT gets retrieved.
