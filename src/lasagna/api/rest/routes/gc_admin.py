@@ -15,7 +15,6 @@ Routes:
 from __future__ import annotations
 
 import dataclasses
-import secrets
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
@@ -115,7 +114,7 @@ def _require_admin_token(x_admin_token: Optional[str] = Header(default=None)) ->
 
     If ``RAG_ADMIN_TOKEN`` is not configured, all admin endpoints are disabled.
     """
-    from lasagna.api.rest.auth_mode import configured_secret
+    from lasagna.api.rest.auth_mode import configured_secret, secret_matches
 
     expected = configured_secret("RAG_ADMIN_TOKEN")
     if not expected:
@@ -129,7 +128,7 @@ def _require_admin_token(x_admin_token: Optional[str] = Header(default=None)) ->
     # Constant-time, like `routes/sessions.py:37` -- which has a test asserting
     # it. This path carries MORE privilege (it can delete any session) and had
     # the weaker comparison, so a token could be recovered a byte at a time.
-    if not x_admin_token or not secrets.compare_digest(x_admin_token, expected):
+    if not x_admin_token or not secret_matches(x_admin_token, expected):
         raise HTTPException(
             status_code=401,
             detail="Invalid or missing X-Admin-Token header.",

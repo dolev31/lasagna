@@ -48,7 +48,6 @@ enforced.
 from __future__ import annotations
 
 import os
-import secrets
 from typing import Optional
 
 from lasagna.api.rest.auth_mode import REQUIRE_AUTH_ENV, reject_unverified_identity, require_auth
@@ -213,7 +212,7 @@ def guard_admin(admin_token: Optional[str], *, tool: str) -> None:
     if not enforcement_active():
         return
 
-    from lasagna.api.rest.auth_mode import configured_secret
+    from lasagna.api.rest.auth_mode import configured_secret, secret_matches
 
     expected = configured_secret("RAG_ADMIN_TOKEN")
     if not expected:
@@ -224,7 +223,7 @@ def guard_admin(admin_token: Optional[str], *, tool: str) -> None:
             f"equivalent returns 503 in this state. Set RAG_ADMIN_TOKEN and "
             f"pass it as the `admin_token` argument."
         )
-    if not admin_token or not secrets.compare_digest(admin_token, expected):
+    if not admin_token or not secret_matches(admin_token, expected):
         raise MCPAuthError(
             f"{tool} requires the admin token. It affects the whole instance "
             f"rather than a single session, so it takes the same credential as "
