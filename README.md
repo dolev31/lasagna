@@ -549,6 +549,14 @@ pip install lasagna-rag
 or pymilvus — those arrive only when something needs them, so a remote-backend
 client stays light.
 
+**No usage telemetry.** Lasagna collects none. ragas, the library behind the
+generation metrics, sends its authors a usage event (its version, the LLM
+provider and model name, and a random id) each time a judge is built. Importing
+`lasagna` turns that off by setting `RAGAS_DO_NOT_TRACK=true`, unless you have
+already set it. To send ragas those events, set `RAGAS_DO_NOT_TRACK=false`
+before importing `lasagna`. ragas still writes its random id to a file in your
+user data folder, but with tracking off it sends nothing.
+
 ---
 
 ## Model licenses

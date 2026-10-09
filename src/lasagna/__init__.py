@@ -57,10 +57,18 @@ package from your own code, call ``loguru.logger.enable("lasagna")``.
 """
 
 import importlib as _importlib
+import os as _os
 
 from loguru import logger as _logger
 
 _logger.disable("lasagna")
+
+# ragas, the judge library behind the evaluation harness, posts a usage event
+# (its version, the LLM provider and model name, a random id) to its authors
+# each time a judge is built, unless RAGAS_DO_NOT_TRACK is "true". People run
+# this on private corpora, so it is off unless they choose otherwise: set
+# RAGAS_DO_NOT_TRACK=false before importing lasagna to turn it back on.
+_os.environ.setdefault("RAGAS_DO_NOT_TRACK", "true")
 
 # Mapping: public_name -> (submodule, attribute)
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
