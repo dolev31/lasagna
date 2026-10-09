@@ -1261,6 +1261,9 @@ from lasagna.core.base_components import (  # noqa: E402
 class CrossEncoderRerankerAdapter(BaseReranker):
     """Adapts ``CrossEncoderReranker`` to the public ``BaseReranker`` ABC."""
 
+    # Wraps an internal reranker that reads the session config.
+    _forwards_session_config = True
+
     def __init__(self, **kwargs):
         self._inner = CrossEncoderReranker(**kwargs)
 
@@ -1338,8 +1341,14 @@ class PipelineRerankerAdapter:
         # Only `top_k` is forwarded. `config`, `return_metrics` and the adaptive
         # keywords are pipeline-internal, and passing them on would make a
         # correct component look broken for accepting a contract it was never
-        # shown.
-        reranked = self._component.rerank(query, documents, top_k=top_k)
+        # shown. The built-in adapters are the exception: without the session
+        # config their cross-encoder ran the global default model, not the
+        # arm's reranker_model.
+        extra = {}
+        if getattr(self._component, "_forwards_session_config", False):
+            if kwargs.get("config") is not None:
+                extra["config"] = kwargs["config"]
+        reranked = self._component.rerank(query, documents, top_k=top_k, **extra)
         elapsed_ms = (time.perf_counter() - started) * 1000
 
         by_chunk = {
@@ -1400,6 +1409,9 @@ def adapt_reranker_for_pipeline(reranker: Any) -> Any:
 class CombinedRerankerAdapter(BaseReranker):
     """Adapts ``CombinedReranker`` to the public ``BaseReranker`` ABC."""
 
+    # Wraps an internal reranker that reads the session config.
+    _forwards_session_config = True
+
     def __init__(self, embedding_manager=None, **kwargs):
         self._inner = CombinedReranker(embedding_manager=embedding_manager)
 
@@ -1417,6 +1429,9 @@ class CombinedRerankerAdapter(BaseReranker):
 
 class EnsembleRerankerAdapter(BaseReranker):
     """Adapts ``EnsembleReranker`` to the public ``BaseReranker`` ABC."""
+
+    # Wraps an internal reranker that reads the session config.
+    _forwards_session_config = True
 
     def __init__(self, **kwargs):
         self._inner = EnsembleReranker(**kwargs)
@@ -1439,6 +1454,9 @@ class MMRRerankerAdapter(BaseReranker):
     Maps ``rerank()`` → ``rerank_mmr()`` and converts between
     ``ScoredDocument`` and ``RerankedResult``.
     """
+
+    # Wraps an internal reranker that reads the session config.
+    _forwards_session_config = True
 
     def __init__(self, lambda_param: Optional[float] = None, embedding_manager=None, **kwargs):
         self._inner = MMRReranker(

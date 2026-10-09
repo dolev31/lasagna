@@ -85,3 +85,30 @@ def test_an_ensemble_keeps_its_members_and_their_models(monkeypatch):
     hit = [{"id": "a", "content": "aa", "score": 1.0, "metadata": {}}]
     ens.rerank("q", hit, top_k=1, config=_session("session-default"))
     assert [r.model.name for r, _ in ens.rerankers] == ["m1", "m2"]
+
+
+def test_the_adapted_cross_encoder_runs_the_arms_model(monkeypatch):
+    # {reranker: cross_encoder_adapted, reranker_model: MiniLM} memory-mapped
+    # the 870 MB global default: the adapter never saw the session config.
+    monkeypatch.setattr(ranker, "CrossEncoder", _FakeCrossEncoder)
+    monkeypatch.setattr(ranker, "CROSS_ENCODER_AVAILABLE", True)
+    adapted = ranker.CrossEncoderRerankerAdapter()
+    pipeline_side = ranker.adapt_reranker_for_pipeline(adapted)
+    hit = [{"id": "a", "content": "aa", "score": 1.0, "metadata": {}}]
+    pipeline_side.rerank(query="q", results=hit, top_k=1, config=_session("small-model"))
+    assert adapted._inner.model.name == "small-model"
+
+
+def test_a_user_reranker_is_not_handed_the_session_config():
+    seen = {}
+
+    class Mine(ranker.BaseReranker):
+        def rerank(self, query, documents, top_k=5, **kwargs):
+            seen.update(kwargs)
+            return documents[:top_k]
+
+    hit = [{"id": "a", "content": "aa", "score": 1.0, "metadata": {}}]
+    ranker.adapt_reranker_for_pipeline(Mine()).rerank(
+        query="q", results=hit, top_k=1, config=_session()
+    )
+    assert seen == {}
