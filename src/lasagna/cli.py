@@ -1309,7 +1309,11 @@ def results_validate(
     A bundle whose numbers were edited by hand no longer matches its own id,
     which is what lets a reviewer reject tampering without rerunning anything.
     """
-    from .knowledge_evaluation_sdk.bundle import _content_hash, comparability_key
+    from .knowledge_evaluation_sdk.bundle import (
+        _content_hash,
+        aggregate_mismatches,
+        comparability_key,
+    )
 
     bundle = json.loads(Path(bundle_path).read_text())
     problems: List[str] = []
@@ -1334,6 +1338,11 @@ def results_validate(
                 f"config {cfg.get('name')!r}: comparability key does not match its "
                 f"held_fixed block ({cfg.get('comparability_key')} vs {recomputed})"
             )
+
+    problems.extend(
+        f"aggregate disagrees with per-query scores: {m}"
+        for m in aggregate_mismatches(bundle.get("results") or [])
+    )
 
     env = (bundle.get("experiment") or {}).get("environment") or {}
     for required in ("lasagna_version", "python", "platform"):

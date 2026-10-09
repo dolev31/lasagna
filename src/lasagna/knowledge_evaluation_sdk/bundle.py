@@ -567,6 +567,37 @@ def _is_floating_alias(model: str) -> bool:
     return not re.search(r"\d{4}-\d{2}-\d{2}|\d{8}|@\w+", model)
 
 
+def aggregate_mismatches(rows: List[Dict[str, Any]], tol: float = 1e-6) -> List[str]:
+    """Aggregates that are not the mean of their own row's per-query scores.
+
+    The run id catches a bundle edited after it was built, but not one built
+    from an edited results.json: a headline NDCG@10 of 0.665 over per-query
+    scores averaging 0.609 validated. Checked only where every query has a
+    finite score under the metric's own name, so metrics aggregated another way
+    (or with unjudged queries left out) are not second-guessed.
+    """
+    problems: List[str] = []
+    for row in rows:
+        samples = row.get("per_sample_scores") or []
+        if not samples:
+            continue
+        for name, value in (row.get("metrics") or {}).items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            scores = [s.get(name) if isinstance(s, dict) else None for s in samples]
+            if any(
+                isinstance(v, bool) or not isinstance(v, (int, float)) or v != v for v in scores
+            ):
+                continue
+            mean = sum(scores) / len(scores)
+            if abs(mean - value) > tol:
+                problems.append(
+                    f"{row.get('config_name')!r} run {row.get('run_index')}: {name} is "
+                    f"{value:.6g} but its {len(scores)} per-query scores average {mean:.6g}"
+                )
+    return problems
+
+
 def _content_hash(bundle: Dict[str, Any]) -> str:
     payload = {k: v for k, v in bundle.items() if k != "run_id"}
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
