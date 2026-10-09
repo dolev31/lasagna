@@ -94,7 +94,8 @@
               "chunker",
               "retriever_top_k",
               "vector_backend",
-              "judge_model"
+              "judge_model",
+              "bm25_stemming"
             ]
           },
           "varied_levels": {

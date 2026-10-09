@@ -54,7 +54,9 @@ from typing import Any, Dict, List, Optional
 #:   identically, passed `results validate`, and were ranked in one leaderboard
 #:   table. Keys minted before 1.2 cannot be trusted to mean what they say, so
 #:   they must not compare equal to keys minted after.
-METRICS_VERSION = "1.2"
+#: 1.3: held-fixed fields come from what each task ran (TaskResult.system), and
+#: BM25 stemming is part of the key.
+METRICS_VERSION = "1.3"
 
 #: Bundle schema version. Consumers accept >=1.0,<2.0.
 SCHEMA_VERSION = "1.0"
@@ -82,6 +84,9 @@ HELD_FIXED_FIELDS = (
     "retriever_top_k",
     "vector_backend",
     "judge_model",
+    # Whether BM25 stemmed its terms. It depends on nltk being installed, so two
+    # machines running the same config could differ here and nowhere else.
+    "bm25_stemming",
 )
 
 #: The stages a sweep varies. Excluded from the key, recorded alongside it.
@@ -168,7 +173,15 @@ def comparability_key(held_fixed: Dict[str, Any]) -> str:
 
 def held_fixed_from(result: Dict[str, Any], run_meta: Dict[str, Any]) -> Dict[str, Any]:
     """Assemble the held-fixed block from a task result and its run metadata."""
-    system = run_meta.get("system", {}) or {}
+    declared = run_meta.get("system", {}) or {}
+    ran = result.get("system") or {}
+
+    def _field(name: str) -> Any:
+        # What the task recorded running with wins over what the profile
+        # declared; the declaration is the fallback for older results.
+        value = ran.get(name)
+        return value if value is not None else declared.get(name)
+
     return {
         "metrics_version": METRICS_VERSION,
         "benchmark": result.get("benchmark_name"),
@@ -179,12 +192,13 @@ def held_fixed_from(result: Dict[str, Any], run_meta: Dict[str, Any]) -> Dict[st
         "corpus_fingerprint": result.get("corpus_fingerprint"),
         "corpus_provenance": result.get("corpus_provenance"),
         "resolved_mode": result.get("resolved_mode"),
-        "embedder_model": system.get("embedder_model"),
-        "embedder_dim": system.get("embedder_dim"),
-        "chunker": system.get("chunker"),
-        "retriever_top_k": system.get("retriever_top_k"),
-        "vector_backend": system.get("vector_backend"),
+        "embedder_model": _field("embedder_model"),
+        "embedder_dim": _field("embedder_dim"),
+        "chunker": _field("chunker"),
+        "retriever_top_k": _field("retriever_top_k"),
+        "vector_backend": _field("vector_backend"),
         "judge_model": run_meta.get("judge_model"),
+        "bm25_stemming": _field("bm25_stemming"),
     }
 
 

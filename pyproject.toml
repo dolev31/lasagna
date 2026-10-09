@@ -153,6 +153,9 @@ eval = [
     # module. Lift this once a ragas release stops importing it.
     "langchain-community<0.4.2",
     "datasets>=2.0.0,<6",
+    # BM25 stems with nltk's Porter stemmer; without it stemming silently turned
+    # off and the same config scored differently on two machines.
+    "nltk>=3.9.1,<4",
     "pandas>=2.0.0,<4",
     "scipy>=1.10,<2",
     "matplotlib>=3.7",

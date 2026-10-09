@@ -426,6 +426,54 @@ def _load_toml(path: str) -> Dict[str, Any]:
         return tomllib.load(f)
 
 
+def _embedder_collection_name(model: Optional[str], dim: Any) -> str:
+    """The benchmark collection for one embedder (model and dimension)."""
+    import hashlib
+
+    emb_id = f"{model or 'default'}|{dim or 'default'}"
+    return f"rag_bench_emb_{hashlib.md5(emb_id.encode()).hexdigest()[:8]}"
+
+
+def _ran_system(
+    embedder_model: Any,
+    embedder_dim: Any,
+    ingestion: Optional[Dict[str, Any]],
+    task_config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """What a live task actually ran with, for its held-fixed block."""
+    from lasagna.core.config import rag_config
+
+    ingestion = ingestion or {}
+
+    def _ingest(name: str) -> Any:
+        value = ingestion.get(name)
+        return value if value is not None else getattr(rag_config, name, None)
+
+    # The strategy that ran, not the one requested: structural settings
+    # (hierarchical) override a requested "semantic" at ingest.
+    chunker = _ingest("chunking_strategy")
+    if _ingest("enable_hierarchical"):
+        chunker = "hierarchical"
+    try:
+        from lasagna.retrieval.search.hybrid import STEMMER_AVAILABLE as bm25_stemming
+    except Exception:  # pragma: no cover - hybrid search always importable here
+        bm25_stemming = None
+    return {
+        "embedder_model": embedder_model,
+        "embedder_dim": embedder_dim,
+        "chunker": chunker,
+        "chunk_size": _ingest("child_chunk_size")
+        if chunker == "hierarchical"
+        else _ingest("chunk_size"),
+        "retriever_top_k": task_config.get("default_top_k"),
+        "reranker_model": task_config.get("reranker_model")
+        if task_config.get("enable_reranking")
+        else None,
+        "vector_backend": getattr(rag_config, "vector_backend", None),
+        "bm25_stemming": bm25_stemming,
+    }
+
+
 def _fix_retrieval_depth(task_config: Dict[str, Any], depth: int) -> None:
     """Make retrieval evaluation return ``depth`` uncached, untruncated results.
 
@@ -622,11 +670,12 @@ def _generate_pipeline_configs(spec: PipelineSweepSpec) -> List[Dict[str, Any]]:
             # Must happen BEFORE config_hash is computed so that corpus cache
             # keys and session IDs are unique per embedding model.
             if "embedding_model" in override or "embedding_dim" in override:
-                import hashlib as _hl
-
-                _emb_id = f"{override.get('embedding_model', 'default')}|{override.get('embedding_dim', 'default')}"
-                _emb_hash = _hl.md5(_emb_id.encode()).hexdigest()[:8]
-                override.setdefault("collection_name", f"rag_bench_emb_{_emb_hash}")
+                override.setdefault(
+                    "collection_name",
+                    _embedder_collection_name(
+                        override.get("embedding_model"), override.get("embedding_dim")
+                    ),
+                )
 
             # Validate name uniqueness — duplicate names cause checkpoint
             # collisions (config_hash in task_key guards correctness, but
@@ -1070,7 +1119,13 @@ def _system_under_test(base_profile: Optional[str] = None) -> Dict[str, Any]:
     except Exception:  # pragma: no cover - never break a bundle over provenance
         prompt_fp = {}
 
+    try:
+        from lasagna.retrieval.search.hybrid import STEMMER_AVAILABLE as bm25_stemming
+    except Exception:  # pragma: no cover - hybrid search always importable here
+        bm25_stemming = None
+
     return {
+        "bm25_stemming": bm25_stemming,
         "agentic_prompts": prompt_fp,
         "agentic_models": dict(_get("agentic_models") or {}),
         "embedder_model": _get("embedding_model"),
@@ -2311,31 +2366,38 @@ async def _eval_live(
     _combined_ingestion_keys = _INGESTION_TIME_KEYS | _INGESTION_RUNTIME_KEYS
     _task_overrides = task.config_overrides or {}
 
-    # Pull runtime keys from the resolved profile defaults so that e.g.
-    # the speed profile's enable_hybrid_search=False is applied at ingest time
-    # even when not explicitly set in task.config_overrides.
-    _runtime_from_profile: Dict[str, Any] = {}
+    # Pull the profile's ingestion keys -- corpus-identity keys (embedder,
+    # chunking) as well as runtime ones -- so the profile's corpus is the one
+    # actually built. Only runtime keys used to be applied, while the corpus
+    # cache key hashed all of them: `speed` declared all-MiniLM-L6-v2 / 384,
+    # was cached under that, and ingested and queried with the global bge-m3.
+    _from_profile: Dict[str, Any] = {}
     if task.profile:
         from ..core.session_config._profiles import resolve_ingestion_defaults as _resolve
 
         _all_profile = _resolve(task.profile)
-        _runtime_from_profile = {
-            k: v for k, v in _all_profile.items() if k in _INGESTION_RUNTIME_KEYS
-        }
-
-    _has_signature_keys = any(k in _INGESTION_TIME_KEYS for k in _task_overrides)
-    _has_runtime_keys = bool(_runtime_from_profile) or any(
-        k in _INGESTION_RUNTIME_KEYS for k in _task_overrides
-    )
+        _from_profile = {k: v for k, v in _all_profile.items() if k in _combined_ingestion_keys}
+    _merged_keys = {**_from_profile, **_task_overrides}
+    _has_signature_keys = any(k in _INGESTION_TIME_KEYS for k in _merged_keys)
+    _has_runtime_keys = any(k in _INGESTION_RUNTIME_KEYS for k in _merged_keys)
 
     if _has_signature_keys or _has_runtime_keys:
         _ingestion_overrides = {}
-        # 1. Profile defaults for runtime keys (base)
-        _ingestion_overrides.update(_runtime_from_profile)
+        # 1. Profile defaults for ingestion keys (base)
+        _ingestion_overrides.update(_from_profile)
         # 2. Explicit task overrides for all ingestion keys (override)
         _ingestion_overrides.update(
             {k: v for k, v in _task_overrides.items() if k in _combined_ingestion_keys}
         )
+        # One collection per embedder: vectors of different dimensions cannot
+        # share one, and evaluation corpora stay out of the user's documents.
+        if (
+            "embedding_model" in _ingestion_overrides or "embedding_dim" in _ingestion_overrides
+        ) and "collection_name" not in _ingestion_overrides:
+            _ingestion_overrides["collection_name"] = _embedder_collection_name(
+                _ingestion_overrides.get("embedding_model"),
+                _ingestion_overrides.get("embedding_dim"),
+            )
 
     if _has_signature_keys and _ingestion_overrides:
         logger.info(
@@ -3208,6 +3270,7 @@ async def _eval_live(
         # Deduplicate: e2e samples appear in both ir_samples and gen_samples
         n_samples=len({s.query_id for s in ir_samples} | {s.query_id for s in gen_samples}),
         error="; ".join(_eval_failures) or None,
+        system=_ran_system(_corpus_model, _corpus_dim, _ingestion_overrides, task_config),
     )
     result.compute_latency_stats()
     _record_eval_usage(result, eval_meter)

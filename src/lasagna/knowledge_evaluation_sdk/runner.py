@@ -197,6 +197,11 @@ class TaskResult:
     eval_llm_calls: int = 0
 
     # -- provenance: what this number was produced from ---------------------
+    #: What this task actually ran with: the loaded embedder, the chunker that
+    #: built the corpus, the candidate depth, BM25 stemming. The bundle builds
+    #: its held-fixed block from this, not from what the base profile declares,
+    #: which is how a run on bge-small was recorded as all-MiniLM-L6-v2.
+    system: Dict[str, Any] = field(default_factory=dict)
     #: sha256 over the ingested corpus. Already computed for cache keys; the
     #: only checksum that proves two runs saw the same documents.
     corpus_fingerprint: str = ""
@@ -338,6 +343,7 @@ class TaskResult:
             "sample_id_digest": self.sample_id_digest,
             "config_overrides": self.config_overrides,
             "profile": self.profile,
+            "system": self.system,
         }
 
     @classmethod

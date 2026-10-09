@@ -39,7 +39,10 @@ try:
     STEMMER_AVAILABLE = True
 except ImportError:
     STEMMER_AVAILABLE = False
-    logger.debug("NLTK PorterStemmer not available. BM25 stemming disabled.")
+    logger.warning(
+        "nltk is not installed, so BM25 runs without stemming; BM25 and hybrid "
+        "scores differ from a run with it (pip install 'lasagna-rag[eval]')."
+    )
 
 # Try importing Milvus hybrid search components
 try:
