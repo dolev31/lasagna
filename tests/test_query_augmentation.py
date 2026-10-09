@@ -17,7 +17,7 @@ from langchain_core.messages import AIMessage
 
 from lasagna.core.registry import registry
 from lasagna.core.testing import ComponentTestHarness
-from lasagna.retrieval.enhancement import augmentation
+from lasagna.retrieval.enhancement import augmentation, enhancer
 
 NEW = ["step_back", "query2doc", "rewrite", "multi_query"]
 
@@ -41,7 +41,10 @@ def _with_llm(monkeypatch, name, reply):
     """The registered enhancer, its LLM replaced by a scripted one."""
     component = registry.get("query_enhancer", name)
     llm = SyncLLM(reply)
-    monkeypatch.setattr(type(component), "_llm_for", lambda self, *a, **k: llm)
+    if name == "query_decomposition":
+        monkeypatch.setattr(enhancer.QueryDecomposer, "_get_llm", lambda self, *a, **k: llm)
+    else:
+        monkeypatch.setattr(type(component), "_llm_for", lambda self, *a, **k: llm)
     return component, llm
 
 
@@ -52,7 +55,7 @@ def test_each_is_a_listed_built_in_with_its_paper(name):
     assert registry.get_class("query_enhancer", name)._forwards_session_config
 
 
-@pytest.mark.parametrize("name", NEW)
+@pytest.mark.parametrize("name", NEW + ["query_decomposition"])
 def test_each_passes_the_query_enhancer_contract(name, monkeypatch):
     component, _ = _with_llm(monkeypatch, name, "1. first generated query\n2. second one here")
     report = ComponentTestHarness().validate(component)
@@ -138,6 +141,18 @@ def test_multi_query_asks_for_the_pipelines_count_and_returns_that_many(monkeypa
         == "Generate multiple search queries related to: what is rag fusion"
     )
     assert llm.messages[0][2]["content"] == "OUTPUT (4 queries):"
+
+
+def test_query_decomposition_asks_for_ordered_sub_questions(monkeypatch):
+    component, llm = _with_llm(
+        monkeypatch,
+        "query_decomposition",
+        'To answer the question "When was the founder of craigslist born?", we need to know: '
+        '"Who founded craigslist?", "When was the founder of craigslist born?".',
+    )
+    out = component.enhance("When was the founder of craigslist born?", n=3)
+    assert out == ["When was the founder of craigslist born?", "Who founded craigslist?"]
+    assert "we need to know" in llm.prompts[0]
 
 
 def test_generated_queries_are_searched_and_fused_by_the_pipeline(monkeypatch):

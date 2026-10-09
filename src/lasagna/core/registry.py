@@ -335,8 +335,8 @@ class ComponentRegistry:
                 "query_enhancer",
                 "query_decomposition",
                 _e + "QueryDecompositionAdapter",
-                "Sub-questions of a complex query, searched and fused",
-                None,
+                "Least-to-most decomposition: the sub-questions a question needs, searched and fused",
+                "arxiv:2205.10625",
                 [],
             ),
             (
