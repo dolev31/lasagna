@@ -431,7 +431,8 @@ class TestWorkerReservationLifecycle:
         )
 
         mock_backend = MagicMock()
-        mock_backend._get_document_metadata.return_value = None
+        # Transient: a failure retrying cannot fix is not retried at all.
+        mock_backend._get_document_metadata.side_effect = ConnectionError("database unreachable")
 
         mock_quota = MagicMock()
 

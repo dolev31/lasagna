@@ -51,6 +51,23 @@ if TYPE_CHECKING:
     from lasagna.storage.base import StorageBackend
 
 
+def is_dim_mismatch_error(exc: BaseException) -> bool:
+    """Whether an insert failed because the vectors do not fit the collection's size.
+
+    Milvus Lite 3 says "vector field 'embedding' expected dim 1024, got 384".
+    Matching only the older wordings, the first upload of a session at a size
+    other than the server's default never rebuilt the empty collection made at
+    startup: the document failed, and was retried twice, 30 s apart, to fail
+    the same way.
+    """
+    message = str(exc).lower()
+    return (
+        "divide the dim" in message
+        or "expected dim" in message
+        or ("dimension" in message and "length" in message)
+    )
+
+
 class DocumentPipeline:
     """Manages document upload, processing, and lifecycle.
 
@@ -671,9 +688,7 @@ class DocumentPipeline:
 
             return len(batch_data), chunks_for_bm25
 
-        def _is_dim_mismatch_error(exc: Exception) -> bool:
-            message = str(exc).lower()
-            return "divide the dim" in message or ("dimension" in message and "length" in message)
+        _is_dim_mismatch_error = is_dim_mismatch_error
 
         def _is_schema_type_mismatch_error(exc: Exception) -> bool:
             message = str(exc)

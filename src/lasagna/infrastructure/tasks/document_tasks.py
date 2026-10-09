@@ -64,6 +64,19 @@ class _RetryRequested(Exception):
     """Sentinel raised by _process_document_impl when a retry is needed."""
 
 
+def _is_permanent(exc: BaseException) -> bool:
+    """Whether processing the same file again must fail the same way.
+
+    The pipeline raises ValueError and TypeError for what retrying cannot fix:
+    an unsupported or empty file, no extractable text, a size mismatch with a
+    collection that holds documents. Retrying those (twice, 30 s apart) held a
+    `lasagna upload` for over a minute before it reported the failure.
+    """
+    from lasagna.api._document_pipeline import is_dim_mismatch_error
+
+    return isinstance(exc, (ValueError, TypeError)) or is_dim_mismatch_error(exc)
+
+
 def _process_document_impl(
     document_id: str,
     session_id: str,
@@ -169,7 +182,11 @@ def _process_document_impl(
         logger.error(f"[Worker] Failed to process document {document_id}: {exc}")
 
         # Retry transient errors before marking as ERROR
-        if retry_ctx.retries < retry_ctx.max_retries and retry_ctx.retry_fn is not None:
+        if (
+            retry_ctx.retries < retry_ctx.max_retries
+            and retry_ctx.retry_fn is not None
+            and not _is_permanent(exc)
+        ):
             logger.info(
                 f"[Worker] Retrying document {document_id} (attempt {retry_ctx.retries + 1}/{retry_ctx.max_retries})"
             )
@@ -423,8 +440,8 @@ def _thread_pool_wrapper(
                     ),
                 )
                 return  # success
-            except Exception:
-                if attempt < max_retries:
+            except Exception as exc:
+                if attempt < max_retries and not _is_permanent(exc):
                     logger.info(
                         f"[ThreadPool] Retrying document {document_id} "
                         f"(attempt {attempt + 1}/{max_retries}) in {retry_delay}s"
@@ -434,8 +451,9 @@ def _thread_pool_wrapper(
                     # Terminal failure — _process_document_impl already
                     # marked ERROR in DB and released quota reservation.
                     logger.error(
-                        f"[ThreadPool] Document {document_id} failed after {max_retries} retries"
+                        f"[ThreadPool] Document {document_id} failed after {attempt} retries"
                     )
+                    return
     finally:
         semaphore.release()
 
