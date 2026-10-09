@@ -89,7 +89,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 
 | Tool | Description |
 | ---- | ----------- |
-| `set_focused_documents` | Restrict searches to specific document IDs (empty string to clear) |
+| `set_focused_documents` | Restrict searches to specific document IDs (empty string to clear). An ID not in the session is refused and the focus is left unchanged |
 | `get_focused_documents` | Get currently focused document IDs |
 | `clear_session` | Delete all documents in a session (requires `confirm=True`) |
 
@@ -113,7 +113,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | ---- | ----------- |
 | `get_system_status` | Health check — vector DB connection, embeddings, features, storage |
 | `rebuild_collection` | Drop and recreate vector collection (needed when embedding dim changes) |
-| `reindex_document` | Re-process a document with current chunking/embedding settings |
+| `reindex_document` | Re-process a document with current chunking/embedding settings. `force_rebuild=true` recreates the collection at the configured embedding size only while it is empty; a collection holding documents is never dropped from here |
 
 ## Configuration
 

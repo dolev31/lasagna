@@ -175,6 +175,8 @@ Session overrides  →  RAG_* env vars  →  TOML file  →  Code defaults
 | **Features** | `RAG_ENABLE_RERANKING` | `true` | |
 | **Observe** | `RAG_ENABLE_PROMETHEUS` | `false` | `true` in compose/k8s |
 | **Observe** | `RAG_ENABLE_TRACING` | `false` | Enable with Jaeger profile |
+| **Network** | `RAG_FORWARDED_ALLOW_IPS` | (none) | Proxy addresses whose `X-Forwarded-For` `lasagna serve` trusts. Unset trusts none |
+| **Network** | `RAG_ALLOWED_HOSTS` | (none) | Extra `Host` values the embedded `/mcp` accepts, e.g. a service name |
 
 See [.env.example](.env.example) for the complete reference.
 

@@ -43,9 +43,11 @@ Readiness probe. Checks embedding model, vector backend, and metadata database. 
     "vector_backend": {"status": "up", "latency_ms": 0.8, "detail": "milvus"},
     "database":       {"status": "up", "latency_ms": 2.1, "detail": "sqlite"}
   },
-  "version": "1.0.0"
+  "version": "0.1.0a1"
 }
 ```
+
+`version` is the installed package's version (`lasagna.__version__`).
 
 | Status Code | Condition |
 |-------------|-----------|
@@ -65,6 +67,8 @@ Full health check -- same dependency checks as `/ready` but always returns 200 r
 ---
 
 #### `GET /api/v1/stats`
+
+With `RAG_REQUIRE_AUTH=true`, this needs a session token like every other data route (401 without one): it names the embedding model, collection and feature flags. The liveness and readiness probes stay open.
 
 **Response:** `StatsResponse`
 
@@ -667,7 +671,7 @@ curl -X PUT http://localhost:8000/api/v1/config/profiles/max_quality \
 
 #### `GET /api/v1/pipelines`
 
-List all registered agentic pipelines.
+List all registered agentic pipelines. With `RAG_REQUIRE_AUTH=true`, this needs a session token (401 without one), since a pipeline name can be a tenant's own.
 
 **Response:** `PipelineListResponse`
 
@@ -706,6 +710,8 @@ List all registered agentic pipelines.
 ### Configurator (`/api/config/knowledge`)
 
 These endpoints serve the configurator frontend UI. They provide full profile CRUD, session-scoped configuration, and import/export. All return `KnowledgeConfigFullResponse`.
+
+With `RAG_CONFIGURATOR=true`, the UI's own routes are mounted too: `GET /configurator/api/schema` and `POST /configurator/api/validate`. With `RAG_REQUIRE_AUTH=true`, they need a session token like the routes below (401 without one).
 
 | # | Method | Path | Description |
 |---|--------|------|-------------|

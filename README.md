@@ -197,8 +197,11 @@ what this library is actually for, and it is where we suggest you start.
 > about 1.3 GB on macOS; see [Install](#install) for Linux.
 >
 > To get the 80 MB model instead, run `lasagna init` and choose the speed
-> profile. It writes a settings file and points `RAG_SETTINGS_FILE` at it, which
-> is what the config loader actually reads.
+> profile. It writes `settings.lasagna.toml` and adds `RAG_SETTINGS_FILE` to
+> `./.env`, which is what the config loader actually reads. The `lasagna`
+> commands run in that directory read that one key from `./.env` (never API
+> keys). Python does not read `.env`, so from your own code
+> `export RAG_SETTINGS_FILE="$PWD/settings.lasagna.toml"` first.
 >
 > Or from Python, which now works for the embedding model too:
 >

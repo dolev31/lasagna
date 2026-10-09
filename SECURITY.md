@@ -81,6 +81,19 @@ inputs on an instance you control.
   stops being accepted — including the anonymous `default` namespace. This is
   one more reason the unauthenticated default is only defensible on loopback.
 
+- **Forwarding headers are trusted only from a proxy you name.** By default
+  `lasagna serve` ignores `X-Forwarded-For`, so the client address used for rate
+  limits is the connecting socket's. Behind a reverse proxy, set
+  `RAG_FORWARDED_ALLOW_IPS` to the proxy's address (comma-separated for
+  several). Trusting every local address instead let any client on the host
+  choose its own address, and with it a fresh rate-limit bucket per request.
+  When you run the app under your own gunicorn or uvicorn, their
+  `--forwarded-allow-ips` setting governs this instead.
+- **The embedded `/mcp` accepts only loopback `Host` names.** That blocks DNS
+  rebinding, where a web page points its own host name at 127.0.0.1. Inside a
+  container network, where clients use a service name, add it with
+  `RAG_ALLOWED_HOSTS` (comma-separated `host` or `host:*` entries). Origins in
+  `RAG_CORS_ORIGINS` stay allowed.
 - **MCP over stdio is deliberately not authenticated.** The client launched the
   process and owns its pipes, so the process boundary is the credential. Network
   transports (`--transport sse`, or the `/mcp` mount inside the REST app) are

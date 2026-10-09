@@ -34,7 +34,7 @@ Each mixin expects the host class to provide:
 | `self._global_profile_names` (set) | ProfileMixin | Fast name lookup |
 | `self._default_profiles` (list) | ProfileMixin | Built-in profiles from TOML |
 | `self.get_session_state()` | CitationStoreMixin | Access session state |
-| `self._persist_session_states()` | CitationStoreMixin, SessionStateMixin | Trigger persistence |
+| `self._persist_single_session(session_id)` | CitationStoreMixin, SessionStateMixin, ProfileMixin | Save the one session that changed. Writing every cached session put this process's stale copies over sessions another process had changed; sessions are read through from the store when accessed. |
 | `self._state_from_dict()` | PersistenceMixin | Deserialize state |
 
 ## Persistence Backends
@@ -85,7 +85,8 @@ Selected at import time via `RAG_DATABASE_BACKEND` env var:
 |---|---|---|
 | `SESSION_TTL_SECONDS` | 86400 (24h) | Expired session cleanup threshold |
 | `MAX_CACHED_SESSIONS` | 100 | In-memory session cache limit |
-| `MAX_GLOBAL_PROFILES` | 50 | Max custom profiles per user |
+| `MAX_GLOBAL_PROFILES` | 50 | Max saved profiles per owner (one shared count let one tenant lock everyone else out); built-in profiles are visible to all and not counted |
+| `MAX_PROFILE_CONFIG_BYTES` | 10000 | Max size of one saved profile's config, as JSON (about 10 KB) |
 | `MAX_CITATIONS_PER_SESSION` | 500 | In-memory citation cap |
 | `MAX_CHUNKS_PER_SESSION` | 500 | In-memory chunk cap |
 | `MAX_CHUNK_CONTENT_LENGTH` | 10000 | Per-chunk content truncation |
