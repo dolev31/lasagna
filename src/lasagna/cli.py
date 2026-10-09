@@ -84,7 +84,32 @@ def _cli(
     # Profiles and settings saved by one command must apply in the next process
     # (`configure` then `upload`, `search`, `serve`): keep sessions on disk.
     os.environ.setdefault("RAG_SESSION_BACKEND", "persistent")
+    _settings_file_from_dotenv()
     _configure_cli_logging(verbose)
+
+
+def _settings_file_from_dotenv() -> None:
+    """Use the settings file `lasagna init` pointed ./.env at.
+
+    `init` writes ``RAG_SETTINGS_FILE=...`` to ./.env, and nothing read it:
+    `lasagna serve` in that directory loaded the 5.4 GB default model the user
+    had just declined. Only this key is taken, and only from the working
+    directory, never over a value already in the environment: a .env holds
+    other projects' credentials, which importing Lasagna must not pick up.
+    """
+    if os.environ.get("RAG_SETTINGS_FILE"):
+        return
+    env_file = Path.cwd() / ".env"
+    if not env_file.is_file():
+        return
+    try:
+        from dotenv import dotenv_values
+
+        value = dotenv_values(env_file).get("RAG_SETTINGS_FILE")
+    except Exception:
+        return
+    if value:
+        os.environ["RAG_SETTINGS_FILE"] = value
 
 
 # ---------------------------------------------------------------------------
@@ -349,10 +374,14 @@ def init():
             f"Vector DB: [cyan]{vector_backend}[/cyan]\n"
             f"Embeddings: [cyan]{embedding_config.get('embedding_model', 'cloud')}[/cyan]\n"
             f"LLM: [cyan]{llm_provider}[/cyan]\n\n"
-            f"[dim]Quick start:[/dim]\n"
-            f"  python -m lasagna upload ./document.pdf\n"
-            f'  python -m lasagna search "your query"\n'
-            f"  python -m lasagna serve",
+            f"[dim]Quick start (from this directory):[/dim]\n"
+            f"  lasagna upload ./document.pdf\n"
+            f'  lasagna search "your query"\n'
+            f"  lasagna serve\n\n"
+            f"[dim]`lasagna` commands run here read RAG_SETTINGS_FILE from ./.env.\n"
+            f"Python code and other directories do not: there, first run\n"
+            f"  export RAG_SETTINGS_FILE={settings_path}\n"
+            f"Lasagna reads no other key from .env; export API keys in your shell.[/dim]",
         )
     )
 
