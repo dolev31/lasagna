@@ -37,7 +37,7 @@ It checks the schema, requires complete provenance, and **recomputes both the
 comparability key and the run id from the recorded fields**. A bundle whose
 numbers were edited by hand no longer matches its own id; one whose
 `held_fixed` was edited to fake comparability no longer matches its key. That
-is what lets a human reviewer accept a submission without rerunning it.
+catches mistakes and naive edits; it is not a signature, since anyone who edits a number can recompute the id.
 
 Reviewers read provenance. They never rerun anything.
 
@@ -50,6 +50,7 @@ lasagna results leaderboard runs --metric ndcg@10 --output leaderboards
 Rows are grouped by `(benchmark, comparability_key)`. Everything inside a group
 held the same things fixed, so the numbers are commensurable by construction;
 each group renders as its own table with that configuration in the header.
+A row that records no stage settings (`fixed_stages`) shares a table only with rows from its own bundle.
 
 This is the difference between a leaderboard and a list. A single table of
 everyone's best number, with different embedding models and sample counts
