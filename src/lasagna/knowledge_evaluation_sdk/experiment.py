@@ -522,6 +522,33 @@ def _present_document_ids(
         )
 
 
+def _check_components_exist(pipeline_configs: List[Dict[str, Any]]) -> None:
+    """Refuse a sweep that names a component the registry does not have.
+
+    Checked before any corpus is ingested. The command line only sees
+    components installed as ``lasagna_components`` entry points (or built in);
+    one defined in a script the CLI never imports is not registered.
+    """
+    from lasagna.core.registry import registry
+
+    unknown = []
+    for pc in pipeline_configs:
+        for key, value in (pc.get("overrides") or {}).items():
+            if key in _COMPONENT_KEYS and isinstance(value, str):
+                known = registry.list(key).get(key, [])
+                if value not in known:
+                    unknown.append(
+                        f"{pc.get('name')}: {key}={value!r} (registered: {sorted(known)})"
+                    )
+    if unknown:
+        raise ValueError(
+            "These arms name components that are not registered, so they would "
+            "measure the default component instead: " + "; ".join(unknown) + ". "
+            "Install your component as a lasagna_components entry point "
+            "(see docs/contributing-components.md)."
+        )
+
+
 def _fix_retrieval_depth(task_config: Dict[str, Any], depth: int) -> None:
     """Make retrieval evaluation return ``depth`` uncached, untruncated results.
 
@@ -705,6 +732,20 @@ def _generate_pipeline_configs(spec: PipelineSweepSpec) -> List[Dict[str, Any]]:
         ]
 
     if spec.config_overrides:
+        # The component lists used to be dropped here without a word when
+        # config_overrides was also given (the natural way to add
+        # enable_reranking for a reranker sweep), so the sweep never ran.
+        _lists = {
+            name: getattr(spec, name)
+            for name in ("rerankers", "embedders", "chunkers", "query_enhancers")
+            if getattr(spec, name)
+        }
+        if _lists:
+            raise ValueError(
+                f"pipeline sets both config_overrides and {sorted(_lists)}; the lists would "
+                f"be ignored. Put each component in its own config_overrides entry "
+                f"(for example {{name: mine, reranker: my_reranker}})."
+            )
         # Explicit overrides take precedence — copy to avoid mutating caller
         configs = []
         seen_names: Dict[str, int] = {}  # (name, profile) → first index
@@ -834,6 +875,7 @@ class Experiment:
         """Generate all benchmark tasks (Cartesian product)."""
         cfg = self.config
         pipeline_configs = _generate_pipeline_configs(cfg.pipeline)
+        _check_components_exist(pipeline_configs)
         tasks: List[BenchmarkTask] = []
 
         # Warn about component sweeps that won't take effect in live mode.
@@ -1449,7 +1491,13 @@ def _apply_overrides_to_pipeline(
                 try:
                     pipeline.replace(key, value)
                 except (ValueError, KeyError) as exc:
-                    logger.warning(f"Cannot replace {key}={value}: {exc}")
+                    # This used to log one warning and run the profile's own
+                    # component, reporting its number under this arm's name.
+                    raise ValueError(f"Cannot use {key}={value!r}: {exc}") from exc
+                if key == "reranker" and "enable_reranking" not in overrides:
+                    # Naming a reranker means measuring it: under a profile
+                    # with reranking off (speed) it was never called.
+                    config_overrides["enable_reranking"] = True
         else:
             config_overrides[key] = value
 
