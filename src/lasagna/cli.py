@@ -1636,8 +1636,7 @@ def results_significance(
     # Folding them (`reranker=cross_e / ncoder`) or truncating them made two
     # arms impossible to tell apart.
     table = _table(lambda name: escape(str(name)), "\n")
-    natural = Measurement.get(console, console.options.update_width(10_000), table).maximum
-    if natural > console.width:
+    if _natural_width(table) > console.width:
         numbered = {
             name: f"[{i}]"
             for i, name in enumerate(
@@ -1737,21 +1736,63 @@ def results_per_query(
         console.print(f"[green]Wrote[/green] {escape(output)} ({len(rows)} rows)")
         return
 
-    metrics = sorted(_metric_columns(rows))[:6]
-    table = Table(title=f"{len(rows)} queries" + (f" (worst {sort_by} first)" if sort_by else ""))
-    table.add_column("config")
-    table.add_column("sample")
-    for name in metrics:
-        table.add_column(name, justify="right")
-    for row in rows[:limit]:
-        table.add_row(
-            escape(str(row["config"])),
-            escape(str(row["sample_id"])[:24]),
-            *[f"{row[m]:.3f}" if m in row else "—" for m in metrics],
-        )
+    # The sort column first: `--sort-by ndcg@10` used to show the first six
+    # metrics alphabetically, which can leave out ndcg@10 itself.
+    available = sorted(_metric_columns(rows))
+    if sort_by in available:
+        available = [sort_by] + [m for m in available if m != sort_by]
+    n_queries = len({(r["benchmark"], str(r["sample_id"])) for r in rows})
+    configs = sorted({str(r["config"]) for r in rows})
+    # Rows, not queries: each query appears once per config.
+    title = f"{len(rows)} rows: {n_queries} queries x {len(configs)} configs" + (
+        f" (worst {sort_by} first)" if sort_by else ""
+    )
+
+    def _table(label, metrics: List[str]) -> Table:
+        table = Table(title=escape(title))
+        table.add_column("config", no_wrap=True)
+        table.add_column("sample", no_wrap=True)
+        for name in metrics:
+            table.add_column(escape(name), justify="right", no_wrap=True)
+        for row in rows[:limit]:
+            table.add_row(
+                label(str(row["config"])),
+                escape(str(row["sample_id"])[:24]),
+                *[f"{row[m]:.3f}" if m in row else "—" for m in metrics],
+            )
+        return table
+
+    # Config names are printed whole; they are what tells two arms apart, and
+    # truncating them printed `reranke…` for both. Metric columns are dropped
+    # from the right until the table fits, and names are numbered with a
+    # legend only when not even one metric column fits beside them.
+    numbered = {name: f"[{i}]" for i, name in enumerate(configs, 1)}
+    table, legend, shown = None, False, 0
+    for use_legend in (False, True):
+        label = (lambda n: escape(numbered[n])) if use_legend else escape
+        for shown in range(min(6, len(available)), 0, -1):
+            candidate = _table(label, available[:shown])
+            if _natural_width(candidate) <= console.width or shown == 1 and use_legend:
+                table, legend = candidate, use_legend
+                break
+        if table is not None:
+            break
+    if legend:
+        for name in configs:
+            console.print(f"  {escape(numbered[name])} {escape(name)}")
     console.print(table)
+    if len(available) > shown:
+        console.print(
+            f"[dim]{len(available) - shown} more metric column(s) not shown; "
+            "-o rows.csv has all of them.[/dim]"
+        )
     if len(rows) > limit:
         console.print(f"[dim]... {len(rows) - limit} more. Use -o rows.csv for all of them.[/dim]")
+
+
+def _natural_width(renderable) -> int:
+    """Width a renderable needs to print without folding or cropping anything."""
+    return Measurement.get(console, console.options.update_width(10_000), renderable).maximum
 
 
 def _row_columns(rows: List[dict]) -> List[str]:
