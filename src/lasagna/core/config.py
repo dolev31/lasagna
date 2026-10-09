@@ -312,6 +312,17 @@ class RAGConfig:
             "enable_bm25_stemming": True,  # Enable Porter stemming for BM25
             "bm25_max_sessions": 1000,  # Max in-memory BM25 session indices
             "bm25_session_ttl_seconds": 86400,  # Idle TTL for session indices (24h)
+            # Built-in retriever components (`retriever: bm25`, `splade`, ...).
+            "bm25_k1": 1.2,  # Okapi BM25 tf saturation (Robertson & Zaragoza 2009)
+            "bm25_b": 0.75,  # Okapi BM25 length normalisation
+            # SPLADE++ CoCondenser-EnsembleDistil (Formal et al. 2022)
+            "splade_model": "naver/splade-cocondenser-ensembledistil",
+            # Candidates each list contributes before fusion; both fusion papers
+            # (Cormack et al. 2009, Bruch et al. 2023) fuse the top 1000.
+            "hybrid_fusion_depth": 1000,
+            # Score normalisation for hybrid_convex: 'tmm' (theoretical min-max,
+            # Bruch et al.'s recommendation), 'minmax' or 'zscore'.
+            "hybrid_convex_normalization": "tmm",
             # =================================================================
             # Reranking
             # =================================================================
@@ -955,6 +966,39 @@ class RAGConfig:
         """Idle TTL for BM25 session indices in seconds."""
         return self._get_knowledge_setting(
             "rag", "bm25_session_ttl_seconds", default=self._config["bm25_session_ttl_seconds"]
+        )
+
+    @property
+    def bm25_k1(self) -> float:
+        """BM25 term-frequency saturation for the bm25 and hybrid retrievers."""
+        return self._get_knowledge_setting("rag", "bm25_k1", default=self._config["bm25_k1"])
+
+    @property
+    def bm25_b(self) -> float:
+        """BM25 document-length normalisation for the bm25 and hybrid retrievers."""
+        return self._get_knowledge_setting("rag", "bm25_b", default=self._config["bm25_b"])
+
+    @property
+    def splade_model(self) -> str:
+        """Masked-language-model checkpoint the splade retriever encodes with."""
+        return self._get_knowledge_setting(
+            "rag", "splade_model", default=self._config["splade_model"]
+        )
+
+    @property
+    def hybrid_fusion_depth(self) -> int:
+        """Candidates each list contributes to hybrid_rrf / hybrid_convex fusion."""
+        return self._get_knowledge_setting(
+            "rag", "hybrid_fusion_depth", default=self._config["hybrid_fusion_depth"]
+        )
+
+    @property
+    def hybrid_convex_normalization(self) -> str:
+        """Score normalisation for hybrid_convex: 'tmm', 'minmax' or 'zscore'."""
+        return self._get_knowledge_setting(
+            "rag",
+            "hybrid_convex_normalization",
+            default=self._config["hybrid_convex_normalization"],
         )
 
     # =========================================================================

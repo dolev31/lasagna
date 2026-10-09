@@ -195,6 +195,12 @@ _EXACT: Dict[str, str] = {
     "enable_context_compression": "agentic_pipeline",
     "compression_method": "agentic_pipeline",
     "compression_ratio": "agentic_pipeline",
+    # built-in retriever components
+    "bm25_k1": "retriever",
+    "bm25_b": "retriever",
+    "splade_model": "retriever",
+    "hybrid_fusion_depth": "retriever",
+    "hybrid_convex_normalization": "retriever",
 }
 
 _PREFIXES: Tuple[Tuple[str, str], ...] = (

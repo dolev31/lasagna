@@ -9,6 +9,7 @@ import asyncio
 import contextvars
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -150,6 +151,31 @@ def _adapt_retriever_results(documents) -> list:
             )
         adapted.append(_RawHit(doc))
     return adapted
+
+
+@dataclass(frozen=True)
+class RetrievalContext:
+    """The store a search reads, for a built-in retriever to read it the same way.
+
+    Passed as ``context=`` (beside ``config=``) only to a retriever that sets
+    ``_forwards_session_config``. A user's retriever keeps the public contract,
+    ``retrieve(query, collection, top_k)``, and never sees it.
+    """
+
+    backend: Any
+    collection: str
+    session_id: str
+    #: Session and document filter, as the default vector search applies it.
+    filter_expr: Any = None
+    #: The session alone, for reading the session's whole corpus.
+    session_filter: Any = None
+    document_ids: Optional[List[str]] = None
+    partition_key: Optional[str] = None
+    #: The vector the default search would have used (HyDE's, when it ran).
+    query_embedding: Any = None
+    embedding_manager: Any = None
+    hybrid_searcher: Any = None
+    search_params: Any = None
 
 
 class SearchOrchestrator:
@@ -766,13 +792,36 @@ class SearchOrchestrator:
                 # stage under test -- so filters and search params are not
                 # imposed on top of it; a component silently constrained by
                 # settings it never saw is not the component being measured.
+                retrieve_kwargs: Dict[str, Any] = {}
+                if getattr(_retriever_override, "_forwards_session_config", False):
+                    # A built-in retriever reads this session's store with the
+                    # arm's settings; it cannot find candidates without them.
+                    retrieve_kwargs["config"] = config
+                    retrieve_kwargs["context"] = RetrievalContext(
+                        backend=backend,
+                        collection=collection_name,
+                        session_id=session_id,
+                        filter_expr=filter_expr,
+                        session_filter=session_filter,
+                        document_ids=document_ids,
+                        partition_key=partition_key,
+                        query_embedding=query_embedding,
+                        embedding_manager=effective_embedder,
+                        hybrid_searcher=self.hybrid_searcher,
+                        search_params=search_params,
+                    )
                 dense_results_raw = _adapt_retriever_results(
                     _retriever_override.retrieve(
                         query=query,
                         collection=collection_name,
                         top_k=initial_top_k,
+                        **retrieve_kwargs,
                     )
                 )
+                # Its list is the first stage. Fusing it with BM25 below (a
+                # profile with hybrid search on) would score a retriever the arm
+                # did not name: `bm25` would come back as BM25 fused with BM25.
+                _effective_hybrid_search = False
             else:
                 dense_results_raw = backend.search(
                     collection_name=collection_name,
