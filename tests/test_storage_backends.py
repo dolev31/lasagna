@@ -168,12 +168,16 @@ class TestLocalStorageBackend:
     def test_path_traversal_document_id_variants(self, local_storage, tmp_dir, doc_id):
         """Traversal patterns that escape base_dir are blocked without side effects."""
         evil_file = io.BytesIO(b"test")
+        # The target can exist before the call: from /tmp/<dir> on Linux,
+        # ../../etc resolves to /etc. What must not happen is the call creating
+        # anything there, so compare against the state before it.
+        escaped = os.path.realpath(os.path.join(tmp_dir, doc_id))
+        existed_before = os.path.exists(escaped)
         with pytest.raises(StorageError):
             local_storage.store(evil_file, doc_id, "file.txt")
 
-        # Verify no directory was created outside base
-        escaped = os.path.realpath(os.path.join(tmp_dir, doc_id))
-        assert not os.path.exists(escaped)
+        assert os.path.exists(escaped) == existed_before
+        assert not os.path.exists(os.path.join(escaped, "file.txt"))
 
     def test_store_with_content_type(self, local_storage, sample_file):
         info = local_storage.store(sample_file, "doc_ct", "doc.pdf", content_type="application/pdf")

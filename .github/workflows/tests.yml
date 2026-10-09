@@ -159,6 +159,12 @@ jobs:
     name: E2E gate (quick subset)
     runs-on: ubuntu-latest
     steps:
+      # The gate installs torch twice (here, and again in its own clean venv),
+      # which overflows the runner's default free space. Drop toolchains this
+      # job never uses.
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
