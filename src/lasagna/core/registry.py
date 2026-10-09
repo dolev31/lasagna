@@ -456,6 +456,18 @@ class ComponentRegistry:
                 "Self-Ask: follow-up questions answered by retrieval until the final answer",
                 "arxiv:2210.03350",
             ),
+            (
+                "ircot",
+                _l + "ircot:IRCoTPipeline",
+                "IRCoT: chain-of-thought sentences interleaved with retrieval, each the next query",
+                "arxiv:2212.10509",
+            ),
+            (
+                "adaptive",
+                _l + "adaptive:AdaptiveRAGPipeline",
+                "Adaptive-RAG: a complexity classifier picks no, single-step or multi-step retrieval",
+                "arxiv:2403.14403",
+            ),
         ]:
             self._components["agentic_pipeline"][name] = _Registration(
                 description=description, paper=paper, _factory=factory

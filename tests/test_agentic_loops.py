@@ -28,6 +28,8 @@ from tests._loop_stubs import (
 LOOP_SETTINGS = {}
 SHORT_RUNS = {}
 
+Q_BIDEN = "Where did Joe Biden go to law school?"
+
 
 def _loop(name):
     return registry.get("agentic_pipeline", name)
@@ -128,6 +130,138 @@ def test_a_step_is_the_first_sentence_whatever_is_installed(text, first):
     from lasagna.agentic.loops._base import first_sentence
 
     assert first_sentence(text) == first
+
+
+# ---------------------------------------------------------------------------
+# IRCoT
+# ---------------------------------------------------------------------------
+
+Q_CRAIG = "When was the founder of craigslist born?"
+S1 = "Craigslist was founded by Craig Newmark."
+S2 = "Craig Newmark was born on December 6, 1952."
+READER = "Craigslist was founded by Craig Newmark, born December 6, 1952. So the answer is: December 6, 1952."
+
+
+async def test_ircot_alternates_a_reasoning_sentence_and_a_search_until_the_answer(monkeypatch):
+    backend = install_backend(
+        monkeypatch,
+        {
+            Q_CRAIG: [hit("p1", "craigslist is a classifieds site founded by Craig Newmark.")],
+            S1: [hit("p2", "Craig Newmark (born December 6, 1952) is an American.")],
+            S2: [hit("p3", "December 6 is the 340th day of the year.")],
+        },
+    )
+    llm = ScriptedLLM(
+        [
+            S1 + " He later moved to San Francisco.",  # only the first sentence is a step
+            S2,
+            "So the answer is: December 6, 1952.",  # the chain states the answer: stop
+            READER,  # the separate reader, over every collected paragraph
+        ]
+    )
+    result = await _loop("ircot").run(pipeline_input(Q_CRAIG, llm))
+
+    # The question first, then each step's sentence as the next query.
+    assert [c["query"] for c in backend.calls] == [Q_CRAIG, S1, S2]
+    # Each reason step sees every paragraph so far and the chain so far.
+    assert "Wikipedia Title: p2.txt\nCraig Newmark (born December 6, 1952)" in llm.prompts[1]
+    assert llm.prompts[2].endswith(f"Q: {Q_CRAIG}\nA: {S1} {S2}")
+    # The reader starts a fresh chain over all three paragraphs.
+    assert all(t in llm.prompts[3] for t in ("craigslist is", "Craig Newmark (born", "340th"))
+    assert llm.prompts[3].endswith(f"Q: {Q_CRAIG}\nA: ")
+    assert result.agent_summary == "December 6, 1952"
+    assert {c["chunk_id"] for c in result.chunks} == {"p1", "p2", "p3"}
+    assert result.metrics.stop_reason == "answer"
+
+
+async def test_ircot_stops_at_its_step_limit_and_still_reads_an_answer(monkeypatch):
+    backend = install_backend(monkeypatch, {Q_CRAIG: [hit("p1", "one")], S1: [hit("p2", "two")]})
+    llm = ScriptedLLM([S1, S2, READER])
+    config = ArmConfig(ircot_max_steps=2)
+    result = await _loop("ircot").run(pipeline_input(Q_CRAIG, llm, config))
+
+    assert len(llm.prompts) == 3  # two steps, then the reader
+    assert [c["query"] for c in backend.calls] == [Q_CRAIG, S1, S2]
+    assert result.agent_summary == "December 6, 1952"
+    assert result.metrics.stop_reason == "max_steps"
+
+
+async def test_ircot_caps_the_paragraphs_it_reasons_over(monkeypatch):
+    install_backend(
+        monkeypatch,
+        {
+            Q_CRAIG: [hit("p1", "one"), hit("p2", "two")],
+            S1: [hit("p3", "three"), hit("p4", "four")],
+        },
+    )
+    llm = ScriptedLLM([S1, "So the answer is: x.", "So the answer is: x."])
+    config = ArmConfig(ircot_paragraphs_per_step=2, ircot_max_paragraphs=3)
+    result = await _loop("ircot").run(pipeline_input(Q_CRAIG, llm, config))
+    assert "three" in llm.prompts[1] and "four" not in llm.prompts[1]
+    assert [c["chunk_id"] for c in result.chunks] == ["p1", "p3", "p2"]  # the paragraphs read
+
+
+LOOP_SETTINGS["ircot"] = ["ircot_paragraphs_per_step", "ircot_max_steps", "ircot_max_paragraphs"]
+SHORT_RUNS["ircot"] = ["So the answer is: Ada.", "So the answer is: Ada."]
+
+
+# ---------------------------------------------------------------------------
+# Adaptive-RAG
+# ---------------------------------------------------------------------------
+
+
+async def test_adaptive_answers_a_simple_question_without_retrieval(monkeypatch):
+    backend = install_backend(monkeypatch, {})
+    llm = ScriptedLLM(["A", "Paris is the capital. So the answer is: Paris."])
+    result = await _loop("adaptive").run(pipeline_input("What is the capital of France?", llm))
+    assert backend.calls == [] and result.agent_summary == "Paris" and result.chunks == []
+    assert "Wikipedia Title" not in llm.prompts[1]
+    assert result.metrics.loop_trace["route"] == "no_retrieval"
+
+
+async def test_adaptive_retrieves_once_for_a_moderate_question(monkeypatch):
+    backend = install_backend(monkeypatch, {Q_BIDEN: [hit("d1", "Biden studied law at Syracuse.")]})
+    llm = ScriptedLLM(["B", "He studied at Syracuse. So the answer is: Syracuse University."])
+    result = await _loop("adaptive").run(pipeline_input(Q_BIDEN, llm))
+    assert [c["query"] for c in backend.calls] == [Q_BIDEN]
+    assert "Biden studied law at Syracuse." in llm.prompts[1]
+    assert result.agent_summary == "Syracuse University"
+    assert [c["chunk_id"] for c in result.chunks] == ["d1"]
+
+
+async def test_adaptive_runs_ircot_for_a_complex_question(monkeypatch):
+    backend = install_backend(monkeypatch, {Q_CRAIG: [hit("p1", "one")], S1: [hit("p2", "two")]})
+    llm = ScriptedLLM(["C", S1, "So the answer is: December 6, 1952.", READER])
+    result = await _loop("adaptive").run(pipeline_input(Q_CRAIG, llm))
+    assert [c["query"] for c in backend.calls] == [Q_CRAIG, S1]
+    assert result.agent_summary == "December 6, 1952"
+    assert result.metrics.loop_trace["route"] == "multi_step"
+
+
+async def test_adaptive_refuses_a_classifier_reply_that_names_no_class(monkeypatch):
+    install_backend(monkeypatch, {})
+    with pytest.raises(ValueError, match="named no class"):
+        await _loop("adaptive").run(pipeline_input("q", ScriptedLLM(["It depends."])))
+
+
+@pytest.mark.parametrize(
+    "reply,label",
+    [
+        ("B", "B"),
+        ("C, it needs several hops.", "C"),
+        ("B (moderate). A single search.", "B"),
+        ("Class (A, B or C): A", "A"),
+        ("'C'", "C"),
+    ],
+)
+def test_adaptive_reads_the_class_its_classifier_names(reply, label):
+    from lasagna.agentic.loops.adaptive import complexity_label
+
+    assert complexity_label(reply) == label
+
+
+LOOP_SETTINGS["adaptive"] = ["adaptive_rag_classifier_model", "adaptive_rag_single_step_docs"]
+SHORT_RUNS["adaptive"] = ["B", "So the answer is: Ada."]
 
 
 # ---------------------------------------------------------------------------

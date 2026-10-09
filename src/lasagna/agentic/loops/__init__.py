@@ -4,6 +4,10 @@ Registered in the core registry under the ``agentic_pipeline`` stage:
 
 * ``self_ask`` -- Self-Ask (Press et al. 2022): follow-up questions, each
   answered from retrieval, until the model states its final answer.
+* ``ircot`` -- IRCoT (Trivedi et al. 2023): one chain-of-thought sentence per
+  step, each sentence the next retrieval query, up to a step limit.
+* ``adaptive`` -- Adaptive-RAG (Jeong et al. 2024): a complexity classifier
+  routes each question to no retrieval, one retrieval or IRCoT.
 
 Every loop searches through the pipeline's own search (see ``_base``), so an
 agentic arm measures the loop inside the complete pipeline.

@@ -354,6 +354,11 @@ class RAGConfig:
             # Published agentic loops (lasagna.agentic.loops), with their papers'
             # defaults; each loop's own budget, not max_agent_iterations.
             "self_ask_max_follow_ups": 5,  # Self-Ask: follow-up questions before concluding
+            "ircot_paragraphs_per_step": 6,  # IRCoT: K paragraphs retrieved per step
+            "ircot_max_steps": 8,  # IRCoT: reasoning steps before stopping
+            "ircot_max_paragraphs": 15,  # IRCoT: cap on paragraphs collected
+            "adaptive_rag_classifier_model": "",  # Adaptive-RAG classifier (empty = loop's LLM)
+            "adaptive_rag_single_step_docs": 5,  # Adaptive-RAG: documents for the single-step route
             "enable_mmr": True,
             "mmr_lambda": 0.5,  # SOTA default (LangChain, LlamaIndex). Pre-MMR filter ensures only relevant items.
             "mmr_score_normalization": "sigmoid",  # Options: 'sigmoid', 'minmax', 'sigmoid_minmax', 'none'. Plain sigmoid preserves cross-encoder calibration.
@@ -2028,6 +2033,45 @@ class RAGConfig:
         """Self-Ask: follow-up questions searched before the model must conclude."""
         return self._get_knowledge_setting(
             "rag", "self_ask_max_follow_ups", default=self._config["self_ask_max_follow_ups"]
+        )
+
+    @property
+    def ircot_paragraphs_per_step(self) -> int:
+        """IRCoT: paragraphs retrieved per step (K)."""
+        return self._get_knowledge_setting(
+            "rag", "ircot_paragraphs_per_step", default=self._config["ircot_paragraphs_per_step"]
+        )
+
+    @property
+    def ircot_max_steps(self) -> int:
+        """IRCoT: reasoning steps before the loop stops."""
+        return self._get_knowledge_setting(
+            "rag", "ircot_max_steps", default=self._config["ircot_max_steps"]
+        )
+
+    @property
+    def ircot_max_paragraphs(self) -> int:
+        """IRCoT: cap on the paragraphs collected across steps."""
+        return self._get_knowledge_setting(
+            "rag", "ircot_max_paragraphs", default=self._config["ircot_max_paragraphs"]
+        )
+
+    @property
+    def adaptive_rag_classifier_model(self) -> str:
+        """Adaptive-RAG: model for the complexity classifier (empty = the loop's)."""
+        return self._get_knowledge_setting(
+            "rag",
+            "adaptive_rag_classifier_model",
+            default=self._config["adaptive_rag_classifier_model"],
+        )
+
+    @property
+    def adaptive_rag_single_step_docs(self) -> int:
+        """Adaptive-RAG: documents retrieved on the single-step route."""
+        return self._get_knowledge_setting(
+            "rag",
+            "adaptive_rag_single_step_docs",
+            default=self._config["adaptive_rag_single_step_docs"],
         )
 
     @property
