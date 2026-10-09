@@ -594,7 +594,7 @@ A framework that hides its gaps wastes your time. As of this release:
 - **`list_document_ids` fails past ~16k chunks on Milvus** — the backend
   emulates offset as `limit + offset`, which exceeds Milvus's cap. Affects
   iteration speed, not correctness. See [CHANGELOG](https://github.com/dolev31/lasagna/blob/main/CHANGELOG.md).
-- **Coverage is 34%.** That is coverage.py's combined statement+branch TOTAL,
+- **Coverage is 36%.** That is coverage.py's combined statement+branch TOTAL,
   which is what `fail_under` gates on; branch coverage alone is lower.
   Measured, floored, and ratcheting up — but not yet
   where it should be. The evaluation SDK and MCP server are the thinnest.
