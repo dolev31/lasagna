@@ -47,6 +47,15 @@ from lasagna.core.quota import get_quota_manager
 _routing_local = threading.local()
 
 
+#: The arm's components while an agentic pipeline runs. The pipeline issues its
+#: own searches (one per hop) and passes only settings, so without this every
+#: hop searched with the profile's reranker, enhancer and retriever, and a
+#: reranker x agentic comparison measured the agentic loop only.
+_INNER_SEARCH_COMPONENTS: contextvars.ContextVar[Dict[str, Any]] = contextvars.ContextVar(
+    "lasagna_inner_search_components", default={}
+)
+
+
 def _component_identity(obj: Any) -> str:
     """Return a stable identity string for a component instance.
 
@@ -273,6 +282,15 @@ class SearchOrchestrator:
         Returns:
             List of search results
         """
+        if _from_routing:
+            # A search an agentic pipeline issued: the arm's components, unless
+            # the pipeline named its own.
+            inner = _INNER_SEARCH_COMPONENTS.get()
+            _reranker_override = _reranker_override or inner.get("_reranker_override")
+            _enhancer_override = _enhancer_override or inner.get("_enhancer_override")
+            _retriever_override = _retriever_override or inner.get("_retriever_override")
+            _embedder_override = _embedder_override or inner.get("_embedder_override")
+
         # Resolve effective components (overrides take priority)
         from ..retrieval.search.ranker import adapt_reranker_for_pipeline
 
@@ -351,7 +369,9 @@ class SearchOrchestrator:
                         trace_id=trace_id,
                         routing_decision=routing_decision,
                         _reranker_override=_reranker_override,
+                        _retriever_override=_retriever_override,
                         _enhancer_override=_enhancer_override,
+                        _embedder_override=_embedder_override,
                         _agentic_pipeline_override=_agentic_pipeline_override,
                         _graph_node_overrides=_graph_node_overrides,
                         query_config_overrides=query_config_overrides,
@@ -1970,6 +1990,7 @@ class SearchOrchestrator:
         _reranker_override: Optional[Any] = None,
         _retriever_override: Optional[Any] = None,
         _enhancer_override: Optional[Any] = None,
+        _embedder_override: Optional[Any] = None,
         _agentic_pipeline_override: Optional[Any] = None,
         _graph_node_overrides: Optional[Dict[str, Any]] = None,
         query_config_overrides: Optional[Dict[str, Any]] = None,
@@ -2042,16 +2063,28 @@ class SearchOrchestrator:
             # (The running-loop contract is checked before the try above.)
 
             effective_top_k = top_k or config.rerank_top_k
-            result = asyncio.run(
-                agent.retrieve(
-                    question=query,
-                    session_id=session_id,
-                    document_ids=document_ids,
-                    top_k=effective_top_k,
-                    trace_id=trace_id,
-                    routing_decision=routing_decision,
-                )
+            _given = {
+                "_reranker_override": _reranker_override,
+                "_enhancer_override": _enhancer_override,
+                "_retriever_override": _retriever_override,
+                "_embedder_override": _embedder_override,
+            }
+            _token = _INNER_SEARCH_COMPONENTS.set(
+                {k: v for k, v in _given.items() if v is not None}
             )
+            try:
+                result = asyncio.run(
+                    agent.retrieve(
+                        question=query,
+                        session_id=session_id,
+                        document_ids=document_ids,
+                        top_k=effective_top_k,
+                        trace_id=trace_id,
+                        routing_decision=routing_decision,
+                    )
+                )
+            finally:
+                _INNER_SEARCH_COMPONENTS.reset(_token)
 
             # Convert AgenticRAGResult chunks to List[SearchResult],
             # preserving the agentic answer in the first chunk's metadata.
@@ -2062,6 +2095,10 @@ class SearchOrchestrator:
             # must fail loudly — don't mask misconfig behind a silent fallback.
             raise
         except Exception as e:
+            if strict_stages():
+                # Under evaluation the standard results would be scored as the
+                # agentic arm's: fail the task with the reason instead.
+                raise RuntimeError(f"Agentic search failed: {e}") from e
             logger.error(f"Comprehensive search failed, falling back to standard: {e}")
             # Fallback to standard search on transient/runtime failure
             fallback_results = self.search(
