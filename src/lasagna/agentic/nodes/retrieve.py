@@ -32,6 +32,7 @@ from lasagna.agentic.agentic_rag import (
     RetrievedChunkData,
     _should_use_hyde_for_agentic,
     _find_semantically_similar_query,
+    arm_query_overrides,
 )
 from lasagna.utils.tokenization import estimate_tokens
 from lasagna.retrieval.enhancement.coverage import (
@@ -183,6 +184,7 @@ async def retrieve_node(state: RAGGraphState) -> Dict[str, Any]:
             use_hyde=use_hyde,
             trace_id=trace_id,
             _from_routing=True,  # Prevent COMPREHENSIVE recursion
+            query_config_overrides=arm_query_overrides(session_config),
         )
     except Exception as exc:  # noqa: BLE001
         search_latency_ms = (time.time() - search_start) * 1000

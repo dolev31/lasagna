@@ -241,6 +241,19 @@ def _should_auto_refine(
     return False, "; ".join(skip_reasons)
 
 
+def arm_query_overrides(session_config: Any) -> Optional[Dict[str, Any]]:
+    """The per-query overrides an agentic search must carry, or None.
+
+    The orchestrator hands an agentic pipeline the session config with the
+    arm's per-query overrides applied. A search the pipeline makes with
+    ``_from_routing=True`` re-reads the config for its session, so without
+    these it searched under the shared session store, which concurrent arms
+    of a sweep overwrite, rather than under its own arm's settings.
+    """
+    overrides = getattr(session_config, "_query_overrides", None)
+    return dict(overrides) if overrides else None
+
+
 # =============================================================================
 # DATA STRUCTURES FOR MULTI-HOP TRACKING
 # =============================================================================

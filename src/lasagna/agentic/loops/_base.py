@@ -34,6 +34,7 @@ from lasagna.agentic.agentic_rag import (
     AgenticRAGResult,
     HopData,
     RetrievedChunkData,
+    arm_query_overrides,
 )
 from lasagna.agentic.prompts import resolve_node_model
 from lasagna.core.base_components import AgenticPipelineInput, BaseAgenticPipeline
@@ -181,10 +182,7 @@ class LoopRun:
             trace_id=self.input.trace_id,
             _from_routing=True,
             # The arm's settings, as the standard tier would search with them.
-            # Without these the loop's searches read the shared session store,
-            # which concurrent arms overwrite.
-            query_config_overrides=dict(getattr(self.config, "_query_overrides", None) or {})
-            or None,
+            query_config_overrides=arm_query_overrides(self.config),
         )
         chunks = [_chunk_from_result(r) for r in results or []]
         self.hops.append(
