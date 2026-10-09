@@ -3,8 +3,21 @@ name: Tests
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
+  # The full set once a week, so a lean branch push never hides a version break
+  # for long.
+  schedule:
+    - cron: "17 3 * * 1"
+
+# While the repository is private, Actions minutes are a monthly quota and one full run of this workflow bills about 38. A branch push to a
+# private repo therefore runs the lean set: lint, both secret scans, the suite on
+# Python 3.12 with the coverage floor, and the plugin template, about 12 minutes.
+# Pull requests, release tags, the weekly schedule and manual runs get
+# everything: the other three Pythons and the E2E gate. Once the repository is
+# public, standard runners are free and every push runs everything; no edit is
+# needed. `scripts/ci-local.sh` runs the same checks on your machine.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -104,7 +117,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ${{ fromJSON((github.event_name == 'push' && github.ref_type == 'branch' && github.event.repository.private) && '["3.12"]' || '["3.10", "3.11", "3.12", "3.13"]') }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -158,6 +171,7 @@ jobs:
   e2e-smoke:
     name: E2E gate (quick subset)
     runs-on: ubuntu-latest
+    if: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.event.repository.private) }}
     steps:
       # The gate installs torch twice (here, and again in its own clean venv),
       # which overflows the runner's default free space. Drop toolchains this

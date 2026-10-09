@@ -18,6 +18,11 @@ pre-commit install
 pytest tests/ --ignore=tests/live --ignore=tests/stress
 ```
 
+Before you push, `scripts/ci-local.sh` runs what CI runs on a push (lint, both
+secret scans, the suite with the coverage floor, backend conformance, the plugin
+template) in its own environment, and `--full` adds the E2E gate that pull
+requests run.
+
 Only have pip? Install the extras you actually need instead of `[all]`:
 
 ```bash
