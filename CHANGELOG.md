@@ -6,6 +6,141 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Lasagna now has eight swappable stages and 53 built-in components; each one that
+implements a published method names its paper. Several fixes below change
+measured numbers, so `METRICS_VERSION` is now 1.5 (it was 1.3), and results from
+before this release do not share a leaderboard group with results after it.
+
+### Added
+
+Components, by stage:
+
+- **Generator, a new eighth stage.** How the answer is written from the
+  retrieved passages can now be swapped with everything else held fixed.
+  Built-ins: `concise` (the harness's previous prompt, word for word), `cited`
+  (ALCE), `chain_of_thought` and `chain_of_note`. A function
+  `f(query, contexts) -> str` becomes a generator with `@lasagna.generator`.
+  Sweep it with `pipeline.generators`, run one with
+  `lasagna benchmark run --generator`, or call `KnowledgePipeline.generate()`.
+  A run that names no generator writes answers exactly as before.
+- **Retriever:** `dense`, `bm25`, `splade`, `hybrid_rrf` and `hybrid_convex`.
+  The stage had no built-in component before. `dense` is the default vector
+  search as a component, the control for a retriever sweep. New settings:
+  `bm25_k1`, `bm25_b`, `splade_model`, `hybrid_fusion_depth` and
+  `hybrid_convex_normalization`.
+- **Reranker:** `monot5`, `llm_pointwise`, `flashrank` and `cohere`.
+  `cross_encoder` loads current Hugging Face rerankers by name, and
+  `reranker_trust_remote_code` allows checkpoints that ship their own code.
+- **Query enhancer:** `step_back`, `query2doc`, `rewrite` and `multi_query`.
+- **Agentic pipeline:** `self_ask`, `ircot`, `flare`, `adaptive` and `self_rag`,
+  each with its paper's defaults as settings (`self_ask_*`, `ircot_*`,
+  `flare_*`, `adaptive_rag_*`, `self_rag_*`). `adaptive` and `self_rag` prompt
+  a general LLM where the papers train a model. What each loop did is recorded
+  in `loop_trace`.
+- **Chunker:** `fixed`, `recursive`, `sentence_window`, `markdown_header`,
+  `proposition` and `contextual`. `chunk_unit` measures `fixed` and `recursive`
+  in characters, words or tokens. `chunking_strategy: recursive` now runs the
+  recursive algorithm; it used to be refused. `semantic` gains Kamradt's
+  breakpoint methods (`semantic_breakpoint_method`); the default, `absolute`, is
+  unchanged.
+- **Embedder:** `sentence_transformers`, `bge_m3`, `openai`, `cohere` and
+  `voyage`. Query and document prefixes follow each model family's model card.
+- **Document processor:** `docling`, `markitdown` and `pymupdf4llm`, each with an
+  extra of the same name. `pymupdf4llm` is AGPL-3.0 and is not part of `all`.
+
+Sweeps, validation and metrics:
+
+- Chunker and embedder components sweep. Each arm's corpus is chunked or
+  embedded by its own component, in a corpus of its own; an embedder also gets
+  its own collection. Document processors do not sweep, since benchmark corpora
+  are loaded as text.
+- Every chunking, embedding and document-processing setting gets its own
+  corpus in a sweep.
+- A sweep key the harness does not read is an error that names the likely
+  intended key, at the top level, under `pipeline:`, in a factorial, in a
+  benchmark entry and in an arm. An unknown profile is refused before anything
+  is ingested.
+- `--resume` resumes the newest run of the same experiment, says which, and
+  refuses when there is nothing to resume.
+- `lasagna component validate` imports `module:function` from the working
+  directory, as a sweep does, and takes `--stage` for an undecorated function.
+  It checks that a reranker, embedder or generator leaves its input unchanged.
+- New metrics, each defined in `metrics.md`: R-precision, complete (all-gold)
+  recall@k, ROUGE-L, answer containment, answer similarity, ALCE citation
+  recall and precision, abstention rate, SQuAD v2 scores split into answerable
+  (`has_ans`) and unanswerable (`no_ans`) questions, and input tokens, output
+  tokens and LLM calls per query. The judge is now also asked for
+  `factual_correctness`.
+
+### Changed
+
+- **`METRICS_VERSION` 1.4:** an answer counts as an abstention only when it opens
+  with one, so a hedge later in the answer no longer zeroes exact match and
+  token F1. Answers are normalized in the official SQuAD order.
+- **`METRICS_VERSION` 1.5:** exact match and token F1 score the answer with its
+  `[n]` citation markers removed, as ALCE does. NDCG gives a negative relevance
+  grade zero gain, as `trec_eval` does. The judged set adds
+  `factual_correctness`, and the answer-similarity model is part of the
+  comparability key.
+- `llm_listwise` runs RankGPT's sliding window: windows of 20 passages, moved by
+  10 from the bottom of the list to the top. Its window default was 10.
+- `query_decomposition` is least-to-most prompting's decomposition (Zhou et al.
+  2022). Results recorded under that name before came from another prompt.
+- BGE-M3 no longer gets the BGE v1.5 query instruction, which it was not
+  trained with. This changes BGE-M3 query vectors on the sentence-transformers
+  backend.
+
+### Fixed
+
+Numbers that were wrong:
+
+- **NDCG with negative grades.** A negative grade lowered the score:
+  `{a: 2, b: -1, c: 1}` ranked `[b, a, c]` scored 0.358 where `trec_eval` gives
+  0.670. The registered BEIR loaders drop grades of 0 or below, so no harness
+  number moves; custom qrels with negative grades do.
+- **Per-arm corpora collided.** Arms with corpora of their own in one collection
+  shared document and chunk ids, so the arm that ingested last took the others'
+  documents. In a four-arm sweep the control scored 0.0, and a chunker arm
+  drifted between 0.59 and 0.94 with task order. Each arm now has its own ids,
+  and two runs give identical numbers.
+- **Embedder arms embedded the corpus with the built-in model.** Only the
+  queries went through the arm's embedder, so the arm compared two models. On
+  `smoke`, a bge-small function embedder scored 0.8712 before and 0.925 now,
+  the same as setting `embedding_model` to bge-small.
+- **Chunk-size sweeps did nothing.** The built-in chunker read `chunk_size`,
+  `chunk_overlap`, `window_size` and the semantic thresholds from the
+  process-wide config, so two arms sweeping `chunk_size` got identical chunks.
+  Settings added with the new chunkers reused the control's corpus. Both now
+  take effect, and a setting of 0 is no longer read as unset.
+- **The `semantic` component chunked by size.** It was built without an
+  embedding model and ran fixed-size chunking under its name. It now embeds with
+  the arm's model and raises when none loads. `hierarchical` and
+  `structure_aware` read the arm's settings too.
+- **SQuAD v2's unanswerable half was dropped.** Only questions with a gold
+  answer were scored, so a system that never abstains scored EM 1.000 where the
+  official rule gives about 0.5. Unanswerable questions are now scored, correct
+  only when the system abstains, and every annotator's answer counts.
+- **Latency stopped before the answer was written.** A live answer row now
+  records `retrieval_ms` and `generation_ms`, and `latency_ms` is their sum.
+  Back-off sleeps between retries are not counted.
+- **Paired tests rejected too often at small sample sizes.** Under a true null
+  at alpha 0.05, the paired bootstrap rejected 9.1% of the time at 12 queries
+  (the `smoke` benchmark) and 7.7% at 20. The significance, interaction and
+  domain-stratified tests now use a paired sign-flip randomization test, exact
+  up to 30 non-zero differences, with a t interval. `p_value` and the interval
+  keys (`confidence_interval_95`, `ci_lower`, `ci_upper`) now hold those.
+- **Agentic hops searched with the profile's components.** Each hop now searches
+  with the arm's reranker, query enhancer, retriever and embedder, and with the
+  arm's per-query settings. Under evaluation, a failed agentic search fails the
+  task instead of falling back to standard results.
+- **A failing LLM reranker scored as the control.** When its LLM failed,
+  `llm_listwise` kept the retrieval order. It now raises, as the other LLM
+  components do.
+- **Late chunking truncated long documents.** Chunks past the model's window
+  were embedded the standard way. Long documents are now processed in
+  overlapping windows (`late_chunking_overlap`), and under evaluation late
+  chunking raises instead of falling back.
+
 ## [0.1.0a1] — 2026-08-18
 
 Pre-release. The name is reserved on PyPI and the package installs, but the
