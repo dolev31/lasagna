@@ -2092,16 +2092,13 @@ async def _eval_offline(
     eval_meter = UsageMeter()
 
     try:
-        from .ragas_evaluator import RAGASEvaluator
+        from .ragas_evaluator import RAGASEvaluator, harness_metrics
 
         evaluator = RAGASEvaluator(llm=judge_llm)
 
-        # Select metrics based on available data
-        has_context = any(c for c in contexts)
-        if has_context:
-            eval_metrics = ["faithfulness", "context_recall", "context_precision"]
-        else:
-            eval_metrics = ["factual_correctness"]
+        # RAG_EVAL_JUDGE_METRICS or the harness set; with no context, only
+        # the metrics that do not judge one.
+        eval_metrics = harness_metrics(has_context=any(c for c in contexts))
 
         # The judge's own spend, kept separate from the system's. It is often
         # the larger of the two, and reporting one total lets an expensive
@@ -3606,7 +3603,11 @@ async def _eval_live(
             # reference answer (an unanswerable question has none).
             if any(gen_answerable):
                 try:
-                    from .ragas_evaluator import RAGASEvaluator
+                    from .ragas_evaluator import RAGASEvaluator, harness_metrics
+
+                    # RAG_EVAL_JUDGE_METRICS or the harness set, for both the
+                    # regenerated and the agentic answers.
+                    _judged_names = harness_metrics()
 
                     # RAGAS runs in its own thread (see below), so the judge is
                     # built per call via the module-level _build_judge_llm()
@@ -3628,6 +3629,7 @@ async def _eval_live(
                                 answers=[gen_answers[i] for i in _judged],
                                 contexts=[gen_contexts[i] for i in _judged],
                                 ground_truths=[gen_ground_truths[i] for i in _judged],
+                                metrics=_judged_names,
                                 batch_size=4,
                             )
 
@@ -3705,6 +3707,7 @@ async def _eval_live(
                                         answers=_ag_answers,
                                         contexts=_ag_contexts,
                                         ground_truths=_ag_truths,
+                                        metrics=_judged_names,
                                         batch_size=4,
                                     )
 
@@ -3755,6 +3758,7 @@ async def _eval_live(
                         apply_canonical_metric_mapping(
                             per_sample_scores,
                             metrics,
+                            base_keys=_judged_names,
                         )
 
                     agentic_fallbacks = sum(

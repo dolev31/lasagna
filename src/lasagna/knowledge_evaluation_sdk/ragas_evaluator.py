@@ -18,6 +18,7 @@ Example:
     print(results)  # {'faithfulness': 0.92, 'context_precision': 0.85, ...}
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from loguru import logger
@@ -37,7 +38,7 @@ def _import_ragas():
         )
         from ragas import EvaluationDataset, SingleTurnSample
 
-        return {
+        classes = {
             "evaluate": ragas_evaluate,
             "Faithfulness": Faithfulness,
             "AnswerRelevancy": AnswerRelevancy,
@@ -51,6 +52,16 @@ def _import_ragas():
         raise ImportError(
             "ragas is required for evaluation. Install with: pip install lasagna-rag[eval]"
         )
+    # Opt-in metrics, imported one by one: a RAGAS release that drops one must
+    # cost that metric (reported as unknown), not every other metric too.
+    import ragas.metrics as _metrics
+
+    for name in ("NoiseSensitivity", "ContextRelevance"):
+        try:
+            classes[name] = getattr(_metrics, name)
+        except (AttributeError, ImportError):
+            pass
+    return classes
 
 
 # Mapping of metric names to RAGAS metric classes
@@ -60,6 +71,15 @@ METRIC_MAP = {
     "context_recall": "LLMContextRecall",
     "factual_correctness": "FactualCorrectness",
     "context_precision": "LLMContextPrecisionWithReference",
+    # Opt-in (RAG_EVAL_JUDGE_METRICS), for their judge cost:
+    # RAGAS noise sensitivity (relevant mode): the share of the answer's claims
+    # that are wrong yet supported by some retrieved context, i.e. errors the
+    # retrieved noise led the generator into. LOWER is better.
+    "noise_sensitivity": "NoiseSensitivity",
+    # Context relevance without a reference (the TruLens RAG triad's first
+    # leg; RAGAS's NVIDIA-style judge): how relevant the retrieved contexts
+    # are to the question, for corpora with no relevance judgements.
+    "context_relevance": "ContextRelevance",
 }
 
 # RAGAS v0.4 uses full class names as result keys, not our short aliases.
@@ -73,6 +93,8 @@ _RAGAS_KEY_MAP = {
         "context_precision",
         "llm_context_precision_with_reference",
     ],
+    "noise_sensitivity": ["noise_sensitivity"],
+    "context_relevance": ["context_relevance", "nv_context_relevance"],
 }
 
 
@@ -123,6 +145,43 @@ def _extract_score(result: Any, metric_name: str) -> float:
 
 
 DEFAULT_METRICS = ["faithfulness", "context_recall", "context_precision"]
+
+#: What the benchmark harness asks the judge for. ``factual_correctness`` is
+#: the only judged metric that compares the answer with the reference answer;
+#: without it a live run measured groundedness and context quality but never
+#: whether the answer was right, except by exact match.
+HARNESS_METRICS = [*DEFAULT_METRICS, "factual_correctness"]
+
+#: Metrics that judge the retrieved contexts, so need some.
+_NEEDS_CONTEXT = frozenset(
+    {
+        "faithfulness",
+        "context_recall",
+        "context_precision",
+        "noise_sensitivity",
+        "context_relevance",
+    }
+)
+
+
+def harness_metrics(has_context: bool = True) -> List[str]:
+    """The judged metrics the harness requests: ``RAG_EVAL_JUDGE_METRICS``
+    (comma-separated names from :data:`METRIC_MAP`) or :data:`HARNESS_METRICS`.
+
+    Raises ``ValueError`` on an unknown name, since a misspelt metric would
+    otherwise be skipped and its absence read as "not requested". Without
+    contexts, the metrics that judge them are dropped.
+    """
+    raw = os.environ.get("RAG_EVAL_JUDGE_METRICS", "")
+    names = [n.strip() for n in raw.split(",") if n.strip()] or list(HARNESS_METRICS)
+    unknown = sorted(set(names) - set(METRIC_MAP))
+    if unknown:
+        raise ValueError(
+            f"RAG_EVAL_JUDGE_METRICS names unknown metric(s) {unknown}; known: {sorted(METRIC_MAP)}"
+        )
+    if not has_context:
+        names = [n for n in names if n not in _NEEDS_CONTEXT]
+    return list(dict.fromkeys(names))
 
 
 class RAGASEvaluator:
