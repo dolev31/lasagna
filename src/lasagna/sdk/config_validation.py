@@ -19,10 +19,11 @@ Adding a new rule:
 """
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, Callable, Dict, List, TYPE_CHECKING
 
 from loguru import logger
+
+from .types import _StrValueEnum
 
 if TYPE_CHECKING:
     from .config import KnowledgeConfig
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
-class Severity(str, Enum):
+class Severity(_StrValueEnum):
     """Validation issue severity level."""
 
     ERROR = "error"  # Raises ConfigurationError
