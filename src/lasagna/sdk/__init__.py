@@ -81,6 +81,7 @@ For comprehensive documentation, see:
 
 import importlib
 import re
+from typing import TYPE_CHECKING
 
 from ._version import __version__, __version_info__
 
@@ -284,6 +285,136 @@ _LAZY_IMPORTS = {
     "RETRY_BACKEND": (".utils.retry", "RETRY_BACKEND"),
     "RETRY_SEARCH": (".utils.retry", "RETRY_SEARCH"),
 }
+
+# The same names, imported for type checkers only (never at runtime). Resolved
+# lazily through __getattr__, every one of them was `Any` to a user's type
+# checker. tests/test_lazy_names_are_typed.py keeps this block in step with
+# _LAZY_IMPORTS.
+if TYPE_CHECKING:
+    from .integrations.mcp_client import MCPKnowledgeClient
+    from .managers import (
+        DocumentManager,
+        SearchManager,
+        ConfigManager,
+        CitationManager,
+    )
+    from .backends import (
+        get_backend,
+        list_backends,
+        get_available_backends,
+        register_backend,
+        VectorBackendBase,
+        BackendCapabilities,
+        MilvusBackend,
+        PineconeBackend,
+        QdrantBackend,
+        WeaviateBackend,
+        FilterExpression,
+    )
+    from .processing import (
+        SemanticChunker,
+        FixedChunker,
+        DocumentExtractor,
+        OCRProcessor,
+        chunk_document,
+    )
+    from .retrieval import (
+        EmbeddingModel,
+        HybridSearcher,
+        Reranker,
+        QueryEnhancer,
+        QueryClassifier,
+        CoverageScorer,
+    )
+    from .agentic import (
+        AgenticRAGWrapper,
+        create_rag_tools,
+        AgenticRAG,
+    )
+    from .evaluation import (
+        KnowledgeEvaluator,
+        EvalConfig,
+        EvalResult,
+    )
+    from .component_registry import (
+        ComponentRegistry,
+        component_registry,
+        get_component_registry,
+    )
+    from lasagna.core.base_components import (
+        BaseEmbedder,
+        BaseChunker,
+        BaseReranker,
+        BaseRetriever,
+        BaseDocumentProcessor,
+        BaseQueryEnhancer,
+        BaseAgenticPipeline,
+        AgenticPipelineInput,
+        ScoredDocument,
+        ProcessedDocument,
+        Chunk,
+    )
+    from lasagna.core.pipeline import (
+        KnowledgePipeline,
+        PipelineResult,
+    )
+    from lasagna.core.registry import registry
+    from lasagna.knowledge_evaluation_sdk.ragas_evaluator import RAGASEvaluator
+    from lasagna.knowledge_evaluation_sdk.ablation import (
+        sweep,
+        sweep_pipelines,
+        sweep_nodes,
+        AblationResults,
+        grid_search,
+    )
+    from lasagna.knowledge_evaluation_sdk.ir_metrics import (
+        ndcg_at_k,
+        precision_at_k,
+        recall_at_k,
+        f1_at_k,
+        hit_rate_at_k,
+        mrr,
+        map_score,
+        corpus_metrics,
+    )
+    from lasagna.knowledge_evaluation_sdk.datasets import (
+        load_benchmark,
+        list_benchmarks,
+    )
+    from lasagna.knowledge_evaluation_sdk.experiment import (
+        run_benchmark,
+        Experiment,
+        ExperimentConfig,
+    )
+    from lasagna.knowledge_evaluation_sdk.results import BenchmarkResults
+    from lasagna.knowledge_evaluation_sdk.reporting import ReportGenerator
+    from lasagna.knowledge_evaluation_sdk.benchmarks import (
+        BaseBenchmarkAdapter,
+        benchmark_registry,
+        BenchmarkInfo,
+        BenchmarkSample,
+    )
+    from lasagna.core.testing import (
+        ComponentTestHarness,
+        ValidationReport,
+    )
+    from lasagna.processing.contextual.contextual_enricher import ContextualEnricher
+    from lasagna.storage import (
+        get_storage_backend,
+        register_storage_backend,
+        get_available_storage_backends,
+        StorageBackend,
+        StorageCapabilities,
+        StorageFileInfo,
+        LocalStorageBackend,
+    )
+    from .utils.retry import (
+        with_retry,
+        with_retry_sync,
+        RetryConfig,
+        RETRY_BACKEND,
+        RETRY_SEARCH,
+    )
 
 
 #: Which extra provides which optional dependency, so the error can say what to

@@ -58,6 +58,7 @@ package from your own code, call ``loguru.logger.enable("lasagna")``.
 
 import importlib as _importlib
 import os as _os
+from typing import TYPE_CHECKING
 
 from loguru import logger as _logger
 
@@ -152,6 +153,104 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "trunc_text": (".utils", "trunc_text"),
     "resolve_model_settings": (".utils", "resolve_model_settings"),
 }
+
+# The same names, imported for type checkers only (never at runtime). Resolved
+# lazily through __getattr__, every one of them was `Any` to a user's type
+# checker. tests/test_lazy_names_are_typed.py keeps this block in step with
+# _LAZY_IMPORTS.
+if TYPE_CHECKING:
+    from .components import (
+        reranker,
+        query_enhancer,
+        chunker,
+        embedder,
+        retriever,
+        document_processor,
+    )
+    from .core import (
+        RAGConfig,
+        get_rag_config,
+        Document,
+        DocumentChunk,
+        DocumentStatus,
+        DocumentMetadata,
+        KnowledgeConfigManager,
+        get_knowledge_config_manager,
+    )
+    from .api import (
+        RAGBackend,
+        get_rag_backend,
+        initialize,
+        reset_instance,
+    )
+    from .processing import (
+        DocumentProcessor,
+        OCRProcessor,
+        get_ocr_processor,
+        is_scanned_pdf,
+        SemanticChunker,
+        chunk_document,
+    )
+    from .retrieval.search import (
+        HybridSearcher,
+        get_hybrid_searcher,
+        CombinedReranker,
+        get_reranker,
+    )
+    from .retrieval.enhancement import (
+        QueryEnhancer,
+        get_query_enhancer,
+        QueryClassifier,
+        get_query_classifier,
+        CoverageScorer,
+        get_coverage_scorer,
+    )
+    from .infrastructure.embedding import (
+        EmbeddingManager,
+        get_embedding_manager,
+    )
+    from .infrastructure.cache import (
+        SearchCache,
+        get_search_cache,
+    )
+    from .vector_backends import (
+        VectorStoreAdapter,
+        FilterExpression,
+        get_backend as get_vector_backend,
+        get_available_backends,
+        register_backend,
+    )
+    from .agentic import (
+        AgenticRAG,
+        AgenticRAGResult,
+        AgenticRAGMetrics,
+        HopData,
+        RetrievedChunkData,
+        search_knowledge_base,
+        mark_chunk_for_citation,
+        estimate_tokens,
+        refine_chunk,
+        CitationManager,
+        Citation,
+        get_citation_manager,
+        DocumentInfo,
+        DocumentSnippet,
+        get_document_awareness_context,
+    )
+    from .standalone import (
+        create_rag_backend,
+        create_agentic_rag,
+    )
+    from .utils import (
+        METRICS,
+        TRACER,
+        configure_metrics,
+        configure_tracing,
+        log_json,
+        hash_text,
+        trunc_text,
+        resolve_model_settings,
+    )
 
 
 def __getattr__(name: str):
