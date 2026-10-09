@@ -1204,10 +1204,27 @@ component_app = typer.Typer(
 app.add_typer(component_app, name="component")
 
 
+_FUNCTION_STAGES = (
+    "reranker",
+    "query_enhancer",
+    "chunker",
+    "embedder",
+    "retriever",
+    "document_processor",
+)
+
+
 @component_app.command("validate")
 def component_validate(
     target: str = typer.Argument(
-        ..., help="Import path to your component class, e.g. my_pkg.rerankers:MyReranker"
+        ...,
+        help="What a sweep would name: my_ideas:keyword_overlap (a decorated function), "
+        "my_pkg.rerankers:MyReranker (a class) or path/to/file.py:name",
+    ),
+    stage: Optional[str] = typer.Option(
+        None,
+        "--stage",
+        help="The stage a plain, undecorated function implements: " + ", ".join(_FUNCTION_STAGES),
     ),
 ):
     """Check a component satisfies its stage contract.
@@ -1218,22 +1235,43 @@ def component_validate(
     it was handed -- the last one being the property that makes a comparison
     attributable, since a component that edits its input changes results for
     whatever runs after it.
+
+    The target is resolved the way a sweep resolves it, from the working
+    directory, so the function you name in a sweep is the one checked here. A
+    function registered with ``@lasagna.reranker`` (or any stage decorator) is
+    checked as the component the sweep would run.
     """
+    import inspect
+
+    from lasagna import components
     from lasagna.core.testing import ComponentTestHarness
 
     module_path, _, attr = target.rpartition(":")
     if not module_path or not attr:
-        _error(f"Expected 'module.path:ClassName', got {target!r}")
+        _error(f"Expected 'module:function' or 'module:Class', got {target!r}")
+    if stage is not None and stage not in _FUNCTION_STAGES:
+        _error(f"--stage must be one of {', '.join(_FUNCTION_STAGES)}, got {stage!r}")
 
     try:
-        import importlib
-
-        cls = getattr(importlib.import_module(module_path), attr)
+        obj = components.import_reference(target)
     except Exception as exc:
         _error(f"Could not import {target}: {type(exc).__name__}: {exc}")
 
+    if not inspect.isclass(obj) and callable(obj):
+        tagged = getattr(obj, "__lasagna_component__", None)
+        chosen = stage or (tagged[0] if tagged else None)
+        if chosen is None:
+            _error(
+                f"{target} is a plain function, so its stage is unknown. Decorate it "
+                f"(@lasagna.reranker, @lasagna.query_enhancer, ...) or pass --stage."
+            )
+        try:
+            obj = components.as_component_class(chosen, obj, target)
+        except (TypeError, ValueError) as exc:
+            _error(str(exc))
+
     try:
-        instance = cls() if isinstance(cls, type) else cls
+        instance = obj() if isinstance(obj, type) else obj
     except Exception as exc:
         _error(
             f"Could not instantiate {attr} with no arguments: {type(exc).__name__}: {exc}. "
@@ -1241,13 +1279,22 @@ def component_validate(
             f"pipeline can build them from a config name."
         )
 
-    report = ComponentTestHarness().validate(instance)
+    try:
+        report = ComponentTestHarness().validate(instance)
+    except Exception as exc:  # a model that cannot load, a missing key: not a contract verdict
+        _error(f"The checks could not run: {type(exc).__name__}: {exc}")
 
-    console.print(f"\n[bold]{report.component_class}[/bold] ({report.component_type or 'unknown'})")
+    console.print(
+        f"\n[bold]{escape(str(report.component_class))}[/bold] "
+        f"({report.component_type or 'unknown'})"
+    )
     for check in report.checks:
-        console.print(f"  [green]pass[/green]  {check}")
+        # `checks` records every check as "PASS: name" or "FAIL: name"; the
+        # failures, with their reasons, are printed below.
+        if check.startswith("PASS: "):
+            console.print(f"  [green]pass[/green]  {escape(check[len('PASS: ') :])}")
     for failure in report.failures:
-        console.print(f"  [red]FAIL[/red]  {failure}")
+        console.print(f"  [red]FAIL[/red]  {escape(failure)}")
 
     if report.latency_ms is not None:
         console.print(f"\n  latency: {report.latency_ms:.1f} ms")

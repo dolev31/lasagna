@@ -321,6 +321,13 @@ def register(
             f"(the built-ins are listed by `lasagna component list`)."
         )
     cls = as_component_class(stage, obj, name)
+    if not inspect.isclass(obj):
+        try:
+            # So `lasagna component validate my_ideas:keyword_overlap` can find
+            # the wrapper this function was registered as.
+            obj.__lasagna_component__ = (stage, name)
+        except (AttributeError, TypeError):
+            pass  # a builtin or a bound method: validate takes --stage instead
     registry.register_class(
         stage,
         name,
@@ -434,6 +441,21 @@ def load(stage: str, reference: str, search_paths: Sequence[Union[str, Path]] = 
             )
         return reference
 
+    target = import_reference(reference, search_paths)
+    register(stage, target, reference)
+    _LOADED_FROM[(stage, reference)] = source or ""
+    return reference
+
+
+def import_reference(reference: str, search_paths: Sequence[Union[str, Path]] = ()) -> Any:
+    """The object ``module:attr`` (or ``path/to/file.py:attr``) names, imported
+    the way a sweep imports it: from ``search_paths`` and the working directory
+    first, a file under a private module name. Registers nothing."""
+    module_part, _, attr = reference.rpartition(":")
+    if not module_part or not attr:
+        raise ValueError(f"{reference!r} is not a 'module:function' reference")
+    source = _module_file(module_part, search_paths)
+
     if module_part.endswith(".py") or "/" in module_part:
         if source is None:
             raise ImportError(f"cannot load {reference!r}: {module_part} not found")
@@ -441,16 +463,18 @@ def load(stage: str, reference: str, search_paths: Sequence[Union[str, Path]] = 
         # A private module name: loading `utils.py` from a sweep folder must not
         # become the `utils` every later `import utils` in the process gets.
         unique = f"_lasagna_ref_{path.stem}_{hashlib.sha256(source.encode()).hexdigest()[:8]}"
-        spec = importlib.util.spec_from_file_location(unique, path)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"cannot load {reference!r}: {path} is not a Python file")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[unique] = module  # dataclasses in the file look themselves up here
-        try:
-            spec.loader.exec_module(module)
-        except BaseException:
-            sys.modules.pop(unique, None)
-            raise
+        module = sys.modules.get(unique)  # run a file's top level once per process
+        if module is None:
+            spec = importlib.util.spec_from_file_location(unique, path)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"cannot load {reference!r}: {path} is not a Python file")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[unique] = module  # dataclasses in the file look themselves up here
+            try:
+                spec.loader.exec_module(module)
+            except BaseException:
+                sys.modules.pop(unique, None)
+                raise
     else:
         loaded = sys.modules.get(module_part)
         loaded_file = getattr(loaded, "__file__", None)
@@ -472,9 +496,7 @@ def load(stage: str, reference: str, search_paths: Sequence[Union[str, Path]] = 
     target: Any = module
     for part in attr.split("."):
         target = getattr(target, part)
-    register(stage, target, reference)
-    _LOADED_FROM[(stage, reference)] = source or ""
-    return reference
+    return target
 
 
 def load_all(stage_values: Iterable[tuple], search_paths: Sequence[Union[str, Path]] = ()) -> None:

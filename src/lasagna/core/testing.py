@@ -25,6 +25,8 @@ Example:
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 import time
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Type
@@ -193,6 +195,23 @@ def _validate_reranker(component: BaseReranker, report: ValidationReport) -> Non
         lambda: (_assert_type(component.rerank(query, [], top_k=3), list)),
     )
 
+    # Check: the documents it was handed come back unchanged. A reranker that
+    # writes scores or text onto its input changes what every later stage (and
+    # the next arm, through a cache) sees, so its comparison is not attributable.
+    def _check_no_mutation():
+        handed = _make_sample_documents(5)
+        before = [_state(d) for d in handed]
+        component.rerank(query, handed, top_k=3)
+        changed = [i for i, d in enumerate(handed) if _state(d) != before[i]]
+        _assert_true(len(handed) == 5, f"the input list changed length to {len(handed)}")
+        _assert_true(
+            not changed,
+            f"rerank() modified the documents it was handed (positions {changed}); "
+            f"copy them before changing a score or the text",
+        )
+
+    _check(report, "rerank() does not modify its input", _check_no_mutation)
+
     # Check: deterministic output
     _check(
         report,
@@ -266,6 +285,13 @@ def _validate_embedder(component: BaseEmbedder, report: ValidationReport) -> Non
         "encode() returns numpy array",
         lambda: (_assert_type(component.encode(texts), np.ndarray)),
     )
+
+    def _check_no_mutation():
+        handed = list(texts)
+        component.encode(handed)
+        _assert_true(handed == texts, "encode() modified the list of texts it was handed")
+
+    _check(report, "encode() does not modify its input", _check_no_mutation)
 
     # Check: output shape
     _check(
@@ -430,6 +456,13 @@ def _check(report: ValidationReport, name: str, fn) -> None:
     except (AssertionError, TypeError, ValueError, AttributeError) as e:
         report.checks.append(f"FAIL: {name}")
         report.failures.append(f"{name}: {e}")
+
+
+def _state(obj: Any) -> Any:
+    """A deep snapshot of an object's fields, for before/after comparison."""
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return copy.deepcopy(dataclasses.asdict(obj))
+    return copy.deepcopy(getattr(obj, "__dict__", obj))
 
 
 def _assert_type(obj: Any, expected_type: Type) -> None:
