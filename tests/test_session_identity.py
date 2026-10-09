@@ -124,5 +124,8 @@ class TestTheGuardItself:
         """A prefix-leaking comparison is not a token check."""
         import inspect
 
+        from lasagna.api.rest import auth_mode
+
         src = inspect.getsource(sessions_route._may_claim_an_identity)
-        assert "compare_digest" in src
+        assert "secret_matches" in src
+        assert "compare_digest" in inspect.getsource(auth_mode.secret_matches)

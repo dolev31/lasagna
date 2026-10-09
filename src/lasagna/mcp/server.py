@@ -119,28 +119,34 @@ def _flag_failures(fn):
     MISMATCH" or "No LLMProvider configured" as retrieved knowledge. Only the
     registered copy raises; the module function keeps returning the text, so
     Python callers see what they always did.
+
+    A synchronous tool is registered as a coroutine that runs it in a worker
+    thread. FastMCP calls a sync tool on the event loop itself, so one 40 s
+    upload froze every other client, and in the embedded deployment the REST
+    API's own health check with it. REST routes already run blocking work in a
+    thread pool.
     """
     from mcp.server.fastmcp.exceptions import ToolError
+
+    def checked(reply):
+        message = _tool_failure(reply)
+        if message is not None:
+            raise ToolError(message)
+        return reply
 
     if inspect.iscoroutinefunction(fn):
 
         @functools.wraps(fn)
         async def flagged(*args, **kwargs):
-            reply = await fn(*args, **kwargs)
-            message = _tool_failure(reply)
-            if message is not None:
-                raise ToolError(message)
-            return reply
+            return checked(await fn(*args, **kwargs))
 
     else:
+        import anyio.to_thread
 
         @functools.wraps(fn)
-        def flagged(*args, **kwargs):
-            reply = fn(*args, **kwargs)
-            message = _tool_failure(reply)
-            if message is not None:
-                raise ToolError(message)
-            return reply
+        async def flagged(*args, **kwargs):
+            call = functools.partial(fn, *args, **kwargs)
+            return checked(await anyio.to_thread.run_sync(call))
 
     return flagged
 
@@ -812,6 +818,10 @@ _NO_RESULTS_MSG = (
 )
 
 
+#: The REST API's bound for the same argument (`SearchRequest.top_k`).
+_MAX_TOP_K = 100
+
+
 def _store_citations(
     user_id: str,
     session_id: str,
@@ -922,6 +932,21 @@ def _resolve_session(
     return session_id, f"anon_{user_hash}"
 
 
+def _profile_owner(user_id: str) -> str:
+    """Who owns the profiles this caller saves, and whose it may see.
+
+    Only a verified token names a tenant. Otherwise the surface is single-user
+    (stdio, or loopback with auth off), where saved profiles were always meant
+    to be shared across sessions, and the per-session ``anon_`` id kept a
+    profile saved in one session out of every other.
+    """
+    if transport_guard.enforcement_active():
+        return user_id
+    from lasagna.core.session_config._data_models import ANONYMOUS
+
+    return ANONYMOUS
+
+
 # ---------------------------------------------------------------------------
 # Tool: search (unified)
 # ---------------------------------------------------------------------------
@@ -971,6 +996,13 @@ async def search(
             "trace_id": trace_id,
         },
     )
+
+    # REST refuses these with a 422; here an empty query returned a knowledge
+    # block and a negative top_k "no results", both read as answers.
+    if not query or not query.strip():
+        return "Search failed: the query is empty."
+    if top_k is not None and not 1 <= top_k <= _MAX_TOP_K:
+        return f"Search failed: top_k must be between 1 and {_MAX_TOP_K}, got {top_k}."
 
     try:
         backend, config, doc_id_filter = _prepare_search(
@@ -1258,7 +1290,8 @@ async def get_document_context(
         duration_ms = (time.time() - start_time) * 1000
         logger.exception(f"get_document_context failed: {e}")
         _log_tool_result("get_document_context", False, str(e), duration_ms)
-        return ""
+        # "" is also the answer for "no documents"; a failure must not read as that.
+        return f"Failed to get document context: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -1404,15 +1437,21 @@ def upload_document(
 
         duration_ms = (time.time() - start_time) * 1000
 
-        result = json.dumps(
-            {
-                "document_id": doc.document_id,
-                "filename": doc.filename,
-                "status": status_value,
-                "chunks_count": doc.chunks_count,
-                "file_size_kb": doc.file_size // 1024,
-            }
-        )
+        report = {
+            "document_id": doc.document_id,
+            "filename": doc.filename,
+            "status": status_value,
+            "chunks_count": doc.chunks_count,
+            "file_size_kb": doc.file_size // 1024,
+        }
+        if status_value == "error":
+            # A failed ingest went back as an ordinary report with isError=False.
+            _log_tool_result("upload_document", False, f"status={status_value}", duration_ms)
+            reason = getattr(doc, "error_message", None) or "no reason was recorded"
+            return json.dumps(
+                {"error": f"'{doc.filename}' could not be indexed: {reason}", "detail": report}
+            )
+        result = json.dumps(report)
 
         _log_tool_result(
             "upload_document",
@@ -1468,7 +1507,8 @@ def delete_document(
         else:
             _log_tool_result("delete_document", False, "Not found or unauthorized", duration_ms)
             return (
-                f"Document '{document_id}' not found or does not belong to session '{session_id}'."
+                f"Failed to delete document: '{document_id}' was not found or does not "
+                f"belong to session '{session_id}'."
             )
 
     except Exception as e:
@@ -1570,7 +1610,10 @@ def get_document_info(
 
         if not doc:
             _log_tool_result("get_document_info", False, "Not found", duration_ms)
-            return f"Document '{document_id}' not found in session '{session_id}'."
+            return (
+                f"Failed to get document info: '{document_id}' was not found in "
+                f"session '{session_id}'."
+            )
 
         info = {
             "document_id": doc.document_id,
@@ -1602,6 +1645,10 @@ def get_document_info(
 # ---------------------------------------------------------------------------
 
 
+#: The REST API's bound for a page of chunks.
+_MAX_CHUNK_PAGE = 500
+
+
 @mcp.tool()
 def get_document_chunks(
     document_id: str,
@@ -1628,9 +1675,19 @@ def get_document_chunks(
         {"document_id": document_id, "session_id": session_id, "offset": offset, "limit": limit},
     )
 
+    if offset < 0 or not 1 <= limit <= _MAX_CHUNK_PAGE:
+        return (
+            f"Failed to get document chunks: offset must be >= 0 and limit between 1 "
+            f"and {_MAX_CHUNK_PAGE} (got offset={offset}, limit={limit})."
+        )
+
     try:
         backend = _get_backend()
-        _config = _get_config()
+        if not any(d.document_id == document_id for d in backend.get_documents(session_id)):
+            return (
+                f"Failed to get document chunks: '{document_id}' was not found in "
+                f"session '{session_id}'."
+            )
 
         # Use the session-aware backend via public API (BYOVDB support).
         # We fetch all chunks (up to 10k) so that total_chunks in the response
@@ -1642,10 +1699,6 @@ def get_document_chunks(
         )
 
         duration_ms = (time.time() - start_time) * 1000
-
-        if not results:
-            _log_tool_result("get_document_chunks", True, "No chunks found", duration_ms)
-            return f"No chunks found for document '{document_id}'."
 
         # Sort by chunk_index and apply pagination
         sorted_results = sorted(results, key=lambda x: x.get("metadata", {}).get("chunk_index", 0))
@@ -1666,7 +1719,11 @@ def get_document_chunks(
         result = {
             "document_id": document_id,
             "total_chunks": len(sorted_results),
-            "showing": f"{offset + 1}-{offset + len(paginated)} of {len(sorted_results)}",
+            "showing": (
+                f"{offset + 1}-{offset + len(paginated)} of {len(sorted_results)}"
+                if paginated
+                else f"none of {len(sorted_results)}"
+            ),
             "chunks": chunks_info,
         }
 
@@ -1885,7 +1942,10 @@ def reindex_document(
 
     :param document_id: The document ID to reindex.
     :param session_id: Session identifier — used to verify ownership.
-    :param force_rebuild: If true, rebuild the collection if embedding dimension changed.
+    :param force_rebuild: If true, recreate the collection at the configured
+        embedding dimension when it differs, but only while the collection is
+        empty. A collection holding documents is never dropped from here:
+        every session's documents live in it.
     :returns: Confirmation or error message.
     """
     session_id, _user_id = _resolve_session(session_id, session_token)
@@ -1905,24 +1965,56 @@ def reindex_document(
         if not doc:
             duration_ms = (time.time() - start_time) * 1000
             _log_tool_result("reindex_document", False, "Not found", duration_ms)
-            return f"Document '{document_id}' not found in session '{session_id}'."
+            return (
+                f"Failed to reindex document: '{document_id}' was not found in "
+                f"session '{session_id}'."
+            )
 
         # Get file path
         file_path = backend.get_document_file_path(document_id, session_id)
         if not file_path or not os.path.exists(file_path):
             duration_ms = (time.time() - start_time) * 1000
             _log_tool_result("reindex_document", False, "File not found", duration_ms)
-            return f"Source file for document '{document_id}' not found on disk."
+            return (
+                f"Failed to reindex document: the source file for '{document_id}' "
+                f"is no longer on disk."
+            )
 
         # Delete existing chunks from Milvus
         config = backend.get_session_config(session_id)
 
         if force_rebuild:
+            from lasagna.api._collection_manager import collection_is_empty
+
             collection_dim = backend.get_collection_embedding_dim(config.collection_name)
             rebuild_signature = f"{config.collection_name}:{config.embedding_dim}"
             with _rebuild_lock:
                 if _get_rebuild_signature() != rebuild_signature:
                     if collection_dim is None or collection_dim != config.embedding_dim:
+                        # A session-scoped tool dropping the shared collection let
+                        # any tenant, after one patch of its own embedding_dim,
+                        # delete every other tenant's vectors with no admin token.
+                        if not collection_is_empty(
+                            backend.get_vector_backend(session_id), config.collection_name
+                        ):
+                            duration_ms = (time.time() - start_time) * 1000
+                            _log_tool_result(
+                                "reindex_document", False, "Collection not empty", duration_ms
+                            )
+                            stored = (
+                                f"{collection_dim} dimensions"
+                                if collection_dim is not None
+                                else "a size that could not be read"
+                            )
+                            return (
+                                f"Failed to reindex document: the collection "
+                                f"{config.collection_name!r} is embedded at {stored} and "
+                                f"holds documents, possibly other sessions'. Rebuilding it "
+                                f"for {config.embedding_dim} would delete all of them, so "
+                                f"reindex_document never does. Use a profile at the stored "
+                                f"size, or have an operator run rebuild_collection (admin "
+                                f"token, confirm=true)."
+                            )
                         logger.info(
                             "Rebuild requested: "
                             f"collection_dim={collection_dim}, "
@@ -2016,7 +2108,14 @@ def clear_session(
     if not confirm:
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("clear_session", False, "Not confirmed", duration_ms)
-        return "Operation cancelled. Set confirm=True to delete all documents in the session."
+        return json.dumps(
+            {
+                "error": (
+                    "confirm must be true. Nothing was deleted; this deletes every "
+                    f"document in session {session_id!r}."
+                )
+            }
+        )
 
     try:
         backend = _get_backend()
@@ -2253,7 +2352,7 @@ def list_profiles(
         profiles = manager.list_profiles(
             include_builtin=include_builtin,
             session_id=session_id,
-            user_id=user_id,
+            user_id=_profile_owner(user_id),
         )
 
         duration_ms = (time.time() - start_time) * 1000
@@ -2337,10 +2436,10 @@ def set_active_profile(
     try:
         from lasagna.core.session_config import get_knowledge_config_manager
 
-        from lasagna.api._profile_guard import set_profile_checked
-
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        _result = set_profile_checked(manager, profile_name, session_id)
+        manager.set_active_profile(
+            profile_name, session_id=session_id, user_id=_profile_owner(user_id)
+        )
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("set_active_profile", True, f"activated={profile_name}", duration_ms)
@@ -2437,6 +2536,17 @@ def set_focused_documents(
         doc_id_list = []
         if document_ids and document_ids.strip():
             doc_id_list = [d.strip() for d in document_ids.split(",") if d.strip()]
+
+        if doc_id_list:
+            # An unknown id was accepted with "Focused on 2 document(s)", and
+            # every later search in the session then quietly returned nothing.
+            known = {d.document_id for d in _get_backend().get_documents(session_id)}
+            unknown = [d for d in doc_id_list if d not in known]
+            if unknown:
+                return (
+                    f"Failed to set focused documents: not in session '{session_id}': "
+                    f"{', '.join(unknown)}. Focus was not changed."
+                )
 
         manager.set_focused_document_ids(doc_id_list, session_id)
 
@@ -2583,7 +2693,8 @@ def patch_rag_config(
             )
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        result = manager.patch_config(patch, session_id)
+        manager.patch_config(patch, session_id)
+        result = manager.get_config(session_id, user_id=_profile_owner(user_id))
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("patch_rag_config", True, f"keys={list(patch.keys())}", duration_ms)
@@ -2630,7 +2741,7 @@ def save_rag_profile(
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
         _result = manager.save_profile(
-            profile_name, config_dict, session_id, set_active, user_id=user_id
+            profile_name, config_dict, session_id, set_active, user_id=_profile_owner(user_id)
         )
 
         duration_ms = (time.time() - start_time) * 1000
@@ -2666,7 +2777,14 @@ def delete_rag_profile(
         from lasagna.core.session_config import get_knowledge_config_manager
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        _result = manager.delete_profile(profile_name, session_id, user_id=user_id)
+        owner = _profile_owner(user_id)
+        if not any(
+            p["name"] == profile_name
+            for p in manager.list_profiles(session_id=session_id, user_id=owner)
+        ):
+            # Deleting nothing answered "deleted successfully".
+            return json.dumps({"error": f"Profile {profile_name!r} not found."})
+        _result = manager.delete_profile(profile_name, session_id, user_id=owner)
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("delete_rag_profile", True, f"profile={profile_name}", duration_ms)
@@ -2698,7 +2816,10 @@ def reset_rag_config(
             raise ValueError("scope must be 'active' or 'all'")
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        result = manager.reset_config(scope, session_id)
+        reset = manager.reset_config(scope, session_id)
+        result = manager.get_config(session_id, user_id=_profile_owner(user_id))
+        if "config" in reset:
+            result["config"] = reset["config"]
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("reset_rag_config", True, f"scope={scope}", duration_ms)
@@ -3543,6 +3664,16 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
                 },
                 status_code=404,
             )
+        # Off unless enabled is not enough: a page the operator visits could
+        # drive it with a text/plain POST (no preflight) or by DNS rebinding.
+        # Ran `clear_session` from a foreign origin before this.
+        from mcp.server.transport_security import TransportSecurityMiddleware
+
+        refused = await TransportSecurityMiddleware(
+            transport_guard.loopback_browser_guard()
+        ).validate_request(request, is_post=True)
+        if refused is not None:
+            return refused
         try:
             body = await request.json()
             tool_name = body.get("tool")
@@ -3595,14 +3726,18 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
 # ---------------------------------------------------------------------------
 
 
-def create_mcp_server(host: str = "0.0.0.0", port: int = 8005) -> FastMCP:
+def create_mcp_server(
+    host: str = "0.0.0.0", port: int = 8005, transport_security: Any = None
+) -> FastMCP:
     """Create a configured MCP server instance without starting it.
 
     Returns a FastMCP instance with all RAG tools registered.
     Can be used standalone (via ``main()``) or mounted inside a FastAPI app
     for single-process deployments (e.g. ARM64 with Milvus Lite).
+    ``transport_security`` is FastMCP's Host/Origin check for the SSE
+    endpoints; FastMCP turns it on by itself only for a loopback ``host``.
     """
-    server = FastMCP("rag_knowledge", host=host, port=port)
+    server = FastMCP("rag_knowledge", host=host, port=port, transport_security=transport_security)
 
     # Search
     server.add_tool(_flag_failures(search))

@@ -256,6 +256,10 @@ class DatabasePersistenceMixin:
         except Exception as exc:
             logger.warning(f"Failed to persist session states to PostgreSQL: {exc}")
 
+    def _read_persisted_session(self, session_id: str) -> None:
+        """Not used here: each request gets a manager that loads its session fresh."""
+        return None
+
     def _persist_single_session(self, session_id: str) -> None:
         """Persist a single session (more efficient than persisting all)."""
         state = self._session_states.get(session_id)

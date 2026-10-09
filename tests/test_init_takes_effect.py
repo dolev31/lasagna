@@ -190,3 +190,58 @@ class TestTheEmbeddingModelIsConfigurableFromTheSDK:
 
         source = inspect.getsource(rag_backend.RAGBackend._do_init)
         assert "get_embedding_manager(rag_config)" in source
+
+
+class TestTheCommandsAfterInitReadWhatItWrote:
+    """`init` wrote RAG_SETTINGS_FILE to ./.env and nothing read it.
+
+    In the directory `init` ran in, `lasagna serve` loaded BAAI/bge-m3 although
+    the user had picked the 80 MB speed model. The CLI now takes that one key
+    from ./.env; nothing else in the file, and never over the environment.
+    """
+
+    def _resolved(self, tmp_path, env_lines, extra_env=None):
+        settings = tmp_path / "settings.lasagna.toml"
+        settings.write_text('[rag]\nembedding_model = "all-MiniLM-L6-v2"\nembedding_dim = 384\n')
+        (tmp_path / ".env").write_text(
+            "\n".join(line.format(settings=settings) for line in env_lines) + "\n"
+        )
+        probe = (
+            "import os\n"
+            "from typer.testing import CliRunner\n"
+            "from lasagna import cli\n"
+            "CliRunner().invoke(cli.app, ['skills', 'list'])\n"
+            "from lasagna.core.config import get_rag_config\n"
+            "print(get_rag_config().embedding_model, os.environ.get('LASAGNA_PROBE_SECRET'))\n"
+        )
+        env = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "PYTHONPATH": str(REPO / "src"),
+            **(extra_env or {}),
+        }
+        result = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            cwd=tmp_path,
+            env=env,
+        )
+        assert result.returncode == 0, result.stderr[-500:]
+        return result.stdout.strip().splitlines()[-1]
+
+    def test_the_cli_uses_the_settings_file_init_pointed_at(self, tmp_path):
+        line = self._resolved(
+            tmp_path, ["RAG_SETTINGS_FILE={settings}", "LASAGNA_PROBE_SECRET=from-dotenv"]
+        )
+        assert line.startswith("all-MiniLM-L6-v2 "), line
+        assert line.endswith(" None"), "a key other than RAG_SETTINGS_FILE was loaded"
+
+    def test_the_environment_still_wins(self, tmp_path):
+        other = tmp_path / "other.toml"
+        other.write_text('[rag]\nembedding_model = "BAAI/bge-small-en-v1.5"\nembedding_dim = 384\n')
+        line = self._resolved(
+            tmp_path, ["RAG_SETTINGS_FILE={settings}"], {"RAG_SETTINGS_FILE": str(other)}
+        )
+        assert line.startswith("BAAI/bge-small-en-v1.5 "), line

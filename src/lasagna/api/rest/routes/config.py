@@ -11,9 +11,11 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
+from pydantic import ValidationError
 
+from lasagna.api._profile_guard import EmbeddingSizeConflict
 from lasagna.api.rag_backend import RAGBackend
-from ..dependencies import get_backend, get_session_id, get_user_id
+from ..dependencies import get_backend, get_profile_owner, get_session_id, get_user_id
 from ..models import ConfigPatchRequest, ConfigResponse, ProfileInfo, ProfileListResponse
 
 
@@ -56,6 +58,23 @@ async def get_config(
 ):
     """Get the current RAG configuration for this session."""
     cfg = backend.get_session_config(session_id)
+    try:
+        return _config_response(cfg)
+    except ValidationError as exc:
+        # A value stored before writes were validated. Say which and how to
+        # recover, rather than a 500 that leaves the session un-readable.
+        keys = sorted({str(e["loc"][0]) for e in exc.errors() if e.get("loc")})
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"This session's stored configuration has invalid values for "
+                f"{', '.join(keys)}. Correct them with PATCH /api/v1/config, or "
+                f"clear them with POST /api/config/knowledge/reset."
+            ),
+        )
+
+
+def _config_response(cfg) -> ConfigResponse:
     return ConfigResponse(
         vector_backend=getattr(cfg, "vector_backend", "milvus"),
         embedding_model=cfg.embedding_model,
@@ -189,6 +208,8 @@ async def patch_config(
         sp = get_session_provider()
         if not getattr(sp, "_delegates_to_manager", False):
             sp.deep_merge_config_overrides(session_id, patch_dict)
+    except EmbeddingSizeConflict as conflict:
+        raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as ve:
         logger.warning(f"Validation error patching config: {ve}")
         raise HTTPException(status_code=422, detail=str(ve))
@@ -203,7 +224,7 @@ async def patch_config(
 async def apply_profile(
     profile_name: str,
     session_id: str = Depends(get_session_id),
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(get_profile_owner),
     backend: RAGBackend = Depends(get_backend),
 ):
     """Apply a preset configuration profile for this session."""
@@ -216,15 +237,8 @@ async def apply_profile(
     try:
         from lasagna.core.session_config import get_knowledge_config_manager
 
-        from lasagna.api._profile_guard import EmbeddingSizeConflict, set_profile_checked
-
         mgr = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        set_profile_checked(
-            mgr,
-            profile_name,
-            session_id,
-            vector_backend=getattr(backend, "_vector_backend", None),
-        )
+        mgr.set_active_profile(profile_name, session_id=session_id, user_id=user_id)
     except EmbeddingSizeConflict as conflict:
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as ve:

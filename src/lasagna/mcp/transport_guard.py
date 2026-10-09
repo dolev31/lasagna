@@ -48,7 +48,6 @@ enforced.
 from __future__ import annotations
 
 import os
-import secrets
 from typing import Optional
 
 from lasagna.api.rest.auth_mode import REQUIRE_AUTH_ENV, reject_unverified_identity, require_auth
@@ -107,6 +106,38 @@ class MCPAuthError(ValueError):
     Subclasses ``ValueError`` because ``_resolve_session`` already raises that
     for a missing session, so callers that catch it keep working.
     """
+
+
+#: Extra ``Host`` values a loopback HTTP surface accepts, comma-separated
+#: (``host`` or ``host:*``), e.g. a container's service name.
+ALLOWED_HOSTS_ENV = "RAG_ALLOWED_HOSTS"
+
+
+def _env_list(name: str) -> list:
+    return [v.strip() for v in os.environ.get(name, "").split(",") if v.strip()]
+
+
+def loopback_browser_guard():
+    """The ``Host``/``Origin`` allow-list for an HTTP surface meant for this machine.
+
+    A loopback server is still reachable from any web page its operator
+    visits: by a cross-origin "simple" request (no preflight), or by DNS
+    rebinding, where the page's own host name is pointed at 127.0.0.1. The
+    first carries a foreign ``Origin``, the second a foreign ``Host``. The
+    standalone SSE server refuses both (FastMCP does this for a loopback
+    bind); the embedded ``/mcp`` mount and the ``/api/call`` tester did not.
+    Origins named in ``RAG_CORS_ORIGINS`` stay allowed, as they are for REST.
+    """
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    loopback = ("127.0.0.1", "localhost", "[::1]")
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[h for name in loopback for h in (name, f"{name}:*")]
+        + _env_list(ALLOWED_HOSTS_ENV),
+        allowed_origins=[o for name in loopback for o in (f"http://{name}", f"http://{name}:*")]
+        + _env_list("RAG_CORS_ORIGINS"),
+    )
 
 
 #: Directory a networked, authenticated MCP surface may read server-side files
@@ -181,7 +212,7 @@ def guard_admin(admin_token: Optional[str], *, tool: str) -> None:
     if not enforcement_active():
         return
 
-    from lasagna.api.rest.auth_mode import configured_secret
+    from lasagna.api.rest.auth_mode import configured_secret, secret_matches
 
     expected = configured_secret("RAG_ADMIN_TOKEN")
     if not expected:
@@ -192,7 +223,7 @@ def guard_admin(admin_token: Optional[str], *, tool: str) -> None:
             f"equivalent returns 503 in this state. Set RAG_ADMIN_TOKEN and "
             f"pass it as the `admin_token` argument."
         )
-    if not admin_token or not secrets.compare_digest(admin_token, expected):
+    if not admin_token or not secret_matches(admin_token, expected):
         raise MCPAuthError(
             f"{tool} requires the admin token. It affects the whole instance "
             f"rather than a single session, so it takes the same credential as "

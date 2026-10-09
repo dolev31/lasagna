@@ -8,13 +8,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+
+from lasagna.api.rest.dependencies import get_session_id
 
 from .schema import get_schema_dict
 from .validation import validate_config
 
-router = APIRouter(tags=["configurator"])
+# With auth on, a verified caller only, like every other route in the app.
+# Validation looks custom pipeline names up in the registry, which answers
+# whether a name is registered on this instance.
+router = APIRouter(tags=["configurator"], dependencies=[Depends(get_session_id)])
 
 
 # ---------------------------------------------------------------------------

@@ -79,11 +79,22 @@ class TestTheAnonymousSessionIsNotAFreePass:
         health checks. If health ever does take a session, this fails and the
         decision gets revisited instead of silently becoming wrong.
         """
-        import inspect
+        from fastapi.routing import APIRoute
 
+        from lasagna.api.rest.dependencies import get_session_id
         from lasagna.api.rest.routes import health
 
-        assert "get_session_id" not in inspect.getsource(health)
+        def calls(dependant):
+            for sub in dependant.dependencies:
+                yield sub.call
+                yield from calls(sub)
+
+        probes = [
+            r for r in health.router.routes if isinstance(r, APIRoute) and "/health" in r.path
+        ]
+        assert len(probes) == 3
+        for route in probes:
+            assert get_session_id not in set(calls(route.dependant)), route.path
 
 
 class TestAContainerCanStillStart:

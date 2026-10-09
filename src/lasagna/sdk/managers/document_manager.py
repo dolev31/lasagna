@@ -317,6 +317,7 @@ class DocumentManager:
                     chunk_count=doc.chunks_count,
                     file_size=doc.file_size,
                     created_at=doc.upload_date,
+                    error_message=getattr(doc, "error_message", None),
                 )
             await asyncio.sleep(poll_interval)
 

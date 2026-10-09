@@ -39,6 +39,64 @@ class ValidationResult:
         }
 
 
+def _runtime_defaults() -> dict[str, Any]:
+    """The config's own defaults: the types every stored value must keep."""
+    from lasagna.core.config import get_rag_config
+
+    return get_rag_config()._config
+
+
+def _type_name(expected: Any) -> str:
+    if isinstance(expected, bool):
+        return "boolean"
+    if isinstance(expected, int):
+        return "integer"
+    if isinstance(expected, float):
+        return "number"
+    if isinstance(expected, str):
+        return "string"
+    if isinstance(expected, dict):
+        return "object"
+    return "list"
+
+
+def _has_type_of(value: Any, expected: Any) -> bool:
+    if isinstance(expected, bool):
+        return isinstance(value, bool)
+    if isinstance(value, bool):
+        return False
+    if isinstance(expected, int):
+        return isinstance(value, int)
+    if isinstance(expected, float):
+        return isinstance(value, (int, float))
+    if isinstance(expected, str):
+        return isinstance(value, str)
+    if isinstance(expected, dict):
+        return isinstance(value, dict)
+    if isinstance(expected, (list, tuple)):
+        return isinstance(value, (list, tuple))
+    return True
+
+
+def _check_types_against_defaults(
+    config: dict[str, Any],
+    defaults: dict[str, Any],
+    covered: set[str],
+    result: ValidationResult,
+    prefix: str = "",
+) -> None:
+    for key, value in config.items():
+        name = f"{prefix}{key}"
+        expected = defaults.get(key) if isinstance(defaults, dict) else None
+        if value is None or expected is None:
+            continue
+        if isinstance(expected, dict) and isinstance(value, dict):
+            _check_types_against_defaults(value, expected, covered, result, prefix=f"{name}.")
+            continue
+        if name not in covered and not _has_type_of(value, expected):
+            result.add_error(name, f"Expected {_type_name(expected)}, got {type(value).__name__}")
+
+
 def validate_config(
     config: dict[str, Any], baseline: dict[str, Any] | None = None
 ) -> ValidationResult:
@@ -70,12 +128,17 @@ def validate_config(
         if value is None:
             continue
 
-        # Type checks
+        # Type checks. bool is an int subclass and 800.5 is not a chunk size,
+        # so both used to pass as integers and reach code that indexes with them.
         if p.type == "boolean" and not isinstance(value, bool):
             result.add_error(p.key, f"Expected boolean, got {type(value).__name__}")
-        elif p.type in ("integer", "float") and not isinstance(value, (int, float)):
+        elif p.type in ("integer", "float") and (
+            isinstance(value, bool) or not isinstance(value, (int, float))
+        ):
             result.add_error(p.key, f"Expected number, got {type(value).__name__}")
-        elif p.type in ("integer", "float") and isinstance(value, (int, float)):
+        elif p.type == "integer" and not isinstance(value, int):
+            result.add_error(p.key, f"Expected integer, got {type(value).__name__}")
+        elif p.type in ("integer", "float"):
             if p.min_value is not None and value < p.min_value:
                 result.add_error(p.key, f"Value {value} is below minimum {p.min_value}")
             if p.max_value is not None and value > p.max_value:
@@ -89,6 +152,13 @@ def validate_config(
                 result.add_error(p.key, f"Expected list, got {type(value).__name__}")
             elif not all(isinstance(item, str) for item in value):
                 result.add_error(p.key, "All items must be strings")
+
+    # --- Every other key the config knows, by the type its default has ---
+    # The schema covers about a hundred keys and the config holds more. A value
+    # of the wrong type for one of the rest was stored with a 200 and then broke
+    # every read of the session's config (a 500 on GET /config) until a reset.
+    covered = {p.key for p in PARAMETERS}
+    _check_types_against_defaults(config, _runtime_defaults(), covered, result)
 
     # --- Cross-field validation ---
     chunk_size = config.get("chunk_size", 800)

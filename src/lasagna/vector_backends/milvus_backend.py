@@ -15,6 +15,7 @@ Features:
 - Optional hybrid search (with native BM25 on Standalone/Distributed)
 """
 
+import sys
 import threading
 from typing import Any, Dict, List, Optional, Union
 
@@ -47,6 +48,44 @@ except ImportError:
     MilvusCollectionSchema = None
     MilvusFieldSchema = None
     logger.warning("pymilvus not installed. MilvusBackend will not be available.")
+
+
+def _lite_store_locked(db_path: str) -> bool:
+    """Whether another process holds the Milvus Lite store's lock.
+
+    Milvus Lite admits one process per store, by an advisory lock on
+    ``<store>/LOCK``. Probing it is the only way to tell that case apart from
+    any other failure to open, since pymilvus drops the cause.
+    """
+    import os
+
+    lock_path = os.path.join(db_path, "LOCK")
+    if not os.path.exists(lock_path):
+        return False
+    try:
+        fd = os.open(lock_path, os.O_RDWR)
+    except OSError:
+        return False
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            try:
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            except OSError:
+                return True
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                return True
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
 
 
 def _hit_primary_key(hit: Dict[str, Any]) -> str:
@@ -226,6 +265,15 @@ class MilvusBackend(VectorStoreAdapter):
                         "Either db_path (for Lite) or uri (for Standalone) is required"
                     )
             except Exception as e:
+                if self._db_path and _lite_store_locked(self._db_path):
+                    # pymilvus reports only "Open local milvus failed"; the
+                    # cause was in a traceback logged above it.
+                    raise ConnectionError(
+                        f"The Milvus Lite store at {self._db_path} is in use by another "
+                        f"process (a running `lasagna serve`, MCP server or benchmark). "
+                        f"Wait for it to finish or stop it, or give this run its own "
+                        f"store with RAG_DB_DIR=<another directory>."
+                    ) from e
                 error_msg = str(e)
                 if "timeout" in error_msg.lower() or "connection" in error_msg.lower():
                     raise ConnectionError(f"Failed to connect to Milvus: {error_msg}") from e

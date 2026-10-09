@@ -51,6 +51,23 @@ if TYPE_CHECKING:
     from lasagna.storage.base import StorageBackend
 
 
+def is_dim_mismatch_error(exc: BaseException) -> bool:
+    """Whether an insert failed because the vectors do not fit the collection's size.
+
+    Milvus Lite 3 says "vector field 'embedding' expected dim 1024, got 384".
+    Matching only the older wordings, the first upload of a session at a size
+    other than the server's default never rebuilt the empty collection made at
+    startup: the document failed, and was retried twice, 30 s apart, to fail
+    the same way.
+    """
+    message = str(exc).lower()
+    return (
+        "divide the dim" in message
+        or "expected dim" in message
+        or ("dimension" in message and "length" in message)
+    )
+
+
 class DocumentPipeline:
     """Manages document upload, processing, and lifecycle.
 
@@ -671,9 +688,7 @@ class DocumentPipeline:
 
             return len(batch_data), chunks_for_bm25
 
-        def _is_dim_mismatch_error(exc: Exception) -> bool:
-            message = str(exc).lower()
-            return "divide the dim" in message or ("dimension" in message and "length" in message)
+        _is_dim_mismatch_error = is_dim_mismatch_error
 
         def _is_schema_type_mismatch_error(exc: Exception) -> bool:
             message = str(exc)
@@ -704,14 +719,22 @@ class DocumentPipeline:
                         f"by another thread. Please retry your upload."
                     )
 
-                has_other_docs = self._collection_manager.collection_has_documents(
+                # Any rows, or rows that cannot be counted, belong to some
+                # session; an upload must not drop them. A schema-type mismatch
+                # rebuilt even a populated collection.
+                has_other_docs = not self._collection_manager.collection_is_empty(
                     config.collection_name, backend=backend
                 )
 
-                if has_other_docs and _is_dim_mismatch_error(exc):
+                if has_other_docs:
+                    mismatch = (
+                        "EMBEDDING DIMENSION"
+                        if _is_dim_mismatch_error(exc)
+                        else "COLLECTION SCHEMA"
+                    )
                     error_msg = (
-                        "EMBEDDING DIMENSION MISMATCH during insert:\n"
-                        "Cannot insert document - embedding dimensions don't match collection.\n"
+                        f"{mismatch} MISMATCH during insert:\n"
+                        "Cannot insert document - it does not match the collection's schema.\n"
                         "Collection contains existing documents that would be lost.\n\n"
                         "To resolve:\n"
                         "  1. Use the same embedding model as existing documents\n"

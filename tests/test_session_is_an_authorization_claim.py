@@ -184,15 +184,17 @@ class TestTheServerRefusesToExposeItselfUnauthenticated:
         source = inspect.getsource(cli.serve)
         assert "require_auth_or_refuse_to_start" in source
 
-    def test_uvicorn_is_told_to_trust_forwarding_headers(self):
-        """Without this the app sees the proxy as the client for every request,
-        which makes any per-IP control meaningless and the access log wrong."""
+    def test_uvicorn_can_be_told_to_trust_a_named_proxy(self):
+        """Behind a proxy the app would otherwise see the proxy as every client.
+        Trust is opt-in (RAG_FORWARDED_ALLOW_IPS): trusting 127.0.0.1 by default
+        let any local client forge its address; see
+        test_serve_trusts_forwarding_only_from_a_named_proxy.py."""
         import inspect
 
         from lasagna import cli
 
         source = inspect.getsource(cli.serve)
-        assert "proxy_headers=True" in source
+        assert "RAG_FORWARDED_ALLOW_IPS" in source
         assert "forwarded_allow_ips" in source
 
 

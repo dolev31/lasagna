@@ -116,7 +116,7 @@ class CitationStoreMixin:
                     f"Removed document {document_id} from focused_document_ids "
                     f"for session {session_id}"
                 )
-                self._persist_session_states()
+                self._persist_single_session(session_id or "default")
 
             # Filter out stale citations and chunks
             original_citations_count = len(state.last_citations)

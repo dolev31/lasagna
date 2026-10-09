@@ -150,6 +150,12 @@ class DeleteResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _package_version() -> str:
+    from lasagna.sdk._version import __version__
+
+    return __version__
+
+
 class HealthCheckDetail(BaseModel):
     status: str  # "up" | "down" | "degraded"
     latency_ms: Optional[float] = None
@@ -159,7 +165,8 @@ class HealthCheckDetail(BaseModel):
 class HealthResponse(BaseModel):
     status: str  # "healthy" | "degraded" | "unhealthy"
     checks: Dict[str, HealthCheckDetail] = Field(default_factory=dict)
-    version: str = "1.0.0"
+    #: The installed package's version; a constant "1.0.0" was reported for 0.1.0a1.
+    version: str = Field(default_factory=lambda: _package_version())
 
     #: Whether this instance treats ``session_id`` as an authorization claim.
     #: There was previously no way to ask, so an operator could not tell a

@@ -86,7 +86,32 @@ def _cli(
     # Profiles and settings saved by one command must apply in the next process
     # (`configure` then `upload`, `search`, `serve`): keep sessions on disk.
     os.environ.setdefault("RAG_SESSION_BACKEND", "persistent")
+    _settings_file_from_dotenv()
     _configure_cli_logging(verbose)
+
+
+def _settings_file_from_dotenv() -> None:
+    """Use the settings file `lasagna init` pointed ./.env at.
+
+    `init` writes ``RAG_SETTINGS_FILE=...`` to ./.env, and nothing read it:
+    `lasagna serve` in that directory loaded the 5.4 GB default model the user
+    had just declined. Only this key is taken, and only from the working
+    directory, never over a value already in the environment: a .env holds
+    other projects' credentials, which importing Lasagna must not pick up.
+    """
+    if os.environ.get("RAG_SETTINGS_FILE"):
+        return
+    env_file = Path.cwd() / ".env"
+    if not env_file.is_file():
+        return
+    try:
+        from dotenv import dotenv_values
+
+        value = dotenv_values(env_file).get("RAG_SETTINGS_FILE")
+    except Exception:
+        return
+    if value:
+        os.environ["RAG_SETTINGS_FILE"] = value
 
 
 # ---------------------------------------------------------------------------
@@ -351,10 +376,14 @@ def init():
             f"Vector DB: [cyan]{vector_backend}[/cyan]\n"
             f"Embeddings: [cyan]{embedding_config.get('embedding_model', 'cloud')}[/cyan]\n"
             f"LLM: [cyan]{llm_provider}[/cyan]\n\n"
-            f"[dim]Quick start:[/dim]\n"
-            f"  python -m lasagna upload ./document.pdf\n"
-            f'  python -m lasagna search "your query"\n'
-            f"  python -m lasagna serve",
+            f"[dim]Quick start (from this directory):[/dim]\n"
+            f"  lasagna upload ./document.pdf\n"
+            f'  lasagna search "your query"\n'
+            f"  lasagna serve\n\n"
+            f"[dim]`lasagna` commands run here read RAG_SETTINGS_FILE from ./.env.\n"
+            f"Python code and other directories do not: there, first run\n"
+            f"  export RAG_SETTINGS_FILE={settings_path}\n"
+            f"Lasagna reads no other key from .env; export API keys in your shell.[/dim]",
         )
     )
 
@@ -386,21 +415,32 @@ def upload(
             doc = await client.documents.wait_for_processing(result.document_id)
             result.status = doc.status
             result.chunk_count = getattr(doc, "chunk_count", result.chunk_count)
-            return result
+            return result, doc
         finally:
             await client.close()
 
     try:
-        result = _run(_upload())
+        result, doc = _run(_upload())
     except Exception as exc:
         _error(f"Upload failed: {exc}")
+
+    from lasagna.sdk.types import DocumentStatus
+
+    if doc.status != DocumentStatus.READY:
+        # A document that failed to index printed the green "Uploaded
+        # successfully" panel with "Status: DocumentStatus.FAILED", exit 0.
+        _error(
+            f"Upload failed: {path.name} could not be indexed "
+            f"({doc.error_message or 'no reason was recorded'}). "
+            f"Document ID: {result.document_id}"
+        )
 
     console.print(
         Panel.fit(
             f"[green]Uploaded successfully[/green]\n\n"
             f"Document ID: [cyan]{result.document_id}[/cyan]\n"
             f"Chunks: [cyan]{result.chunk_count}[/cyan]\n"
-            f"Status: [cyan]{result.status}[/cyan]",
+            f"Status: [cyan]{getattr(result.status, 'value', result.status)}[/cyan]",
         )
     )
 
@@ -554,12 +594,17 @@ def serve(
     if configurator:
         os.environ["RAG_CONFIGURATOR"] = "true"
 
+    # The address a browser can use: 0.0.0.0 and :: are bind-alls, not addresses.
+    shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    shown = f"[{shown}]" if ":" in shown else shown
+    base = f"http://{shown}:{port}"
     console.print(
         Panel.fit(
             f"[bold cyan]RAG Knowledge API[/bold cyan]\n\n"
-            f"API: http://{host}:{port}/api/v1\n"
-            f"Docs: http://{host}:{port}/docs\n"
-            + (f"Configurator: http://localhost:{port}/configurator\n" if configurator else ""),
+            f"API: {base}/api/v1\n"
+            f"Health: {base}/api/v1/health\n"
+            f"Docs: {base}/docs\n"
+            + (f"Configurator: {base}/configurator\n" if configurator else ""),
         )
     )
 
@@ -573,7 +618,7 @@ def serve(
             try:
                 import webbrowser
 
-                webbrowser.open(f"http://localhost:{port}/configurator")
+                webbrowser.open(f"{base}/configurator")
             except Exception:
                 pass  # Silently skip on headless systems
 
@@ -597,17 +642,19 @@ def serve(
         _error(str(exc))
     warn_once_if_unauthenticated(host)
 
+    # Forwarding headers are trusted only from a proxy the operator names.
+    # Trusting 127.0.0.1 by default let any local client choose its own
+    # X-Forwarded-For, and with it a fresh rate-limit bucket per request: 40
+    # of 40 session mints went through where 35 should have been refused. A
+    # proxy on this host and a client on it are indistinguishable by address.
+    trusted_proxies = os.environ.get("RAG_FORWARDED_ALLOW_IPS", "").strip()
     uvicorn.run(
         "lasagna.api.rest.app:app",
         host=host,
         port=port,
         reload=False,
-        # Trust the reverse proxy's forwarding headers when there is one.
-        # Without these the app sees the proxy's address as the client for
-        # every request, which makes any per-IP control meaningless and the
-        # access log misleading.
-        proxy_headers=True,
-        forwarded_allow_ips=os.environ.get("RAG_FORWARDED_ALLOW_IPS", "127.0.0.1"),
+        proxy_headers=bool(trusted_proxies),
+        forwarded_allow_ips=trusted_proxies or None,
     )
 
 
@@ -643,12 +690,14 @@ def configure(
         _error(f"Failed to initialize config manager: {exc}")
 
     if profile:
-        from lasagna.api._profile_guard import set_profile_checked
+        from lasagna.api._profile_guard import EmbeddingSizeConflict
 
         try:
-            set_profile_checked(mgr, profile, session_id, force=force)
+            mgr.set_active_profile(profile, session_id=session_id, force=force)
+        except EmbeddingSizeConflict as exc:
+            _error(f"{exc} Or pass --force to switch anyway.")
         except ValueError as exc:
-            _error(str(exc).replace("switch with force", "pass --force to switch anyway"))
+            _error(str(exc))
         console.print(f"[green]Applied profile: {profile}[/green]")
         return
 

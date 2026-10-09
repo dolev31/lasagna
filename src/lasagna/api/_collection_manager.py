@@ -454,6 +454,14 @@ class CollectionManager:
             logger.debug(f"Could not check collection stats: {e}")
             return False
 
+    def collection_is_empty(self, collection_name: str, backend: VectorStoreAdapter = None) -> bool:
+        """Whether the collection positively holds no rows: the test before a drop.
+
+        Every session's documents live in this one collection, so unlike
+        `collection_has_documents` a count that cannot be read is not "empty".
+        """
+        return collection_is_empty(backend or self._default_backend, collection_name)
+
     def maybe_reload_embedding_manager(self, config: RAGConfig) -> None:
         """Reload embedding manager if the configured model changes.
 
@@ -461,7 +469,7 @@ class CollectionManager:
         """
         collection_dim = self.get_collection_embedding_dim(config.collection_name)
         if collection_dim is not None and config.embedding_dim != collection_dim:
-            has_data = self.collection_has_documents(config.collection_name)
+            has_data = not self.collection_is_empty(config.collection_name)
 
             if has_data:
                 error_msg = (
@@ -578,3 +586,24 @@ class CollectionManager:
         else:
             logger.info(f"Initializing vector backend: {backend_name}")
             return get_backend(backend_name, **backend_cfg)
+
+
+def collection_is_empty(backend: VectorStoreAdapter, collection_name: str) -> bool:
+    """Whether ``collection_name`` positively holds no rows on ``backend``.
+
+    False when the count cannot be read: a drop decided on "could not tell"
+    takes every session's documents with it.
+    """
+    try:
+        if not backend.has_collection(collection_name):
+            return True
+        stats = backend.get_collection_stats(collection_name)
+        rows = (
+            stats.get("row_count") if isinstance(stats, dict) else getattr(stats, "row_count", None)
+        )
+        return rows is not None and int(rows) == 0
+    except Exception as e:
+        logger.warning(
+            f"Could not count the rows of {collection_name!r}; treating it as not empty: {e}"
+        )
+        return False

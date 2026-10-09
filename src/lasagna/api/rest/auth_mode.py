@@ -206,6 +206,18 @@ _PLACEHOLDER_SECRETS = frozenset(
 MIN_SECRET_LENGTH = 32
 
 
+def secret_matches(presented: str, expected: str) -> bool:
+    """Constant-time comparison of a presented secret with the configured one.
+
+    `secrets.compare_digest` on two ``str`` raises TypeError when either holds
+    a non-ASCII character, which reached the client as a 500 for an
+    ``X-Admin-Token`` of Latin-1 bytes. Bytes have no such restriction.
+    """
+    import secrets
+
+    return secrets.compare_digest(presented.encode("utf-8"), expected.encode("utf-8"))
+
+
 def configured_secret(name: str) -> str:
     """The value of a secret env var, or "" when it is unset or unusable.
 

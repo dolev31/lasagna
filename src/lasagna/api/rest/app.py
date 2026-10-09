@@ -93,7 +93,10 @@ async def _lifespan(app: FastAPI):
         logger.info(
             f"  Embedding:      {rag_config.embedding_model} (dim={rag_config.embedding_dim})"
         )
-        logger.info("  API:            http://0.0.0.0:8000/api/v1/health")
+        # Not an address: the app cannot see where it was bound, and a fixed
+        # "http://0.0.0.0:8000" was wrong for every other bind. `lasagna serve`
+        # prints the real one.
+        logger.info("  Health:         /api/v1/health")
         logger.info("=" * 60)
     except Exception as exc:
         logger.debug(f"Could not log config summary: {exc}")
@@ -252,6 +255,12 @@ async def _rate_limit_middleware(request: Request, call_next):
 # ---------------------------------------------------------------------------
 
 
+def _package_version() -> str:
+    from lasagna.sdk._version import __version__
+
+    return __version__
+
+
 def _require_a_shared_signing_secret() -> None:
     """Refuse to build an authenticating app whose tokens cannot be verified.
 
@@ -293,7 +302,7 @@ def create_app(
             "Upload documents, search semantically, retrieve citations, "
             "and manage configuration profiles."
         ),
-        version="1.0.0",
+        version=_package_version(),
         lifespan=_lifespan,
     )
 
@@ -436,8 +445,16 @@ def create_app(
             # says so at the site rather than relying on the default holding.
             transport_guard.set_transport("http")
 
+            # With auth off this app is loopback-only, and loopback is what a
+            # web page can reach by DNS rebinding: refuse a foreign Host or
+            # Origin, as the standalone /sse does. With auth on, every tool
+            # needs a token such a page does not have.
+            from lasagna.api.rest.auth_mode import require_auth
+
+            guard = None if require_auth() else transport_guard.loopback_browser_guard()
+
             # port is unused when mounted as sub-app; routing handled by FastAPI
-            _mcp = create_mcp_server(host="0.0.0.0", port=8000)
+            _mcp = create_mcp_server(host="0.0.0.0", port=8000, transport_security=guard)
             app.mount("/mcp", _mcp.sse_app())
             logger.info("MCP server embedded at /mcp/sse")
         except Exception as exc:
@@ -463,7 +480,7 @@ def create_app(
     async def root():
         return {
             "service": "RAG Knowledge Base",
-            "version": "1.0.0",
+            "version": _package_version(),
             "docs": "/docs",
             "api": "/api/v1",
             "mcp": "/mcp/sse" if _mcp_embedded else None,

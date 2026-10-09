@@ -275,6 +275,8 @@ class ConfigManager:
                 print("Profile not found")
             ```
         """
+        from ...core.session_config import UnknownProfileError
+
         try:
             from ...core.session_config import get_knowledge_config_manager
 
@@ -287,12 +289,11 @@ class ConfigManager:
                 f"Profile not found: {profile_name}",
                 profile_name=profile_name,
             )
+        except UnknownProfileError as e:
+            # Matched on the text "not found" before; the manager says "Unknown
+            # profile", so a typo surfaced as a generic ConfigurationError.
+            raise ProfileNotFoundError(str(e), profile_name=profile_name) from e
         except Exception as e:
-            if "not found" in str(e).lower():
-                raise ProfileNotFoundError(
-                    f"Profile not found: {profile_name}",
-                    profile_name=profile_name,
-                ) from e
             logger.error(f"Could not set profile: {e}")
             raise ConfigurationError(
                 f"Could not set profile {profile_name}: {e}",

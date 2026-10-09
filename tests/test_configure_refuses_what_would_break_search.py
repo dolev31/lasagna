@@ -52,11 +52,12 @@ def test_a_profile_that_would_break_search_is_refused_and_the_old_one_kept(tmp_p
     assert _cli(tmp_path, "configure", "--profile", "speed").returncode == 0
     stub = (
         "import lasagna.api._profile_guard as g\n"
-        "g.stored_dimension_mismatch = lambda sid, vb=None: (384, 1024)"
+        "g.stored_embedding_dim = lambda collection, vector_backend=None: 384"
     )
     result = _cli(tmp_path, "configure", "--profile", "balanced", extra=stub)
     assert result.returncode != 0
     assert "384" in result.stdout and "1024" in result.stdout
+    assert "--force" in result.stdout
     assert "speed" in _active(tmp_path)
 
     forced = _cli(tmp_path, "configure", "--profile", "balanced", "--force", extra=stub)
@@ -91,3 +92,38 @@ def test_a_profile_switch_applies_after_a_client_copied_the_old_one(tmp_path, mo
         resolved = mgr.get_resolved_config(sid)
         assert resolved["embedding_dim"] != speed["embedding_dim"]
         assert resolved["rerank_top_k"] == 17
+
+
+def test_a_switch_is_refused_while_another_process_holds_the_store(tmp_path):
+    """The store being unreadable is not "nothing to protect".
+
+    With `lasagna serve` holding the Milvus Lite lock, the guard's own connect
+    failed, the failure read as "no documents", and `configure --profile
+    standard` printed "Applied profile: standard" over a 384-dim store.
+    """
+    assert _cli(tmp_path, "configure", "--profile", "speed").returncode == 0
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import sys, time\n"
+            "from pymilvus import MilvusClient\n"
+            "MilvusClient(sys.argv[1])\n"
+            "print('held', flush=True)\n"
+            "time.sleep(120)\n",
+            str(tmp_path / "dbs" / "rag_milvus.db"),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        result = _cli(tmp_path, "configure", "--profile", "standard")
+    finally:
+        holder.kill()
+        holder.wait(timeout=30)
+    assert result.returncode != 0, result.stdout
+    said = " ".join(result.stdout.split())  # Rich wraps long lines
+    assert "could not be read" in said
+    assert "in use by another process" in said
+    assert "speed" in _active(tmp_path)

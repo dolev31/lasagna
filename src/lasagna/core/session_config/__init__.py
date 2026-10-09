@@ -41,6 +41,7 @@ from ._data_models import (
     MAX_CHUNK_CONTENT_LENGTH,
     RAGProfile,
     KnowledgeConfigState,
+    UnknownProfileError,
     _deep_merge,
 )
 from ._profiles import ProfileMixin
@@ -123,6 +124,8 @@ class KnowledgeConfigManager(
         self._profiles_mtime: Optional[float] = None  # unused (kept for compat)
         self._sessions_mtime: Optional[float] = None  # unused (kept for compat)
         self._last_cleanup_time: float = 0
+        # When each cached session was last compared with the store.
+        self._session_checked_at: Dict[str, float] = {}
 
         self._load_defaults()
         # Migration chain: move straggler JSON files first, then import into SQLite
@@ -203,6 +206,7 @@ __all__ = [
     "KnowledgeConfigManager",
     "KnowledgeConfigState",
     "RAGProfile",
+    "UnknownProfileError",
     "get_knowledge_config_manager",
     # Constants (for consumers that import them directly)
     "SCHEMA_VERSION",
