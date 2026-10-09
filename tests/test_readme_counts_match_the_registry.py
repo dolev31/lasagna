@@ -18,6 +18,15 @@ from tests._paths import PACKAGE_DIR
 README = PACKAGE_DIR.parent.parent / "README.md"
 
 
+def _builtins() -> dict:
+    """Listed built-ins per stage. Plugins and components other tests register
+    in this process are not what the README counts."""
+    return {
+        stage: [name for name in names if registry.is_builtin(stage, name)]
+        for stage, names in registry.list_all().items()
+    }
+
+
 @pytest.fixture(scope="module")
 def readme() -> str:
     if not README.is_file():
@@ -29,14 +38,14 @@ def test_the_stage_table_matches_the_registry(readme):
     stated = {
         m.group(1): int(m.group(2)) for m in re.finditer(r"^\| `(\w+)` \| (\d+) \|", readme, re.M)
     }
-    actual = {stage: len(entries) for stage, entries in registry.list_all().items()}
+    actual = {stage: len(names) for stage, names in _builtins().items()}
     assert stated == actual
 
 
 def test_the_component_total_matches_the_registry(readme):
     match = re.search(r"\| Published methods \| (\d+) components \|", readme)
     assert match, "README no longer states the component total"
-    assert int(match.group(1)) == sum(len(e) for e in registry.list_all().values())
+    assert int(match.group(1)) == sum(len(names) for names in _builtins().values())
 
 
 def test_the_benchmark_count_matches_the_public_catalogue(readme):
