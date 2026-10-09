@@ -378,6 +378,9 @@ class SearchOrchestrator:
 
         # Resolve effective embedder AFTER reload (which may change self.embedding_manager)
         effective_embedder = _embedder_override or self.embedding_manager
+        from ..retrieval.search.ranker import bind_embedding_manager
+
+        bind_embedding_manager(reranker, effective_embedder)
 
         # Compute component fingerprint for cache key isolation.
         # This ensures that swapping components (e.g., during ablation studies)
@@ -865,8 +868,8 @@ class SearchOrchestrator:
             # P1-3 FIX: Include embedding for MMR to avoid re-embedding
             hits_for_rerank = [
                 {
-                    "id": hit.get("id"),
-                    "chunk_id": str(hit.get("id", "")),
+                    "id": hit.get("id") or hit.get("chunk_id"),
+                    "chunk_id": str(hit.get("id") or hit.get("chunk_id") or ""),
                     "document_id": hit.get("entity", {}).get("document_id", ""),
                     "embedding": hit.get("entity", {}).get("embedding"),
                     "content": hit.get("entity", {}).get("content", ""),
@@ -1736,6 +1739,9 @@ class SearchOrchestrator:
         from ..retrieval.search.ranker import adapt_reranker_for_pipeline
 
         effective_reranker = adapt_reranker_for_pipeline(_reranker_override or self.reranker)
+        from ..retrieval.search.ranker import bind_embedding_manager
+
+        bind_embedding_manager(effective_reranker, self.embedding_manager)
         original_query = all_queries[0]
 
         hits_for_rerank = [

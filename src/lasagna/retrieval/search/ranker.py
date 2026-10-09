@@ -1341,6 +1341,23 @@ class PipelineRerankerAdapter:
         return out
 
 
+def bind_embedding_manager(reranker: Any, embedding_manager: Any) -> None:
+    """Point a reranker's MMR stage at the embedder the current search uses.
+
+    The reranker is built once with the embedding manager of that moment. When
+    a session or a sweep arm switches embedders, MMR kept re-embedding chunks
+    with the old model and comparing them with vectors from the new one: with
+    a 384-d corpus under a 1024-d default, every reranking arm crashed with
+    "shapes (384,) and (1024,) not aligned".
+    """
+    if embedding_manager is None or not hasattr(embedding_manager, "encode_documents_batch"):
+        return
+    for candidate in (reranker, getattr(reranker, "_inner", None)):
+        mmr = getattr(candidate, "mmr", None)
+        if mmr is not None and hasattr(mmr, "embedding_manager"):
+            mmr.embedding_manager = embedding_manager
+
+
 def adapt_reranker_for_pipeline(reranker: Any) -> Any:
     """Wrap a public-contract reranker; leave internal rerankers untouched.
 

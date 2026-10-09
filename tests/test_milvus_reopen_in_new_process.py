@@ -51,7 +51,9 @@ _PHASE = textwrap.dedent(
             IndexConfig(index_type=IndexType.AUTOINDEX, metric_type=MetricType.COSINE),
         )
         backend.insert(NAME, [{"chunk_id": "c0", "embedding": query, "content": "hello"}])
-    print(len(backend.search(NAME, query, limit=1)))
+    hits = backend.search(NAME, query, limit=1)
+    assert hits and hits[0].id == "c0", [h.id for h in hits]  # real primary key, not "0"
+    print(len(hits))
     print(len(backend.query(NAME, output_fields=["chunk_id"], limit=10)))
     backend.disconnect()
     """

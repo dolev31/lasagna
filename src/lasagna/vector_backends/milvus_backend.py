@@ -49,6 +49,21 @@ except ImportError:
     logger.warning("pymilvus not installed. MilvusBackend will not be available.")
 
 
+def _hit_primary_key(hit: Dict[str, Any]) -> str:
+    """The primary key of a search hit, whatever pymilvus calls it.
+
+    pymilvus 2.x returns it as ``id``; 3.x returns it under the primary field's
+    own name (``chunk_id`` here) and has no ``id`` key. Reading only ``id``
+    gave every chunk the id "0", which collapsed citations and any map keyed by
+    chunk id (agentic context assembly, multi-query fusion) onto one chunk.
+    """
+    for key in ("id", "chunk_id"):
+        value = hit.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return str((hit.get("entity") or {}).get("chunk_id", ""))
+
+
 class MilvusBackend(VectorStoreAdapter):
     """Milvus implementation of VectorStoreAdapter.
 
@@ -675,7 +690,7 @@ class MilvusBackend(VectorStoreAdapter):
                 # Handle both dict and Hit object formats
                 if isinstance(hit, dict):
                     entity = hit.get("entity", {})
-                    hit_id = hit.get("id", 0)
+                    hit_id = _hit_primary_key(hit)
                     hit_score = hit.get("distance", 0.0)
                 else:
                     # pymilvus Hit object
@@ -778,7 +793,7 @@ class MilvusBackend(VectorStoreAdapter):
                 for hit in results[0]:
                     if isinstance(hit, dict):
                         entity = hit.get("entity", {})
-                        hit_id = hit.get("id", 0)
+                        hit_id = _hit_primary_key(hit)
                         hit_score = hit.get("distance", 0.0)
                     else:
                         # pymilvus Hit object

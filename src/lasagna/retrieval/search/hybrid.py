@@ -302,7 +302,7 @@ class MilvusNativeHybridSearcher:
             for rank, hit in enumerate(results[0] if results else []):
                 hybrid_results.append(
                     HybridSearchResult(
-                        chunk_id=str(hit.get("id", "")),
+                        chunk_id=str(hit.get("id") or hit.get("chunk_id") or ""),
                         document_id=hit.get("entity", {}).get("document_id", ""),
                         content=hit.get("entity", {}).get("content", ""),
                         metadata=hit.get("entity", {}).get("metadata", {}),
