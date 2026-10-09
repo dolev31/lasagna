@@ -65,11 +65,17 @@ class DocumentProcessor:
 
         # Fallback to MIME type detection
         mime_type, _ = mimetypes.guess_type(file_path)
-        for ext, supported_mime in DocumentProcessor.SUPPORTED_FORMATS.items():
+        for known, supported_mime in DocumentProcessor.SUPPORTED_FORMATS.items():
             if mime_type == supported_mime:
-                return ext
+                return known
 
-        raise ValueError(f"Unsupported file type: {ext}")
+        # Named from the file, not the loop: reusing `ext` as the loop variable
+        # reported every unsupported file (.exe, no extension) as ".docx".
+        supported = ", ".join(sorted(DocumentProcessor.SUPPORTED_FORMATS))
+        raise ValueError(
+            f"Unsupported file type: {ext or 'no extension'} ({Path(file_path).name}). "
+            f"Supported: {supported}"
+        )
 
     @staticmethod
     def extract_text_from_txt(file_path: str) -> str:
