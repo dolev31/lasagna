@@ -975,13 +975,17 @@ def benchmark_experiment(
     ),
 ):
     """Run a multi-benchmark experiment from a config file."""
-    from .knowledge_evaluation_sdk.experiment import Experiment
+    from .knowledge_evaluation_sdk.experiment import Experiment, runs_were_identical
     from .knowledge_evaluation_sdk.checkpoint import CheckpointManager
 
     if not Path(config_file).exists():
         _error(f"Config file not found: {config_file}")
 
-    exp = Experiment.from_file(config_file)
+    try:
+        exp = Experiment.from_file(config_file)
+    except (ValueError, TypeError, KeyError, ImportError, OSError) as exc:
+        # A bad sweep file is the user's to fix: the message, not a traceback.
+        _error(f"{config_file}: {exc}")
     if concurrency:
         exp.config.max_concurrency = concurrency
 
@@ -1010,7 +1014,13 @@ def benchmark_experiment(
     console.print(f"  Runs: {exp.config.n_runs}")
     console.print(f"  Mode: {exp.config.mode}")
 
-    tasks = exp.generate_tasks()
+    try:
+        tasks = exp.generate_tasks()
+    except (ValueError, TypeError, KeyError, ImportError) as exc:
+        # The pre-flight's refusals (unknown component, wrong signature, a
+        # contract failure) end in one actionable sentence; a 40-line Rich
+        # traceback buried it.
+        _error(str(exc))
     console.print(f"  Total tasks: {len(tasks)}")
     if resume:
         done = cp.completed_keys() & {t.task_key for t in tasks}
@@ -1042,6 +1052,13 @@ def benchmark_experiment(
         f"Next:   lasagna results significance {escape(results_file)} --all", soft_wrap=True
     )
     _print_isolation(results)
+    if exp.config.n_runs > 1 and runs_were_identical(results._results):
+        console.print(
+            f"[dim]Note: all {exp.config.n_runs} runs of every arm were identical (nothing "
+            f"in this pipeline samples), so n_runs: 1 gives the same answer "
+            f"{exp.config.n_runs}x faster. Repeat runs when an LLM or agentic stage "
+            f"is in the loop.[/dim]"
+        )
     _release_backend()
     _exit_if_tasks_failed(results)
 

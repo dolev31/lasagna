@@ -364,8 +364,9 @@ def load_benchmark(
                 raise ValueError(
                     f"Split '{split}' is not available for benchmark '{name}'"
                     + (f" (available: {', '.join(available)})" if available else "")
-                    + ". Pass allow_split_fallback=True to accept a substitute; the "
-                    "split actually used is then recorded with the results."
+                    + ". Choose one with --split (or `split:` on the benchmark in a "
+                    "sweep). From Python, allow_split_fallback=True accepts a substitute "
+                    "and records the split actually used."
                 ) from exc
 
             fallbacks = [s for s in ["test", "validation", "train"] if s != split]

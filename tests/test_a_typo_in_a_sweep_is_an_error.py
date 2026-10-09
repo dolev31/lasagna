@@ -65,3 +65,40 @@ def test_a_correct_sweep_still_parses():
         }
     )
     assert len(Experiment(cfg).generate_tasks()) == 2
+
+
+def test_the_cli_prints_the_refusal_not_a_traceback(tmp_path):
+    from typer.testing import CliRunner
+
+    from lasagna import cli
+
+    sweep = tmp_path / "sweep.yaml"
+    sweep.write_text(
+        "name: t\nbenchmarks: [{name: smoke}]\ntracks: [retrieval]\n"
+        "pipeline: {base_profile: speed, rerankrs: [cross_encoder]}\n"
+    )
+    result = CliRunner().invoke(cli.app, ["benchmark", "experiment", str(sweep)])
+    out = " ".join(result.output.split())
+    assert result.exit_code != 0
+    assert "did you mean 'rerankers'" in out and "Traceback" not in out
+
+
+def test_python_says_when_every_task_failed(tmp_path, monkeypatch):
+    import asyncio
+
+    from lasagna.knowledge_evaluation_sdk.runner import TaskResult
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg = _parse(pipeline={"base_profile": "speed"})
+
+    async def failing(task, samples):
+        return TaskResult(
+            task_key=task.task_key,
+            benchmark_name=task.benchmark_name,
+            config_name=task.config_name,
+            run_index=task.run_index,
+            error="Couldn't reach the Hub",
+        )
+
+    with pytest.warns(RuntimeWarning, match="All 1 task.*Couldn't reach the Hub"):
+        asyncio.run(Experiment(cfg, eval_fn=failing).run())

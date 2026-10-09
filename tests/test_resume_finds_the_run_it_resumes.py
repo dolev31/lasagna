@@ -57,3 +57,22 @@ def test_the_cli_refuses_a_resume_with_nothing_to_resume(tmp_path, monkeypatch):
     result = CliRunner().invoke(cli.app, ["benchmark", "experiment", str(sweep), "--resume"])
     assert result.exit_code != 0
     assert "Nothing to resume" in " ".join(result.output.split())
+
+
+def test_identical_repeated_runs_are_noticed():
+    from types import SimpleNamespace
+
+    from lasagna.knowledge_evaluation_sdk.experiment import runs_were_identical
+
+    def r(run, score, latency):
+        return SimpleNamespace(
+            benchmark_name="b",
+            config_name="a",
+            run_index=run,
+            error=None,
+            per_sample_scores=[{"_sample_id": "q", "ndcg@10": score, "latency_ms": latency}],
+        )
+
+    assert runs_were_identical([r(0, 0.5, 10), r(1, 0.5, 12)])  # latency is not a result
+    assert not runs_were_identical([r(0, 0.5, 10), r(1, 0.6, 10)])
+    assert not runs_were_identical([r(0, 0.5, 10)])  # one run: nothing to compare

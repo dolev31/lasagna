@@ -30,6 +30,7 @@ import hashlib
 import json
 import os
 import re
+import warnings
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -795,6 +796,31 @@ _FACTORIAL_KEYS = frozenset({"factor_a", "factor_b", "held_fixed"})
 _BENCHMARK_KEYS = frozenset({"name", "split", "n_samples", "filters"})
 
 
+def runs_were_identical(task_results: Iterable[Any]) -> bool:
+    """Whether every arm's repeated runs produced the same per-query scores.
+
+    Retrieval with fixed models is deterministic, and significance tests pair
+    by query, so then ``n_runs > 1`` multiplied the wall time and added no
+    information. It matters when a stage samples: an LLM or an agentic step.
+    """
+    groups: Dict[tuple, List[Any]] = {}
+    for r in task_results:
+        if getattr(r, "error", None):
+            continue
+        groups.setdefault((r.benchmark_name, r.config_name), []).append(r)
+    repeated = [g for g in groups.values() if len(g) > 1]
+    if not repeated:
+        return False
+
+    def scores(r):
+        return [
+            {k: v for k, v in s.items() if not k.startswith("_") and "latency" not in k}
+            for s in (r.per_sample_scores or [])
+        ]
+
+    return all(all(scores(r) == scores(g[0]) for r in g[1:]) for g in repeated)
+
+
 def _results_root() -> str:
     return os.path.join(os.path.expanduser("~"), ".lasagna", "research", "results")
 
@@ -1241,6 +1267,17 @@ class Experiment:
 
         # Save outputs
         _save_outputs(results, output_dir, cfg.output_formats)
+
+        if task_results and len(results.failed_tasks) == len(task_results):
+            # Library logs are off by default, so from Python a run where every
+            # task failed returned in seconds with nothing on screen.
+            first = results.failed_tasks[0]
+            warnings.warn(
+                f"All {len(task_results)} task(s) of '{cfg.name}' failed. First: "
+                f"{first.task_key}: {first.error}. See results.failed_tasks.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
         logger.info(
             f"Experiment '{cfg.name}' complete: "
