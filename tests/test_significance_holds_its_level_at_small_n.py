@@ -233,3 +233,57 @@ class TestTheAblationPathRunsTheSameTest:
     def test_a_consistent_effect_is_not_reported_as_zero(self):
         out = self._ablation([0.6] * 5, [0.4] * 5).significance_test("a", "b", "m")
         assert out["effect_size"] == math.inf
+
+
+class TestTheStratifiedTest:
+    def test_one_domain_reduces_to_the_paired_test(self):
+        """Same weights, same variance, n - 1 degrees of freedom."""
+        rng = np.random.default_rng(9)
+        a, b = _null_pair(rng, 16, zero_inflated=False)
+        res = _results({"a": a + 0.03, "b": b})
+        paired = res.significance_test("a", "b", "m", "b")
+        stratified = res.domain_stratified_significance_test("a", "b", "m", "b")
+        assert stratified["p_value"] == pytest.approx(paired["p_value"])
+        assert stratified["confidence_interval"] == pytest.approx(paired["confidence_interval"])
+
+    def test_a_small_domain_counts_as_much_as_a_large_one(self):
+        """The macro average weights domains equally, whatever their size: a
+        +0.3 gain on 4 queries and none on 40 is a +0.15 macro difference."""
+        rng = np.random.default_rng(11)
+        noise = {f"big{i}": rng.normal(0, 0.02) for i in range(40)}
+        noise.update({f"small{i}": rng.normal(0, 0.02) for i in range(4)})
+
+        def rows(gain):
+            out = [
+                {"_sample_id": sid, "m": 0.5 + noise[sid], "_source_benchmark": "big"}
+                for sid in noise
+                if sid.startswith("big")
+            ]
+            out += [
+                {"_sample_id": sid, "m": 0.5 + gain + noise[sid], "_source_benchmark": "small"}
+                for sid in noise
+                if sid.startswith("small")
+            ]
+            return out
+
+        rng_b = np.random.default_rng(12)
+        tasks = [
+            TaskResult(
+                task_key="a",
+                benchmark_name="b",
+                config_name="a",
+                run_index=0,
+                per_sample_scores=rows(0.3),
+            ),
+            TaskResult(
+                task_key="b",
+                benchmark_name="b",
+                config_name="b",
+                run_index=0,
+                per_sample_scores=[dict(r, m=r["m"] + rng_b.normal(0, 0.02)) for r in rows(0.0)],
+            ),
+        ]
+        out = BenchmarkResults(tasks).domain_stratified_significance_test("a", "b", "m", "b")
+        assert out["difference"] == pytest.approx(0.15, abs=0.02)
+        lo, hi = out["confidence_interval"]
+        assert lo < out["difference"] < hi and hi - lo < 0.2
