@@ -16,7 +16,7 @@ Five steps. Each is one command, and each is a checkpoint that can fail.
 |---|---|---|---|
 | 1 | Write it | — | — |
 | 2 | Check the contract | `lasagna component validate mod:Class` | it does not satisfy the ABC |
-| 3 | Check it runs | `lasagna benchmark run smoke` | it breaks inside the pipeline |
+| 3 | Check it runs | `lasagna benchmark run smoke --reranker my_reranker ...` | it breaks inside the pipeline |
 | 4 | Check it helps | `lasagna benchmark experiment sweep.yaml` | the gain is noise, or was never measured |
 | 5 | Publish | `lasagna results bundle` → `validate` | nobody can tell what produced the number |
 
@@ -91,12 +91,13 @@ Which is why step 3 exists and is not optional.
 ## 3. Check it runs
 
 ```bash
-lasagna benchmark run smoke
+lasagna benchmark run smoke --reranker my_reranker --profile speed --tracks retrieval
 ```
 
 24 documents, 12 queries, held inside the package. No dataset download, no API
-key. It runs the real pipeline end to end, so a green run means your component
-is genuinely wired in.
+key. It runs the real pipeline end to end with your component in its stage, so a
+green run means your component is genuinely wired in. (The CLI sees components
+installed as a `lasagna_components` entry point; see step 4.)
 
 It is deliberately easy. The score means "this works", never "this is good".
 

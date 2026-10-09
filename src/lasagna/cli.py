@@ -881,13 +881,32 @@ def benchmark_run(
     split: str = typer.Option("test", "--split", "-s", help="Dataset split"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output directory"),
     seed: int = typer.Option(42, "--seed", help="Random seed"),
+    profile: str = typer.Option("standard", "--profile", "-p", help="Base profile"),
+    tracks: str = typer.Option(
+        "retrieval,generation",
+        "--tracks",
+        help="retrieval, generation, or both (comma-separated)",
+    ),
+    reranker: Optional[str] = typer.Option(
+        None, "--reranker", help="Run with this registered reranker"
+    ),
+    query_enhancer: Optional[str] = typer.Option(
+        None, "--query-enhancer", help="Run with this registered query enhancer"
+    ),
 ):
     """Run a single benchmark evaluation."""
     from .knowledge_evaluation_sdk.experiment import (
         Experiment,
         ExperimentConfig,
         BenchmarkSpec,
+        PipelineSweepSpec,
+        _parse_tracks,
     )
+
+    try:
+        track_list = _parse_tracks([t.strip() for t in tracks.split(",") if t.strip()])
+    except ValueError as exc:
+        _error(str(exc))
 
     if mode not in ("auto", "live", "generation_only", "offline"):
         _error(
@@ -896,16 +915,25 @@ def benchmark_run(
         )
 
     console.print(
-        f"Running benchmark [cyan]{name}[/cyan] ({samples} samples, {runs} run(s), mode={mode}, split={split})"
+        f"Running benchmark [cyan]{name}[/cyan] (up to {samples} samples, {runs} run(s), "
+        f"mode={mode}, split={split}, profile={profile}, tracks={','.join(track_list)})"
     )
 
+    # Without a way to name a component, "check it runs" measured the stock
+    # pipeline, whatever the user had written.
     config = ExperimentConfig(
         name=f"benchmark_{name.replace('/', '_')}",
         benchmarks=[BenchmarkSpec(name=name, n_samples=samples, split=split)],
+        pipeline=PipelineSweepSpec(
+            base_profile=profile,
+            rerankers=[reranker] if reranker else [],
+            query_enhancers=[query_enhancer] if query_enhancer else [],
+        ),
         mode=mode,
         n_runs=runs,
         seed=seed,
         output_dir=output or "",
+        tracks=track_list,
     )
     exp = Experiment(config=config)
 

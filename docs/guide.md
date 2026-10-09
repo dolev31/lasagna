@@ -289,12 +289,14 @@ Sections 4 to 7 prove your component behaves. This section is about whether it
 ### Check the setup first
 
 ```bash
-lasagna benchmark run smoke
+lasagna benchmark run smoke --profile speed --tracks retrieval
 ```
 
-`smoke` is 24 documents and 12 queries held inside the package — no download, no
-API key. It runs the real pipeline end to end, so a green run means the stack is
-wired up. It is deliberately easy, so the scores mean "this works", never "this
+`smoke` is 24 documents and 12 queries held inside the package — no dataset
+download and no API key; on `speed` the only model is an 80 MB embedder. It runs
+the real retrieval pipeline end to end, so a green run means the stack is wired
+up. Drop `--tracks retrieval` once an LLM and the `[eval]` extra are set up, to
+check answer generation too. It is deliberately easy, so the scores mean "this works", never "this
 is good".
 
 ### Then the real thing
