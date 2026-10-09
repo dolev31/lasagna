@@ -426,6 +426,38 @@ class ComponentRegistry:
                 "arxiv:2210.11934",
                 [],
             ),
+            (
+                "reranker",
+                "monot5",
+                "lasagna.retrieval.search.rerankers:MonoT5Reranker",
+                "monoT5: P(true) from a seq2seq relevance model (monot5_model)",
+                "arxiv:2003.06713",
+                [],
+            ),
+            (
+                "reranker",
+                "llm_pointwise",
+                "lasagna.retrieval.search.rerankers:LLMPointwiseReranker",
+                "LLM relevance grade per passage on a 0-3 scale (llm_reranker_model)",
+                "arxiv:2309.10621",
+                [],
+            ),
+            (
+                "reranker",
+                "flashrank",
+                "lasagna.retrieval.search.rerankers:FlashRankReranker",
+                "FlashRank ONNX cross-encoders on CPU (pip install flashrank)",
+                None,
+                [],
+            ),
+            (
+                "reranker",
+                "cohere",
+                "lasagna.retrieval.search.rerankers:CohereReranker",
+                "Cohere Rerank API (pip install cohere, COHERE_API_KEY)",
+                None,
+                [],
+            ),
         ]
         for stage, name, factory, description, paper, aliases in builtins:
             try:

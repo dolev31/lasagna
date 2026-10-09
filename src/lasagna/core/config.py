@@ -341,6 +341,9 @@ class RAGConfig:
             "llm_reranker_window_size": 20,
             "llm_reranker_step_size": 10,
             "colbert_model": "colbert-ir/colbertv2.0",  # ColBERT late-interaction model
+            "monot5_model": "castorini/monot5-base-msmarco-10k",  # Nogueira et al. 2020
+            "flashrank_model": "ms-marco-TinyBERT-L-2-v2",  # FlashRank's default ONNX model
+            "cohere_rerank_model": "rerank-v3.5",
             # Some cross-encoder rerankers ship their own modelling code (e.g.
             # jinaai/jina-reranker-v2-base-multilingual) and load only with it.
             "reranker_trust_remote_code": False,
@@ -1066,6 +1069,27 @@ class RAGConfig:
         """ColBERT late-interaction model name."""
         return self._get_knowledge_setting(
             "rag", "colbert_model", default=self._config["colbert_model"]
+        )
+
+    @property
+    def monot5_model(self) -> str:
+        """Sequence-to-sequence checkpoint the monot5 reranker scores with."""
+        return self._get_knowledge_setting(
+            "rag", "monot5_model", default=self._config["monot5_model"]
+        )
+
+    @property
+    def flashrank_model(self) -> str:
+        """FlashRank model name for the flashrank reranker."""
+        return self._get_knowledge_setting(
+            "rag", "flashrank_model", default=self._config["flashrank_model"]
+        )
+
+    @property
+    def cohere_rerank_model(self) -> str:
+        """Cohere Rerank model for the cohere reranker."""
+        return self._get_knowledge_setting(
+            "rag", "cohere_rerank_model", default=self._config["cohere_rerank_model"]
         )
 
     @property

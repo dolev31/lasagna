@@ -201,6 +201,10 @@ _EXACT: Dict[str, str] = {
     "splade_model": "retriever",
     "hybrid_fusion_depth": "retriever",
     "hybrid_convex_normalization": "retriever",
+    # built-in reranker components
+    "monot5_model": "reranker",
+    "flashrank_model": "reranker",
+    "cohere_rerank_model": "reranker",
 }
 
 _PREFIXES: Tuple[Tuple[str, str], ...] = (
