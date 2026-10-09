@@ -498,8 +498,16 @@ class RAGBackend:
         _enhancer_override: Optional[Any] = None,
         _embedder_override: Optional[Any] = None,
         query_config_overrides: Optional[Any] = None,
+        _retriever_override: Optional[Any] = None,
+        _agentic_pipeline_override: Optional[Any] = None,
+        _graph_node_overrides: Optional[Dict[str, Any]] = None,
     ) -> List[SearchResult]:
-        """Search with SOTA retrieval pipeline."""
+        """Search with SOTA retrieval pipeline.
+
+        The three trailing overrides are what KnowledgePipeline passes for a
+        swapped retriever, agentic pipeline or graph node; without them here
+        those swaps raised TypeError before reaching the orchestrator.
+        """
         return self._search_orchestrator.search(
             query=query,
             session_id=session_id,
@@ -515,6 +523,9 @@ class RAGBackend:
             _enhancer_override=_enhancer_override,
             _embedder_override=_embedder_override,
             query_config_overrides=query_config_overrides,
+            _retriever_override=_retriever_override,
+            _agentic_pipeline_override=_agentic_pipeline_override,
+            _graph_node_overrides=_graph_node_overrides,
         )
 
     def search_with_citations(
