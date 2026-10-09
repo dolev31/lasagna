@@ -59,7 +59,17 @@ def _configure_cli_logging(verbose: bool = False, default: str = "WARNING") -> N
         level = default
 
     logger.remove()
-    logger.add(sys.stderr, level=level)
+    if level == "DEBUG":
+        logger.add(sys.stderr, level=level)
+        return
+    threshold = logger.level(level).no
+
+    def _shown(record) -> bool:
+        # Progress lines (corpus ingestion) show at the warnings-only default:
+        # without them a half-hour ingest looks like a hang.
+        return record["level"].no >= threshold or bool(record["extra"].get("progress"))
+
+    logger.add(sys.stderr, level=min(threshold, logger.level("INFO").no), filter=_shown)
 
 
 @app.callback()

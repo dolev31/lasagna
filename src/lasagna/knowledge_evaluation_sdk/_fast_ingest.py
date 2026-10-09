@@ -200,6 +200,36 @@ def _chunk_one_doc(
 # ---------------------------------------------------------------------------
 
 
+class _Progress:
+    """Periodic "N/M documents, ETA" lines while a corpus is embedded.
+
+    A 5,000-document corpus takes half an hour on CPU, and it used to print
+    nothing at the default log level for all of it, so healthy runs were
+    killed -- and an interrupted run is the one that leaves a store behind.
+    Tagged ``progress`` so the CLI shows it under its warnings-only default.
+    """
+
+    def __init__(self, total: int, every_s: float = 30.0):
+        self.total, self.every_s = total, every_s
+        self.t0 = self.last = time.perf_counter()
+
+    def update(self, done: int) -> None:
+        now = time.perf_counter()
+        if now - self.last < self.every_s and done < self.total:
+            return
+        self.last = now
+        elapsed = now - self.t0
+        rate = done / elapsed if elapsed > 0 else 0.0
+        eta = (self.total - done) / rate if rate > 0 else 0.0
+        logger.bind(progress=True).info(
+            f"Ingesting corpus: {done}/{self.total} documents embedded "
+            f"({rate * 60:.0f}/min, about {eta / 60:.0f} min left)"
+            if done < self.total
+            else f"Ingesting corpus: {done}/{self.total} documents embedded in "
+            f"{elapsed / 60:.1f} min"
+        )
+
+
 def _embed_stage(
     chunk_queue: queue.Queue,
     insert_queue: queue.Queue,
@@ -213,6 +243,7 @@ def _embed_stage(
     """Drain chunk_queue, batch-embed cross-doc, push to insert_queue."""
     pending_chunks: List[Dict[str, Any]] = []
     docs_processed = 0
+    progress = _Progress(total_docs)
 
     while docs_processed < total_docs:
         item = chunk_queue.get()
@@ -245,6 +276,7 @@ def _embed_stage(
                 enable_sparse,
             )
             pending_chunks = []
+            progress.update(docs_processed)
 
     # Final flush (in case of rounding)
     if pending_chunks:
