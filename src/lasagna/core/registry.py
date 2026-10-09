@@ -235,11 +235,21 @@ class ComponentRegistry:
         """Register built-in components on first use (lazy, thread-safe)."""
         if self._builtins_registered:
             return
+        # Registration imports entry-point plugins, and a plugin that uses the
+        # documented @registry.register decorator calls back in here on the
+        # same thread. Waiting for the lock then deadlocked every process that
+        # touched the registry; the registering thread proceeds instead.
+        if getattr(self, "_registering_thread", None) == threading.get_ident():
+            return
         with self._lock:
             if self._builtins_registered:
                 return
-            self._register_builtins()
-            self._builtins_registered = True
+            self._registering_thread = threading.get_ident()
+            try:
+                self._register_builtins()
+                self._builtins_registered = True
+            finally:
+                self._registering_thread = None
 
     def _register_builtins(self) -> None:
         """Register built-in component implementations from the retrieval layer."""
