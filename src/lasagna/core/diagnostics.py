@@ -255,6 +255,22 @@ def _check_writable_dirs() -> Check:
     return Check("storage", _OK, "data directories are writable")
 
 
+def _check_accelerator(env: dict) -> Check:
+    """Which device models run on, and what that means for a sweep."""
+    gpu = env.get("gpu")
+    if os.environ.get("RAG_USE_GPU", "").strip().lower() in ("0", "false", "no", "off"):
+        return Check("accelerator", _OK, "RAG_USE_GPU is off: models run on the CPU")
+    if gpu == "mps":
+        return Check(
+            "accelerator",
+            _OK,
+            "Apple MPS: model calls from concurrent arms take turns on the device, "
+            "since Metal aborts on overlapping ones",
+            "If a sweep is slower than expected, compare with RAG_USE_GPU=false (CPU).",
+        )
+    return Check("accelerator", _OK, f"{gpu or 'CPU only'}")
+
+
 def _check_gh_cli() -> Check:
     """Whether an agent can file an issue without a browser."""
     if shutil.which("gh"):
@@ -278,6 +294,7 @@ def diagnose(*, check_gh: bool = True) -> Diagnosis:
         _check_writable_dirs(),
         _check_llm_credentials(env),
         _check_model_cache(),
+        _check_accelerator(env),
         *_check_optional_extras(),
         *_check_plugins(),
     ]

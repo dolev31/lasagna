@@ -22,6 +22,7 @@ except ImportError:
     CROSS_ENCODER_AVAILABLE = False
     logger.warning("sentence-transformers CrossEncoder not available. Reranking disabled.")
 
+from lasagna.core.accelerator import device_guard
 from lasagna.core.config import rag_config
 from lasagna.core.model_licenses import warn_if_restricted
 from lasagna.utils.normalization import (
@@ -232,7 +233,8 @@ class CrossEncoderReranker:
                 device = _detect_device()
                 logger.info(f"Loading cross-encoder reranker: {name} on {device}")
                 warn_if_restricted(name, component="reranker")
-                model = CrossEncoder(name, device=device)
+                with device_guard(device):
+                    model = CrossEncoder(name, device=device)
             except Exception as e:
                 self._failed[name] = f"Cannot load reranker model {name!r}: {e}"
                 raise RuntimeError(self._failed[name]) from e
@@ -290,7 +292,8 @@ class CrossEncoderReranker:
 
         # Get reranking scores
         try:
-            scores = model.predict(pairs, batch_size=batch_size, show_progress_bar=False)
+            with device_guard(_detect_device()):
+                scores = model.predict(pairs, batch_size=batch_size, show_progress_bar=False)
         except Exception as e:
             raise RuntimeError(f"Reranking with {name!r} failed: {e}") from e
 

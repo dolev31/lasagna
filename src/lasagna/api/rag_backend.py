@@ -255,7 +255,7 @@ class RAGBackend:
         logger.info(
             f"RAG Backend initialized: "
             f"embedding_dim={self.embedding_manager.dimension}, "
-            f"model={self.embedding_manager.model_name}, "
+            f"default embedder={self.embedding_manager.model_name} (loads on first use), "
             f"backend={self._vector_backend.backend_name}"
         )
         logger.info(

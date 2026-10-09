@@ -31,7 +31,9 @@ try:
 except ImportError:
     FLAG_EMBEDDING_AVAILABLE = False
 
+from lasagna.core.accelerator import device_guard
 from lasagna.core.model_licenses import warn_if_restricted
+from lasagna.core.strict import strict_stages
 from lasagna.core.config import rag_config, RAGConfig
 
 
@@ -197,8 +199,11 @@ class EmbeddingManager:
         """Initialize the embedding manager."""
         self._config = config or rag_config
         self._signature = _config_signature(self._config)
-        self.model: Optional[Union[SentenceTransformer, "BGEM3FlagModel"]] = None
-        self.model_name: Optional[str] = None
+        self._model: Optional[Union[SentenceTransformer, "BGEM3FlagModel"]] = None
+        self._load_error: Optional[str] = None
+        self._load_lock = threading.RLock()
+        # The configured name until the model loads; a fallback replaces it.
+        self.model_name: Optional[str] = self._config.embedding_model
         self.embedding_dim: int = self._config.embedding_dim
         self._backend: str = _resolve_backend(self._config)
 
@@ -214,15 +219,15 @@ class EmbeddingManager:
         # processing thread pool (document_tasks.py dispatches up to
         # max_concurrent_uploads workers that share this singleton).
         self._encode_lock = threading.Lock()
+        # Where the model runs; on MPS every encode also takes the process-wide
+        # device lock (see core/accelerator.py).
+        self._device: Optional[str] = None
 
-        # Load the model
-        self._load_model()
-
-        # Resolve model-aware prefixes after loading (model_name may change
-        # during fallback, so we resolve after _load_model completes).
-        prefixes = _resolve_prefixes(self.model_name or self._config.embedding_model)
-        self.query_prefix: str = prefixes["query"]
-        self.document_prefix: str = prefixes["document"]
+        # The model loads on first use, not here. A backend is built from the
+        # settings-file default (bge-m3, 2.3 GB) before any profile applies, and
+        # loading it eagerly downloaded that model on the `speed` path sold as
+        # keyless and small, and failed every task offline.
+        self._set_prefixes()
 
         # Matryoshka dimension truncation
         self._truncate_dim: Optional[int] = getattr(self._config, "embedding_truncate_dim", None)
@@ -241,6 +246,45 @@ class EmbeddingManager:
         norms = np.linalg.norm(truncated, axis=-1, keepdims=True)
         norms = np.where(norms == 0, 1, norms)
         return truncated / norms
+
+    @property
+    def model(self) -> Optional[Union[SentenceTransformer, "BGEM3FlagModel"]]:
+        """The loaded model, loading it on first access."""
+        if self._model is None:
+            self._ensure_loaded()
+        return self._model
+
+    @model.setter
+    def model(self, value) -> None:
+        self._model = value
+
+    @property
+    def is_loaded(self) -> bool:
+        """Whether the model has been loaded (reading ``model`` loads it)."""
+        return self._model is not None
+
+    def _ensure_loaded(self) -> None:
+        with self._load_lock:
+            if self._model is not None:
+                return
+            if self._load_error is not None:
+                # Once per manager: a model that cannot load is not retried on
+                # every query, each time with a download attempt and a stack trace.
+                raise RuntimeError(self._load_error)
+            configured = self.model_name
+            try:
+                self._load_model()
+            except Exception as exc:
+                self._model = None  # a model that loaded but failed its probe is not kept
+                self._load_error = str(exc)
+                raise
+            if self.model_name != configured:
+                self._set_prefixes()  # a fallback model has its own prefixes
+
+    def _set_prefixes(self) -> None:
+        prefixes = _resolve_prefixes(self.model_name or self._config.embedding_model)
+        self.query_prefix: str = prefixes["query"]
+        self.document_prefix: str = prefixes["document"]
 
     def _load_model(self):
         """Load the embedding model with fallback support."""
@@ -283,15 +327,17 @@ class EmbeddingManager:
             logger.info(
                 f"Loading BGE-M3 via FlagEmbedding: {model_name} on {device} (fp16={use_fp16})"
             )
-            self.model = BGEM3FlagModel(
-                model_name,
-                use_fp16=use_fp16,
-                device=device,
-            )
+            self._device = device
+            with device_guard(device):
+                self.model = BGEM3FlagModel(
+                    model_name,
+                    use_fp16=use_fp16,
+                    device=device,
+                )
+                # Verify embedding dimension with a test encode
+                test_output = self.model.encode(["test"], return_dense=True)
             self.model_name = model_name
 
-            # Verify embedding dimension with a test encode
-            test_output = self.model.encode(["test"], return_dense=True)
             actual_dim = test_output["dense_vecs"].shape[1]
 
             if actual_dim != self.embedding_dim:
@@ -368,11 +414,12 @@ class EmbeddingManager:
         try:
             logger.info(f"Loading primary embedding model: {primary_model} on {device}")
             warn_if_restricted(primary_model, component="embedding model")
-            self.model = SentenceTransformer(primary_path, device=device)
+            self._device = device
+            with device_guard(device):
+                self.model = SentenceTransformer(primary_path, device=device)
+                # Verify embedding dimension
+                test_embedding = self.model.encode("test", convert_to_numpy=True)
             self.model_name = primary_model  # keep the canonical name
-
-            # Verify embedding dimension
-            test_embedding = self.model.encode("test", convert_to_numpy=True)
             actual_dim = len(test_embedding)
 
             if actual_dim != self.embedding_dim:
@@ -385,15 +432,23 @@ class EmbeddingManager:
             logger.info(f"Loaded {primary_model} - dim={actual_dim}, device={device}")
 
         except Exception as e:
+            # An evaluation must not measure a different embedder than the one
+            # it names: the fallback is a serving convenience.
+            if strict_stages():
+                raise RuntimeError(
+                    f"Cannot load embedding model {primary_model!r}: {e}. An evaluation "
+                    f"does not fall back to {fallback_model!r}, since its numbers would "
+                    f"then describe another model."
+                ) from e
             logger.warning(f"Failed to load primary model {primary_model}: {e}")
             logger.info(f"Attempting fallback model: {fallback_model}")
 
             fallback_path = self._resolve_local_snapshot(fallback_model)
             try:
-                self.model = SentenceTransformer(fallback_path, device=device)
+                with device_guard(device):
+                    self.model = SentenceTransformer(fallback_path, device=device)
+                    test_embedding = self.model.encode("test", convert_to_numpy=True)
                 self.model_name = fallback_model
-
-                test_embedding = self.model.encode("test", convert_to_numpy=True)
                 actual_dim = len(test_embedding)
                 self.embedding_dim = actual_dim
 
@@ -425,7 +480,7 @@ class EmbeddingManager:
             if cached is not None:
                 return cached
 
-        with self._encode_lock:
+        with self._encode_lock, device_guard(self._device):
             if self._backend == "flag-embedding":
                 # BGE-M3 handles query prefixing internally
                 output = self.model.encode([query], return_dense=True)
@@ -471,7 +526,7 @@ class EmbeddingManager:
             if cached is not None:
                 return cached
 
-        with self._encode_lock:
+        with self._encode_lock, device_guard(self._device):
             if self._backend == "flag-embedding":
                 output = self.model.encode([text], return_dense=True)
                 embedding = output["dense_vecs"][0]
@@ -543,7 +598,7 @@ class EmbeddingManager:
 
         # Batch encode remaining texts
         if texts_to_compute:
-            with self._encode_lock:
+            with self._encode_lock, device_guard(self._device):
                 if self._backend == "flag-embedding":
                     output = self.model.encode(
                         texts_to_compute,
@@ -596,7 +651,7 @@ class EmbeddingManager:
         if not queries:
             return []
 
-        with self._encode_lock:
+        with self._encode_lock, device_guard(self._device):
             if self._backend == "flag-embedding":
                 output = self.model.encode(
                     queries,
@@ -706,7 +761,7 @@ class EmbeddingManager:
             return self.encode_documents_batch(chunk_texts, show_progress=True)
 
         try:
-            with self._encode_lock:
+            with self._encode_lock, device_guard(self._device):
                 max_len = getattr(self.model, "max_seq_length", 8192)
 
                 # Apply document prefix to full text
@@ -827,7 +882,7 @@ class EmbeddingManager:
         if self._backend != "flag-embedding":
             return None
 
-        with self._encode_lock:
+        with self._encode_lock, device_guard(self._device):
             output = self.model.encode(texts, return_sparse=True)
         return output.get("lexical_weights")
 
