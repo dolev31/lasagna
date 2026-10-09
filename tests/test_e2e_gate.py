@@ -351,10 +351,12 @@ class TestReportsDoNotPublishLocalPaths:
         import re
         from pathlib import Path
 
-        home = os.path.expanduser("~")
+        # The suite runs in a throwaway HOME; the reports were written under
+        # the real one.
+        home = os.environ.get("LASAGNA_TESTS_REAL_HOME", os.path.expanduser("~"))
         reports = Path(__file__).resolve().parents[1] / "e2e" / "reports"
         if not reports.is_dir():
-            pytest.skip("no committed reports in this checkout")
+            pytest.skip("no e2e reports here: `python -m e2e.run` writes them; none are committed")
 
         offenders = []
         for f in sorted(reports.rglob("*")):

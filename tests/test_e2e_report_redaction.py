@@ -81,11 +81,14 @@ class TestCommittedReportsStayClean:
         """
         reports = REPO / "e2e" / "reports"
         if not reports.is_dir():
-            pytest.skip("no reports in this checkout")
+            pytest.skip("no e2e reports here: `python -m e2e.run` writes them; none are committed")
+        # The suite runs in a throwaway HOME; the reports were written under
+        # the real one.
+        real_home = os.environ.get("LASAGNA_TESTS_REAL_HOME", HOME)
         leaking = [
             str(f.relative_to(REPO))
             for f in reports.rglob("*")
-            if f.is_file() and HOME in f.read_text(errors="replace")
+            if f.is_file() and real_home in f.read_text(errors="replace")
         ]
         assert not leaking, (
             f"reports contain local paths: {leaking}. If these predate the "

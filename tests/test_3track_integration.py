@@ -184,7 +184,7 @@ class TestGoldPassageMapping:
         """Gold passage doc_ids must be present in corpus and map correctly."""
         dd = _private_eval_dataset_dir()
         if not os.path.exists(dd):
-            pytest.skip("Dataset not built")
+            pytest.skip("private_eval dataset not built; it needs the internal sources")
 
         # Load e2e corpus
         corpus_path = os.path.join(dd, "corpus/corpus_e2e.jsonl")
@@ -219,7 +219,7 @@ class TestGoldPassageMapping:
     def test_gold_ids_not_in_retrieval_corpus(self):
         dd = _private_eval_dataset_dir()
         if not os.path.exists(dd):
-            pytest.skip("Dataset not built")
+            pytest.skip("private_eval dataset not built; it needs the internal sources")
 
         ret_path = os.path.join(dd, "corpus/corpus_retrieval.jsonl")
         gold_count = 0

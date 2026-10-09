@@ -70,6 +70,9 @@ atexit.register(shutil.rmtree, _ISOLATED_DATA_DIR, True)
 # lasagna. tests/test_ragas_telemetry_is_off.py checks the package default.
 # ---------------------------------------------------------------------------
 _REAL_HOME = os.path.expanduser("~")
+# For the few checks that look for the developer's real home path in files
+# written outside the suite (e2e reports).
+os.environ["LASAGNA_TESTS_REAL_HOME"] = _REAL_HOME
 os.environ.setdefault(
     "HF_HOME",
     os.path.join(
