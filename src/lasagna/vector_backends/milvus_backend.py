@@ -64,6 +64,14 @@ def _hit_primary_key(hit: Dict[str, Any]) -> str:
     return str((hit.get("entity") or {}).get("chunk_id", ""))
 
 
+def _is_timeout(exc: BaseException) -> bool:
+    """Whether a pymilvus or gRPC error is a deadline that ran out."""
+    if isinstance(exc, TimeoutError):
+        return True
+    text = f"{type(exc).__name__} {exc}".lower()
+    return "deadline" in text or "timeout" in text or "timed out" in text
+
+
 class MilvusBackend(VectorStoreAdapter):
     """Milvus implementation of VectorStoreAdapter.
 
@@ -116,6 +124,9 @@ class MilvusBackend(VectorStoreAdapter):
         self._uri = uri
         self._token = token
         self._timeout = timeout
+        # Loading a large persisted collection takes longer than connecting,
+        # but must still end: an unbounded wait hung every later run.
+        self._load_timeout = float(kwargs.pop("load_timeout", 600.0))
         self._kwargs = kwargs
         self._client: Optional[MilvusClient] = None
         self._capabilities: Optional[BackendCapabilities] = None
@@ -202,7 +213,7 @@ class MilvusBackend(VectorStoreAdapter):
                 if self._db_path:
                     # Milvus Lite (local file)
                     logger.info(f"Connecting to Milvus Lite: {self._db_path}")
-                    self._client = MilvusClient(self._db_path)
+                    self._client = MilvusClient(self._db_path, timeout=self._timeout)
                 elif self._uri:
                     # Milvus Standalone/Distributed
                     logger.info(f"Connecting to Milvus: {self._uri}")
@@ -255,10 +266,21 @@ class MilvusBackend(VectorStoreAdapter):
         if collection_name in self._loaded_collections:
             return
         try:
-            state = str(client.get_load_state(collection_name).get("state", ""))
+            state = str(
+                client.get_load_state(collection_name, timeout=self._timeout).get("state", "")
+            )
             if "NotLoad" in state:
-                client.load_collection(collection_name)
-        except Exception as e:  # best effort: the read below reports the real error
+                client.load_collection(collection_name, timeout=self._load_timeout)
+        except Exception as e:
+            if _is_timeout(e):
+                where = self._db_path or self._uri
+                raise TimeoutError(
+                    f"Milvus did not load collection {collection_name!r} at {where} within "
+                    f"{self._load_timeout:.0f}s. If an earlier run was interrupted, the store "
+                    f"may be inconsistent: run `lasagna doctor`, or move the store aside and "
+                    f"re-ingest."
+                ) from e
+            # Best effort otherwise: the read that follows reports the real error.
             logger.debug(f"Could not verify load state of {collection_name}: {e}")
         self._loaded_collections.add(collection_name)
 
