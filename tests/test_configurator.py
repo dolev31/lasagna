@@ -233,7 +233,7 @@ class TestValidationBasic:
 
     def test_integer_above_maximum(self):
         """Value above max_value should produce an error."""
-        result = validate_config({"default_top_k": 999})
+        result = validate_config({"default_top_k": 100_001})
         assert not result.valid
         assert any("exceeds maximum" in e["message"] for e in result.errors)
 
@@ -1045,7 +1045,7 @@ class TestValidationEnforcement:
     def test_patch_config_rejects_out_of_range(self, manager, session_id):
         """patch_config should reject value exceeding maximum."""
         with pytest.raises(ValueError, match="Invalid configuration"):
-            manager.patch_config({"default_top_k": 9999}, session_id=session_id)
+            manager.patch_config({"default_top_k": 100_001}, session_id=session_id)
 
     def test_patch_config_rejects_cross_field_violation(self, manager, session_id):
         """patch_config should reject cross-field violation after merging with effective config.
@@ -1214,3 +1214,28 @@ class TestReindexKeySync:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestResearchSettingsAreValid:
+    """Session validation stops corrupt values, not research choices.
+
+    Every session write is validated now, and the UI's ranges refused settings
+    a sweep needs: 60-word chunks, 64-dimension Matryoshka embeddings, TREC's
+    retrieval depth of 1000, and any reranker or embedder not on a short list.
+    """
+
+    def test_research_values_pass(self):
+        result = validate_config(
+            {
+                "chunk_size": 60,
+                "embedding_dim": 64,
+                "default_top_k": 1000,
+                "reranker_model": "cross-encoder/ms-marco-TinyBERT-L-2-v2",
+                "embedding_model": "Qwen/Qwen3-Embedding-0.6B",
+            }
+        )
+        assert result.valid, result.errors
+
+    def test_a_model_name_must_still_be_a_name(self):
+        assert not validate_config({"reranker_model": ""}).valid
+        assert not validate_config({"embedding_model": 3}).valid

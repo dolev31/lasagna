@@ -140,3 +140,27 @@ def test_the_guard_is_only_taken_for_mps():
     assert isinstance(device_guard("cpu"), contextlib.nullcontext)
     assert isinstance(device_guard("cuda:0"), contextlib.nullcontext)
     assert not isinstance(device_guard("mps"), contextlib.nullcontext)
+
+
+def test_the_first_encode_on_a_fresh_manager_is_guarded_too(fake_st, monkeypatch):
+    # The guard read the device before the lazy load set it, so the first
+    # encode on each manager (load plus first batch) ran on MPS unlocked.
+    def load_on_mps(self):
+        # What the real load does on Apple Silicon: under the device guard.
+        with manager_mod.device_guard("mps"):
+            self._device = "mps"
+            self.model = _FakeST(self.model_name, device="mps")
+            self.model.encode("test")
+
+    monkeypatch.setattr(manager_mod.EmbeddingManager, "_load_sentence_transformer", load_on_mps)
+    managers = [_manager(), _manager(), _manager()]
+    fake_st.peak = 0
+    threads = [
+        threading.Thread(target=lambda m=m: m.encode_documents_batch(["a", "b"], show_progress=False))
+        for m in managers
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert fake_st.peak == 1

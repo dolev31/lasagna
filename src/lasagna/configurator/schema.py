@@ -49,6 +49,10 @@ class ParameterDef:
     max_value: Optional[float] = None
     step: Optional[float] = None
     enum_options: list[EnumOption] = field(default_factory=list)
+    #: The options are suggestions, not the set of valid values: any model on
+    #: the Hub is a valid embedding or reranker model, and a closed list made
+    #: every other one a validation error for a sweep or an import.
+    open_enum: bool = False
     parent_key: Optional[str] = None  # For nested params like chunk_cite_retrieval.strategy
     validate_as: Optional[Literal["string_list"]] = (
         None  # Explicit validation type for object params
@@ -75,6 +79,8 @@ class ParameterDef:
             d["step"] = self.step
         if self.enum_options:
             d["enum_options"] = [o.to_dict() for o in self.enum_options]
+        if self.open_enum:
+            d["open_enum"] = True
         if self.parent_key:
             d["parent_key"] = self.parent_key
         if self.validate_as:
@@ -224,6 +230,7 @@ PARAMETERS: list[ParameterDef] = [
     ParameterDef(
         key="embedding_model",
         type="enum",
+        open_enum=True,
         label="AI Understanding Model",
         description="Determines how well your system understands document content. Better models find more relevant results but use more memory.",
         help_text="Technical: Sentence-transformer embedding model. Larger models produce higher-quality vectors but are slower. MiniLM (80MB) is fast; BGE-large (1.3GB) is highest quality.",
@@ -271,8 +278,8 @@ PARAMETERS: list[ParameterDef] = [
         group="embedding",
         default=1024,
         requires_reindex=True,
-        min_value=128,
-        max_value=4096,
+        min_value=1,
+        max_value=16384,
         hidden=True,
     ),
     ParameterDef(
@@ -322,7 +329,7 @@ PARAMETERS: list[ParameterDef] = [
         group="quick_tuning",
         default=20,
         min_value=1,
-        max_value=500,
+        max_value=10000,
         step=5,
     ),
     ParameterDef(
@@ -362,7 +369,7 @@ PARAMETERS: list[ParameterDef] = [
         group="search_params",
         default=5,
         min_value=1,
-        max_value=100,
+        max_value=1000,
         step=1,
     ),
     ParameterDef(
@@ -418,7 +425,7 @@ PARAMETERS: list[ParameterDef] = [
         group="search_params",
         default=60,
         min_value=1,
-        max_value=200,
+        max_value=10000,
         step=10,
     ),
     ParameterDef(
@@ -476,6 +483,7 @@ PARAMETERS: list[ParameterDef] = [
     ParameterDef(
         key="reranker_model",
         type="enum",
+        open_enum=True,
         label="Re-Ranking Model",
         description="The AI model that double-checks and reorders search results for quality.",
         help_text="Technical: Cross-encoder model. MiniLM is fast (~10ms per pair); larger models are more accurate but slower.",
@@ -800,8 +808,8 @@ PARAMETERS: list[ParameterDef] = [
         group="chunking",
         default=800,
         requires_reindex=True,
-        min_value=100,
-        max_value=4000,
+        min_value=1,
+        max_value=100000,
         step=50,
     ),
     ParameterDef(
@@ -815,7 +823,7 @@ PARAMETERS: list[ParameterDef] = [
         default=0,
         requires_reindex=True,
         min_value=0,
-        max_value=1000,
+        max_value=100000,
         step=25,
     ),
     ParameterDef(
@@ -842,8 +850,8 @@ PARAMETERS: list[ParameterDef] = [
         group="chunking",
         default=200,
         requires_reindex=True,
-        min_value=50,
-        max_value=1000,
+        min_value=0,
+        max_value=100000,
         step=50,
     ),
     ParameterDef(
@@ -856,8 +864,8 @@ PARAMETERS: list[ParameterDef] = [
         group="chunking",
         default=1500,
         requires_reindex=True,
-        min_value=500,
-        max_value=10000,
+        min_value=1,
+        max_value=100000,
         step=100,
     ),
     ParameterDef(
@@ -904,8 +912,8 @@ PARAMETERS: list[ParameterDef] = [
         group="hierarchical",
         default=2000,
         requires_reindex=True,
-        min_value=500,
-        max_value=10000,
+        min_value=1,
+        max_value=100000,
         step=100,
     ),
     ParameterDef(
@@ -918,8 +926,8 @@ PARAMETERS: list[ParameterDef] = [
         group="hierarchical",
         default=500,
         requires_reindex=True,
-        min_value=100,
-        max_value=2000,
+        min_value=1,
+        max_value=100000,
         step=50,
     ),
     ParameterDef(
@@ -1027,8 +1035,8 @@ PARAMETERS: list[ParameterDef] = [
         group="document_awareness",
         default=150,
         parent_key="document_awareness",
-        min_value=50,
-        max_value=500,
+        min_value=1,
+        max_value=10000,
         step=25,
     ),
     ParameterDef(

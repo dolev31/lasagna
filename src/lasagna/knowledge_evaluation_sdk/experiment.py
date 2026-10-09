@@ -2090,7 +2090,10 @@ def _apply_overrides_to_pipeline(
         sp = get_session_provider()
         sp.set_config_overrides(session_id, dict(pipeline._config))
     except Exception as exc:
-        logger.warning(f"Failed to write session config overrides: {exc}")
+        # The agentic tier reads the session store: an arm whose settings
+        # could not be written there would run its loop on the previous
+        # arm's settings.
+        raise ValueError(f"Could not apply this arm's settings: {exc}") from exc
 
 
 async def _eval_offline(
@@ -2523,14 +2526,34 @@ def _ingest_component_fingerprint(slot: str, name: str) -> str:
     return f"{name}|{cls.__module__}.{cls.__qualname__}"
 
 
-def _ingest_components_for(task: "BenchmarkTask") -> Dict[str, Any]:
-    """The arm's chunker and embedder components, instantiated, by slot."""
+def _ingest_components_for(task: "BenchmarkTask", settings: Dict[str, Any]) -> Dict[str, Any]:
+    """The arm's chunker and embedder components, instantiated, by slot.
+
+    A component that takes a config gets the arm's (profile defaults plus the
+    arm's own settings): built without one, the sentence-transformers embedder
+    read the global embedding_model and ignored the arm's.
+    """
+    import inspect
+
+    from lasagna.core.config import rag_config
     from lasagna.core.registry import registry
 
     out: Dict[str, Any] = {}
     for slot in _INGEST_COMPONENTS:
         name = (task.config_overrides or {}).get(slot)
-        if isinstance(name, str) and name:
+        if not (isinstance(name, str) and name):
+            continue
+        cls = registry.get_class(slot, name)
+        try:
+            params = inspect.signature(cls.__init__).parameters
+        except (TypeError, ValueError):
+            params = {}
+        takes_config = "config" in params or any(
+            p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+        )
+        if takes_config:
+            out[slot] = registry.get(slot, name, config=rag_config.with_query_overrides(settings))
+        else:
             out[slot] = registry.get(slot, name)
     return out
 
@@ -2694,6 +2717,19 @@ def _mint_pooled_qrels(adapter: Any, samples: List[BenchmarkSample], provenance:
     for sample in samples:
         if not sample.expected_docs and sample.query_id in pooled:
             sample.expected_docs = pooled[sample.query_id]
+
+
+async def _abandon_corpus(cache_key: str, message: str) -> Dict[str, Any]:
+    """Fail every task waiting on this corpus with ``message``.
+
+    The waiters block on the slot's event; leaving it unset hung a whole sweep.
+    """
+    async with _corpus_cache_lock:
+        slot = _corpus_sessions.pop(cache_key, None)
+    if slot is not None:
+        slot["error"] = message
+        slot["ready"].set()
+    return {"error": message}
 
 
 async def _ensure_corpus_ingested(
@@ -2906,7 +2942,11 @@ async def _ensure_corpus_ingested(
                     f"{list(ingestion_overrides.keys())}"
                 )
             except Exception as exc:
-                logger.warning(f"Could not apply ingestion overrides: {exc}")
+                # Ingesting anyway built the corpus with the global settings
+                # (its embedder, its chunking) under this arm's name.
+                return await _abandon_corpus(
+                    cache_key, f"Could not apply the arm's ingestion settings: {exc}"
+                )
 
             # Ensure per-model Milvus collection exists before ingestion.
             # The default collection (rag_documents_v2) is created at backend
@@ -2924,7 +2964,9 @@ async def _ensure_corpus_ingested(
                         f"(dim={_session_cfg.embedding_dim})"
                     )
                 except Exception as exc:
-                    logger.warning(f"Could not ensure collection for config: {exc}")
+                    return await _abandon_corpus(
+                        cache_key, f"Could not create the arm's collection: {exc}"
+                    )
 
         # Ingest — sequential upload (MilvusLite embedded DB doesn't support
         # concurrent writes; concurrent uploads cause deadlocks and data loss).
@@ -3191,7 +3233,14 @@ async def _eval_live(
     # Chunker and embedder components chunk and embed this arm's own corpus.
     # The embedder gets a collection of its own at its own dimension; the
     # query side already encodes with it through the pipeline's override.
-    _ingest_components = _ingest_components_for(task)
+    _ingest_components = _ingest_components_for(
+        task,
+        {
+            k: v
+            for k, v in {**_from_profile, **_task_overrides}.items()
+            if k not in _COMPONENT_KEYS and k not in HARNESS_KEYS
+        },
+    )
     if "embedder" in _ingest_components:
         _ingestion_overrides = dict(_ingestion_overrides or {})
         _emb_dim = int(_ingest_components["embedder"].dimension)
@@ -3282,6 +3331,11 @@ async def _eval_live(
     # Build pipeline from profile and apply task-level overrides.
     pipeline = KnowledgePipeline.from_profile(task.profile)
     _apply_overrides_to_pipeline(pipeline, task.config_overrides, shared_session_id)
+    # The pipeline queries with these same instances: a second one built by the
+    # pipeline had no arm settings, so a sentence-transformers embedder arm
+    # embedded its corpus with its model and its queries with the global one.
+    for _slot, _instance in _ingest_components.items():
+        pipeline._instances[_slot] = _instance
 
     # Live-mode fix 1: Force embedding model/dim to match the ingested corpus.
     # For embedding experiments, use the task's own ingestion overrides (the global

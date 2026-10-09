@@ -293,6 +293,17 @@ class EmbeddingManager:
         """Whether the model has been loaded (reading ``model`` loads it)."""
         return self._model is not None
 
+    def _device_guard(self):
+        """The device lock for one encode, decided after the model has loaded.
+
+        ``device_guard(self._device)`` read the device before the lazy load had
+        set it, so the first encode on each manager (the load and its first
+        batch) ran on MPS without the lock, and concurrent arms still crashed.
+        """
+        if self._model is None:
+            self._ensure_loaded()
+        return device_guard(self._device)
+
     def _ensure_loaded(self) -> None:
         with self._load_lock:
             if self._model is not None:
@@ -510,7 +521,7 @@ class EmbeddingManager:
             if cached is not None:
                 return cached
 
-        with self._encode_lock, device_guard(self._device):
+        with self._encode_lock, self._device_guard():
             if self._backend == "flag-embedding":
                 # BGE-M3 handles query prefixing internally
                 output = self.model.encode([query], return_dense=True)
@@ -556,7 +567,7 @@ class EmbeddingManager:
             if cached is not None:
                 return cached
 
-        with self._encode_lock, device_guard(self._device):
+        with self._encode_lock, self._device_guard():
             if self._backend == "flag-embedding":
                 output = self.model.encode([text], return_dense=True)
                 embedding = output["dense_vecs"][0]
@@ -628,7 +639,7 @@ class EmbeddingManager:
 
         # Batch encode remaining texts
         if texts_to_compute:
-            with self._encode_lock, device_guard(self._device):
+            with self._encode_lock, self._device_guard():
                 if self._backend == "flag-embedding":
                     output = self.model.encode(
                         texts_to_compute,
@@ -681,7 +692,7 @@ class EmbeddingManager:
         if not queries:
             return []
 
-        with self._encode_lock, device_guard(self._device):
+        with self._encode_lock, self._device_guard():
             if self._backend == "flag-embedding":
                 output = self.model.encode(
                     queries,
@@ -833,7 +844,7 @@ class EmbeddingManager:
 
             token_embeddings: Optional[np.ndarray] = None
             n_windows = 0
-            with self._encode_lock, device_guard(self._device):
+            with self._encode_lock, self._device_guard():
                 device = self.model.device
                 start = 0
                 while start < len(ids):
@@ -921,7 +932,7 @@ class EmbeddingManager:
         if self._backend != "flag-embedding":
             return None
 
-        with self._encode_lock, device_guard(self._device):
+        with self._encode_lock, self._device_guard():
             output = self.model.encode(texts, return_sparse=True)
         return output.get("lexical_weights")
 

@@ -143,6 +143,9 @@ def validate_config(
                 result.add_error(p.key, f"Value {value} is below minimum {p.min_value}")
             if p.max_value is not None and value > p.max_value:
                 result.add_error(p.key, f"Value {value} exceeds maximum {p.max_value}")
+        elif p.type == "enum" and p.open_enum:
+            if not isinstance(value, str) or not value.strip():
+                result.add_error(p.key, f"Expected a non-empty name, got {value!r}")
         elif p.type == "enum" and p.enum_options:
             valid_values = {o.value for o in p.enum_options}
             if value not in valid_values:

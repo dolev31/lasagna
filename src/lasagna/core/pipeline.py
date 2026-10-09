@@ -456,6 +456,10 @@ class KnowledgePipeline:
             mgr = get_knowledge_config_manager()
             mgr.patch_config(self._config, session_id=session_id)
         except Exception as e:
+            from .strict import strict_stages
+
+            if strict_stages():
+                raise ValueError(f"Could not apply the pipeline's settings: {e}") from e
             logger.warning(f"Could not apply pipeline config to session: {e}")
 
     # =========================================================================
