@@ -87,3 +87,48 @@ def test_other_results_commands_print_names_literally(tmp_path, command):
     assert result.exit_code == 0, result.output
     for config in NAMES:
         assert config in result.output, f"{config!r} missing from `results {name}`"
+
+
+def _bundle_with_fallbacks(tmp_path, fallbacks):
+    from lasagna.knowledge_evaluation_sdk.bundle import _content_hash
+
+    bundle = {
+        "schema_version": "1.0",
+        "experiment": {"environment": {"lasagna_version": "x", "python": "3", "platform": "p"}},
+        "configs": [],
+        "results": [{"config_name": "a", "metrics": {}, "per_sample_scores": []}],
+        "integrity": {"warnings": ["ACTIVE_FALLBACKS"], "blocking": [], "fallbacks": fallbacks},
+    }
+    bundle["run_id"] = _content_hash(bundle)
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps(bundle))
+    return str(path)
+
+
+FALLBACK = (
+    "sentence_split_without_nltk: sentences are split by punctuation; "
+    "pip install 'lasagna-rag[eval]'"
+)
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_validate_says_which_fallbacks_were_active(tmp_path, strict):
+    """ACTIVE_FALLBACKS alone does not say what to install."""
+    args = ["results", "validate", _bundle_with_fallbacks(tmp_path, [FALLBACK])]
+    result = runner.invoke(app, args + (["--strict"] if strict else []))
+    assert result.exception is None or isinstance(result.exception, SystemExit), result.exception
+    assert "pip install 'lasagna-rag[eval]'" in " ".join(result.output.split())
+    if strict:
+        assert "1 problem(s)" in result.output
+
+
+def test_an_older_bundle_without_the_list_still_validates(tmp_path):
+    path = _bundle_with_fallbacks(tmp_path, [])
+    data = json.loads(open(path).read())
+    del data["integrity"]["fallbacks"]
+    from lasagna.knowledge_evaluation_sdk.bundle import _content_hash
+
+    data["run_id"] = _content_hash(data)
+    open(path, "w").write(json.dumps(data))
+    result = runner.invoke(app, ["results", "validate", path])
+    assert result.exit_code == 0, result.output

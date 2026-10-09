@@ -1413,6 +1413,13 @@ def results_validate(
         problems.append(f"  {line}")
 
     warnings = (bundle.get("integrity") or {}).get("warnings") or []
+    # What each active fallback swapped in and what to install, so the
+    # ACTIVE_FALLBACKS code is actionable. Older bundles have no list.
+    fallbacks = (
+        [str(f) for f in (bundle.get("integrity") or {}).get("fallbacks", [])]
+        if "ACTIVE_FALLBACKS" in warnings
+        else []
+    )
     if strict:
         problems.extend(f"integrity (strict): {code}" for code in warnings)
 
@@ -1422,11 +1429,16 @@ def results_validate(
         # Rich closing tag and crashed the command instead of printing.
         for p in problems:
             console.print(f"  - {escape(p)}")
+            if p == "integrity (strict): ACTIVE_FALLBACKS":
+                for line in fallbacks:
+                    console.print(f"      {escape(line)}")
         raise typer.Exit(1)
 
     console.print(f"[green]VALID[/green] (schema {escape(schema)}, run_id {bundle['run_id']})")
     if warnings:
         console.print(f"[yellow]  warnings: {escape(', '.join(warnings))}[/yellow]")
+        for line in fallbacks:
+            console.print(f"    {escape(line)}")
 
 
 @results_app.command("compare")
