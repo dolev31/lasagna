@@ -24,7 +24,11 @@ from loguru import logger
 
 from ..core.config import rag_config
 from ..utils.monitoring import METRICS, log_json, trunc_text
-from ..utils.model_utils import resolve_model_settings, get_default_model_settings
+from ..utils.model_utils import (
+    get_default_model_settings,
+    message_text,
+    resolve_model_settings,
+)
 from ..providers import get_llm_provider
 
 
@@ -238,7 +242,7 @@ async def _generate_llm_summary(
         ]
 
         response = await llm.ainvoke(messages)
-        summary = response.content if hasattr(response, "content") else str(response)
+        summary = message_text(response)
 
         latency_ms = (time.perf_counter() - summary_start) * 1000.0
         token_usage = {}
