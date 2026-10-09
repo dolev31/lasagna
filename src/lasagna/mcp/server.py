@@ -1280,9 +1280,11 @@ def upload_document(
         },
     )
 
+    # Outside the try: a refusal must surface as a tool error, not a
+    # summarisable message (see transport_guard.MCPAuthError).
+    resolved_path = transport_guard.guard_server_path(file_path)
     try:
-        # Resolve to absolute path and validate it exists
-        resolved_path = os.path.realpath(file_path)
+        # Validate the resolved path exists
         if not os.path.isfile(resolved_path):
             return json.dumps({"error": f"file not found at '{file_path}'"})
 
