@@ -119,28 +119,34 @@ def _flag_failures(fn):
     MISMATCH" or "No LLMProvider configured" as retrieved knowledge. Only the
     registered copy raises; the module function keeps returning the text, so
     Python callers see what they always did.
+
+    A synchronous tool is registered as a coroutine that runs it in a worker
+    thread. FastMCP calls a sync tool on the event loop itself, so one 40 s
+    upload froze every other client, and in the embedded deployment the REST
+    API's own health check with it. REST routes already run blocking work in a
+    thread pool.
     """
     from mcp.server.fastmcp.exceptions import ToolError
+
+    def checked(reply):
+        message = _tool_failure(reply)
+        if message is not None:
+            raise ToolError(message)
+        return reply
 
     if inspect.iscoroutinefunction(fn):
 
         @functools.wraps(fn)
         async def flagged(*args, **kwargs):
-            reply = await fn(*args, **kwargs)
-            message = _tool_failure(reply)
-            if message is not None:
-                raise ToolError(message)
-            return reply
+            return checked(await fn(*args, **kwargs))
 
     else:
+        import anyio.to_thread
 
         @functools.wraps(fn)
-        def flagged(*args, **kwargs):
-            reply = fn(*args, **kwargs)
-            message = _tool_failure(reply)
-            if message is not None:
-                raise ToolError(message)
-            return reply
+        async def flagged(*args, **kwargs):
+            call = functools.partial(fn, *args, **kwargs)
+            return checked(await anyio.to_thread.run_sync(call))
 
     return flagged
 
