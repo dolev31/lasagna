@@ -20,13 +20,19 @@ backend = MilvusBackend(db_path="./vectors.db")
 from lasagna.sdk.backends import list_backends
 
 print(list_backends())
-# ['milvus', 'pinecone', 'qdrant', 'weaviate']
+# ['milvus', ...]: the built-in backends whose client library is installed
 ```
+
+Milvus Lite is always available. The others need an extra:
+
+- Pinecone, Qdrant and Weaviate: `pip install "lasagna-rag[vector-backends]"`
+- pgvector: `pip install "lasagna-rag[pgvector]"`
+- OpenSearch: `pip install "lasagna-rag[opensearch]"`
 
 ### Using Pinecone
 
 ```python
-from lasagna.sdk import KnowledgeConfig, VectorBackend
+from lasagna.sdk import KnowledgeClient, KnowledgeConfig, VectorBackend
 
 config = KnowledgeConfig(
     vector_backend=VectorBackend.PINECONE,
@@ -45,8 +51,8 @@ client = KnowledgeClient(config=config)
 config = KnowledgeConfig(
     vector_backend=VectorBackend.QDRANT,
     vector_backend_config={
+        # QdrantBackend arguments: url, api_key, host, port, path, ...
         "url": "http://localhost:6333",
-        "collection_name": "knowledge",
     },
 )
 ```
@@ -54,22 +60,51 @@ config = KnowledgeConfig(
 ### Custom Backend
 
 ```python
+from lasagna.sdk import KnowledgeConfig
 from lasagna.sdk.backends import (
+    BackendCapabilities,
     VectorBackendBase,
     register_backend,
 )
 
 class MyCustomBackend(VectorBackendBase):
-    """Custom vector backend implementation."""
+    """Custom vector backend implementation.
 
-    async def insert(self, vectors, metadata):
-        ...
+    Every member below is abstract in the base class, so the class cannot be
+    created until all of them exist. The methods are synchronous. Replace
+    each ``...`` with calls to your database.
+    """
 
-    async def search(self, query_vector, top_k):
-        ...
+    @property
+    def backend_name(self) -> str:
+        return "my_custom"
 
-    async def delete(self, ids):
-        ...
+    @property
+    def capabilities(self) -> BackendCapabilities:
+        return BackendCapabilities()
+
+    # Connection
+    def connect(self) -> None: ...
+    def disconnect(self) -> None: ...
+    def is_connected(self) -> bool: ...
+
+    # Collections and indexes
+    def has_collection(self, collection_name) -> bool: ...
+    def create_collection(self, collection_name, schema, index_config=None) -> None: ...
+    def drop_collection(self, collection_name) -> None: ...
+    def describe_collection(self, collection_name): ...  # returns CollectionInfo
+    def get_collection_stats(self, collection_name) -> dict: ...
+    def create_index(self, collection_name, field_name, index_config) -> None: ...
+    def list_indexes(self, collection_name) -> list: ...
+
+    # Data
+    def insert(self, collection_name, data, partition_key=None) -> list: ...
+    def delete(self, collection_name, filter_expr, partition_key=None) -> int: ...
+    def query(self, collection_name, filter_expr=None, output_fields=None,
+              limit=100, offset=0, partition_key=None) -> list: ...
+    def search(self, collection_name, query_embedding, vector_field="embedding",
+               filter_expr=None, limit=10, output_fields=None,
+               search_params=None, partition_key=None) -> list: ...  # VectorSearchResult items
 
 # Register
 register_backend("custom", MyCustomBackend)

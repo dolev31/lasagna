@@ -141,15 +141,16 @@ Custom rerankers and query enhancers can be registered via the component registr
 
 ```python
 from lasagna.retrieval.registry import component_registry
+from lasagna.sdk import KnowledgeConfig
 
 # Register a custom reranker
 component_registry.register_reranker("my_colbert", MyColBERTReranker)
 
 # Register a custom query enhancer
-component_registry.register_query_enhancer("my_enhancer", MyEnhancer)
+component_registry.register_enhancer("my_enhancer", MyEnhancer)
 
-# Use via config
-config = KnowledgeConfig(reranker="my_colbert")
+# Use via config (the enhancer is chosen with custom_query_enhancer in settings.lasagna.toml)
+config = KnowledgeConfig(custom_reranker="my_colbert")
 
 # List available components
 component_registry.list_rerankers()

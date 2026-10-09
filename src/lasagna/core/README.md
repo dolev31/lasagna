@@ -11,6 +11,7 @@ from lasagna.core import (
     ComponentRegistry, registry,
     KnowledgePipeline, PipelineResult,
     KnowledgeConfigManager, get_knowledge_config_manager,
+    BaseReranker,
 )
 
 # Access global config

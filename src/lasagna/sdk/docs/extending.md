@@ -48,13 +48,14 @@ class MyHyDE:
 
 component_registry.register_enhancer("my_hyde", MyHyDE)
 
-# --- List all registered components ---
+# --- List all registered components (names per component type) ---
 print(component_registry.list_all())
 # {
-#   "rerankers": [{"name": "cross_encoder", ...}, {"name": "my_colbert", ...}],
-#   "embedders": [...],
-#   "chunkers": [...],
-#   "enhancers": [{"name": "hyde", ...}, {"name": "my_hyde", ...}],
+#   "reranker": ["cross_encoder", "combined", ..., "my_colbert"],
+#   "embedder": ["default"],
+#   "chunker": ["semantic", "hierarchical", "structure_aware"],
+#   "query_enhancer": ["hyde", "query_expansion", ..., "my_hyde"],
+#   ...
 # }
 
 # --- Create instances via factory ---
@@ -87,45 +88,66 @@ from lasagna.vector_backends import get_available_backends
 # List all registered backends
 backends = get_available_backends()
 print(backends)
-# ['milvus', 'pinecone', 'qdrant', 'weaviate', 'pgvector']
+# ['milvus', ...]: the built-in backends whose client library is installed
 ```
 
 Built-in backends are registered automatically if their client library is installed:
 
-| Backend | Required Package | Auto-Registered |
-|---------|-----------------|-----------------|
-| `milvus` | `pymilvus` | Yes |
-| `pinecone` | `pinecone-client` | Yes |
-| `qdrant` | `qdrant-client` | Yes |
-| `weaviate` | `weaviate-client` | Yes |
-| `pgvector` | `psycopg` + `pgvector` | Yes |
+| Backend | Required Package | Install |
+|---------|-----------------|---------|
+| `milvus` | `pymilvus` | included |
+| `pinecone` | `pinecone` | `pip install "lasagna-rag[vector-backends]"` |
+| `qdrant` | `qdrant-client` | `pip install "lasagna-rag[vector-backends]"` |
+| `weaviate` | `weaviate-client` | `pip install "lasagna-rag[vector-backends]"` |
+| `pgvector` | `psycopg` + `pgvector` | `pip install "lasagna-rag[pgvector]"` |
+| `opensearch` | `opensearch-py` | `pip install "lasagna-rag[opensearch]"` |
 
 ### Registering Custom Backends
 
 Implement the `VectorStoreAdapter` interface and register your backend:
 
 ```python
-from lasagna.vector_backends.base import VectorStoreAdapter
+from lasagna.vector_backends.base import BackendCapabilities, VectorStoreAdapter
 from lasagna.vector_backends import register_backend, get_backend
 
 class MyCustomBackend(VectorStoreAdapter):
-    """Custom vector backend implementation."""
+    """Custom vector backend implementation.
+
+    Every member below is abstract in the base class, so the class cannot be
+    created until all of them exist. The methods are synchronous. Replace
+    each ``...`` with calls to your database.
+    """
 
     @property
     def backend_name(self) -> str:
         return "my_custom"
 
-    async def insert(self, collection_name, vectors, metadata):
-        ...
+    @property
+    def capabilities(self) -> BackendCapabilities:
+        return BackendCapabilities()
 
-    async def search(self, collection_name, query_vector, top_k, filter_expr=None):
-        ...
+    # Connection
+    def connect(self) -> None: ...
+    def disconnect(self) -> None: ...
+    def is_connected(self) -> bool: ...
 
-    async def delete(self, collection_name, ids):
-        ...
+    # Collections and indexes
+    def has_collection(self, collection_name) -> bool: ...
+    def create_collection(self, collection_name, schema, index_config=None) -> None: ...
+    def drop_collection(self, collection_name) -> None: ...
+    def describe_collection(self, collection_name): ...  # returns CollectionInfo
+    def get_collection_stats(self, collection_name) -> dict: ...
+    def create_index(self, collection_name, field_name, index_config) -> None: ...
+    def list_indexes(self, collection_name) -> list: ...
 
-    def disconnect(self):
-        ...
+    # Data
+    def insert(self, collection_name, data, partition_key=None) -> list: ...
+    def delete(self, collection_name, filter_expr, partition_key=None) -> int: ...
+    def query(self, collection_name, filter_expr=None, output_fields=None,
+              limit=100, offset=0, partition_key=None) -> list: ...
+    def search(self, collection_name, query_embedding, vector_field="embedding",
+               filter_expr=None, limit=10, output_fields=None,
+               search_params=None, partition_key=None) -> list: ...  # VectorSearchResult items
 
 # Register with the global registry
 register_backend("my_custom", MyCustomBackend)
@@ -195,7 +217,7 @@ class MyNovelReranker(BaseReranker):
 ```python
 # See all components in a namespace
 registry.list("reranker")
-# {'reranker': ['cross-encoder-default', 'mxbai-rerank-large', 'my_novel_reranker']}
+# {'reranker': ['cross_encoder', 'combined', 'ensemble', 'mmr', 'colbert', 'llm_listwise', 'my_novel_reranker']}
 
 # Get an instantiated component
 instance = registry.get("reranker", "my_novel_reranker")
@@ -448,7 +470,7 @@ experimental = KnowledgePipeline(reranker="my_novel_reranker")
 
 for name, pipe in [("baseline", baseline), ("experimental", experimental)]:
     result = pipe.evaluate(dataset=my_dataset, metrics=["faithfulness", "context_precision"])
-    print(f"{name}: faithfulness={result['faithfulness']:.3f}, precision={result['context_precision']:.3f}")
+    print(f"{name}: faithfulness={result.metrics['faithfulness']:.3f}, precision={result.metrics['context_precision']:.3f}")
 ```
 
 ---
@@ -488,6 +510,8 @@ results = evaluator.evaluate_from_samples(
     answers=answers_list,
     contexts=contexts_list,
     ground_truths=ground_truths_list,
+    # The default is faithfulness, context_recall and context_precision
+    metrics=["faithfulness", "answer_relevancy", "context_precision", "context_recall"],
 )
 
 print(f"Faithfulness:       {results['faithfulness']:.3f}")
@@ -534,6 +558,7 @@ results.plot()
 The `sweep` function returns an `AblationResults` object with built-in analysis methods:
 
 ```python
+# `results` is the AblationResults that sweep() returned above
 # Tabular summary
 df = results.to_dataframe()
 print(df)
@@ -633,20 +658,21 @@ results.to_dataframe()
 Hold the pipeline fixed and sweep a single graph node across implementations:
 
 ```python
-from lasagna.sdk import sweep_nodes
+from lasagna.sdk import registry, sweep_nodes
+
+# Each variant is the name of a node registered with register_graph_node()
+registry.register_graph_node("retrieve_v1", my_retrieve_v1)
+registry.register_graph_node("retrieve_v2", my_retrieve_v2)
 
 results = sweep_nodes(
     pipeline=base_pipeline,
     node_name="retrieve",
-    variants={
-        "builtin": None,  # None = use the built-in node
-        "custom_v1": my_retrieve_v1,
-        "custom_v2": my_retrieve_v2,
-    },
+    variants=["retrieve_v1", "retrieve_v2"],
     dataset=my_dataset,
     metrics=["context_recall", "faithfulness"],
 )
 results.to_dataframe()
+# For the built-in node, evaluate base_pipeline without an override
 ```
 
 ### Pipeline and Node Identity in Metrics
@@ -671,25 +697,22 @@ The YAML captures the complete pipeline specification:
 
 ```yaml
 # experiment_v1.yaml
-version: "1.0"
-pipeline:
-  embedder: bge-large-en-v1.5
+components:
   chunker: semantic
-  reranker: my_novel_reranker
-  retriever: hybrid
-  document_processor: default
   query_enhancer: hyde
+  reranker: my_novel_reranker
 config:
-  chunk_size: 800
   chunk_overlap: 150
-  hybrid_alpha: 0.7
-  rerank_top_k: 10
+  chunk_size: 800
   enable_mmr: true
+  hybrid_alpha: 0.7
   mmr_lambda: 0.5
-metadata:
-  created: "2026-03-03T10:30:00Z"
-  description: "Ablation v1 — novel reranker with HyDE"
+  rerank_top_k: 10
+node_overrides:        # only when set_node_override() was used
+  retrieve: my_retrieve
 ```
+
+Only components you set are listed. The file holds no timestamps or hardware details, so the same pipeline always writes the same file; run metadata goes in `PipelineResult.metadata` instead.
 
 ### Load a Pipeline
 
@@ -699,7 +722,7 @@ reproduced = KnowledgePipeline.from_yaml("experiment_v1.yaml")
 # Verify exact reproduction
 original_results = pipeline.evaluate(dataset=my_dataset, metrics=["faithfulness"])
 reproduced_results = reproduced.evaluate(dataset=my_dataset, metrics=["faithfulness"])
-assert abs(original_results["faithfulness"] - reproduced_results["faithfulness"]) < 1e-6
+assert abs(original_results.metrics["faithfulness"] - reproduced_results.metrics["faithfulness"]) < 1e-6
 ```
 
 ### Sharing Experiments
@@ -757,9 +780,10 @@ Save and reuse your own experiment configurations:
 from lasagna.sdk import KnowledgeClient
 
 client = KnowledgeClient()
+config_manager = client.config_manager
 
-# Save current config as a named profile
-await client.config_manager.save_profile(
+# Save a named profile
+await config_manager.save_profile(
     "my_research_baseline",
     config={
         "enable_hyde": True,
@@ -771,12 +795,12 @@ await client.config_manager.save_profile(
 )
 
 # List all available profiles
-profiles = await client.config_manager.list_profiles()
+profiles = await config_manager.list_profiles()
 for p in profiles:
     print(f"  {p['name']}: {p['description']}")
 
 # Switch between profiles during experiments
-await client.config_manager.set_profile("my_research_baseline")
+await config_manager.set_profile("my_research_baseline")
 ```
 
 ---
@@ -841,13 +865,13 @@ from lasagna.sdk import registry
 
 def test_reranker_registered():
     """Verify the component is discoverable."""
-    cls = registry.get("reranker", "my-research-reranker")
+    cls = registry.get_class("reranker", "my-research-reranker")
     assert cls is not None
 
 
 def test_reranker_basic():
     """Smoke test with synthetic data."""
-    cls = registry.get("reranker", "my-research-reranker")
+    cls = registry.get_class("reranker", "my-research-reranker")
     reranker = cls()
     # Provide synthetic ScoredDocument instances
     results = reranker.rerank("test query", mock_documents, top_k=3)

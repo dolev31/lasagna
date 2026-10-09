@@ -243,7 +243,7 @@ export RAG_ADMIN_TOKEN=my-secret-admin-token
 ```python
 from lasagna.sdk import KnowledgeClient
 
-async with KnowledgeClient(base_url="http://localhost:8000") as client:
+async with KnowledgeClient.from_url("http://localhost:8000") as client:
     # Soft-delete (recoverable)
     doc = await client.documents.archive("doc_abc123")
     print(doc.status)  # DocumentStatus.SOFT_DELETED
@@ -367,6 +367,8 @@ inefficient for large collections.
 
 ```python
 class MyNewBackend(VectorStoreAdapter):
+    # ...plus the abstract methods every backend implements (see vector_backends/README.md)
+
     def list_document_ids(
         self,
         collection_name: str,

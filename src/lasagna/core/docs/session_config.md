@@ -107,6 +107,8 @@ Loaded from `settings.lasagna.toml` via `_load_defaults()`:
 ### Profile Lifecycle
 
 ```python
+from lasagna.core.session_config import get_knowledge_config_manager
+
 mgr = get_knowledge_config_manager()
 
 # List all profiles (built-in + custom)
@@ -116,7 +118,7 @@ profiles = mgr.list_profiles()
 mgr.set_active_profile("balanced", session_id="sess_123")
 
 # Create custom profile
-mgr.save_profile("my_profile", config={"top_k": 10, "reranking_enabled": True})
+mgr.save_profile("my_profile", config={"default_top_k": 10, "enable_reranking": True})
 
 # Delete custom profile (cannot delete built-in)
 mgr.delete_profile("my_profile")
@@ -129,7 +131,7 @@ mgr.delete_profile("my_profile")
 config = mgr.get_resolved_config(session_id="sess_123")
 
 # Apply session-level overrides
-mgr.patch_config({"top_k": 20}, session_id="sess_123")
+mgr.patch_config({"default_top_k": 20}, session_id="sess_123")
 
 # Reset session to profile defaults
 mgr.reset_config(session_id="sess_123")

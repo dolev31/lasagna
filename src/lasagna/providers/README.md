@@ -144,8 +144,10 @@ configure_providers(
 ### Local models
 
 ```python
+import os
+
 # Ollama (just run `ollama serve` and pull a model)
-export OLLAMA_BASE_URL=http://localhost:11434
+os.environ["OLLAMA_BASE_URL"] = "http://localhost:11434"
 
 from lasagna.providers import SimpleLLMProvider
 llm = SimpleLLMProvider(default_provider="ollama")
@@ -168,7 +170,7 @@ model = llm.get_chat_model({
 })
 
 # vLLM or any OpenAI-compatible local server
-export VLLM_BASE_URL=http://localhost:8000/v1
+os.environ["VLLM_BASE_URL"] = "http://localhost:8000/v1"
 llm = SimpleLLMProvider(default_provider="vllm")
 model = llm.get_chat_model({"platform": "vllm", "model_name": "my-model"})
 ```

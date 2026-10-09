@@ -75,7 +75,7 @@ python -m lasagna export --output config.json
 python -m lasagna import config.json
 
 # Run evaluation benchmark
-python -m lasagna evaluate --document data.pdf --ground-truth gt.jsonl
+python -m lasagna evaluate data.pdf gt.jsonl
 ```
 
 ### For Non-Technical Users (MCP)
@@ -84,7 +84,7 @@ Use the **MCP Server** to connect any MCP-compatible client (Claude Desktop, Cur
 
 ```bash
 export OPENAI_API_KEY=sk-...
-python -m lasagna.mcp --host 0.0.0.0 --port 8005
+python -m lasagna.mcp --port 8005
 ```
 
 Connect your client to `http://localhost:8005/sse` -- upload documents, ask questions, and get cited answers through a conversational interface. No code required.
@@ -534,15 +534,17 @@ docs = await retriever.ainvoke("quarterly earnings")
 FastAPI-based HTTP API for language-agnostic access.
 
 ```bash
-# Start the API server
-python -m lasagna.api.rest.app --host 0.0.0.0 --port 8000
+# Start the API server (on 127.0.0.1; binding 0.0.0.0 needs RAG_REQUIRE_AUTH, see SECURITY.md)
+python -m lasagna serve --port 8000
 
 # Upload
 curl -X POST http://localhost:8000/api/v1/documents \
   -F "file=@report.pdf"
 
 # Search
-curl http://localhost:8000/api/v1/search?q=revenue+growth
+curl -X POST http://localhost:8000/api/v1/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "revenue growth"}'
 
 # Health
 curl http://localhost:8000/api/v1/health
@@ -554,7 +556,7 @@ Model Context Protocol server for AI agent integration.
 
 ```bash
 # SSE transport (Claude Desktop, Cursor, web clients)
-python -m lasagna.mcp --host 0.0.0.0 --port 8005
+python -m lasagna.mcp --port 8005
 
 # stdio transport (local MCP clients)
 python -m lasagna.mcp --transport stdio

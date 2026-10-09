@@ -27,8 +27,8 @@ print(f"Time: {results.search_time_ms:.0f}ms")
 for hop in results.hops:
     print(f"Hop {hop.iteration}:")
     print(f"  Query: {hop.query}")
-    print(f"  Refined: {hop.refined_query}")
-    print(f"  Coverage: {hop.coverage_score:.2f}")
+    print(f"  Chunks: {hop.chunks_retrieved}")
+    print(f"  Time: {hop.hop_time_ms:.0f}ms")
 
 # Get final context
 print(results.final_context)
@@ -98,7 +98,7 @@ from lasagna.sdk.agentic import create_rag_tools
 tools = create_rag_tools(client)
 
 # Available tools:
-# - search_knowledge(query) - Search knowledge base
+# - search(query) - Search knowledge base
 # - list_documents() - List all documents
 # - search_in_document(document_id, query) - Search specific document
 
@@ -225,9 +225,9 @@ from lasagna.sdk.processing import (
     OCRProcessor,
 )
 
-# Extract text from document
+# Extract text from document (returns a string)
 extractor = DocumentExtractor()
-text, metadata = extractor.extract("./document.pdf")
+text = extractor.extract_text("./document.pdf")
 print(f"Extracted {len(text)} characters")
 
 # For scanned documents
@@ -235,7 +235,7 @@ from lasagna.sdk.processing import is_scanned_pdf
 
 if is_scanned_pdf("./scanned.pdf"):
     ocr = OCRProcessor()
-    text = ocr.process("./scanned.pdf")
+    text = ocr.process_pdf("./scanned.pdf")  # returns "" unless enable_ocr is on
 ```
 
 ### Chunking
@@ -243,15 +243,18 @@ if is_scanned_pdf("./scanned.pdf"):
 ```python
 from lasagna.sdk.processing import SemanticChunker, FixedChunker
 
-# Semantic chunking (recommended)
-chunker = SemanticChunker(
-    chunk_size=800,
-    overlap=150,
-    similarity_threshold=0.75,
-)
-chunks = chunker.chunk(text)
+# Semantic chunking (recommended): needs the embedding model
+from lasagna.sdk.retrieval import EmbeddingModel
 
-# Fixed-size chunking
+chunker = SemanticChunker(embedding_manager=EmbeddingModel())
+chunks = chunker.chunk_semantic(text, threshold=0.75, max_size=800)
+for chunk in chunks:
+    print(f"Chunk {chunk.chunk_index}: {len(chunk.content)} chars")
+
+# Or split by size (chunk_fixed does not use the model)
+chunks = chunker.chunk_fixed(text, chunk_size=800, overlap=150)
+
+# FixedChunker returns (text, metadata) tuples
 chunker = FixedChunker(chunk_size=500, overlap=50)
 chunks = chunker.chunk(text)
 
@@ -267,9 +270,12 @@ from lasagna.sdk.retrieval import EmbeddingModel
 # Create embedding model
 model = EmbeddingModel()
 
-# Generate embeddings
-embeddings = model.encode(["Hello world", "Semantic search"])
-print(f"Shape: {embeddings.shape}")  # (2, 1024)
+# Generate embeddings (one numpy vector per text)
+embeddings = model.encode_documents_batch(["Hello world", "Semantic search"])
+print(f"{len(embeddings)} vectors of {embeddings[0].shape[0]} dims")  # 2 vectors of 1024 dims
+
+# Queries have their own method
+query_vector = model.encode_query("What is semantic search?")
 ```
 
 ### Reranking
@@ -279,12 +285,19 @@ from lasagna.sdk.retrieval import Reranker
 
 reranker = Reranker()
 
-# Rerank results
+# Rerank results: a list of dicts with "content" (plus optional "chunk_id",
+# "document_id" and "score"); returns RerankedResult objects
+search_results = [
+    {"chunk_id": "c1", "content": "Revenue grew 12% year over year.", "score": 0.61},
+    {"chunk_id": "c2", "content": "The office moved to Boston.", "score": 0.58},
+]
 reranked = reranker.rerank(
     query="revenue growth",
     results=search_results,
     top_k=5,
 )
+for r in reranked:
+    print(f"[{r.normalized_score:.2f}] {r.content}")
 ```
 
 ---

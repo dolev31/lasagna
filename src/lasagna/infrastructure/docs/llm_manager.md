@@ -71,7 +71,7 @@ class LLMManager:
 
 MD5 hash of model settings dict (with prompt keys removed) plus resolved model name, API version, and base URL:
 
-```python
+```text
 key = MD5(JSON({
     ...model_settings (minus prompt keys)...,
     "resolved_model_name": "gpt-4o",

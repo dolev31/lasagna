@@ -47,6 +47,16 @@ A production-grade abstraction layer enabling RAG knowledge system to operate se
 
 ## Supported Backends
 
+Milvus Lite ships with the core package. The other backends need their client library, installed through an extra:
+
+| Backend | Install |
+|---------|---------|
+| Qdrant, Pinecone, Weaviate | `pip install "lasagna-rag[vector-backends]"` |
+| PgVector | `pip install "lasagna-rag[pgvector]"` |
+| OpenSearch | `pip install "lasagna-rag[opensearch]"` |
+
+Without it, `get_backend()` raises `ValueError` and names the extra to install.
+
 ### Milvus (Default)
 
 The default backend with the broadest feature set. Supports Lite mode (embedded, zero-config) and Standalone/Distributed (full hybrid search with BM25).
@@ -361,10 +371,11 @@ from lasagna.vector_backends import (
     register_backend,
 )
 
-# List available backends
+# List available backends (only those whose client library is installed)
 print(get_available_backends())  # ['milvus', 'qdrant', 'pinecone', 'weaviate', 'pgvector', 'opensearch']
 
 # Get or create (cached by name + config hash)
+# "qdrant" needs pip install "lasagna-rag[vector-backends]"
 backend = get_backend("qdrant", url="http://localhost:6333")
 
 # Same config returns same instance (singleton)
@@ -393,6 +404,7 @@ from lasagna.vector_backends.base import (
     IndexConfig,
 )
 from lasagna.vector_backends.filters import FilterExpression
+from lasagna.vector_backends import get_backend, register_backend
 
 class ChromaBackend(VectorStoreAdapter):
 
