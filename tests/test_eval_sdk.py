@@ -1156,13 +1156,14 @@ class TestE5PrefixResolution:
         assert result["query"] == "query: "
         assert result["document"] == "passage: "
 
-    def test_bge_prefixes(self):
+    def test_bge_m3_takes_no_query_instruction(self):
+        """BGE-M3 is trained without one, unlike bge-*-v1.5; it was given theirs."""
         from lasagna.infrastructure.embedding.manager import (
             _resolve_prefixes,
         )
 
         result = _resolve_prefixes("BAAI/bge-m3")
-        assert result["query"] == "Represent this sentence for searching relevant passages: "
+        assert result["query"] == ""
         assert result["document"] == ""
 
     def test_bge_large_prefixes(self):

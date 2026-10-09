@@ -436,6 +436,47 @@ class ComponentRegistry:
                 "https://www.anthropic.com/news/contextual-retrieval",
                 [],
             ),
+            (
+                "embedder",
+                "sentence_transformers",
+                "lasagna.infrastructure.embedding.embedders:SentenceTransformersEmbedder",
+                "Any sentence-transformers model (embedding_model), with its model card's "
+                "query/document prefixes",
+                "arxiv:1908.10084",
+                [],
+            ),
+            (
+                "embedder",
+                "bge_m3",
+                "lasagna.infrastructure.embedding.embedders:BGEM3Embedder",
+                "BGE-M3 dense vectors; sparse and multi-vector outputs via FlagEmbedding",
+                "arxiv:2402.03216",
+                [],
+            ),
+            (
+                "embedder",
+                "openai",
+                "lasagna.infrastructure.embedding.embedders:OpenAIEmbedder",
+                "OpenAI text-embedding-3 small/large, with Matryoshka dimensions",
+                "https://platform.openai.com/docs/guides/embeddings",
+                [],
+            ),
+            (
+                "embedder",
+                "cohere",
+                "lasagna.infrastructure.embedding.embedders:CohereEmbedder",
+                "Cohere Embed v3/v4 with search_query/search_document input types",
+                "https://docs.cohere.com/reference/embed",
+                [],
+            ),
+            (
+                "embedder",
+                "voyage",
+                "lasagna.infrastructure.embedding.embedders:VoyageEmbedder",
+                "Voyage AI voyage-3 family with query/document input types",
+                "https://docs.voyageai.com/docs/embeddings",
+                [],
+            ),
         ]
         for stage, name, factory, description, paper, aliases in builtins:
             try:

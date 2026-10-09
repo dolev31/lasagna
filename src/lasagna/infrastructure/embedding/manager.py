@@ -133,23 +133,39 @@ class EmbeddingCache:
 # Different embedding model families require different query/document prefixes
 # for optimal retrieval performance.
 
-_MODEL_PREFIXES = {
-    "e5": {"query": "query: ", "document": "passage: "},
-    "bge": {
-        "query": "Represent this sentence for searching relevant passages: ",
-        "document": "",
-    },
-}
+_WEB_SEARCH = "Given a web search query, retrieve relevant passages that answer the query"
+_REPRESENT = "Represent this sentence for searching relevant passages: "
+
+#: (substrings that must all occur in the lower-cased model name, prefixes),
+#: each from its model card. First match wins, so a specific family precedes
+#: the general one it would also match: "e5-mistral" before "e5", "bge-m3"
+#: before "bge". Documents take no prefix unless stated.
+_MODEL_PREFIX_RULES = (
+    # Qwen3-Embedding: no space after "Query:" (its own prompt template).
+    (("qwen3-embedding",), {"query": f"Instruct: {_WEB_SEARCH}\nQuery:", "document": ""}),
+    (("gte-qwen",), {"query": f"Instruct: {_WEB_SEARCH}\nQuery: ", "document": ""}),
+    (("e5-mistral",), {"query": f"Instruct: {_WEB_SEARCH}\nQuery: ", "document": ""}),
+    (("e5", "instruct"), {"query": f"Instruct: {_WEB_SEARCH}\nQuery: ", "document": ""}),
+    (("e5",), {"query": "query: ", "document": "passage: "}),
+    # BGE-M3 is trained without a query instruction; adding one moves its vectors.
+    (("bge-m3",), {"query": "", "document": ""}),
+    (("bge", "-zh"), {"query": "为这个句子生成表示以用于检索相关文章：", "document": ""}),
+    (("bge",), {"query": _REPRESENT, "document": ""}),
+    (("nomic-embed-text",), {"query": "search_query: ", "document": "search_document: "}),
+    (("mxbai-embed",), {"query": _REPRESENT, "document": ""}),
+    (("arctic-embed", "v2"), {"query": "query: ", "document": ""}),
+    (("arctic-embed",), {"query": _REPRESENT, "document": ""}),
+)
 _DEFAULT_PREFIXES = {"query": "", "document": ""}
 
 
 def _resolve_prefixes(model_name: str) -> dict:
     """Resolve query/document prefixes based on the embedding model name."""
     name_lower = model_name.lower()
-    for key, prefixes in _MODEL_PREFIXES.items():
-        if key in name_lower:
-            return prefixes
-    return _DEFAULT_PREFIXES
+    for needles, prefixes in _MODEL_PREFIX_RULES:
+        if all(needle in name_lower for needle in needles):
+            return dict(prefixes)
+    return dict(_DEFAULT_PREFIXES)
 
 
 def _special_frame(tokenizer) -> tuple:
