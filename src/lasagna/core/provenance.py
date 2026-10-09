@@ -63,6 +63,7 @@ def capture(*, include_git: Optional[bool] = None) -> Dict[str, Any]:
     # Presence, never names or values. Which providers a lab has configured is
     # not something a published bundle should disclose.
     env["llm_credentials_present"] = _any_llm_credentials()
+    env["active_fallbacks"] = _active_fallbacks()
 
     return env
 
@@ -95,12 +96,43 @@ def _package_versions() -> Dict[str, Any]:
         "numpy",
         "scipy",
         "pymilvus",
+        # Optional packages whose absence switches in a fallback that changes
+        # chunks or BM25 scores; see active_fallbacks.
+        "milvus-lite",
+        "rank-bm25",
+        "nltk",
+        "docling",
     ):
         try:
             out[f"{dist.replace('-', '_')}_version"] = version(dist)
         except PackageNotFoundError:
             out[f"{dist.replace('-', '_')}_version"] = None
 
+    return out
+
+
+def _active_fallbacks() -> list:
+    """Stand-ins that ran because an optional package is missing.
+
+    The same named configuration chunks and scores differently on a core
+    install and on one with the extras, and the two bundles used to be
+    indistinguishable: a silent uncontrolled factor in a comparison whose point
+    is holding everything else fixed.
+    """
+    from importlib.util import find_spec
+
+    out = []
+    if find_spec("nltk") is None:
+        out += ["sentence_split_without_nltk", "bm25_without_stemming"]
+    if find_spec("rank_bm25") is None:
+        out.append("hybrid_without_bm25")
+    try:
+        from lasagna.core.config import rag_config
+
+        if getattr(rag_config, "docling_enabled", False) and find_spec("docling") is None:
+            out.append("docling_requested_but_missing")
+    except Exception:
+        pass
     return out
 
 

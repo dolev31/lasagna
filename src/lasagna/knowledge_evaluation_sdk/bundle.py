@@ -481,6 +481,12 @@ def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str
     if any(r.get("error") for r in rows):
         warnings.append("FAILED_TASKS")
 
+    # A missing optional package swaps in a stand-in (sentence splitting,
+    # BM25 without stemming) that changes the numbers; a reader comparing
+    # with a run on a fuller install needs to know.
+    if (run_meta.get("environment") or {}).get("active_fallbacks"):
+        warnings.append("ACTIVE_FALLBACKS")
+
     # A number computed against part of a corpus is not the benchmark's number,
     # and the truncation is invisible downstream -- retrieval metrics simply
     # come out lower. Corpus size is not in the comparability key either, so a
