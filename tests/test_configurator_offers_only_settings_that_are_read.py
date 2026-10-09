@@ -1,8 +1,9 @@
 """Every setting the configuration UI shows is one the configuration reads.
 
 The UI offered S3 bucket, endpoint and region and the fsspec protocol and base
-path. None is a configuration key: the storage registry reads them from
-RAG_STORAGE_* environment variables only, so saving them in the UI did nothing.
+path. None is a configuration key, so saving them in the UI did nothing: the
+storage registry reads those details from storage_backend_config or the
+RAG_STORAGE_* environment variables.
 """
 
 from __future__ import annotations
@@ -24,5 +25,6 @@ def test_every_visible_parameter_is_read_by_the_configuration():
 
 def test_the_storage_backend_help_says_where_its_settings_come_from():
     storage = next(p for p in PARAMETERS if p.key == "storage_backend")
+    assert "storage_backend_config" in storage.help_text
     assert "RAG_STORAGE_S3_BUCKET" in storage.help_text
     assert "RAG_STORAGE_FSSPEC_PROTOCOL" in storage.help_text
