@@ -569,6 +569,20 @@ def json_schema() -> Dict[str, Any]:
                 "items": {
                     "type": "object",
                     "required": ["benchmark_name", "config_name", "metrics"],
+                    "properties": {
+                        "per_sample_scores": {
+                            "type": "array",
+                            "description": (
+                                "One row per query. Retrieval rows carry `_retrieved_ids` "
+                                "(the ranked list the metrics were computed on) and "
+                                "`_retrieved` ({doc_id, score, rank, chunk_rank}). `rank` "
+                                "is authoritative: scores can tie, so re-sorting by score "
+                                "does not rebuild the ranking (a keyword reranker with "
+                                "ties on every scifact query rescored to NDCG@10 0.5272 "
+                                "instead of 0.5709)."
+                            ),
+                        },
+                    },
                 },
             },
             "integrity": {

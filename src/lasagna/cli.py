@@ -1725,6 +1725,10 @@ def results_per_query(
     retrieval rather than generation". The two eval paths already wrote
     per-query rows into the same list and nothing joined them, so the answer was
     in the results file and could not be read out of it.
+
+    In the JSONL export, `_retrieved` lists each document's `score` and `rank`.
+    The rank is authoritative: scores can tie, so sorting by score does not
+    rebuild the ranking the metrics were computed on.
     """
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 

@@ -271,3 +271,12 @@ class TestTheHubIsDocumented:
         """The one claim a leaderboard must never overstate."""
         text = (REPO / "hub" / "README.md").read_text()
         assert "not independently reproduced" in text
+
+
+def test_the_schema_says_rank_is_authoritative_over_score():
+    """Exported scores tie (every scifact query, for a keyword reranker), so a
+    reader who re-sorts `_retrieved` by score rebuilds a different ranking."""
+    from lasagna.knowledge_evaluation_sdk.bundle import json_schema
+
+    rows = json_schema()["properties"]["results"]["items"]["properties"]
+    assert "`rank` is authoritative" in rows["per_sample_scores"]["description"]
