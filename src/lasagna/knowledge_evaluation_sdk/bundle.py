@@ -64,7 +64,14 @@ from typing import Any, Dict, List, Optional
 #: official SQuAD order (punctuation before articles). The key also covers the
 #: stage-manifest digests of every stage the run does not vary
 #: (``fixed_stages``): dense-only and hybrid runs used to share a key.
-METRICS_VERSION = "1.4"
+#: 1.5: exact_match and token_f1 score the answer with its citation markers
+#: removed, as ALCE does ("Paris [1]" failed EM against "Paris"); NDCG gives a
+#: negative relevance grade zero gain, as trec_eval does; the harness asks the
+#: judge for factual_correctness too. New per-query metrics, absent from older
+#: bundles rather than redefined: r_precision@k, complete_recall@k, rouge_l,
+#: contains_answer, abstention_rate, answer_similarity, citation_recall,
+#: citation_precision, and the *_per_query token and call aggregates.
+METRICS_VERSION = "1.5"
 
 #: Bundle schema version. Consumers accept >=1.0,<2.0.
 SCHEMA_VERSION = "1.0"

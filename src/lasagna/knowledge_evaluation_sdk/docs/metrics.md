@@ -228,10 +228,36 @@ Requires the `ragas` package: `pip install lasagna-rag[eval]`.
 | `answer_relevancy`    | `AnswerRelevancy`                      | Whether the answer is relevant to the question |
 | `context_precision`   | `LLMContextPrecisionWithReference`     | Precision of retrieved context against the reference |
 | `context_recall`      | `LLMContextRecall`                     | Whether all relevant information from the reference is retrieved |
-| `factual_correctness` | `FactualCorrectness`                   | Factual accuracy of the generated answer |
+| `factual_correctness` | `FactualCorrectness`                   | Claim-level F1 of the answer against the reference answer: the answer's and the reference's claims are each checked against the other |
+| `noise_sensitivity`   | `NoiseSensitivity` (relevant mode)     | Share of the answer's claims that are wrong (not supported by the reference) yet supported by some retrieved context. **Lower is better** |
+| `context_relevance`   | `ContextRelevance`                     | Relevance of the retrieved contexts to the question, judged without a reference (the first leg of the TruLens RAG triad) |
 
-Default metrics (when none are specified):
+`RAGASEvaluator`'s default metrics (when none are specified):
 `["faithfulness", "context_recall", "context_precision"]`.
+
+### What the Benchmark Harness Requests
+
+Live and offline benchmark runs request
+`["faithfulness", "context_recall", "context_precision", "factual_correctness"]`
+(`ragas_evaluator.HARNESS_METRICS`). `factual_correctness` is the only judged
+metric that compares the answer with the reference answer; the other three
+measure groundedness and context quality. It costs about four judge calls per
+answer. Offline samples without a gold context get only the metrics that do not
+judge one (`factual_correctness`, `answer_relevancy`).
+
+`RAG_EVAL_JUDGE_METRICS` (comma-separated names from the table) replaces that
+set, for example `faithfulness,factual_correctness,noise_sensitivity`. An
+unknown name fails the task rather than dropping the metric. `noise_sensitivity`
+and `context_relevance` are opt-in because of their judge cost (noise
+sensitivity checks every claim against every context: about 13 calls per
+answer over five contexts). `answer_relevancy` needs an embedding endpoint for
+the judge, which the harness does not configure.
+
+A judged metric scores only answerable questions (it needs a reference). A
+metric whose every judgement failed is reported in `failed_metrics`, fails the
+task, and is never recorded as 0.0. For agentic configurations the per-query
+keys are suffixed `_regen` and `_agentic`, and an unsuffixed canonical key
+(agentic score where present) is emitted for every requested metric.
 
 ### Evaluation Modes
 
@@ -244,7 +270,161 @@ Default metrics (when none are specified):
 
 ---
 
-## 4. Statistical Testing
+## 4. Answer Metrics Without a Judge
+
+Implemented in `src/lasagna/knowledge_evaluation_sdk/answer_metrics.py` and
+scored per query by the harness in live and offline runs. They cost no LLM
+call. All are computed on the answer with citation markers (`[1]`) removed, as
+ALCE does: the markers are not part of the answer.
+
+Each takes the reference answer and its aliases and reports the best match.
+They share the SQuAD v2 no-answer rule: on a question the benchmark marks
+unanswerable (SQuAD v2), a value is 1.0 if the system abstained and 0.0
+otherwise; an answerable question answered with an abstention scores 0.0; an
+empty answer (generation failed) scores 0.0 and is also counted in
+`generations_failed`.
+
+### Exact Match and Token F1
+
+The official SQuAD v2.0 metrics: lowercase, strip punctuation, strip articles,
+collapse whitespace; EM is string equality, token F1 the harmonic mean of
+token precision and recall (shared tokens counted with multiplicity).
+Functions: `exact_match`, `token_f1`.
+
+### ROUGE-L
+
+Longest-common-subsequence F1 (Lin, 2004) over `rouge_score`'s default tokens
+(lowercase alphanumeric runs, no stemming), so values equal
+`RougeScorer(["rougeL"]).score(reference, answer).fmeasure`.
+
+```
+P = LCS(answer, reference) / |answer|
+R = LCS(answer, reference) / |reference|
+ROUGE-L = 2PR / (P + R)
+```
+
+Token F1 counts shared words in any order; ROUGE-L credits them only in the
+reference's order. Function: `rouge_l`. Key: `rouge_l`.
+
+### Answer Containment
+
+`1.0` if a reference answer appears in the answer as a contiguous run of
+whole tokens, after SQuAD normalization of both. This is the "accuracy" of
+PopQA (Mallen et al., 2023) and Self-RAG, FlashRAG's Sub-EM, and ALCE's STR-EM
+for a single required answer: "The Eiffel Tower is in Paris." scores 0 on
+exact match against "Paris" and 1 here. It is stricter than the raw substring
+test those papers use: "no" is not found in "I do not know" and "1" is not
+found in "1990". Function: `contains_answer`. Key: `contains_answer`.
+
+### Abstention Rate
+
+`1.0` if the answer is an abstention ("I don't know", "The context does not
+...", or the exact reply `unanswerable` that the SQuAD v2 prompt asks for),
+`0.0` otherwise; absent for an empty answer, which is a failed generation and
+not a choice. The aggregate is the share of answers that abstain. On a
+benchmark with unanswerable questions the harness also reports
+`abstention_rate_has_ans` (over-refusal on answerable questions) and
+`abstention_rate_no_ans` (RGB's negative rejection rate). Functions:
+`is_abstention`, `abstention_rate`. Key: `abstention_rate`.
+
+### Answer Similarity
+
+Cosine similarity between embeddings of the answer and of the closest
+reference answer: RAGAS's `answer_similarity` and the bi-encoder form of SAS
+(Risch et al., 2021). It credits paraphrase ("she won the Nobel twice" against
+"two Nobel Prizes") that token overlap misses.
+
+```
+answer_similarity = max over references r of cos(E(answer), E(r))
+```
+
+`E` is `sentence-transformers/all-MiniLM-L6-v2` on CPU, separate from the
+pipeline's own embedder. `RAG_EVAL_SIMILARITY_MODEL` names another model, or
+`none` to skip the metric. A different model gives different numbers, so hold
+it fixed across a comparison; the comparability key does not record it. The
+value is in `[-1, 1]` (in practice `[0, 1]`); `0.0` for an empty answer; absent
+for a question with no reference (unanswerable), and absent with a warning when
+the model cannot be loaded. Functions: `answer_similarity`,
+`load_similarity_encoder`. Key: `answer_similarity`.
+
+---
+
+## 5. Citation Quality (ALCE)
+
+Citation recall and precision as defined by ALCE (Gao et al., 2023), for
+answers that cite passages with `[n]` markers (`[1]`, `[1][2]`, `[1, 2]`).
+`[n]` is the n-th context the generator was shown (1-based), the same list
+RAGAS judges. The answer is split into sentences at `.`, `!` or `?` followed by
+whitespace; markers that open a sentence belong to the one before.
+
+- **Citation recall**: the share of sentences whose cited passages,
+  concatenated, entail the sentence. A sentence with no citation, or citing a
+  passage number that was not shown, scores 0.
+- **Citation precision**: the share of citations that are not irrelevant. On
+  a single-citation sentence the citation counts if it entails the sentence.
+  On a multi-citation sentence that its citations jointly entail, a citation
+  is irrelevant when it does not entail the sentence alone and the remaining
+  citations still do; on one they do not jointly entail, none counts.
+
+Entailment is judged by the evaluation judge (`judge.entailment_judge`, the
+model `RAG_EVAL_JUDGE_MODEL` names) where ALCE uses the TRUE T5-11B NLI model,
+so absolute values are not comparable with ALCE's tables.
+
+Absent, never 0.0, when the answer cites nothing (a generator that does not
+cite), when no judge model is configured, or when the judge could not decide
+one of the answer's entailments. If answers cite and the judge scored none of
+them, the task fails, as for a RAGAS metric. Function:
+`citation_precision_recall`. Keys: `citation_recall`, `citation_precision`.
+
+---
+
+## 6. Operational Metrics
+
+| Key | Where | Definition |
+|---|---|---|
+| `latency_ms` | per query row | Live: wall-clock time of the pipeline query (retrieval, plus the agentic graph when one runs); the answer-writing call is not included. Offline: the answer-writing call |
+| `avg_latency_ms`, `p50_latency_ms`, `p95_latency_ms`, `p99_latency_ms` | task | Over queries, with a query's retrieval and generation rows summed first |
+| `input_tokens`, `output_tokens`, `llm_calls` | per query row | What the system under test spent, counted at the provider |
+| `input_tokens_per_query`, `output_tokens_per_query`, `llm_calls_per_query` | task metrics | The same, summed over a query's rows, averaged over queries |
+| `system_*`, `eval_*` tokens and calls | task | Totals, with the judge's spend (`eval_*`) kept apart from the system's |
+| `generations_failed`, `short_lists` | task metrics | Answers that could not be generated; ranked lists shorter than k |
+
+`llm_calls == 0` means no call was seen, which for a retrieval-only arm is the
+truth and for an uninstrumented client an undercount. Tokens are reported, not
+dollars: a price is not a measurement.
+
+Lower is better for these (and for `noise_sensitivity`);
+`results.lower_is_better(metric)` says so, and the text leaderboard ranks them
+ascending.
+
+---
+
+## 7. Metrics Considered and Left Out
+
+- **bpref, infAP, Judged@k**: for incomplete judgements. The BEIR loader keeps
+  only positive qrels, so Judged@k would equal P@k.
+- **Capped recall (R_cap@k)**: equals Recall@k whenever R <= k, which holds for
+  every registered QA benchmark; for many-relevant sets use a larger
+  `metric_k`.
+- **KILT-EM / KILT-F1** (answer credit only when R-Prec = 1): derivable from
+  `results per-query`, which joins each query's retrieval and generation rows.
+- **BLEU, BERTScore**: BLEU is precision-only n-gram overlap, poor on short
+  answers; BERTScore needs a large model and answer similarity covers semantic
+  overlap.
+- **ARES**: needs judges fine-tuned on the target domain and a human-labelled
+  validation set.
+- **RAGChecker's claim-level diagnostics** (context utilization, self-knowledge,
+  hallucination): `noise_sensitivity` is the RAGAS form of the closest one.
+- **MAUVE** (ALCE fluency): for long-form generation.
+- **Throughput (queries per second)**: the harness issues queries one at a
+  time, so it would be `1000 / avg_latency_ms` and say nothing about concurrent
+  capacity.
+- **Index build time and index size**: the corpus is ingested once and reused
+  across tasks and runs, so a task has no build of its own to time.
+
+---
+
+## 8. Statistical Testing
 
 Implemented in
 `src/lasagna/knowledge_evaluation_sdk/results.py`.
@@ -334,7 +514,7 @@ than Bonferroni correction.
 
 ---
 
-## 5. Corpus-Level Aggregation
+## 9. Corpus-Level Aggregation
 
 ### IR Metric Aggregation
 
