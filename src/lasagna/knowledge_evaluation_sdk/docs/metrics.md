@@ -26,15 +26,21 @@ relevant).
 Primary ranking metric. Accounts for both relevance grades and rank position.
 
 ```
-DCG_k  = sum_{i=1}^{k}  (2^{rel_i} - 1) / log2(i + 1)
-IDCG_k = DCG_k computed on the ideal (descending-relevance) ordering
+DCG_k  = sum_{i=1}^{k}  gain(rel_i) / log2(i + 1)
+gain(rel) = rel  if rel > 0,  else 0
+IDCG_k = DCG_k of the ideal ordering: every judged grade, sorted descending
 NDCG_k = DCG_k / IDCG_k
 ```
+
+Linear gain, as in `trec_eval` and therefore BEIR. A negative grade gains
+nothing, as in `trec_eval`. Pass `exponential_gain=True` for the Burges
+`2^rel - 1` convention when comparing with work that uses it; on binary
+judgements the two agree.
 
 Returns a value in `[0, 1]`. Returns `0.0` when there are no relevant
 documents (IDCG is zero).
 
-Function: `ndcg_at_k(relevance, retrieved, k=10)`
+Function: `ndcg_at_k(relevance, retrieved, k=10, exponential_gain=False)`
 
 ### Precision@k
 

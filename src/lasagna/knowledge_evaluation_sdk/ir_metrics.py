@@ -77,6 +77,12 @@ def ndcg_at_k(
     Pass ``exponential_gain=True`` for the Burges form if you are comparing
     against work that uses it. The choice is recorded, not silent.
 
+    A negative grade (TREC's "spam" or "harmful" judgements) gains nothing, as
+    in ``trec_eval``. Counted as a negative gain it lowered the DCG of every
+    list that retrieved the document and lowered the ideal DCG of every query
+    with fewer than *k* positive judgements: ``{a: 2, b: -1, c: 1}`` ranked
+    ``[b, a, c]`` scored 0.358 where ``trec_eval`` gives 0.670.
+
     Args:
         relevance: Ground-truth relevance map (doc_id → relevance score).
         retrieved: Ordered list of retrieved document IDs.
@@ -90,6 +96,8 @@ def ndcg_at_k(
         return 0.0
 
     def _gain(rel: float) -> float:
+        if rel <= 0:
+            return 0.0
         return (2**rel - 1) if exponential_gain else rel
 
     # DCG of the retrieved list
