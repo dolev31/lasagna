@@ -305,10 +305,11 @@ class TestPipelineErrorIsolation:
         # `assert total >= 0` and `len(errors) >= 0` were both true for every
         # possible run -- a count cannot be negative -- so this asserted that
         # the pipeline returned, and nothing about what it returned.
-        assert len(ingested) >= 1, f"the valid document was not ingested; errors={errors}"
-        assert total == len(ingested) + len(errors), (
-            f"total {total} does not account for {len(ingested)} ingested + {len(errors)} errored"
-        )
+        assert ingested == {"v_good"}, f"the valid document was not ingested; errors={errors}"
+        # `total` counts chunks, not documents. It equalled the document count
+        # only while chunking ignored the config's chunk_size (200 here) and cut
+        # the 600-character document at the global 800, into one chunk.
+        assert total == 3, f"600 characters at chunk_size 200 should be 3 chunks, got {total}"
 
 
 # ---------------------------------------------------------------------------
