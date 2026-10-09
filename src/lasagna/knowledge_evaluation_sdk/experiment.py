@@ -877,28 +877,31 @@ class Experiment:
         """Generate all benchmark tasks (Cartesian product)."""
         cfg = self.config
         pipeline_configs = _generate_pipeline_configs(cfg.pipeline)
-        _check_components_exist(pipeline_configs)
         tasks: List[BenchmarkTask] = []
 
-        # Warn about component sweeps that won't take effect in live mode.
-        # pipeline.query() only forwards reranker, query_enhancer, embedder.
-        # chunker/document_processor are ingestion-time only (would require
-        # per-config re-ingestion). retriever is not forwarded by query().
-        if cfg.mode == "live":
-            _LIVE_UNSUPPORTED = {"chunker", "retriever", "document_processor"}
-            all_override_keys: set = set()
-            for pc in pipeline_configs:
-                all_override_keys.update(pc["overrides"].keys())
-            unsupported_in_use = all_override_keys & _LIVE_UNSUPPORTED
-            if unsupported_in_use:
-                logger.warning(
-                    f"Live mode does not support sweeping {sorted(unsupported_in_use)}. "
-                    f"These components affect ingestion (chunker, document_processor) "
-                    f"or are not forwarded at search time (retriever). "
-                    f"Only reranker, query_enhancer, and embedder sweeps are "
-                    f"effective in live mode. Use offline mode or remove these "
-                    f"dimensions from the sweep."
-                )
+        # Ingestion always runs the built-in chunker and document processor,
+        # so an arm naming another one shared the default corpus and reported
+        # its number. This was a warning in live mode only, and the default
+        # mode (auto) printed nothing.
+        all_override_keys: set = set()
+        for pc in pipeline_configs:
+            all_override_keys.update(pc["overrides"].keys())
+        unsweepable = sorted(all_override_keys & _UNSWEEPABLE_COMPONENTS)
+        if unsweepable:
+            raise ValueError(
+                f"Experiments cannot swap {unsweepable}: ingestion always uses the "
+                f"built-in chunker and document processor, so every arm would measure "
+                f"the same corpus. Sweep the ingestion settings instead "
+                f"(chunking_strategy, chunk_size, chunk_overlap, enable_hierarchical), "
+                f"which re-ingest per arm, or compare your chunker with "
+                f"`lasagna component validate`."
+            )
+        if "agentic_pipeline" in all_override_keys:
+            logger.warning(
+                "agentic_pipeline arms change generation metrics only: retrieval "
+                "metrics are measured on the standard tier for every arm."
+            )
+        _check_components_exist(pipeline_configs)
 
         for bench_spec in cfg.benchmarks:
             for pipe_cfg in pipeline_configs:
@@ -1420,8 +1423,13 @@ _COMPONENT_KEYS = frozenset(
         "retriever",
         "document_processor",
         "query_enhancer",
+        "agentic_pipeline",
     }
 )
+
+#: Component slots the harness cannot swap: ingestion always runs the built-in
+#: chunker and document processor, so an arm naming one measured the default.
+_UNSWEEPABLE_COMPONENTS = frozenset({"chunker", "document_processor"})
 
 # Defined in `runner`, beside `BenchmarkTask.config_hash`, which must exclude
 # the same keys: a setting that steers reporting rather than the pipeline must
@@ -1500,6 +1508,8 @@ def _apply_overrides_to_pipeline(
                     # Naming a reranker means measuring it: under a profile
                     # with reranking off (speed) it was never called.
                     config_overrides["enable_reranking"] = True
+                if key == "agentic_pipeline" and "use_agentic_rag" not in overrides:
+                    config_overrides["use_agentic_rag"] = True
         else:
             config_overrides[key] = value
 
@@ -2681,8 +2691,11 @@ async def _eval_live(
         pipeline._config["use_agentic_rag"] = False
         pipeline._config["agentic_pipeline"] = "legacy_react"
         pipeline._config["routing_default_tier"] = "standard"
-        # Clear component name so pipeline.query() doesn't force comprehensive tier
-        pipeline._component_names.pop("agentic_pipeline", None)
+        # Clear component name so pipeline.query() doesn't force comprehensive
+        # tier; the generation path below puts it back.
+        _agentic_name = pipeline._component_names.pop("agentic_pipeline", None)
+    else:
+        _agentic_name = None
 
     # IR config — has all forced overrides applied. Passed as per-query ephemeral
     # overrides via pipeline.query(config_overrides=…) → RAGConfig.with_query_overrides(…).
@@ -2910,6 +2923,10 @@ async def _eval_live(
         # overrides) so use_agentic_rag / routing_default_tier respect the
         # task's config_overrides and the agentic path is exercised properly.
         if gen_samples:
+            if _agentic_name:
+                # A named agentic pipeline is what this arm measures; the
+                # retrieval pass above had to drop it.
+                pipeline._component_names["agentic_pipeline"] = _agentic_name
             gen_questions: List[str] = []
             gen_answers: List[str] = []
             gen_contexts: List[List[str]] = []

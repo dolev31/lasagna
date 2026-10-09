@@ -43,3 +43,29 @@ def test_naming_a_reranker_turns_reranking_on():
     pipeline._config = {}
     _apply_overrides_to_pipeline(pipeline, {"reranker": "cross_encoder"}, "session")
     assert pipeline._config.get("enable_reranking") is True
+
+
+def test_a_chunker_sweep_is_refused_in_every_mode():
+    # Ingestion always runs the built-in chunker, so every chunker arm shared
+    # one corpus; only live mode warned, and the default mode is auto.
+    from lasagna.knowledge_evaluation_sdk.experiment import Experiment
+
+    for mode in ("auto", "live", "offline"):
+        exp = Experiment.from_dict(
+            {
+                "name": "chunkers",
+                "benchmarks": [{"name": "smoke"}],
+                "pipeline": {"chunkers": ["semantic"]},
+                "mode": mode,
+            }
+        )
+        with pytest.raises(ValueError, match="cannot swap"):
+            exp.generate_tasks()
+
+
+def test_naming_an_agentic_pipeline_swaps_it_in_and_turns_it_on():
+    pipeline = MagicMock()
+    pipeline._config = {}
+    _apply_overrides_to_pipeline(pipeline, {"agentic_pipeline": "legacy_react"}, "session")
+    pipeline.replace.assert_called_with("agentic_pipeline", "legacy_react")
+    assert pipeline._config.get("use_agentic_rag") is True
