@@ -3032,6 +3032,7 @@ async def _eval_live(
 
     relevances: List[Dict[str, int]] = []
     retrieved_lists: List[List[str]] = []
+    _short_lists = 0  # queries left with fewer than k distinct documents
     per_sample_scores: List[Dict[str, float]] = []
     #: Reasons this task's numbers cannot be trusted. Any entry fails the task
     #: (TaskResult.error) instead of letting a failure stand in as a score.
@@ -3169,6 +3170,8 @@ async def _eval_live(
             # over-fetched would score a longer list than the cutoff names.
             retrieved_ids = retrieved_ids[:_metric_k]
             retrieved_detail = retrieved_detail[:_metric_k]
+            if len(retrieved_ids) < _metric_k:
+                _short_lists += 1
 
             relevances.append(mapped_expected)
             retrieved_lists.append(retrieved_ids)
@@ -3234,6 +3237,17 @@ async def _eval_live(
             metrics = corpus_metrics(relevances, retrieved_lists, k=_metric_k)
         else:
             metrics = {}
+        if _short_lists:
+            # A list shorter than k is scored as if the missing ranks held
+            # nothing relevant, so the metric drops with no other sign. Long
+            # documents split into more chunks than the over-fetch covers.
+            metrics["short_lists"] = float(_short_lists)
+            logger.warning(
+                f"{_short_lists} of {len(retrieved_lists)} queries had fewer than "
+                f"{_metric_k} distinct documents after merging chunks, which lowers "
+                f"@{_metric_k} metrics. Raise retrieval_chunk_overfetch (now "
+                f"{_chunk_overfetch}) if the corpus has more documents than that."
+            )
 
         # ── Generation path ──────────────────────────────────────────────────
         # Uses gen_config (task overrides + embedding fixes, NOT IR-forced
