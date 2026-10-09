@@ -244,6 +244,20 @@ def _effective(config: Any, key: str) -> Any:
             return getattr(config, key)
         except Exception:
             pass
+    # No property: resolve by hand, in the same order. Reading the raw dict
+    # alone missed the arm's own override (document_awareness, a new knob), so
+    # the arm digested like the control and was called inert.
+    lookup = getattr(config, "_get_session_override", None)
+    if callable(lookup):
+        try:
+            value = lookup(key)
+        except Exception:
+            value = None
+        if value is not None:
+            return value
+    env = getattr(config, "_env_overrides", None) or {}
+    if key in env:
+        return env[key]
     raw = getattr(config, "_config", None) or {}
     return raw.get(key)
 
@@ -273,7 +287,11 @@ def stage_manifest(
         ``{stage: {"digest", "component", "settings"}}``. ``settings`` holds the
         values, so a mismatch can name the keys that differ.
     """
-    keys = sorted(getattr(config, "_config", {}) or {})
+    # The arm's own overrides too: a key with no default is in no base dict.
+    keys = sorted(
+        set(getattr(config, "_config", {}) or {})
+        | set(getattr(config, "_query_overrides", {}) or {})
+    )
     by_stage: Dict[str, Dict[str, Any]] = {s: {} for s in (*STAGES, OTHER)}
     for key in keys:
         stage = stage_of(key)
@@ -323,6 +341,72 @@ def _differing_keys(a: Mapping[str, Any], b: Mapping[str, Any]) -> List[str]:
     if a.get("component") != b.get("component"):
         keys.insert(0, "component")
     return keys
+
+
+#: The stages whose settings can change what retrieval returns. Two arms that
+#: differ only here and return the same ranked lists on every query changed
+#: nothing measurable. (Agentic settings and anything unclassified can change
+#: the answer without touching retrieval, so they are not judged this way.)
+_RETRIEVAL_STAGES = frozenset(
+    {"document_processor", "chunker", "embedder", "retriever", "query_enhancer", "reranker"}
+)
+
+
+def _ranked_lists(row: Mapping[str, Any]) -> Dict[str, Tuple[str, ...]]:
+    """Each query's ranked document ids, by sample id, from a row's per-query scores."""
+    out: Dict[str, Tuple[str, ...]] = {}
+    for sample in row.get("per_sample_scores") or []:
+        ids, sid = sample.get("_retrieved_ids"), sample.get("_sample_id")
+        if ids is not None and sid not in (None, ""):
+            out[str(sid)] = tuple(str(i) for i in ids)
+    return out
+
+
+def _differing_overrides(a: Mapping[str, Any], b: Mapping[str, Any]) -> List[str]:
+    a, b = a or {}, b or {}
+    return sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k) and stage_of(k) is not None)
+
+
+def _same_output(entries: List[Tuple[str, Mapping[str, Any]]], bench: str) -> List[str]:
+    """Pairs of arms whose differences should move a ranking and never did.
+
+    This is the behavioural half of the inert check. A setting can reach its
+    stage's config and still change nothing: MMR is read only when reranking
+    is on, a technique can fail into a fallback, a component can be ignored.
+    The config manifest cannot see that; the ranked lists can.
+    """
+    lines: List[str] = []
+    lists = {name: _ranked_lists(row) for name, row in entries}
+    for i, (name_a, a) in enumerate(entries):
+        for name_b, b in entries[i + 1 :]:
+            if a.get("profile") != b.get("profile"):
+                continue
+            keys = _differing_overrides(a.get("config_overrides"), b.get("config_overrides"))
+            if not keys or not all(stage_of(k) in _RETRIEVAL_STAGES for k in keys):
+                continue
+            la, lb = lists[name_a], lists[name_b]
+            shared = sorted(set(la) & set(lb))
+            if shared and all(la[q] == lb[q] for q in shared):
+                lines.append(
+                    f"{bench}: arms {name_a!r} and {name_b!r} returned identical ranked lists "
+                    f"on all {len(shared)} queries, so what tells them apart ({', '.join(keys)}) "
+                    f"changed nothing here"
+                )
+    return lines
+
+
+def compared_pairs(rows: Iterable[Mapping[str, Any]]) -> int:
+    """How many pairs of arms the isolation check could compare.
+
+    Zero when every arm but one failed, or none recorded a manifest: then
+    "the arms differ only in the stages they name" would be a claim about
+    nothing.
+    """
+    groups: Dict[Tuple[str, Any], int] = {}
+    for (bench, _arm), row in _arm_rows(rows).items():
+        key = (bench, row.get("profile"))
+        groups[key] = groups.get(key, 0) + 1
+    return sum(n * (n - 1) // 2 for n in groups.values())
 
 
 def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
@@ -391,4 +475,5 @@ def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
                         f"identical to the control {control_name!r} there"
                     )
                 break
+        report["inert"].extend(_same_output(entries, bench))
     return report

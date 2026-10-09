@@ -1026,10 +1026,11 @@ def benchmark_experiment(
 
 def _print_isolation(results) -> None:
     """Say whether the arms differed only in the stages they named."""
-    from .knowledge_evaluation_sdk.stages import isolation_report
+    from .knowledge_evaluation_sdk.stages import compared_pairs, isolation_report
 
     rows = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results._results]
     report = isolation_report(rows)
+    pairs = compared_pairs(rows)
     if report["undeclared"]:
         console.print(
             "[red]Stage isolation FAILED: the arms differ outside the stages they "
@@ -1037,8 +1038,18 @@ def _print_isolation(results) -> None:
         )
         for line in report["undeclared"]:
             console.print(f"  - {escape(line)}")
-    elif rows and not report["unverified"]:
-        console.print("[green]Stage isolation: arms differ only in the stages they name.[/green]")
+    elif pairs and not report["inert"]:
+        console.print(
+            f"[green]Stage isolation: arms differ only in the stages they name "
+            f"({pairs} pair(s) compared).[/green]"
+        )
+    elif not pairs and len(rows) > 1:
+        console.print(
+            "[yellow]Stage isolation not checked: fewer than two arms finished on a "
+            "benchmark, so there was nothing to compare.[/yellow]"
+        )
+    for line in report["unverified"]:
+        console.print(f"[yellow]Stage isolation unverified: {escape(line)}[/yellow]")
     for line in report["inert"]:
         console.print(f"[yellow]Inert arm: {escape(line)}[/yellow]")
 

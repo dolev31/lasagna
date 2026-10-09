@@ -196,3 +196,60 @@ def test_a_depth_arm_is_neither_inert_nor_undeclared():
     deep = stage_manifest(_Config(**BASE), {}, harness={"metric_k": 100})
     rows = [_row("control", {}, control), _row("deep", {"metric_k": 100}, deep)]
     assert isolation_report(rows) == {"undeclared": [], "inert": [], "unverified": []}
+
+
+def _with_lists(row, lists):
+    row["per_sample_scores"] = [
+        {"_sample_id": q, "_retrieved_ids": ids, "ndcg@10": 0.5} for q, ids in lists.items()
+    ]
+    return row
+
+
+def test_a_change_that_never_moved_a_ranking_is_inert():
+    # MMR is read only when reranking is on: the mmr cell of a rerank x mmr
+    # factorial reached its config and returned the neither cell's lists,
+    # and the harness then reported a significant "interaction".
+    same = {"q1": ["d1", "d2"], "q2": ["d3", "d4"]}
+    rows = [
+        _with_lists(_row("neither", {"enable_mmr": False}, _manifest()), same),
+        _with_lists(_row("mmr", {"enable_mmr": True}, _manifest(enable_mmr=True)), same),
+    ]
+    inert = isolation_report(rows)["inert"]
+    assert len(inert) == 1 and "identical ranked lists on all 2 queries" in inert[0]
+    assert "enable_mmr" in inert[0]
+
+
+def test_a_change_that_moved_one_ranking_is_not_inert():
+    rows = [
+        _with_lists(_row("neither", {"enable_mmr": False}, _manifest()), {"q1": ["d1", "d2"]}),
+        _with_lists(
+            _row("mmr", {"enable_mmr": True}, _manifest(enable_mmr=True)), {"q1": ["d2", "d1"]}
+        ),
+    ]
+    assert isolation_report(rows)["inert"] == []
+
+
+def test_generation_only_changes_are_not_judged_by_retrieval():
+    same = {"q1": ["d1", "d2"]}
+    rows = [
+        _with_lists(_row("a", {"max_agent_iterations": 1}, _manifest()), same),
+        _with_lists(
+            _row("b", {"max_agent_iterations": 3}, _manifest(max_agent_iterations=3)), same
+        ),
+    ]
+    assert isolation_report(rows)["inert"] == []
+
+
+def test_an_override_without_a_default_reaches_the_manifest():
+    class _Overridden(_Config):
+        def __init__(self, base, overrides):
+            super().__init__(**base)
+            self._query_overrides = overrides
+
+        def _get_session_override(self, key):
+            return self._query_overrides.get(key)
+
+    base = stage_manifest(_Overridden(BASE, {}), {})
+    arm = stage_manifest(_Overridden(BASE, {"document_awareness": {"mode": "first_tokens"}}), {})
+    assert base["chunker"]["digest"] != arm["chunker"]["digest"]
+    assert arm["chunker"]["settings"]["document_awareness"] == {"mode": "first_tokens"}
