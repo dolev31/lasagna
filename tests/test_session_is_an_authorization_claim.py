@@ -104,7 +104,7 @@ class TestTheHeaderAttack:
         from lasagna.api.rest import dependencies
         from lasagna.api.rest.session_token import create_session_token
 
-        monkeypatch.setenv("RAG_JWT_SECRET", "test-secret-not-a-real-one")
+        monkeypatch.setenv("RAG_JWT_SECRET", "test-secret-not-a-real-one-0123456789abcdef")
         _enable(monkeypatch)
         token, _expiry = create_session_token(session_id="tenant-a", user_id="u1")
 
@@ -124,7 +124,7 @@ class TestTheHeaderAttack:
         from lasagna.api.rest import dependencies
         from lasagna.api.rest.session_token import create_session_token
 
-        monkeypatch.setenv("RAG_JWT_SECRET", "test-secret-not-a-real-one")
+        monkeypatch.setenv("RAG_JWT_SECRET", "test-secret-not-a-real-one-0123456789abcdef")
         _enable(monkeypatch)
         token, _expiry = create_session_token(session_id="mine", user_id="u1")
 
@@ -216,7 +216,7 @@ class TestOverRealHTTP:
         fastapi = pytest.importorskip("fastapi")
         testclient = pytest.importorskip("fastapi.testclient")
 
-        monkeypatch.setenv("RAG_JWT_SECRET", "test-secret-not-a-real-one")
+        monkeypatch.setenv("RAG_JWT_SECRET", "test-secret-not-a-real-one-0123456789abcdef")
         _enable(monkeypatch)
 
         from lasagna.api.rest.dependencies import get_session_id
@@ -314,7 +314,7 @@ class TestOverRealHTTP:
         jwt = pytest.importorskip("jwt")
 
         monkeypatch.delenv(auth_mode.REQUIRE_AUTH_ENV, raising=False)
-        monkeypatch.setenv("RAG_JWT_SECRET", "test-secret-not-a-real-one")
+        monkeypatch.setenv("RAG_JWT_SECRET", "test-secret-not-a-real-one-0123456789abcdef")
 
         from lasagna.api.rest.dependencies import get_session_id
 
@@ -325,7 +325,7 @@ class TestOverRealHTTP:
                 "typ": "session",
                 "exp": int(time.time()) - 60,
             },
-            "test-secret-not-a-real-one",
+            "test-secret-not-a-real-one-0123456789abcdef",
             algorithm="HS256",
         )
 

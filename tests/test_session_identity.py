@@ -82,7 +82,7 @@ class TestClaimingAnIdentityIsRefused:
         assert "session_id" not in r.json()
 
     def test_a_wrong_admin_token_is_still_refused(self, client, monkeypatch):
-        monkeypatch.setenv("RAG_ADMIN_TOKEN", "correct-token")
+        monkeypatch.setenv("RAG_ADMIN_TOKEN", "correct-token-0123456789abcdef0123456789")
         r = client.post(
             "/api/v1/sessions",
             json={"session_id": "victim-tenant"},
@@ -93,11 +93,11 @@ class TestClaimingAnIdentityIsRefused:
 
 class TestAdminsMayStillProvisionSessions:
     def test_a_valid_admin_token_may_name_a_session(self, client, monkeypatch):
-        monkeypatch.setenv("RAG_ADMIN_TOKEN", "correct-token")
+        monkeypatch.setenv("RAG_ADMIN_TOKEN", "correct-token-0123456789abcdef0123456789")
         r = client.post(
             "/api/v1/sessions",
             json={"session_id": "tenant-a", "user_id": "u1"},
-            headers={"X-Admin-Token": "correct-token"},
+            headers={"X-Admin-Token": "correct-token-0123456789abcdef0123456789"},
         )
         assert r.status_code == 201
         body = r.json()
@@ -117,7 +117,7 @@ class TestTheGuardItself:
         assert sessions_route._may_claim_an_identity("") is False
 
     def test_a_missing_header_does_not_authorise(self, monkeypatch):
-        monkeypatch.setenv("RAG_ADMIN_TOKEN", "correct-token")
+        monkeypatch.setenv("RAG_ADMIN_TOKEN", "correct-token-0123456789abcdef0123456789")
         assert sessions_route._may_claim_an_identity(None) is False
 
     def test_comparison_is_constant_time(self):

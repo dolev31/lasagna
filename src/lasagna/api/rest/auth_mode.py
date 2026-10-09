@@ -195,3 +195,30 @@ def warn_once_if_unauthenticated(host: str) -> None:
         f"can read and delete any session. Set {REQUIRE_AUTH_ENV}=true before "
         f"exposing it."
     )
+
+
+#: Values that ship in templates and docs; a secret equal to one of them is
+#: public knowledge, so it is treated exactly like an unset secret.
+_PLACEHOLDER_SECRETS = frozenset(
+    {"change_me", "changeme", "change-me", "secret", "password", "admin"}
+)
+#: Shorter than this, a shared secret is guessable or a placeholder.
+MIN_SECRET_LENGTH = 32
+
+
+def configured_secret(name: str) -> str:
+    """The value of a secret env var, or "" when it is unset or unusable.
+
+    The shipped k8s manifest sets ``RAG_JWT_SECRET`` and ``RAG_ADMIN_TOKEN`` to
+    ``CHANGE_ME``. Accepting that value let anyone who read the manifest forge
+    session tokens and open the admin routes, while SECURITY.md promises no
+    default credentials. A placeholder or a short value now counts as unset, so
+    the existing refusals (no signing secret under auth, admin routes disabled)
+    apply to it.
+    """
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return ""
+    if value.lower() in _PLACEHOLDER_SECRETS or len(value) < MIN_SECRET_LENGTH:
+        return ""
+    return value

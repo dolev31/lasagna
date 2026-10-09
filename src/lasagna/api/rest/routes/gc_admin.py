@@ -15,7 +15,6 @@ Routes:
 from __future__ import annotations
 
 import dataclasses
-import os
 import secrets
 from typing import Any, Dict, Optional
 
@@ -116,11 +115,16 @@ def _require_admin_token(x_admin_token: Optional[str] = Header(default=None)) ->
 
     If ``RAG_ADMIN_TOKEN`` is not configured, all admin endpoints are disabled.
     """
-    expected = os.getenv("RAG_ADMIN_TOKEN", "")
+    from lasagna.api.rest.auth_mode import configured_secret
+
+    expected = configured_secret("RAG_ADMIN_TOKEN")
     if not expected:
         raise HTTPException(
             status_code=503,
-            detail="Admin endpoints are disabled (RAG_ADMIN_TOKEN not configured).",
+            detail=(
+                "Admin endpoints are disabled (RAG_ADMIN_TOKEN not configured, or "
+                "set to a placeholder or a value shorter than 32 characters)."
+            ),
         )
     # Constant-time, like `routes/sessions.py:37` -- which has a test asserting
     # it. This path carries MORE privilege (it can delete any session) and had

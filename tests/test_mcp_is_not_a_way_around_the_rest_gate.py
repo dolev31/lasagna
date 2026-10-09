@@ -28,8 +28,8 @@ from lasagna.api.rest.auth_mode import REQUIRE_AUTH_ENV
 from lasagna.mcp import transport_guard
 from lasagna.mcp import server as mcp_server
 
-ADMIN = "an-admin-token-for-tests"
-SECRET = "a-jwt-secret-for-tests"  # pragma: allowlist secret
+ADMIN = "an-admin-token-for-tests-0123456789abcdef"
+SECRET = "a-jwt-secret-for-tests-0123456789abcdef"  # pragma: allowlist secret
 
 
 @pytest.fixture(autouse=True)

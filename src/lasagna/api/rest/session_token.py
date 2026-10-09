@@ -49,13 +49,25 @@ def _get_secret() -> str:
     a per-process secret behind a load balancer is worse than no auth at all.
     """
     global _fallback_secret
-    secret = os.environ.get("RAG_JWT_SECRET")
+    from lasagna.api.rest.auth_mode import (
+        MIN_SECRET_LENGTH,
+        REQUIRE_AUTH_ENV,
+        configured_secret,
+        require_auth,
+    )
+
+    secret = configured_secret("RAG_JWT_SECRET")
     if secret:
         return secret
 
-    from lasagna.api.rest.auth_mode import REQUIRE_AUTH_ENV, require_auth
-
     if require_auth():
+        if os.environ.get("RAG_JWT_SECRET", "").strip():
+            raise MissingSigningSecret(
+                f"{REQUIRE_AUTH_ENV} is set and RAG_JWT_SECRET is a placeholder or "
+                f"shorter than {MIN_SECRET_LENGTH} characters, so anyone who has "
+                f"read the template could forge session tokens. Generate one with "
+                f"`openssl rand -hex 32` and set it identically across every replica."
+            )
         raise MissingSigningSecret(
             f"{REQUIRE_AUTH_ENV} is set but RAG_JWT_SECRET is not. Tokens would "
             f"be signed with a secret generated fresh in each process, so any "

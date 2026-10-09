@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import os
 import secrets
 import uuid
 from datetime import datetime, timezone
@@ -29,7 +28,9 @@ def _may_claim_an_identity(admin_token: Optional[str]) -> bool:
     fails closed the same way: with no token configured, nobody may claim an
     identity and the endpoint still issues freshly generated ones.
     """
-    expected = os.getenv("RAG_ADMIN_TOKEN", "")
+    from lasagna.api.rest.auth_mode import configured_secret
+
+    expected = configured_secret("RAG_ADMIN_TOKEN")
     if not expected or not admin_token:
         return False
     # Constant-time: a token check that leaks its prefix by timing is not a
