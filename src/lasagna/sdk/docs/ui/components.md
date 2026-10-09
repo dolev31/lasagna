@@ -1,6 +1,6 @@
 # RAG Knowledge — UI Components Reference
 
-Copy-paste-ready TypeScript types, API client, React hooks, and components for building frontends on top of the RAG Knowledge package. Every example is derived from a production chat UI, simplified for standalone use.
+Copy-paste-ready TypeScript types, API client, React hooks, and components for building frontends on top of the RAG Knowledge package. Every example is self-contained and written for standalone use.
 
 **Prerequisites:** React 18+, TypeScript. No other required dependencies (icons use emoji; add `lucide-react` for better icons). Add [`marked`](https://github.com/markedjs/marked) if your LLM responses contain markdown formatting.
 

@@ -1,4 +1,4 @@
-"""Three holes found by an adversarial audit, two of them in this session's work.
+"""Three holes found by an adversarial audit, two of them introduced by recent changes.
 
 **Cross-tenant document takeover.** ``POST /api/v1/documents`` accepted
 ``document_id`` as a form field and passed it through unchecked.

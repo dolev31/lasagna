@@ -27,7 +27,6 @@ import copy
 import json
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -97,7 +96,9 @@ class DatasetBuilder:
         n_distractors_per_benchmark: int = 500,
     ):
         self._seed = seed
-        self._output_dir = output_dir or str(Path(__file__).parent / "dataset")
+        from .adapter import _default_dataset_dir
+
+        self._output_dir = output_dir or _default_dataset_dir()
         self._n_distractors = n_distractors_per_benchmark
         self._splitter = StratifiedSplitter()
 

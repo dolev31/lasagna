@@ -31,8 +31,11 @@ import os
 import sys
 from pathlib import Path
 
-_DATASET_DIR = str(Path(__file__).parent / "dataset")
-_EXPERIMENTS_DIR = str(Path(__file__).parent / "experiments")
+from .adapter import _default_dataset_dir  # noqa: E402
+
+_DATASET_DIR = _default_dataset_dir()
+# The experiment YAMLs that ship live beside the research notes.
+_EXPERIMENTS_DIR = str(Path(__file__).parent.parent / "research" / "experiments")
 
 
 def cmd_build(args: argparse.Namespace) -> None:
@@ -288,25 +291,6 @@ def cmd_supervise(args: argparse.Namespace) -> None:
         sup.print_status()
 
 
-def cmd_report(args: argparse.Namespace) -> None:
-    """Generate master cross-experiment report."""
-    from .master_report import MasterReportGenerator
-
-    results_dir = args.results_dir or os.path.join(
-        os.path.expanduser("~"), ".lasagna", "research", "results"
-    )
-    output_path = args.output or os.path.join(results_dir, "master_report.md")
-
-    print(f"Loading results from: {results_dir}")
-    gen = MasterReportGenerator(
-        results_dir=results_dir,
-        ir_metric=args.ir_metric,
-    ).load()
-
-    gen.save(output_path)
-    print(f"Master report saved to: {output_path}")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="private_eval",
@@ -422,27 +406,6 @@ def main() -> None:
         ),
     )
 
-    # report
-    report_parser = subparsers.add_parser(
-        "report",
-        help="Generate master cross-experiment report from completed results",
-    )
-    report_parser.add_argument(
-        "--results-dir",
-        default=None,
-        help="Directory containing experiment result folders (default: ~/.lasagna/research/results/)",
-    )
-    report_parser.add_argument(
-        "--output",
-        default=None,
-        help="Output Markdown file path (default: <results-dir>/master_report.md)",
-    )
-    report_parser.add_argument(
-        "--ir-metric",
-        default="ndcg@10",
-        help="Primary IR metric for quality comparisons (default: ndcg@10)",
-    )
-
     # plan-ingestions
     plan_parser = subparsers.add_parser(
         "plan-ingestions",
@@ -489,8 +452,6 @@ def main() -> None:
         cmd_run_suite(args)
     elif args.command == "supervise":
         cmd_supervise(args)
-    elif args.command == "report":
-        cmd_report(args)
     elif args.command == "plan-ingestions":
         cmd_plan_ingestions(args)
     elif args.command == "run-paper":

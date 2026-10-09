@@ -4,7 +4,7 @@ Tests verify that both database backends satisfy the DatabaseBackend protocol
 contract with identical behavior. PostgreSQL tests are skipped when no
 DATABASE_DSN environment variable is set.
 
-Parity contract (from core/docs/AUDIT_FINDINGS.md):
+Parity contract (from core/docs/backend_parity.md):
 1. store_citations() with N > limit must retain only the most recent max_citations per session
 2. store_citations() on conflict must update ALL mutable fields
 3. get_stats() must return shared key structure

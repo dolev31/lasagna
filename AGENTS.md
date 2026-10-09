@@ -86,5 +86,5 @@ uses an 80 MB model instead.
 
 ## Before you commit
 
-Read `CONTRIBUTING.md`. Explain *why* in
-the commit message; the diff already shows what.
+Read `CONTRIBUTING.md`. Explain *why* in the commit message; the diff already
+shows what.

@@ -242,9 +242,8 @@ def redact_local_paths(obj: Any) -> Any:
     Reports are committed, so whatever they contain is published. Subprocess
     output, tracebacks and repro commands all carry absolute paths, and those
     disclose the developer's home directory, their local layout, and the names
-    of unrelated projects that happen to sit alongside this one — an earlier
-    run committed 287 references to the internal monorepo this package was
-    extracted from, purely because a temp path ran through a venv there.
+    of unrelated projects that happen to sit alongside this one, purely
+    because a temp path ran through a venv there.
 
     Ordering matters: the repo root is rewritten before the home directory, so
     a path inside the checkout becomes ``<repo>/...`` rather than ``~/...``.

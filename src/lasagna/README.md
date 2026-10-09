@@ -12,9 +12,9 @@ A **state-of-the-art**, plug-and-play RAG engine that works standalone with any 
 ## Key Features
 
 - **BGE-M3 Embedding** -- dense + sparse + ColBERT in a single model, 8K token context, 100+ languages
-- **ms-marco-MiniLM-L-6-v2 Reranker** -- +0.084 NDCG@10 on held-out test, cross-encoder precision
-- **Docling Document Processing** -- IBM's AI layout analysis with TableFormer (97.9% accuracy), OCR, structure-aware chunking
-- **Contextual Retrieval** -- Anthropic-style chunk enrichment, -67% retrieval failure rate
+- **Cross-encoder reranking** -- ms-marco-MiniLM-L-6-v2 or mxbai-rerank-large, per profile
+- **Docling Document Processing** -- layout analysis with TableFormer, OCR, structure-aware chunking
+- **Contextual Retrieval** -- Anthropic-style chunk enrichment at ingestion
 - **RAG Fusion** -- multi-query generation + Reciprocal Rank Fusion
 - **Corrective RAG (CRAG)** -- quality grading with automatic web fallback
 - **Self-RAG Quality Gates** -- ISSUP hallucination grading + ISUSE answer quality checking (opt-in)
@@ -334,21 +334,16 @@ A document becomes searchable only after vectors are inserted into the backend, 
 
 ## Profile Matrix
 
-Choose a profile that matches your latency and quality requirements. Metrics from empirical evaluation on a 3,132-document multi-domain corpus (see [Evaluation Report](../../docs/RAG_EVALUATION_REPORT.md)):
+Choose a profile that matches your latency and quality requirements. What each
+one costs and gains on your data is a measurement, not a constant: run a sweep
+(`lasagna benchmark experiment`) rather than relying on numbers from another
+corpus.
 
-| Profile | Retrieval Latency | NDCG@10 | Faithfulness | Key Features | Use Case |
-| ------- | ----------------- | ------- | ------------ | ------------ | -------- |
-| **SPEED** | <100ms | 0.468 | 0.41 | Dense-only, MiniLM, no agentic | Real-time autocomplete, chatbots |
-| **STANDARD** | 2–3s | 0.496 | 0.41 | Hybrid + ms-marco reranker, no MMR | Most applications (recommended) |
-| **QUALITY** | 10–20s | 0.50+ | 0.39–0.41 | Standard + HyDE + RAG Fusion | Research, compliance, legal |
-
-> **Evidence-based changes from grid search (23 experiments, 180+ configs):**
->
-> - MMR disabled across all profiles: +0.046 NDCG, zero latency cost
-> - Reranker switched to `ms-marco-MiniLM-L-6-v2`: +0.084 NDCG on held-out test
-> - Document awareness (100-token prefix) enabled: +0.062 faithfulness
-> - Agentic RAG disabled by default: simpler pipelines outperform on multi-domain corpora
-> - `top_k` reduced to 10: deeper retrieval hurts precision
+| Profile | What runs | Use case |
+| ------- | --------- | -------- |
+| **SPEED** | Dense-only search, MiniLM embedder, no reranking, no LLM | Keyless experiments, real-time lookup |
+| **STANDARD** | Hybrid search, BGE-M3, cross-encoder reranking | Most applications |
+| **BALANCED** / **MAX_QUALITY** | Standard plus query enhancement and agentic retrieval | Research, compliance, legal |
 
 ```python
 from lasagna.sdk import (
@@ -357,22 +352,8 @@ from lasagna.sdk import (
     config_for_max_quality,
 )
 
-# Pick one:
-config = config_for_speed()             # <100ms, NDCG≈0.47, faithfulness≈0.41
-config = config_for_standard()          # 2-3s, NDCG≈0.50, faithfulness≈0.41 (recommended)
-config = config_for_max_quality()       # 10-20s, NDCG≈0.50+, faithfulness≈0.39-0.41
+config = config_for_speed()         # pick one
 ```
-
-### Key Findings
-
-| Finding | Impact | Evidence |
-| ------- | ------ | -------- |
-| Disable MMR diversity filtering | **+0.046 NDCG** (largest single feature gain) | Exp 03: MMR pushes relevant docs out of top-k |
-| ms-marco-MiniLM-L6 reranker | **+0.084 NDCG on test** (most robust gain) | Exp 14/15: outperforms mxbai-rerank-large |
-| 100-token doc awareness prefix | **+0.062 faithfulness** (+17.8%) | Exp 17: zero LLM cost, simple extraction |
-| Disable agentic RAG (multi-domain) | **+0.056 faithfulness** | Exp 07: aggressive refinement causes context starvation |
-| Features don't compose | no-MMR (+0.046) + reranker (+0.037) = only +0.007 combined | Exp 11: 8.4% composition efficiency |
-| Never use BM25-only | **-0.108 NDCG on test** (-26%) | Exp 14: catastrophic regression |
 
 ---
 
@@ -384,23 +365,23 @@ Multi-representation embedding model that produces dense, sparse, and ColBERT ve
 
 ### ms-marco-MiniLM-L-6-v2 Reranker
 
-Cross-encoder reranker providing **+0.084 NDCG@10 on held-out test data** — the single most impactful validated improvement. Counterintuitively outperforms both the 12-layer ms-marco variant and the larger mxbai-rerank-large-v1, likely due to better calibration for typical RAG query distributions. Applied after initial retrieval to re-score candidates with full query-document attention. Latency: ~12s on CPU, <500ms with GPU.
+Cross-encoder reranker that re-scores retrieved candidates with full query-document attention. It is small (80 MB) and fast, and the `speed` profile uses it when reranking is turned on; the larger `mxbai-rerank-large-v1` is the default elsewhere. Which one helps more depends on the corpus; compare them with a reranker sweep.
 
 ### Document Awareness (First-Tokens Enrichment)
 
-Prepends the first 100 tokens of each source document (title, abstract, introduction) to its chunks at retrieval time. Provides **+0.062 faithfulness (+17.8%)** with zero LLM cost — the strongest generation quality gain found. Longer prefixes (300 tokens) and LLM-generated summaries perform at or below baseline due to content dilution.
+Prepends the first 100 tokens of each source document (title, abstract, introduction) to its chunks at retrieval time, at no LLM cost. Longer prefixes and LLM-generated summaries are available as alternatives.
 
 ### Docling Document Processing
 
-IBM's open-source document understanding engine. Performs AI-powered layout analysis, TableFormer table extraction (97.9% accuracy), OCR for scanned pages, and structure-aware chunking that preserves headings, lists, and code blocks.
+An open-source document understanding engine. Performs layout analysis, TableFormer table extraction, OCR for scanned pages, and structure-aware chunking that preserves headings, lists, and code blocks.
 
 ### Contextual Retrieval
 
-Inspired by Anthropic's research. Each chunk is enriched with document-level context at ingestion time, reducing retrieval failure rates by 67%. Works by prepending a short context summary that situates the chunk within its source document.
+Inspired by Anthropic's contextual retrieval. Each chunk is enriched with document-level context at ingestion time, by prepending a short summary that situates the chunk within its source document.
 
 ### RAG Fusion
 
-Generates multiple reformulations of the user query, runs parallel searches, and merges results using Reciprocal Rank Fusion (RRF). Provides **+0.007 NDCG and +0.022 HitRate** with 3 query variants. Use only in quality tier — adds ~2.6s latency. Never use `max_query_variations: 2` (hurts precision by -0.014 NDCG).
+Generates multiple reformulations of the user query, runs parallel searches, and merges results using Reciprocal Rank Fusion (RRF). It needs an LLM and adds one LLM call plus one search per variant.
 
 ### Corrective RAG (CRAG)
 
@@ -413,11 +394,11 @@ Post-generation verification inspired by [Self-RAG (Asai et al., 2023)](https://
 - **ISSUP (hallucination check)** -- verifies every claim in the answer is grounded in source documents
 - **ISUSE (answer quality check)** -- verifies the answer adequately addresses the original question
 
-When checks fail and budget allows, the system rewrites the query (hallucination) or regenerates (quality) automatically. Configure via `enable_hallucination_check` and `enable_answer_quality_check` (requires structured graph mode). **Empirical note**: In live mode, both gates reduce available context and decrease faithfulness by -0.041 to -0.065 on multi-domain corpora. Use selectively for domain-specific high-precision retrieval.
+When checks fail and budget allows, the system rewrites the query (hallucination) or regenerates (quality) automatically. Configure via `enable_hallucination_check` and `enable_answer_quality_check` (requires structured graph mode). Both gates can remove context the answer needed, so measure them on your corpus before turning them on.
 
 ### HyDE (Hypothetical Document Embeddings)
 
-Generates a hypothetical answer document to use for embedding-based search instead of the raw query. Improves recall on short or ambiguous queries. Directional gain of **+0.017 NDCG** at ~1.9s latency cost. Four strategies: `off`, `always`, `first_hop`, and `adaptive` (default). Adaptive mode activates HyDE on short queries during the first or final hop, or when prior hops returned insufficient results.
+Generates a hypothetical answer document to use for embedding-based search instead of the raw query, which can help recall on short or ambiguous queries at the cost of one LLM call. Four strategies: `off`, `always`, `first_hop`, and `adaptive` (default). Adaptive mode activates HyDE on short queries during the first or final hop, or when prior hops returned insufficient results.
 
 ### Query Decomposition
 

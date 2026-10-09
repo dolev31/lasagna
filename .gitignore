@@ -44,9 +44,8 @@ gha-creds-*.json
 .pypirc
 .npmrc
 
-# Working notes carried over from internal development. These routinely contain
-# internal hostnames, credentials and absolute developer paths, so they are
-# blocked from ever being committed by an accidental `git add -A`.
+# Local working notes. They can hold absolute paths and unfinished thoughts, so
+# they are kept out of an accidental `git add -A`.
 MIGRATION_NOTE*.md
 *_NOTE_20*.md
 NOTES.md

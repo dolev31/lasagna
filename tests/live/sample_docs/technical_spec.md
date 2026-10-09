@@ -2,14 +2,13 @@
 
 ## System Overview
 
-Lasagna uses a microservices architecture with the following components:
+Lasagna runs as one process that can expose these interfaces:
 
-### Core Services
-| Service | Port | Description |
-|---------|------|-------------|
-| Demo Server | 7860 | Main application server with Gradio UI |
-| Registry | 8001 | Tool and API registry service |
-| RAG Knowledge MCP | 8005 | Knowledge base with vector search |
+### Interfaces
+| Interface | Port | Description |
+|-----------|------|-------------|
+| REST API | 8000 | Upload, search and configuration endpoints |
+| MCP server | 8005 | Knowledge base tools for AI agents |
 
 ### RAG Pipeline Architecture
 

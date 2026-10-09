@@ -11,7 +11,8 @@ on:
   schedule:
     - cron: "17 3 * * 1"
 
-# While the repository is private, Actions minutes are a monthly quota and one full run of this workflow bills about 38. A branch push to a
+# While the repository is private, Actions minutes are a monthly quota and one
+# full run of this workflow bills about 38. A branch push to a
 # private repo therefore runs the lean set: lint, both secret scans, the suite on
 # Python 3.12 with the coverage floor, and the plugin template, about 12 minutes.
 # Pull requests, release tags, the weekly schedule and manual runs get

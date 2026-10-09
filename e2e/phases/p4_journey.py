@@ -34,7 +34,7 @@ actually held, because "hermetic" written in a docstring is not a property, it
 is a hope: with live keys in the environment, a component that quietly called
 out to a provider would pass here and fail in CI. Step 1 covers what this phase
 controls (HOME, inherited vars) and is CRITICAL; step 2 covers credentials a
-*dependency* injects at import time — on this machine ``pymilvus`` calls
+*dependency* injects at import time — some ``pymilvus`` releases call
 ``load_dotenv()``, which picks up whatever ``.env`` sits above site-packages —
 and is WARN, since that is not a lasagna release defect.
 """
@@ -87,7 +87,7 @@ CLAIMS = {"ndcg@10": 0.4242, "note": "not a real result"}
 
 #: Env vars that would let a component reach a real LLM. Removed from the
 #: driver's environment so the hermeticity claim in the docstring is true
-#: rather than aspirational — the gate inherits the developer's shell, which on
+#: rather than aspirational — the gate inherits the developer's shell, which
 #: may hold live keys.
 _CREDENTIAL_VARS = (
     "OPENAI_API_KEY",
@@ -777,7 +777,7 @@ def run() -> PhaseResult:
                 "HF_HUB_OFFLINE": "1",
                 "TRANSFORMERS_OFFLINE": "1",
                 "HF_DATASETS_OFFLINE": "1",
-                # MPS compiler crashes have been seen on this machine; CPU only.
+                # MPS compiler crashes have been seen on some Macs; CPU only.
                 "RAG_USE_GPU": "false",
                 "TOKENIZERS_PARALLELISM": "false",
                 "PYTHONDONTWRITEBYTECODE": "1",

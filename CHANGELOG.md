@@ -82,8 +82,7 @@ so the two cannot be grouped in one leaderboard table.
 
 ### Added
 
-Lasagna was extracted from an internal monorepo into a standalone project; this
-is everything that release brings.
+The first standalone release of Lasagna; this is everything it brings.
 
 - **End-to-end release gate** (`python -m e2e.run`). Everything in `tests/`
   runs from inside the repo with `src/` on `sys.path`; the gate is the only

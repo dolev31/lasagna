@@ -57,7 +57,9 @@ def load_split(track: str, split: str = "eval", dataset_dir: str | None = None):
     from pathlib import Path
 
     if dataset_dir is None:
-        dataset_dir = str(Path(__file__).parent / "dataset")
+        from .adapter import _default_dataset_dir
+
+        dataset_dir = _default_dataset_dir()
     adapter = PrivateEvalAdapter(track=track, dataset_dir=dataset_dir)
     return adapter.load(split=split)
 

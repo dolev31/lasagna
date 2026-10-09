@@ -20,7 +20,16 @@ from loguru import logger
 
 
 def _default_dataset_dir() -> str:
-    return str(Path(__file__).parent / "dataset")
+    """Where the built evaluation set lives: never inside the installed package.
+
+    Builds used to land in site-packages, which a reinstall wipes and which
+    may not be writable. ``LASAGNA_EVAL_DATA_DIR`` overrides the default.
+    """
+    import os
+
+    return os.environ.get("LASAGNA_EVAL_DATA_DIR") or str(
+        Path.home() / ".cache" / "lasagna" / "private_eval"
+    )
 
 
 # Map track names to their corpus files.

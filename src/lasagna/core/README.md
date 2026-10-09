@@ -104,4 +104,4 @@ No JSON files, no external state. Tables are created automatically on first acce
 - [docs/config.md](docs/config.md) — RAGConfig property reference
 - [docs/database.md](docs/database.md) — Database backend guide and parity contract
 - [docs/session_config.md](docs/session_config.md) — Session/profile management guide
-- [docs/AUDIT_FINDINGS.md](docs/AUDIT_FINDINGS.md) — Code audit findings and fix status
+- [docs/backend_parity.md](docs/backend_parity.md) — What the SQLite and PostgreSQL backends must do identically

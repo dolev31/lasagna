@@ -298,10 +298,9 @@ class TestReportsDoNotPublishLocalPaths:
     """Reports are committed, so whatever they contain is published.
 
     Subprocess output, tracebacks and repro commands all carry absolute paths.
-    An earlier set of committed reports held 641 references to the developer's
-    home directory and 287 to the unrelated internal monorepo sitting beside
-    this checkout — none of it secret, all of it published, and none of it any
-    use to a reader.
+    Left alone, they carry the developer's home directory and the names of
+    unrelated projects beside the checkout: none of it secret, all of it
+    published, and none of it any use to a reader.
     """
 
     def test_redactor_rewrites_the_paths_that_actually_appear(self):
