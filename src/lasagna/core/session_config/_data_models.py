@@ -24,8 +24,14 @@ SESSION_TTL_SECONDS = 24 * 60 * 60
 # Maximum number of sessions to keep in memory
 MAX_CACHED_SESSIONS = 100
 
-# Maximum number of global custom profiles
+# Maximum number of saved custom profiles per owner
 MAX_GLOBAL_PROFILES = 50
+
+# A saved profile's config, serialized; the built-in ones are about 4.3 KB.
+MAX_PROFILE_CONFIG_BYTES = 10_000
+
+# The owner of profiles saved without a verified identity (auth off: one user).
+ANONYMOUS = "__anonymous__"
 
 
 class UnknownProfileError(ValueError):
@@ -144,3 +150,14 @@ def _resolve(profile_config: Optional[Dict[str, Any]], overrides: Dict[str, Any]
     resolved = copy.deepcopy(profile_config or {})
     _deep_merge(resolved, copy.deepcopy(overrides or {}))
     return resolved
+
+
+def _check_profile_size(config: Dict[str, Any]) -> None:
+    """Refuse a profile config too large to keep for every owner."""
+    import json
+
+    size = len(json.dumps(config, default=str))
+    if size > MAX_PROFILE_CONFIG_BYTES:
+        raise ValueError(
+            f"Profile config is {size} bytes; the limit is {MAX_PROFILE_CONFIG_BYTES}."
+        )

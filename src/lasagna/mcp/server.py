@@ -922,6 +922,21 @@ def _resolve_session(
     return session_id, f"anon_{user_hash}"
 
 
+def _profile_owner(user_id: str) -> str:
+    """Who owns the profiles this caller saves, and whose it may see.
+
+    Only a verified token names a tenant. Otherwise the surface is single-user
+    (stdio, or loopback with auth off), where saved profiles were always meant
+    to be shared across sessions, and the per-session ``anon_`` id kept a
+    profile saved in one session out of every other.
+    """
+    if transport_guard.enforcement_active():
+        return user_id
+    from lasagna.core.session_config._data_models import ANONYMOUS
+
+    return ANONYMOUS
+
+
 # ---------------------------------------------------------------------------
 # Tool: search (unified)
 # ---------------------------------------------------------------------------
@@ -2253,7 +2268,7 @@ def list_profiles(
         profiles = manager.list_profiles(
             include_builtin=include_builtin,
             session_id=session_id,
-            user_id=user_id,
+            user_id=_profile_owner(user_id),
         )
 
         duration_ms = (time.time() - start_time) * 1000
@@ -2338,7 +2353,9 @@ def set_active_profile(
         from lasagna.core.session_config import get_knowledge_config_manager
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        manager.set_active_profile(profile_name, session_id=session_id)
+        manager.set_active_profile(
+            profile_name, session_id=session_id, user_id=_profile_owner(user_id)
+        )
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("set_active_profile", True, f"activated={profile_name}", duration_ms)
@@ -2581,7 +2598,8 @@ def patch_rag_config(
             )
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        result = manager.patch_config(patch, session_id)
+        manager.patch_config(patch, session_id)
+        result = manager.get_config(session_id, user_id=_profile_owner(user_id))
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("patch_rag_config", True, f"keys={list(patch.keys())}", duration_ms)
@@ -2628,7 +2646,7 @@ def save_rag_profile(
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
         _result = manager.save_profile(
-            profile_name, config_dict, session_id, set_active, user_id=user_id
+            profile_name, config_dict, session_id, set_active, user_id=_profile_owner(user_id)
         )
 
         duration_ms = (time.time() - start_time) * 1000
@@ -2664,7 +2682,7 @@ def delete_rag_profile(
         from lasagna.core.session_config import get_knowledge_config_manager
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        _result = manager.delete_profile(profile_name, session_id, user_id=user_id)
+        _result = manager.delete_profile(profile_name, session_id, user_id=_profile_owner(user_id))
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("delete_rag_profile", True, f"profile={profile_name}", duration_ms)
@@ -2696,7 +2714,10 @@ def reset_rag_config(
             raise ValueError("scope must be 'active' or 'all'")
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        result = manager.reset_config(scope, session_id)
+        reset = manager.reset_config(scope, session_id)
+        result = manager.get_config(session_id, user_id=_profile_owner(user_id))
+        if "config" in reset:
+            result["config"] = reset["config"]
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("reset_rag_config", True, f"scope={scope}", duration_ms)

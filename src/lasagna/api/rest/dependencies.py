@@ -153,6 +153,28 @@ def get_user_id(
     return f"anon_{uuid.uuid4().hex[:16]}"
 
 
+def get_profile_owner(
+    request: Request,
+    x_session_token: Optional[str] = Header(None, alias="X-Session-Token"),
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    authorization: Optional[str] = Header(None),
+) -> str:
+    """Who owns the profiles a request saves, and whose it may see.
+
+    With auth on, the verified user. With it off the server is loopback-only and
+    single-user, and `get_user_id` hands out a new ``anon_`` id on every
+    request, so a profile owned by it could not be overwritten or deleted by
+    the next request from the same client.
+    """
+    from lasagna.core.session_config._data_models import ANONYMOUS
+
+    from .auth_mode import require_auth
+
+    if not require_auth():
+        return ANONYMOUS
+    return get_user_id(request, x_session_token, x_user_id, authorization)
+
+
 def _decode_jwt(token: str) -> dict:
     """Decode a JWT token using the configured secret.
 

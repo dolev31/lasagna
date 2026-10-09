@@ -11,9 +11,11 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 
 from ._data_models import (
+    ANONYMOUS,
     SCHEMA_VERSION,
     RAGProfile,
     KnowledgeConfigState,
+    _check_profile_size,
     _deep_merge,
     _resolve,
 )
@@ -90,9 +92,15 @@ class SessionStateMixin:
             if session_id not in self._session_states:
                 all_profiles = [copy.deepcopy(p) for p in self._default_profiles]
 
+                # Only the shared ones: a profile with an owner is found when its
+                # owner asks for it, and copying every tenant's into every new
+                # session showed them (configs included) to all of them.
                 default_names = {p.name for p in all_profiles}
                 for custom_profile in self._global_custom_profiles:
-                    if custom_profile.name not in default_names:
+                    if (
+                        custom_profile.name not in default_names
+                        and custom_profile.user_id == ANONYMOUS
+                    ):
                         all_profiles.append(copy.deepcopy(custom_profile))
 
                 state = KnowledgeConfigState(
@@ -111,10 +119,30 @@ class SessionStateMixin:
 
             return self._session_states[session_id]
 
-    def get_config(self, session_id: Optional[str] = None) -> Dict[str, Any]:
-        """Get the full configuration response for the API."""
+    def get_config(
+        self, session_id: Optional[str] = None, user_id: str = ANONYMOUS
+    ) -> Dict[str, Any]:
+        """Get the full configuration response for the API, as ``user_id`` may see it."""
         state = self.get_session_state(session_id)
-        return state.to_dict()
+        return self._view(state, user_id)
+
+    def _view(self, state: KnowledgeConfigState, user_id: str) -> Dict[str, Any]:
+        """The session's state with only the profiles ``user_id`` may see.
+
+        ``to_dict`` is also what gets persisted, so it keeps everything; what a
+        caller is shown drops other owners' saved profiles and adds the
+        caller's own saved ones that this session has not used yet.
+        """
+        data = state.to_dict()
+        with self._lock:
+            foreign = self._foreign_profile_names(user_id)
+            shown = [p for p in data["profiles"] if p["name"] not in foreign]
+            names = {p["name"] for p in shown}
+            for profile in self._global_custom_profiles:
+                if profile.name not in names and self._is_visible_to(profile, user_id):
+                    shown.append(profile.to_dict())
+        data["profiles"] = shown
+        return data
 
     def get_resolved_config(self, session_id: Optional[str] = None) -> Dict[str, Any]:
         """Get the resolved configuration for RAG execution."""
@@ -222,10 +250,12 @@ class SessionStateMixin:
             result["config"] = active.config
         return result
 
-    def export_config(self, session_id: Optional[str] = None) -> Dict[str, Any]:
-        """Export the full configuration for download."""
+    def export_config(
+        self, session_id: Optional[str] = None, user_id: str = ANONYMOUS
+    ) -> Dict[str, Any]:
+        """Export the full configuration for download, as ``user_id`` may see it."""
         state = self.get_session_state(session_id)
-        return state.to_dict()
+        return self._view(state, user_id)
 
     def import_config(
         self,
@@ -270,6 +300,7 @@ class SessionStateMixin:
             if not isinstance(p_data.get("config", {}), dict):
                 raise ValueError(f"Profile '{p_data['name']}' config must be an object")
             profile_config = p_data.get("config", {})
+            _check_profile_size(profile_config)
             if profile_config:
                 self._validate_or_raise(profile_config)
             imported_profiles.append(RAGProfile.from_dict(p_data))

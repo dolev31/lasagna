@@ -23,12 +23,14 @@ else:
             toml = None  # type: ignore
 
 from ._data_models import (
+    ANONYMOUS,
     KNOWLEDGE_MODULE_DIR,
     MAX_GLOBAL_PROFILES,
     SESSION_TTL_SECONDS,
     MAX_CACHED_SESSIONS,
     RAGProfile,
     UnknownProfileError,
+    _check_profile_size,
     _deep_merge,
     _resolve,
 )
@@ -511,6 +513,36 @@ class ProfileMixin:
         state = self.get_session_state(session_id)
         return state.active_profile
 
+    def _is_visible_to(self, profile: RAGProfile, user_id: str) -> bool:
+        """Whether ``user_id`` may see and use a saved profile.
+
+        Anonymous is the single-user identity (auth off): it sees everything,
+        as `list_profiles` always allowed.
+        """
+        return user_id == ANONYMOUS or profile.user_id in (user_id, ANONYMOUS)
+
+    def _foreign_profile_names(self, user_id: str) -> set:
+        """Names of saved profiles another owner holds, hidden from ``user_id``."""
+        return {p.name for p in self._global_custom_profiles if not self._is_visible_to(p, user_id)}
+
+    def _find_profile(self, state, profile_name: str, user_id: str) -> Optional[RAGProfile]:
+        """The session's profile of that name, else a saved one the caller may use.
+
+        A profile saved from another session after this one was created is in
+        the saved list and was listed by `list_profiles`, but activating it
+        answered "Unknown profile", because only the session's copy was looked
+        at.
+        """
+        if profile_name in self._foreign_profile_names(user_id):
+            return None
+        for profile in state.profiles:
+            if profile.name == profile_name:
+                return profile
+        for profile in self._global_custom_profiles:
+            if profile.name == profile_name and self._is_visible_to(profile, user_id):
+                return profile
+        return None
+
     def set_active_profile(
         self,
         profile_name: str,
@@ -518,6 +550,7 @@ class ProfileMixin:
         session_id: Optional[str] = None,
         *,
         force: bool = False,
+        user_id: str = ANONYMOUS,
     ) -> Dict[str, Any]:
         """Set the active profile and optionally update its config.
 
@@ -531,11 +564,19 @@ class ProfileMixin:
 
         with self._lock:
             previous = state.get_active_profile()
-            profile = next((p for p in state.profiles if p.name == profile_name), None)
+            profile = self._find_profile(state, profile_name, user_id)
             if profile is None and not config:
                 # Recording a name no profile has made `configure --profile
                 # bogus` print "Applied profile: bogus" and change nothing.
-                known = sorted(p.name for p in state.profiles)
+                foreign = self._foreign_profile_names(user_id)
+                known = sorted(
+                    {p.name for p in state.profiles if p.name not in foreign}
+                    | {
+                        p.name
+                        for p in self._global_custom_profiles
+                        if self._is_visible_to(p, user_id)
+                    }
+                )
                 raise UnknownProfileError(
                     f"Unknown profile {profile_name!r}. Available: {', '.join(known)}"
                 )
@@ -568,6 +609,8 @@ class ProfileMixin:
                         config=config,
                     )
                 )
+            elif profile not in state.profiles:
+                state.profiles.append(copy.deepcopy(profile))
             state.session_overrides = overrides
             state.active_profile = profile_name
             self._persist_session_states()
@@ -583,7 +626,7 @@ class ProfileMixin:
         config: Dict[str, Any],
         session_id: Optional[str] = None,
         set_active: bool = True,
-        user_id: str = "__anonymous__",
+        user_id: str = ANONYMOUS,
         *,
         force: bool = False,
     ) -> Dict[str, Any]:
@@ -601,6 +644,7 @@ class ProfileMixin:
         if not profile_name or len(profile_name) > 100:
             raise ValueError("Profile name must be 1-100 characters.")
 
+        _check_profile_size(config)
         if config:
             self._validate_or_raise(config)
 
@@ -608,7 +652,10 @@ class ProfileMixin:
 
         with self._lock:
             is_new = profile_name not in self._global_profile_names
-            if is_new and len(self._global_custom_profiles) >= MAX_GLOBAL_PROFILES:
+            # Counted per owner. One shared count let a tenant fill it and lock
+            # every other tenant out of saving any profile at all.
+            owned = sum(1 for p in self._global_custom_profiles if p.user_id == user_id)
+            if is_new and owned >= MAX_GLOBAL_PROFILES:
                 raise ValueError(
                     f"Maximum number of profiles ({MAX_GLOBAL_PROFILES}) reached. "
                     "Delete unused profiles before creating new ones."

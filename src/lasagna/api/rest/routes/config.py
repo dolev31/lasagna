@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from lasagna.api._profile_guard import EmbeddingSizeConflict
 from lasagna.api.rag_backend import RAGBackend
-from ..dependencies import get_backend, get_session_id, get_user_id
+from ..dependencies import get_backend, get_profile_owner, get_session_id, get_user_id
 from ..models import ConfigPatchRequest, ConfigResponse, ProfileInfo, ProfileListResponse
 
 
@@ -224,7 +224,7 @@ async def patch_config(
 async def apply_profile(
     profile_name: str,
     session_id: str = Depends(get_session_id),
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(get_profile_owner),
     backend: RAGBackend = Depends(get_backend),
 ):
     """Apply a preset configuration profile for this session."""
@@ -238,7 +238,7 @@ async def apply_profile(
         from lasagna.core.session_config import get_knowledge_config_manager
 
         mgr = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        mgr.set_active_profile(profile_name, session_id=session_id)
+        mgr.set_active_profile(profile_name, session_id=session_id, user_id=user_id)
     except EmbeddingSizeConflict as conflict:
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as ve:

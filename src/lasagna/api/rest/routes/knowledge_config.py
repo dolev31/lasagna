@@ -16,7 +16,7 @@ from loguru import logger
 
 from lasagna.api._profile_guard import EmbeddingSizeConflict
 from lasagna.core.session_config import get_knowledge_config_manager
-from ..dependencies import get_session_id, get_user_id
+from ..dependencies import get_profile_owner, get_session_id
 from ..models import (
     DeleteProfileRequest,
     ImportConfigRequest,
@@ -56,16 +56,17 @@ def _to_response(data: Dict[str, Any]) -> KnowledgeConfigFullResponse:
 @router.get("", response_model=KnowledgeConfigFullResponse)
 async def get_knowledge_config(
     session_id: str = Depends(get_session_id),
+    user_id: str = Depends(get_profile_owner),
 ):
     """Get the full knowledge configuration state for a session.
 
-    Returns all profiles, active profile, session overrides, and RAG status.
-    This is the primary endpoint the configurator UI calls on load.
+    Returns the profiles this caller may see, active profile, session
+    overrides, and RAG status. This is the primary endpoint the configurator
+    UI calls on load.
     """
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
-        data = mgr.get_config(session_id)
-        return _to_response(data)
+        return _to_response(mgr.get_config(session_id, user_id=user_id))
     except Exception as exc:
         logger.error(f"Failed to get knowledge config for session={session_id}: {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -75,14 +76,15 @@ async def get_knowledge_config(
 async def set_active_profile(
     body: SetActiveProfileRequest,
     session_id: str = Depends(get_session_id),
+    user_id: str = Depends(get_profile_owner),
 ):
     """Set the active profile and optionally apply config overrides."""
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
-        data = mgr.set_active_profile(
-            body.active_profile, config=body.config or None, session_id=session_id
+        mgr.set_active_profile(
+            body.active_profile, config=body.config or None, session_id=session_id, user_id=user_id
         )
-        return _to_response(data)
+        return _to_response(mgr.get_config(session_id, user_id=user_id))
     except EmbeddingSizeConflict as conflict:
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
@@ -96,19 +98,19 @@ async def set_active_profile(
 async def save_profile(
     body: SaveProfileRequest,
     session_id: str = Depends(get_session_id),
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(get_profile_owner),
 ):
     """Save or update a named profile globally."""
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
-        data = mgr.save_profile(
+        mgr.save_profile(
             profile_name=body.profile_name,
             config=body.config,
             session_id=session_id,
             set_active=body.set_active,
             user_id=user_id,
         )
-        return _to_response(data)
+        return _to_response(mgr.get_config(session_id, user_id=user_id))
     except EmbeddingSizeConflict as conflict:
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
@@ -122,17 +124,17 @@ async def save_profile(
 async def delete_profile(
     body: DeleteProfileRequest,
     session_id: str = Depends(get_session_id),
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(get_profile_owner),
 ):
     """Delete a custom profile (built-in profiles are protected)."""
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
-        data = mgr.delete_profile(
+        mgr.delete_profile(
             profile_name=body.profile_name,
             session_id=session_id,
             user_id=user_id,
         )
-        return _to_response(data)
+        return _to_response(mgr.get_config(session_id, user_id=user_id))
     except EmbeddingSizeConflict as conflict:
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
@@ -146,18 +148,18 @@ async def delete_profile(
 async def rename_profile(
     body: RenameProfileRequest,
     session_id: str = Depends(get_session_id),
-    user_id: str = Depends(get_user_id),
+    user_id: str = Depends(get_profile_owner),
 ):
     """Rename a custom profile (built-in profiles are protected)."""
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
-        data = mgr.rename_profile(
+        mgr.rename_profile(
             old_name=body.old_name,
             new_name=body.new_name,
             session_id=session_id,
             user_id=user_id,
         )
-        return _to_response(data)
+        return _to_response(mgr.get_config(session_id, user_id=user_id))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
@@ -169,6 +171,7 @@ async def rename_profile(
 async def reset_config(
     body: ResetConfigRequest,
     session_id: str = Depends(get_session_id),
+    user_id: str = Depends(get_profile_owner),
 ):
     """Reset configuration to defaults.
 
@@ -177,8 +180,8 @@ async def reset_config(
     """
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
-        data = mgr.reset_config(scope=body.scope, session_id=session_id)
-        return _to_response(data)
+        mgr.reset_config(scope=body.scope, session_id=session_id)
+        return _to_response(mgr.get_config(session_id, user_id=user_id))
     except EmbeddingSizeConflict as conflict:
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
@@ -191,12 +194,12 @@ async def reset_config(
 @router.get("/export", response_model=KnowledgeConfigFullResponse)
 async def export_config(
     session_id: str = Depends(get_session_id),
+    user_id: str = Depends(get_profile_owner),
 ):
-    """Export the full session configuration as JSON (for download)."""
+    """Export the session configuration as JSON (for download)."""
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
-        data = mgr.export_config(session_id)
-        return _to_response(data)
+        return _to_response(mgr.export_config(session_id, user_id=user_id))
     except Exception as exc:
         logger.error(f"Failed to export config: {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -206,14 +209,13 @@ async def export_config(
 async def import_config(
     data: ImportConfigRequest,
     session_id: str = Depends(get_session_id),
+    user_id: str = Depends(get_profile_owner),
 ):
     """Import configuration from uploaded JSON."""
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
-        result = mgr.import_config(
-            import_data=data.model_dump(exclude_none=True), session_id=session_id
-        )
-        return _to_response(result)
+        mgr.import_config(import_data=data.model_dump(exclude_none=True), session_id=session_id)
+        return _to_response(mgr.get_config(session_id, user_id=user_id))
     except EmbeddingSizeConflict as conflict:
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
