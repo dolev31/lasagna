@@ -1571,13 +1571,16 @@ class BenchmarkResults:
         lines = [f"Comparison: {self.experiment_name} vs {other.experiment_name}\n"]
         lines.append(f"Metric: {metric}\n")
 
-        # Held-fixed configuration, per side, from the first result of each.
+        # Held-fixed configuration, per side, from the first result of each,
+        # with the stages the side's arms vary left out as the bundle does.
         def _held(results: "BenchmarkResults") -> Optional[Dict[str, Any]]:
             if not results._results:
                 return None
-            first = results._results[0]
-            row = first.to_dict() if hasattr(first, "to_dict") else dict(first)
-            return held_fixed_from(row, results.experiment_config or {})
+            rows = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results._results]
+            across = list(
+                {row.get("config_name"): row.get("config_overrides") or {} for row in rows}.values()
+            )
+            return held_fixed_from(rows[0], results.experiment_config or {}, across)
 
         held_a, held_b = _held(self), _held(other)
         if held_a and held_b:

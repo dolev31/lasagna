@@ -34,7 +34,15 @@ def _bundle(submitter, key, config="baseline", values=(0.5,), varied=(), benchma
             {
                 "name": config,
                 "comparability_key": key,
-                "held_fixed": {"split": "test", "n_samples": 100, "embedder_model": "bge-m3"},
+                "held_fixed": {
+                    "split": "test",
+                    "n_samples": 100,
+                    "embedder_model": "bge-m3",
+                    # Recorded, so rows group by key across bundles; see
+                    # test_comparability_key_covers_every_fixed_stage.py for
+                    # rows without it.
+                    "fixed_stages": {"retriever": "r1"},
+                },
                 "varied_dimensions": list(varied),
             }
         ],

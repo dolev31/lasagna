@@ -108,9 +108,13 @@ class TestTheSchemaAcceptsWhatWeProduce:
         """
         from lasagna.knowledge_evaluation_sdk.bundle import HELD_FIXED_FIELDS, KEY_DEFAULTS
 
-        required = set(
-            checked_in["properties"]["configs"]["items"]["properties"]["held_fixed"]["required"]
-        )
+        held = checked_in["properties"]["configs"]["items"]["properties"]["held_fixed"]
+        required = set(held["required"])
+        # Fields added to the key in a later metrics version are required from
+        # that version on (an older bundle cannot carry them, and its key does
+        # not hash them).
+        for rule in held.get("allOf", []):
+            required |= set(rule["then"]["required"])
         unaccounted = set(HELD_FIXED_FIELDS) - required - set(KEY_DEFAULTS)
         assert not unaccounted, (
             f"{sorted(unaccounted)} are hashed into the comparability key but are "

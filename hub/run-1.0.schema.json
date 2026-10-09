@@ -96,7 +96,42 @@
               "vector_backend",
               "judge_model",
               "bm25_stemming"
-            ]
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "metrics_version"
+                  ],
+                  "properties": {
+                    "metrics_version": {
+                      "not": {
+                        "enum": [
+                          "1.0",
+                          "1.1",
+                          "1.2",
+                          "1.3"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "fixed_stages"
+                  ]
+                }
+              }
+            ],
+            "properties": {
+              "fixed_stages": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "Stage-manifest digest of every stage the run does not vary, from metrics_version 1.4. Null when the row recorded no manifest; such rows are compared only within their own bundle."
+              }
+            }
           },
           "varied_levels": {
             "type": "object",
