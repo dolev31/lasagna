@@ -380,7 +380,10 @@ class SearchManager:
             )
             if routing_tier is not None:
                 search_kwargs["routing_tier"] = routing_tier
-            raw_results = backend.search(**search_kwargs)
+            # async_search, not search: this coroutine runs on the caller's
+            # event loop, where the synchronous path both blocks the loop and
+            # cannot start the agentic pipeline (it needs a loop of its own).
+            raw_results = await backend.async_search(**search_kwargs)
         except Exception as e:
             raise SearchError(f"Search failed: {e}") from e
 

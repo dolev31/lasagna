@@ -1831,6 +1831,23 @@ class SearchOrchestrator:
         quota_mgr = get_quota_manager()
         quota_mgr.check_search(session_id)
 
+        # Callers already inside an event loop MUST use async_search(), which
+        # offloads search() to a worker thread with no running loop, so the
+        # asyncio.run() below creates a fresh one cleanly. This is checked
+        # before the try on purpose: inside it, the broad fallback handler
+        # caught the violation and quietly served standard results under an
+        # agentic label, which is how every SDK agentic search degraded.
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass  # no running loop — the expected case
+        else:
+            raise RuntimeError(
+                "search() was called from inside a running event loop. "
+                "Use `await async_search(...)` instead: it offloads to a "
+                "worker thread so the agentic pipeline gets a clean loop."
+            )
+
         try:
             from lasagna.agentic.agentic_rag import AgenticRAG
             from lasagna.providers import get_llm_provider
@@ -1856,24 +1873,7 @@ class SearchOrchestrator:
             # loop" and, because the failure was swallowed upstream, as CRAG
             # runs whose RAGAS scores came back empty with no error message.
             #
-            # Callers already inside an event loop MUST use async_search(),
-            # which offloads search() via loop.run_in_executor(None, _run).
-            # That worker thread has no running loop, so asyncio.run() here
-            # creates a fresh one cleanly. Check explicitly so violating the
-            # contract gives an actionable message instead of asyncio's
-            # "cannot be called from a running event loop".
-            try:
-                asyncio.get_running_loop()
-            except RuntimeError:
-                pass  # no running loop — the expected case
-            else:
-                raise RuntimeError(
-                    "search() was called from inside a running event loop. "
-                    "Use `await async_search(...)` instead: it offloads to a "
-                    "worker thread so the agentic pipeline gets a clean loop. "
-                    "Bridging here would rebind cached async LLM clients to a "
-                    "stale loop and silently return empty results."
-                )
+            # (The running-loop contract is checked before the try above.)
 
             effective_top_k = top_k or config.rerank_top_k
             result = asyncio.run(

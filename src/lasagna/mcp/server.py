@@ -975,7 +975,7 @@ async def search(
         else:
             # V1 fallback
             v1_top_k = top_k if top_k is not None else config.default_top_k
-            results = backend.search(
+            results = await backend.async_search(
                 query=query,
                 session_id=session_id,
                 top_k=v1_top_k,
