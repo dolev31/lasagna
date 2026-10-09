@@ -796,6 +796,14 @@ class RAGConfig:
 
     @property
     def use_gpu(self) -> bool:
+        # A hardware decision, not a research dimension: an explicit
+        # RAG_USE_GPU wins over profile and per-query overrides. Profiles
+        # carry use_gpu from the settings file, so as a per-query override it
+        # outranked the operator's RAG_USE_GPU=false and moved models onto a
+        # GPU backend the operator had turned off.
+        env = os.environ.get("RAG_USE_GPU", "").strip().lower()
+        if env:
+            return env in ("1", "true", "yes", "on")
         return self._get_knowledge_setting("rag", "use_gpu", default=self._config["use_gpu"])
 
     # =========================================================================
