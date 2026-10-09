@@ -384,21 +384,32 @@ def upload(
             doc = await client.documents.wait_for_processing(result.document_id)
             result.status = doc.status
             result.chunk_count = getattr(doc, "chunk_count", result.chunk_count)
-            return result
+            return result, doc
         finally:
             await client.close()
 
     try:
-        result = _run(_upload())
+        result, doc = _run(_upload())
     except Exception as exc:
         _error(f"Upload failed: {exc}")
+
+    from lasagna.sdk.types import DocumentStatus
+
+    if doc.status != DocumentStatus.READY:
+        # A document that failed to index printed the green "Uploaded
+        # successfully" panel with "Status: DocumentStatus.FAILED", exit 0.
+        _error(
+            f"Upload failed: {path.name} could not be indexed "
+            f"({doc.error_message or 'no reason was recorded'}). "
+            f"Document ID: {result.document_id}"
+        )
 
     console.print(
         Panel.fit(
             f"[green]Uploaded successfully[/green]\n\n"
             f"Document ID: [cyan]{result.document_id}[/cyan]\n"
             f"Chunks: [cyan]{result.chunk_count}[/cyan]\n"
-            f"Status: [cyan]{result.status}[/cyan]",
+            f"Status: [cyan]{getattr(result.status, 'value', result.status)}[/cyan]",
         )
     )
 
