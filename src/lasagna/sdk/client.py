@@ -326,6 +326,10 @@ class KnowledgeClient:
         if self._backend is None:
             async with self._backend_lock:
                 if self._backend is None:
+                    # Storage location first: it is fixed when the
+                    # configuration first loads, which the next step triggers.
+                    self._apply_storage_paths()
+
                     # Tier 1: Init-time config BEFORE backend singleton
                     self._apply_init_time_config()
 
@@ -338,6 +342,63 @@ class KnowledgeClient:
 
                     logger.debug("RAGBackend initialized with config bridge")
         return self._backend
+
+    def _apply_storage_paths(self) -> None:
+        """Put databases and uploads where ``db_path`` and ``upload_dir`` say.
+
+        Where they live is process-wide and fixed when the configuration first
+        loads. Before that, these two fields choose it. After it they cannot
+        move it, and a warning names where the data is going instead. They used
+        to be read by nothing, so ``config_for_standalone(db_path=...)`` wrote
+        to ``~/.rag_knowledge`` without a word.
+        """
+        cfg = self._config
+        if cfg.db_path is None and cfg.upload_dir is None:
+            return
+        import os
+        import warnings
+
+        from .. import providers
+        from ..core import config as core_config
+
+        def _directory(path) -> Path:
+            p = Path(path).expanduser()
+            # A file path names its directory: the databases inside it have
+            # fixed names (rag.db, rag_milvus.db).
+            return p.parent if p.suffix and not p.is_dir() else p
+
+        want_db = _directory(cfg.db_path) if cfg.db_path else None
+        want_up = Path(cfg.upload_dir).expanduser() if cfg.upload_dir else None
+
+        if core_config._rag_config is None and providers._config_provider is None:
+            default = Path.home() / ".rag_knowledge"
+            providers.set_config_provider(
+                providers.SimpleConfigProvider(
+                    db_dir=want_db or Path(os.environ.get("RAG_DB_DIR", default / "dbs")),
+                    upload_dir=want_up
+                    or Path(os.environ.get("RAG_UPLOAD_DIR", default / "uploads")),
+                    package_root=Path(providers.__file__).parent.parent,
+                )
+            )
+            return
+
+        effective = core_config.get_rag_config()
+        db_dir = Path(effective.db_path).parent
+        ignored = []
+        if want_db is not None and want_db.resolve() != db_dir.resolve():
+            ignored.append(f"db_path (databases are in {db_dir})")
+        if want_up is not None and want_up.resolve() != Path(effective.upload_dir).resolve():
+            ignored.append(f"upload_dir (uploads go to {effective.upload_dir})")
+        if ignored:
+            warnings.warn(
+                f"KnowledgeConfig {' and '.join(ignored)} could not take effect: this "
+                f"process loaded its configuration before the client was first used, "
+                f"and storage cannot move after that. Set RAG_DB_DIR and RAG_UPLOAD_DIR "
+                f"before importing lasagna, or make this the first client the process "
+                f"uses.",
+                UserWarning,
+                stacklevel=3,
+            )
 
     def _apply_init_time_config(self) -> None:
         """Apply init-time overrides to global rag_config BEFORE backend creation.

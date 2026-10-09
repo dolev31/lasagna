@@ -27,8 +27,9 @@ Example:
     ```
 """
 
+import functools
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 from typing import Optional, List, Dict, Any, Union
 from enum import Enum
 from pathlib import Path
@@ -81,10 +82,10 @@ class KnowledgeConfig:
     # Storage Paths
     # =========================================================================
     db_path: Optional[str] = None
-    """Path to vector database file. Default: auto-detected from host application config."""
+    """Where the databases live: a directory, or a file path whose directory is used (the databases in it have fixed names). Applied when the client is first used, if the process has not loaded its configuration yet; otherwise a warning says where they are. Default: RAG_DB_DIR, else ~/.rag_knowledge/dbs"""
 
     upload_dir: Optional[str] = None
-    """Directory for uploaded files. Default: auto-detected from host application config."""
+    """Directory for uploaded files, applied the same way as db_path. Default: RAG_UPLOAD_DIR, else ~/.rag_knowledge/uploads"""
 
     # =========================================================================
     # Feature Toggles
@@ -298,8 +299,8 @@ class KnowledgeConfig:
     crag_web_search_fallback: bool = False
     """Allow CRAG to fall back to web search when retrieval quality is low. Default: False"""
 
-    docling_enabled: bool = False
-    """Enable Docling for advanced document parsing (tables, layouts, OCR). Default: False"""
+    docling_enabled: bool = True
+    """Enable Docling for advanced document parsing (tables, layouts, OCR). Default: True, as in the shipped settings; without the ``docling`` extra installed, documents go through the built-in extractors"""
 
     docling_mode: str = "auto"
     """Docling deployment mode: 'auto' (detect GPU), 'local' (CPU-only), 'production' (GPU). Default: auto"""
@@ -563,6 +564,26 @@ class KnowledgeConfig:
 
         validate_static(self)
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        object.__setattr__(self, name, value)
+        # After construction, assigning a field is a choice the caller made.
+        # A new frozenset rather than an in-place add, so a shallow copy never
+        # shares the record with its original.
+        explicit = self.__dict__.get("_explicit_fields")
+        if explicit is not None and name in _FIELD_NAMES:
+            object.__setattr__(self, "_explicit_fields", explicit | {name})
+
+    @property
+    def explicit_fields(self) -> frozenset:
+        """Names of the fields the caller set, by keyword or by assignment.
+
+        The bridge to the backend sends these even when the value equals the
+        dataclass default: ``docling_enabled=False`` is a choice, and the
+        shipped settings turn Docling on. ``with_updates`` keeps the record;
+        ``dataclasses.replace`` passes every field, so it marks them all set.
+        """
+        return self.__dict__.get("_explicit_fields", frozenset())
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary.
 
@@ -610,7 +631,10 @@ class KnowledgeConfig:
                     except ValueError:
                         pass  # Keep as string if not valid enum
             current[key] = value
-        return KnowledgeConfig(**current)
+        updated = KnowledgeConfig(**current)
+        # Every field was passed to rebuild it; only these were chosen.
+        object.__setattr__(updated, "_explicit_fields", self.explicit_fields | set(kwargs))
+        return updated
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "KnowledgeConfig":
@@ -645,6 +669,29 @@ class KnowledgeConfig:
                 processed[key] = value
 
         return cls(**processed)
+
+
+_FIELD_NAMES = frozenset(f.name for f in fields(KnowledgeConfig))
+
+
+def _recording_set_fields(init):
+    """Wrap the generated ``__init__`` to remember which fields the caller passed.
+
+    The value alone cannot say whether a field was chosen: a value equal to the
+    default looks the same as no value. Fields assigned inside ``__post_init__``
+    are not recorded, since the record starts after the generated init returns.
+    """
+
+    @functools.wraps(init)
+    def __init__(self, *args, **kwargs):
+        init(self, *args, **kwargs)
+        positional = [f.name for f in fields(self) if f.init][: len(args)]
+        object.__setattr__(self, "_explicit_fields", frozenset(positional) | frozenset(kwargs))
+
+    return __init__
+
+
+KnowledgeConfig.__init__ = _recording_set_fields(KnowledgeConfig.__init__)
 
 
 # =============================================================================

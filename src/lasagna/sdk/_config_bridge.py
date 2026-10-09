@@ -11,14 +11,20 @@ Two tiers:
       Written via ``SessionConfigProvider.set_config_overrides()`` for
       per-session safety.
 
-Only fields whose value differs from the SDK dataclass default are bridged.
-This prevents masking profile / TOML settings with SDK defaults.
+A field is bridged when the caller set it (by keyword or by assignment) or
+when its value differs from the SDK dataclass default. Fields left untouched are
+not, so SDK defaults never mask profile / TOML settings. Bridging only values
+that differ from the default used to drop an explicit choice that happened to
+equal it: ``docling_enabled=False`` against settings that turn Docling on.
 
 Adding a new field:
     1. Add the SDK field to ``KnowledgeConfig`` in ``config.py``.
     2. Add the mapping here (``INIT_TIME_FIELDS`` or ``RUNTIME_FIELD_MAP``).
     3. If the backend key differs from the SDK key, add to ``SPECIAL_MAPPINGS``.
     4. If the backend uses a nested dict, add to ``NESTED_MAPPINGS``.
+    5. If the client consumes it itself, add it to ``SDK_ONLY_FIELDS``.
+       ``tests/test_every_sdk_setting_reaches_the_backend.py`` fails for a
+       field in none of these.
 """
 
 from __future__ import annotations
@@ -64,6 +70,13 @@ INIT_TIME_FIELDS: Set[str] = {
     # Storage
     "storage_backend",
     "storage_backend_config",
+    # Docling converter. Read when the process-wide DoclingProcessor builds its
+    # converter, so a per-session value could not change a converter already
+    # built.
+    "docling_mode",
+    "docling_pdf_backend",
+    "docling_ocr_enabled",
+    "docling_table_structure",
     # Embedding.
     #
     # These are init-time because the EmbeddingManager is constructed when the
@@ -180,8 +193,10 @@ RUNTIME_FIELD_MAP: Dict[str, str] = {
     "citation_db_max_per_session": "citation_db_max_per_session",
     # Observability (runtime-readable)
     "log_level": "log_level",
-    # Docling
+    # Docling (read per document)
     "docling_enabled": "docling_enabled",
+    "docling_max_tokens": "docling_max_tokens",
+    "docling_timeout": "docling_timeout",
     # Agentic
     "use_agentic_rag": "use_agentic_rag",
     "max_agent_iterations": "max_agent_iterations",
@@ -238,6 +253,20 @@ NESTED_MAPPINGS: Dict[str, Dict[str, str]] = {
 
 
 # =============================================================================
+# SDK-only fields (consumed by the client itself, never bridged)
+# =============================================================================
+
+SDK_ONLY_FIELDS: Set[str] = {
+    # Where storage lives; applied by the client before the configuration first
+    # loads (``KnowledgeClient._apply_storage_paths``).
+    "db_path",
+    "upload_dir",
+    # Whether the client's search manager formats citations.
+    "enable_citations",
+}
+
+
+# =============================================================================
 # Core Functions
 # =============================================================================
 
@@ -263,6 +292,18 @@ def get_non_default_fields(config: "KnowledgeConfig") -> Dict[str, Any]:
     return result
 
 
+def get_set_fields(config: "KnowledgeConfig") -> Dict[str, Any]:
+    """Return the fields to bridge: those the caller set, plus any non-default.
+
+    A value equal to the dataclass default can still be a deliberate choice,
+    and only the record of what the caller set can tell the two apart.
+    """
+    result = get_non_default_fields(config)
+    for name in getattr(config, "explicit_fields", ()):
+        result.setdefault(name, getattr(config, name))
+    return result
+
+
 def _coerce_value(value: Any) -> Any:
     """Convert enum values to their string representation for the backend."""
     if hasattr(value, "value"):
@@ -280,12 +321,12 @@ def get_init_overrides(config: "KnowledgeConfig") -> Dict[str, Any]:
 
     Only returns fields that:
     1. Are in INIT_TIME_FIELDS
-    2. Differ from the SDK dataclass default
+    2. Were set by the caller, or differ from the SDK dataclass default
 
     These must be applied to ``rag_config._env_overrides`` BEFORE
     ``get_rag_backend()`` is called.
     """
-    non_defaults = get_non_default_fields(config)
+    non_defaults = get_set_fields(config)
     overrides: Dict[str, Any] = {}
     for sdk_key in INIT_TIME_FIELDS:
         if sdk_key in non_defaults:
@@ -298,7 +339,7 @@ def apply_init_overrides(env_overrides: Dict[str, Any], config: "KnowledgeConfig
 
     This replaces the simple ``env_overrides.update(get_init_overrides(config))``
     pattern.  It also removes any keys that were previously bridged but are
-    no longer non-default, preventing leakage across clients.
+    no longer set, preventing leakage across clients.
 
     Args:
         env_overrides: The ``rag_config._env_overrides`` dict (mutated in place).
@@ -325,12 +366,12 @@ def get_runtime_overrides(config: "KnowledgeConfig") -> Dict[str, Any]:
 
     Only returns fields that:
     1. Are in RUNTIME_FIELD_MAP, SPECIAL_MAPPINGS, or NESTED_MAPPINGS
-    2. Differ from the SDK dataclass default
+    2. Were set by the caller, or differ from the SDK dataclass default
 
     These are written via ``SessionConfigProvider.set_config_overrides()``
     for per-session safety.
     """
-    non_defaults = get_non_default_fields(config)
+    non_defaults = get_set_fields(config)
     overrides: Dict[str, Any] = {}
 
     # 1:1 mappings
