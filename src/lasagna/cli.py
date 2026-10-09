@@ -563,12 +563,17 @@ def serve(
     if configurator:
         os.environ["RAG_CONFIGURATOR"] = "true"
 
+    # The address a browser can use: 0.0.0.0 and :: are bind-alls, not addresses.
+    shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    shown = f"[{shown}]" if ":" in shown else shown
+    base = f"http://{shown}:{port}"
     console.print(
         Panel.fit(
             f"[bold cyan]RAG Knowledge API[/bold cyan]\n\n"
-            f"API: http://{host}:{port}/api/v1\n"
-            f"Docs: http://{host}:{port}/docs\n"
-            + (f"Configurator: http://localhost:{port}/configurator\n" if configurator else ""),
+            f"API: {base}/api/v1\n"
+            f"Health: {base}/api/v1/health\n"
+            f"Docs: {base}/docs\n"
+            + (f"Configurator: {base}/configurator\n" if configurator else ""),
         )
     )
 
@@ -582,7 +587,7 @@ def serve(
             try:
                 import webbrowser
 
-                webbrowser.open(f"http://localhost:{port}/configurator")
+                webbrowser.open(f"{base}/configurator")
             except Exception:
                 pass  # Silently skip on headless systems
 

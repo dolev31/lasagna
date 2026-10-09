@@ -93,7 +93,10 @@ async def _lifespan(app: FastAPI):
         logger.info(
             f"  Embedding:      {rag_config.embedding_model} (dim={rag_config.embedding_dim})"
         )
-        logger.info("  API:            http://0.0.0.0:8000/api/v1/health")
+        # Not an address: the app cannot see where it was bound, and a fixed
+        # "http://0.0.0.0:8000" was wrong for every other bind. `lasagna serve`
+        # prints the real one.
+        logger.info("  Health:         /api/v1/health")
         logger.info("=" * 60)
     except Exception as exc:
         logger.debug(f"Could not log config summary: {exc}")
@@ -252,6 +255,12 @@ async def _rate_limit_middleware(request: Request, call_next):
 # ---------------------------------------------------------------------------
 
 
+def _package_version() -> str:
+    from lasagna.sdk._version import __version__
+
+    return __version__
+
+
 def _require_a_shared_signing_secret() -> None:
     """Refuse to build an authenticating app whose tokens cannot be verified.
 
@@ -293,7 +302,7 @@ def create_app(
             "Upload documents, search semantically, retrieve citations, "
             "and manage configuration profiles."
         ),
-        version="1.0.0",
+        version=_package_version(),
         lifespan=_lifespan,
     )
 
@@ -471,7 +480,7 @@ def create_app(
     async def root():
         return {
             "service": "RAG Knowledge Base",
-            "version": "1.0.0",
+            "version": _package_version(),
             "docs": "/docs",
             "api": "/api/v1",
             "mcp": "/mcp/sse" if _mcp_embedded else None,
