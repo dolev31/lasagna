@@ -91,6 +91,45 @@ class _RawHit:
         }
 
 
+def _is_public_enhancer(enhancer: Any) -> bool:
+    """A query enhancer written against the public ``BaseQueryEnhancer`` contract."""
+    from ..core.base_components import BaseQueryEnhancer
+
+    return isinstance(enhancer, BaseQueryEnhancer) and not hasattr(
+        enhancer, "generate_query_variations"
+    )
+
+
+def _query_variations(enhancer: Any, query: str, n: int) -> List[str]:
+    """Up to ``n`` reformulations of ``query`` from either enhancer contract.
+
+    The orchestrator only knew the internal ``generate_query_variations``, so
+    a component implementing the documented ``enhance(query)`` was never
+    called: with expansion off it was skipped, and with expansion on it raised
+    AttributeError and the arm scored as plain search.
+    """
+    if hasattr(enhancer, "generate_query_variations"):
+        return list(enhancer.generate_query_variations(query, n))
+    if not hasattr(enhancer, "enhance"):
+        raise TypeError(
+            f"{type(enhancer).__name__} has neither enhance() nor generate_query_variations()"
+        )
+    out = enhancer.enhance(query)
+    if asyncio.iscoroutine(out):
+        out.close()
+        raise TypeError(
+            f"{type(enhancer).__name__}.enhance() is async; the search pipeline "
+            "calls it synchronously, as BaseQueryEnhancer declares"
+        )
+    seen = {query.strip()}
+    variations = []
+    for v in out or []:
+        if isinstance(v, str) and v.strip() and v.strip() not in seen:
+            seen.add(v.strip())
+            variations.append(v)
+    return variations[:n]
+
+
 def _adapt_retriever_results(documents) -> list:
     """Convert a ``BaseRetriever``'s output into backend-row shape."""
     from ..core.base_components import ScoredDocument
@@ -317,6 +356,10 @@ class SearchOrchestrator:
         # Skip for focused/document-specific searches and to prevent recursion.
         _enable_fusion = getattr(config, "enable_rag_fusion", False)
         _enable_expansion = getattr(config, "enable_query_expansion", False)
+        # A public-contract enhancer has no other way to run: naming it means
+        # using it, whatever the expansion flags say.
+        if _is_public_enhancer(enhancer):
+            _enable_expansion = True
         if not _from_fusion and (_enable_fusion or _enable_expansion) and not document_ids:
             if _enable_fusion:
                 n_queries = getattr(config, "rag_fusion_n_queries", 3)
@@ -557,13 +600,18 @@ class SearchOrchestrator:
                 f"(model={config.hyde_model}, n_docs={hyde_n_docs}, query_len={query_len})"
             )
             hyde_start = perf_counter()
+            # HyDE is its own stage: a swapped-in public enhancer only
+            # replaces query reformulation, so HyDE stays with the built-in.
+            hyde_enhancer = (
+                enhancer if hasattr(enhancer, "get_hyde_embedding") else self.query_enhancer
+            )
             try:
                 with TRACER.span(
                     "hyde", attributes={"n_docs": hyde_n_docs, "model": config.hyde_model}
                 ) as _hyde_span:
                     if hyde_n_docs > 1:
                         # Multi-document HyDE: generate multiple hypothetical docs and average embeddings
-                        hyde_embedding = enhancer.get_hyde_embedding(
+                        hyde_embedding = hyde_enhancer.get_hyde_embedding(
                             query,
                             embedding_manager=effective_embedder,
                             n_docs=hyde_n_docs,
@@ -577,7 +625,7 @@ class SearchOrchestrator:
                             logger.debug("Multi-HyDE failed, will use original query embedding")
                     else:
                         # Single-doc HyDE
-                        hyde_doc = enhancer.hyde.generate_hypothetical_document_sync(
+                        hyde_doc = hyde_enhancer.hyde.generate_hypothetical_document_sync(
                             query,
                             model_ref=config.hyde_model,
                             trace_id=trace_id,
@@ -1438,7 +1486,8 @@ class SearchOrchestrator:
         top_k = top_k or config.rerank_top_k
         start_time = perf_counter()
 
-        if not config.enable_query_expansion or n_variations <= 0:
+        expansion_on = config.enable_query_expansion or _is_public_enhancer(enhancer)
+        if not expansion_on or n_variations <= 0:
             # Fall back to regular search (_from_fusion prevents re-entering RAG Fusion)
             return self.search(
                 query,
@@ -1464,11 +1513,28 @@ class SearchOrchestrator:
         # then fused a single query, making every query_expansion and
         # rag_fusion configuration silently identical to plain hybrid search.
         try:
-            variations = enhancer.generate_query_variations(query, n_variations)
+            variations = _query_variations(enhancer, query, n_variations)
         except Exception as e:
             logger.warning(f"Query expansion failed [{type(e).__name__}]: {e}")
             logger.exception("Query expansion failed; falling back to single query")
             variations = []
+
+        if not variations:
+            # Nothing to fuse: the plain search is the answer. Fusing a single
+            # query used to come back empty and score 0.0.
+            return self.search(
+                query,
+                session_id,
+                top_k,
+                document_ids=document_ids,
+                trace_id=trace_id,
+                _from_fusion=True,
+                _from_routing=True,
+                _reranker_override=_reranker_override,
+                _enhancer_override=_enhancer_override,
+                _embedder_override=_embedder_override,
+                query_config_overrides=query_config_overrides,
+            )
 
         all_queries = [query] + variations[:n_variations]
         logger.debug(f"Multi-query search with {len(all_queries)} queries")
@@ -1526,6 +1592,10 @@ class SearchOrchestrator:
                     _reranker_override=_reranker_override,
                     _enhancer_override=_enhancer_override,
                     _embedder_override=_embedder_override,
+                    # Without these each variation searched under the session
+                    # config, not the arm's (another embedder, another
+                    # collection), failed, and the fused list came back empty.
+                    query_config_overrides=query_config_overrides,
                 )
                 return query_idx, results
             except Exception as e:

@@ -158,9 +158,14 @@ class TestQueryExpansionUsesSyncPath:
         """
         from lasagna.api._search_orchestrator import SearchOrchestrator
 
+        from lasagna.api._search_orchestrator import _query_variations
+
         source = executable_source(SearchOrchestrator.search_multi_query)
-        assert "generate_query_variations" in source, (
-            "search_multi_query should call the sync generate_query_variations helper"
+        assert "_query_variations" in source, (
+            "search_multi_query should get its variations through _query_variations"
+        )
+        assert "generate_query_variations" in executable_source(_query_variations), (
+            "_query_variations should call the sync generate_query_variations helper"
         )
         assert "asyncio.run" not in source, "search_multi_query must not bridge via asyncio.run"
 
