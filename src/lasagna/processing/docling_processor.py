@@ -9,6 +9,7 @@ returns False and the pipeline falls back to the legacy path transparently.
 """
 
 import hashlib
+import os
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -21,6 +22,36 @@ from lasagna.core.config import RAGConfig, rag_config
 # ---------------------------------------------------------------------------
 
 _docling_available: Optional[bool] = None
+
+
+def _convert_with_timeout(converter: Any, file_path: str, timeout: float) -> Any:
+    """``converter.convert(file_path)``, or TimeoutError after ``timeout`` seconds.
+
+    Runs on a daemon thread, which cannot be stopped: a conversion that times
+    out keeps running in the background, but ingestion moves on and the process
+    can still exit.
+    """
+    if timeout <= 0:
+        return converter.convert(file_path)
+    box: Dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            box["result"] = converter.convert(file_path)
+        except BaseException as exc:  # handed to the caller below
+            box["error"] = exc
+
+    worker = threading.Thread(target=run, name="docling-convert", daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        raise TimeoutError(
+            f"Docling did not convert {os.path.basename(file_path)} within "
+            f"{timeout:.0f}s (docling_timeout)"
+        )
+    if "error" in box:
+        raise box["error"]
+    return box["result"]
 
 
 def is_docling_available() -> bool:
@@ -223,8 +254,12 @@ class DoclingProcessor:
         converter = self._get_converter()
         max_tokens = cfg.docling_max_tokens
 
-        # Convert document
-        result = converter.convert(file_path)
+        # Convert document, bounded by docling_timeout: one pathological PDF
+        # used to stall ingestion with no limit, and the setting was read by
+        # nothing. On timeout the caller falls back to the legacy pipeline.
+        result = _convert_with_timeout(
+            converter, file_path, float(getattr(cfg, "docling_timeout", 0) or 0)
+        )
         dl_doc = result.document
 
         # Export full text for preview / fallback

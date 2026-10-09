@@ -117,6 +117,3 @@ search_params = { ef = 128 }
 # =============================================================================
 
 log_level = "INFO"
-enable_metrics = true
-track_retrieval_quality = true
-track_latency_breakdown = true

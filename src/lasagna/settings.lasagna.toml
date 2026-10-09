@@ -437,9 +437,9 @@ docling_timeout = 300            # Per-document timeout in seconds
 # -----------------------------------------------------------------------------
 # (log_level is defined above in FEATURE TOGGLES)
 
-enable_metrics = true            # Track performance metrics
-track_retrieval_quality = true   # Log precision/recall estimates
-track_latency_breakdown = true   # Log component latencies
+# (enable_metrics, track_retrieval_quality and track_latency_breakdown were
+# listed here and read by nothing; they are gone. Per-stage latencies are in
+# every search's metrics; Prometheus export is enable_prometheus.)
 
 # -----------------------------------------------------------------------------
 # ADVANCED: AGENTIC RAG (Multi-Hop ReAct-Style)

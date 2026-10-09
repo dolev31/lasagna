@@ -460,14 +460,11 @@ class RAGConfig:
             # =================================================================
             # Observability
             # =================================================================
-            "enable_metrics": True,
             "enable_prometheus": False,  # No-op metrics by default; True activates Prometheus
             "enable_tracing": False,  # No-op tracing by default; True activates OpenTelemetry
             "tracing_exporter": "otlp",  # 'otlp', 'jaeger', 'zipkin', 'console'
             "tracing_endpoint": "http://localhost:4317",  # OTLP gRPC endpoint
             "tracing_service_name": "rag-knowledge",
-            "track_retrieval_quality": True,
-            "track_latency_breakdown": True,
             "log_level": "INFO",
             # =================================================================
             # Multi-Tenancy

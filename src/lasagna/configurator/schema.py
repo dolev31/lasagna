@@ -1390,16 +1390,6 @@ PARAMETERS: list[ParameterDef] = [
         ],
     ),
     ParameterDef(
-        key="enable_metrics",
-        type="boolean",
-        label="Internal Metrics",
-        description="Track internal performance metrics.",
-        help_text="Tracks counters, histograms, and gauges for search latency, cache hits, etc.",
-        tab="advanced",
-        group="observability",
-        default=True,
-    ),
-    ParameterDef(
         key="enable_prometheus",
         type="boolean",
         label="Prometheus Export",
@@ -1418,26 +1408,6 @@ PARAMETERS: list[ParameterDef] = [
         tab="advanced",
         group="observability",
         default=False,
-    ),
-    ParameterDef(
-        key="track_retrieval_quality",
-        type="boolean",
-        label="Track Retrieval Quality",
-        description="Log retrieval quality metrics (MRR, precision, etc.).",
-        help_text="Useful for evaluation and debugging but adds slight overhead.",
-        tab="advanced",
-        group="observability",
-        default=True,
-    ),
-    ParameterDef(
-        key="track_latency_breakdown",
-        type="boolean",
-        label="Track Latency Breakdown",
-        description="Log per-stage latency breakdown for search pipeline.",
-        help_text="Shows time spent in embedding, search, reranking, etc.",
-        tab="advanced",
-        group="observability",
-        default=True,
     ),
     # ── Advanced > Vector Backend ────────────────────────────────────────
     ParameterDef(

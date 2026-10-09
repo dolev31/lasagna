@@ -180,9 +180,6 @@ RUNTIME_FIELD_MAP: Dict[str, str] = {
     "citation_db_max_per_session": "citation_db_max_per_session",
     # Observability (runtime-readable)
     "log_level": "log_level",
-    "enable_metrics": "enable_metrics",
-    "track_retrieval_quality": "track_retrieval_quality",
-    "track_latency_breakdown": "track_latency_breakdown",
     # Docling
     "docling_enabled": "docling_enabled",
     # Agentic

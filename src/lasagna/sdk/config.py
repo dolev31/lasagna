@@ -484,20 +484,11 @@ class KnowledgeConfig:
     log_level: str = "INFO"
     """Logging level. Default: INFO"""
 
-    enable_metrics: bool = True
-    """Track performance metrics. Default: True"""
-
     enable_prometheus: bool = False
     """Enable Prometheus metrics endpoint. Default: False"""
 
     enable_tracing: bool = False
     """Enable OpenTelemetry distributed tracing. Default: False"""
-
-    track_retrieval_quality: bool = True
-    """Log retrieval quality metrics. Default: True"""
-
-    track_latency_breakdown: bool = True
-    """Log component latencies. Default: True"""
 
     # =========================================================================
     # Infrastructure (Production Mode)

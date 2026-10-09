@@ -366,8 +366,8 @@ class CitationDatabase:
     def __init__(
         self,
         db_path: Optional[str] = None,
-        max_age_hours: int = 168,  # 1 week
-        max_per_session: int = 1000,
+        max_age_hours: Optional[int] = None,
+        max_per_session: Optional[int] = None,
         cleanup_on_init: bool = True,
     ):
         """Initialize citation database.
@@ -385,8 +385,20 @@ class CitationDatabase:
         self.db_path = getattr(self._rag_db, "db_path", None) or getattr(
             self._rag_db, "_dsn", "unknown"
         )
-        self.max_age_hours = max_age_hours
-        self.max_per_session = max_per_session
+        # Defaults come from citation_db_max_age_hours / citation_db_max_per_session,
+        # which were documented and read by nothing.
+        from ..core.config import rag_config
+
+        self.max_age_hours = (
+            max_age_hours
+            if max_age_hours is not None
+            else int(getattr(rag_config, "citation_db_max_age_hours", 168))
+        )
+        self.max_per_session = (
+            max_per_session
+            if max_per_session is not None
+            else int(getattr(rag_config, "citation_db_max_per_session", 1000))
+        )
         self._lock = threading.Lock()
         self._last_cleanup = 0
         self._cleanup_interval = 3600  # 1 hour between cleanups

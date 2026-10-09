@@ -183,11 +183,8 @@ All nested under `document_awareness` parent key.
 | Key | Type | Default | Constraints |
 |-----|------|---------|-------------|
 | `log_level` | enum | `"INFO"` | Options: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `enable_metrics` | boolean | `true` | — |
 | `enable_prometheus` | boolean | `false` | — |
 | `enable_tracing` | boolean | `false` | — |
-| `track_retrieval_quality` | boolean | `true` | — |
-| `track_latency_breakdown` | boolean | `true` | — |
 
 ### Vector Database
 

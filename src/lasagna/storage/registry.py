@@ -295,16 +295,42 @@ def get_storage_backend(
     if name is None:
         name = _get_default_storage_backend_name()
 
-    # Apply default configs when none provided
+    # Apply default configs when none provided. storage_backend_config (the
+    # documented [rag] key or RAG_STORAGE_BACKEND_CONFIG) was read by nothing,
+    # so a bucket configured there was ignored; it now wins over the
+    # per-variable RAG_STORAGE_* environment defaults it names.
     if not kwargs:
+        configured = _configured_backend_options()
+        required = {"s3": "bucket", "fsspec": "protocol"}.get(name)
         if name == "local":
-            kwargs = _get_default_local_config()
+            kwargs = {**_get_default_local_config(), **configured}
+        elif required and configured.get(required):
+            kwargs = configured
         elif name == "s3":
-            kwargs = _get_default_s3_config()
+            kwargs = {**_get_default_s3_config(), **configured}
         elif name == "fsspec":
-            kwargs = _get_default_fsspec_config()
+            kwargs = {**_get_default_fsspec_config(), **configured}
 
     return registry.create(name, singleton=singleton, **kwargs)
+
+
+def _configured_backend_options() -> Dict[str, Any]:
+    """``storage_backend_config`` as a dict (it may arrive as a JSON string)."""
+    try:
+        from ..core.config import rag_config
+
+        value = getattr(rag_config, "storage_backend_config", None) or {}
+    except Exception:
+        return {}
+    if isinstance(value, str):
+        import json
+
+        try:
+            value = json.loads(value)
+        except ValueError:
+            logger.warning("storage_backend_config is not valid JSON; ignoring it")
+            return {}
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _get_default_storage_backend_name() -> str:
