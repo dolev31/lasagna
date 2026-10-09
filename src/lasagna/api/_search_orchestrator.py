@@ -30,6 +30,7 @@ from ..retrieval.search.hybrid import HybridSearcher
 from ..retrieval.search.ranker import CombinedReranker, RerankedResult
 from ..retrieval.enhancement.enhancer import QueryEnhancer
 from ..retrieval.routing import get_query_router, RoutingTier
+from ..core.strict import strict_stages
 from lasagna.agentic.citation_manager import CitationManager, Citation
 from lasagna.utils.monitoring import METRICS, log_json, log_json_debug, hash_text
 from lasagna.utils.tracing import TRACER
@@ -100,7 +101,7 @@ def _is_public_enhancer(enhancer: Any) -> bool:
     )
 
 
-def _query_variations(enhancer: Any, query: str, n: int) -> List[str]:
+def _query_variations(enhancer: Any, query: str, n: int, config: Any = None) -> List[str]:
     """Up to ``n`` reformulations of ``query`` from either enhancer contract.
 
     The orchestrator only knew the internal ``generate_query_variations``, so
@@ -114,7 +115,12 @@ def _query_variations(enhancer: Any, query: str, n: int) -> List[str]:
         raise TypeError(
             f"{type(enhancer).__name__} has neither enhance() nor generate_query_variations()"
         )
-    out = enhancer.enhance(query)
+    if getattr(enhancer, "_forwards_session_config", False):
+        # Built-in adapters read the arm's settings (hyde_model, how many
+        # variations); a user's enhancer is shown only the public contract.
+        out = enhancer.enhance(query, config=config, n=n)
+    else:
+        out = enhancer.enhance(query)
     if asyncio.iscoroutine(out):
         out.close()
         raise TypeError(
@@ -322,6 +328,7 @@ class SearchOrchestrator:
                         _enhancer_override=_enhancer_override,
                         _agentic_pipeline_override=_agentic_pipeline_override,
                         _graph_node_overrides=_graph_node_overrides,
+                        query_config_overrides=query_config_overrides,
                     )
 
                 # FAST → override heavyweight features
@@ -637,7 +644,11 @@ class SearchOrchestrator:
                         "success", hyde_embedding is not None or search_query != query
                     )
             except Exception as e:
+                if strict_stages():
+                    raise RuntimeError(f"HyDE failed: {e}") from e
                 logger.warning(f"HyDE failed, using original query: {e}")
+            if strict_stages() and hyde_embedding is None and search_query == query:
+                raise RuntimeError("HyDE produced no hypothetical document (is an LLM configured?)")
             hyde_ms = (perf_counter() - hyde_start) * 1000.0
         else:
             logger.debug(
@@ -1527,11 +1538,17 @@ class SearchOrchestrator:
         # then fused a single query, making every query_expansion and
         # rag_fusion configuration silently identical to plain hybrid search.
         try:
-            variations = _query_variations(enhancer, query, n_variations)
+            variations = _query_variations(enhancer, query, n_variations, config)
         except Exception as e:
+            if strict_stages():
+                raise RuntimeError(f"Query enhancement failed: {e}") from e
             logger.warning(f"Query expansion failed [{type(e).__name__}]: {e}")
             logger.exception("Query expansion failed; falling back to single query")
             variations = []
+        if not variations and strict_stages():
+            # Under evaluation an arm that asked for query variations and got
+            # none is the control under another name, not a result.
+            raise RuntimeError("Query enhancement produced no variations (is an LLM configured?)")
 
         if not variations:
             # Nothing to fuse: the plain search is the answer. Fusing a single
@@ -1902,6 +1919,7 @@ class SearchOrchestrator:
         _enhancer_override: Optional[Any] = None,
         _agentic_pipeline_override: Optional[Any] = None,
         _graph_node_overrides: Optional[Dict[str, Any]] = None,
+        query_config_overrides: Optional[Dict[str, Any]] = None,
     ) -> List[SearchResult]:
         """Run agentic multi-hop retrieval for complex queries.
 
@@ -1917,6 +1935,10 @@ class SearchOrchestrator:
         """
         total_start = perf_counter()
         config = self._get_session_config(session_id)
+        # The per-query settings outrank the session's here too; the agentic
+        # path used to read only the session store, which sweep arms share.
+        if query_config_overrides:
+            config = config.with_query_overrides(query_config_overrides)
 
         # Quota enforcement (same as standard path)
         quota_mgr = get_quota_manager()

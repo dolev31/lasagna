@@ -1077,8 +1077,24 @@ class Experiment:
         # Select eval function
         eval_fn = self._eval_fn or _default_eval_fn
 
+        # Agentic search reads part of its settings from the corpus session,
+        # which the arms of a sweep share, so two agentic arms running at once
+        # could read each other's settings. Run those sweeps one task at a time.
+        concurrency = cfg.max_concurrency
+        if concurrency > 1 and any(
+            (t.config_overrides or {}).get("use_agentic_rag")
+            or (t.config_overrides or {}).get("agentic_pipeline")
+            or _profile_uses_agentic(t.profile)
+            for t in tasks
+        ):
+            logger.warning(
+                f"Running agentic arms one at a time (max_concurrency {concurrency} -> 1): "
+                f"they share the corpus session's settings."
+            )
+            concurrency = 1
+
         # Run
-        runner = BenchmarkRunner(max_concurrency=cfg.max_concurrency)
+        runner = BenchmarkRunner(max_concurrency=concurrency)
         task_results = await runner.run_tasks(
             tasks=tasks,
             eval_fn=eval_fn,
@@ -1514,7 +1530,13 @@ async def _default_eval_fn(
 
     if resolved == "generation_only":
         return await _eval_offline(task, samples)
-    return await _eval_live(task, samples)
+    # Under evaluation a stage that cannot run fails the task instead of
+    # falling back: an arm whose query expansion or HyDE never ran scored
+    # exactly the control, with Failed: 0.
+    from lasagna.core.strict import strict
+
+    with strict():
+        return await _eval_live(task, samples)
 
 
 # Component override keys that should use pipeline.replace() rather than
@@ -1541,6 +1563,38 @@ _UNSWEEPABLE_COMPONENTS = frozenset({"chunker", "document_processor"})
 _HARNESS_KEYS = HARNESS_KEYS
 
 
+def _profile_uses_agentic(profile: Optional[str]) -> bool:
+    try:
+        from lasagna.core.session_config._profiles import resolve_ingestion_defaults
+
+        return bool(resolve_ingestion_defaults(profile or "standard").get("use_agentic_rag"))
+    except Exception:
+        return False
+
+
+def _complete_stage_settings(config: Dict[str, Any]) -> None:
+    """Fill every stage setting the config lacks with its global value.
+
+    Operational settings (stores, caches, credentials) are left out: they do
+    not change what a run computes, and they must not be copied into a
+    session store.
+    """
+    from lasagna.core.config import rag_config
+
+    from .stages import stage_of
+
+    for key in getattr(rag_config, "_config", {}) or {}:
+        if key in config or stage_of(key) is None:
+            continue
+        if hasattr(type(rag_config), key):
+            try:
+                config[key] = getattr(rag_config, key)
+                continue
+            except Exception:
+                pass
+        config[key] = rag_config._config.get(key)
+
+
 def _apply_overrides_to_pipeline(
     pipeline: Any,
     overrides: Dict[str, Any],
@@ -1559,6 +1613,12 @@ def _apply_overrides_to_pipeline(
     # mutate the config-manager singleton's stored profile dict, leaking
     # overrides into every subsequent task that loads the same profile.
     pipeline._config = dict(pipeline._config)
+    # Complete it: every setting that reaches a pipeline stage gets an explicit
+    # value (the global one where the profile is silent). The arms of a sweep
+    # share one corpus session, and a key the profile does not set used to
+    # resolve from that session, which still held the previous arm's value:
+    # one arm's rrf_k changed the next arm's number, and the manifest agreed.
+    _complete_stage_settings(pipeline._config)
 
     # Handle ensemble reranker: create once at task init (not per-query).
     # Intercept before normal processing so these keys don't leak into config dict.
