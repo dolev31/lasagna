@@ -178,7 +178,160 @@ def _answerability_split(rows: List[Dict[str, Any]]) -> Dict[str, float]:
         if group:
             out[f"exact_match_{name}"] = sum(r["exact_match"] for r in group) / len(group)
             out[f"token_f1_{name}"] = sum(r.get("token_f1", 0.0) for r in group) / len(group)
+            # Abstaining on an answerable question is over-refusal; on an
+            # unanswerable one it is RGB's negative rejection.
+            out.update(
+                {f"{k}_{name}": v for k, v in _mean_present(group, ("abstention_rate",)).items()}
+            )
     return out
+
+
+#: Per-query answer metrics beside exact match and token F1, each averaged over
+#: the rows that carry it. A row without one was not scored for it (no
+#: reference, no citations, a judge that could not decide), which is not 0.
+_ANSWER_METRICS = (
+    "rouge_l",
+    "contains_answer",
+    "abstention_rate",
+    "answer_similarity",
+    "citation_recall",
+    "citation_precision",
+)
+
+
+def _mean_present(rows: List[Dict[str, Any]], keys: Iterable[str]) -> Dict[str, float]:
+    """The mean of each key over the rows that have it; keys no row has are left out."""
+    out: Dict[str, float] = {}
+    for key in keys:
+        values = [float(r[key]) for r in rows if key in r]
+        if values:
+            out[key] = sum(values) / len(values)
+    return out
+
+
+def _answer_scores(answer: str, sample: Any) -> Dict[str, float]:
+    """ROUGE-L, answer containment and abstention for one generated answer.
+
+    The same branches as exact match and token F1 beside them: an
+    unanswerable question is right only if the system abstained, and an empty
+    answer (generation failed) scores 0. Abstention is left out for an empty
+    answer, since nothing was chosen.
+    """
+    from .answer_metrics import contains_answer, rouge_l
+
+    gt = getattr(sample, "ground_truth", "") or ""
+    aliases = getattr(sample, "ground_truth_answers", None) or []
+    if _is_unanswerable(sample):
+        out = dict.fromkeys(("rouge_l", "contains_answer"), _no_answer_em(answer))
+    elif gt.strip() and answer.strip():
+        out = {
+            "rouge_l": rouge_l(answer, gt, aliases=aliases),
+            "contains_answer": contains_answer(answer, gt, aliases=aliases),
+        }
+    else:
+        out = {"rouge_l": 0.0, "contains_answer": 0.0}
+    if answer.strip():
+        out["abstention_rate"] = 1.0 if _is_abstention_answer(answer) else 0.0
+    return out
+
+
+def _add_answer_similarity(
+    rows: List[Dict[str, Any]], answers: List[str], samples: List[Any]
+) -> None:
+    """``answer_similarity`` on each row that has a reference, in one batch.
+
+    Left out, with a warning, when the embedder cannot be loaded (offline with
+    no cached copy) or ``RAG_EVAL_SIMILARITY_MODEL=none``: the rest of the
+    task's metrics do not depend on it.
+    """
+    from .answer_metrics import answer_similarity, load_similarity_encoder, similarity_model_name
+
+    model = similarity_model_name()
+    if model.lower() in ("none", "off", "false", "0"):
+        return
+    references = [
+        []
+        if _is_unanswerable(s)
+        else [
+            getattr(s, "ground_truth", "") or "",
+            *(getattr(s, "ground_truth_answers", None) or []),
+        ]
+        for s in samples
+    ]
+    try:
+        scores = answer_similarity(answers, references, load_similarity_encoder(model))
+    except Exception as exc:
+        logger.warning(
+            f"answer_similarity not computed: could not run embedder {model!r} "
+            f"[{type(exc).__name__}]: {exc}"
+        )
+        return
+    for row, score in zip(rows, scores):
+        if score is not None:
+            row["answer_similarity"] = score
+
+
+def _add_citation_scores(
+    rows: List[Dict[str, Any]], answers: List[str], contexts: List[List[str]]
+) -> Optional[str]:
+    """ALCE citation recall and precision on the rows whose answer cites.
+
+    ``[n]`` refers to the n-th context the generator was shown (``contexts``,
+    the list RAGAS judges). An answer with no citation gets neither key, so a
+    generator that does not cite reports no citation metric rather than 0.
+    Returns a failure reason when answers cite and the judge scored none.
+    """
+    from .answer_metrics import citation_precision_recall, has_citations
+
+    cited = [i for i, a in enumerate(answers) if has_citations(a)]
+    if not cited:
+        return None
+    judge = _build_judge_llm()
+    if judge is None:
+        logger.warning(
+            f"{len(cited)} answers cite passages but no judge model is configured "
+            f"(RAG_EVAL_JUDGE_MODEL); citation_recall/precision are not reported."
+        )
+        return None
+    from .judge import entailment_judge
+
+    entails = entailment_judge(judge)
+    scored = 0
+    for i in cited:
+        result = citation_precision_recall(answers[i], contexts[i], entails)
+        if result is not None:
+            rows[i].update(result)
+            scored += 1
+    if scored < len(cited):
+        logger.warning(
+            f"citation metrics: the judge scored {scored} of {len(cited)} citing answers"
+        )
+    return None if scored else "judge produced no usable scores for citation_recall"
+
+
+def _per_query_costs(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+    """System tokens and LLM calls per query, as named aggregates.
+
+    Summed over a query's rows first (an end-to-end query has a retrieval row
+    and a generation row, two stages of one answer), then averaged over
+    queries. Named ``*_per_query`` because no single row carries that sum.
+    """
+    totals: Dict[Any, List[float]] = {}
+    for i, row in enumerate(rows):
+        if "llm_calls" not in row:
+            continue
+        acc = totals.setdefault(row.get("_sample_id", i), [0.0, 0.0, 0.0])
+        acc[0] += float(row.get("input_tokens", 0.0))
+        acc[1] += float(row.get("output_tokens", 0.0))
+        acc[2] += float(row["llm_calls"])
+    if not totals:
+        return {}
+    n = len(totals)
+    return {
+        "input_tokens_per_query": sum(t[0] for t in totals.values()) / n,
+        "output_tokens_per_query": sum(t[1] for t in totals.values()) / n,
+        "llm_calls_per_query": sum(t[2] for t in totals.values()) / n,
+    }
 
 
 def _record_eval_usage(result: TaskResult, meter: UsageMeter) -> None:
@@ -2090,6 +2243,7 @@ async def _eval_offline(
     metrics: Dict[str, float] = {}
     per_sample_scores: List[Dict[str, float]] = []
     eval_meter = UsageMeter()
+    _citation_failure: Optional[str] = None
 
     try:
         from .ragas_evaluator import RAGASEvaluator, harness_metrics
@@ -2129,7 +2283,7 @@ async def _eval_offline(
                 per_sample_scores[i].update(per_sample_usage[i].to_dict())
 
         # EM/F1 + trajectory for offline path (mirrors live path)
-        from .answer_metrics import exact_match as _em_fn, token_f1 as _tf1_fn
+        from .answer_metrics import exact_match as _em_fn, strip_citations, token_f1 as _tf1_fn
 
         _save_traj = (task.config_overrides or {}).get("save_trajectories", "minimal")
         for i, sample in enumerate(eval_samples):
@@ -2142,18 +2296,20 @@ async def _eval_offline(
             _meta = getattr(sample, "metadata", {}) or {}
             ps["_source_benchmark"] = _meta.get("source_benchmark", "")
 
-            # EM/F1
+            # EM/F1, on the answer without citation markers
             _gt = ground_truths[i] if i < len(ground_truths) else ""
             _ans = answers[i] if i < len(answers) else ""
+            _scored = strip_citations(_ans)
             _aliases = getattr(sample, "ground_truth_answers", None) or []
             if _is_unanswerable(sample):
-                ps["exact_match"] = ps["token_f1"] = _no_answer_em(_ans)
-            elif _gt.strip() and _ans.strip():
-                ps["exact_match"] = _em_fn(_ans, _gt, aliases=_aliases)
-                ps["token_f1"] = _tf1_fn(_ans, _gt, aliases=_aliases)
+                ps["exact_match"] = ps["token_f1"] = _no_answer_em(_scored)
+            elif _gt.strip() and _scored.strip():
+                ps["exact_match"] = _em_fn(_scored, _gt, aliases=_aliases)
+                ps["token_f1"] = _tf1_fn(_scored, _gt, aliases=_aliases)
             else:
                 ps["exact_match"] = 0.0
                 ps["token_f1"] = 0.0
+            ps.update(_answer_scores(_scored, sample))
             if _has_unanswerable:
                 ps["_answerable"] = 0.0 if _is_unanswerable(sample) else 1.0
 
@@ -2169,6 +2325,21 @@ async def _eval_offline(
                 ps["_generated_answer"] = _ans[:500]
                 ps["_question"] = questions[i][:200] if i < len(questions) else ""
 
+        # Semantic similarity (local embedder) and, for answers that cite,
+        # citation quality (the judge, counted as eval spend).
+        await asyncio.to_thread(
+            _add_answer_similarity,
+            per_sample_scores,
+            [strip_citations(a) for a in answers],
+            eval_samples,
+        )
+
+        def _citations_in_thread():
+            with eval_meter, eval_meter.scope(EVAL):
+                return _add_citation_scores(per_sample_scores, answers, contexts)
+
+        _citation_failure = await asyncio.to_thread(_citations_in_thread)
+
         # Aggregate EM/F1
         _em_scores = [s.get("exact_match") for s in per_sample_scores if "exact_match" in s]
         if _em_scores:
@@ -2176,6 +2347,8 @@ async def _eval_offline(
             _f1_scores = [s.get("token_f1", 0.0) for s in per_sample_scores if "token_f1" in s]
             metrics["token_f1"] = sum(_f1_scores) / len(_f1_scores)
             metrics.update(_answerability_split(per_sample_scores))
+        metrics.update(_mean_present(per_sample_scores, _ANSWER_METRICS))
+        metrics.update(_per_query_costs(per_sample_scores))
 
     except ImportError:
         return TaskResult(
@@ -2214,6 +2387,8 @@ async def _eval_offline(
         _offline_failures.append(
             "judge produced no usable scores for " + ", ".join(detailed.failed_metrics)
         )
+    if _citation_failure:
+        _offline_failures.append(_citation_failure)
     if eval_samples:
         result.metrics["generations_failed"] = float(_offline_failed_generations)
         if _offline_failed_generations / len(eval_samples) > _MAX_FAILED_GENERATION_RATE:
@@ -3543,17 +3718,21 @@ async def _eval_live(
                     else ""
                 )
                 # ── EM / Token-F1 (free, no LLM calls) ──────────────
+                # Scored on the answer without citation markers, as ALCE does.
+                from .answer_metrics import strip_citations
+
+                _scored_answer = strip_citations(answer)
                 _em_score = 0.0
                 _f1_score_val = 0.0
                 _gt = gen_sample.ground_truth or ""
                 _gt_aliases = getattr(gen_sample, "ground_truth_answers", None) or []
                 if _is_unanswerable(gen_sample):
-                    _em_score = _f1_score_val = _no_answer_em(answer)
-                elif _gt.strip() and answer.strip():
+                    _em_score = _f1_score_val = _no_answer_em(_scored_answer)
+                elif _gt.strip() and _scored_answer.strip():
                     from .answer_metrics import exact_match as _em_fn, token_f1 as _tf1_fn
 
-                    _em_score = _em_fn(answer, _gt, aliases=_gt_aliases)
-                    _f1_score_val = _tf1_fn(answer, _gt, aliases=_gt_aliases)
+                    _em_score = _em_fn(_scored_answer, _gt, aliases=_gt_aliases)
+                    _f1_score_val = _tf1_fn(_scored_answer, _gt, aliases=_gt_aliases)
 
                 _gen_sample_metrics: Dict[str, Any] = {
                     "_sample_id": gen_sample.query_id,
@@ -3564,6 +3743,7 @@ async def _eval_live(
                     "exact_match": _em_score,
                     "token_f1": _f1_score_val,
                 }
+                _gen_sample_metrics.update(_answer_scores(_scored_answer, gen_sample))
                 if _has_unanswerable:
                     _gen_sample_metrics["_answerable"] = (
                         0.0 if _is_unanswerable(gen_sample) else 1.0
@@ -3598,6 +3778,18 @@ async def _eval_live(
                     _gen_sample_metrics["_question"] = gen_sample.question[:200]
 
                 per_sample_scores.append(_gen_sample_metrics)
+
+            # Semantic similarity on a local embedder, no judge. The generation
+            # rows follow the retrieval rows, one per generation sample.
+            _gen_rows = per_sample_scores[len(ir_samples) :]
+            from .answer_metrics import strip_citations
+
+            await asyncio.to_thread(
+                _add_answer_similarity,
+                _gen_rows,
+                [strip_citations(a) for a in gen_answers],
+                gen_samples,
+            )
 
             # Run RAGAS on all collected generation samples that have a
             # reference answer (an unanswerable question has none).
@@ -3780,6 +3972,16 @@ async def _eval_live(
                     logger.exception(f"RAGAS evaluation failed for {task.task_key}")
                     _eval_failures.append(f"RAGAS evaluation failed: {type(exc).__name__}: {exc}")
 
+            # ALCE citation quality, for answers that cite (a citing
+            # generator); absent otherwise. Judge calls count as eval spend.
+            def _citations_in_thread():
+                with eval_meter, eval_meter.scope(EVAL):
+                    return _add_citation_scores(_gen_rows, gen_answers, gen_contexts)
+
+            _citation_failure = await asyncio.to_thread(_citations_in_thread)
+            if _citation_failure:
+                _eval_failures.append(_citation_failure)
+
             # ── Aggregate EM / Token-F1 (outside RAGAS try block) ─────────
             # Computed per-sample above; now aggregate across gen samples.
             _gen_ps = [s for s in per_sample_scores if "exact_match" in s]
@@ -3787,6 +3989,10 @@ async def _eval_live(
                 metrics["exact_match"] = sum(s["exact_match"] for s in _gen_ps) / len(_gen_ps)
                 metrics["token_f1"] = sum(s["token_f1"] for s in _gen_ps) / len(_gen_ps)
                 metrics.update(_answerability_split(_gen_ps))
+                metrics.update(_mean_present(_gen_ps, _ANSWER_METRICS))
+
+        # Tokens and LLM calls per query, over both tracks' rows.
+        metrics.update(_per_query_costs(per_sample_scores))
 
     finally:
         # Release corpus ref — always called even if evaluation raises, so the

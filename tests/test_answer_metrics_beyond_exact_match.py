@@ -16,6 +16,7 @@ from lasagna.knowledge_evaluation_sdk.answer_metrics import (
     contains_answer,
     has_citations,
     rouge_l,
+    strip_citations,
 )
 
 
@@ -139,6 +140,12 @@ class TestCitationQuality:
         )
         # Jointly entailed; [2] alone does not entail and [1] does without it.
         assert out == {"citation_recall": 1.0, "citation_precision": 0.5}
+
+    def test_markers_are_stripped_before_correctness_is_scored(self):
+        assert strip_citations("Paris is the capital [1][2]. It is large [3, 4].") == (
+            "Paris is the capital. It is large."
+        )
+        assert strip_citations("No markers\nhere.") == "No markers\nhere."
 
     def test_an_answer_without_citations_is_not_scored(self):
         assert not has_citations("Paris is the capital of France.")

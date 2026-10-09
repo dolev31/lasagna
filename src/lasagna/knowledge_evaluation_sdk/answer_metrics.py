@@ -422,6 +422,19 @@ def has_citations(text: str) -> bool:
     return bool(text) and bool(_CITATION.search(text))
 
 
+def strip_citations(text: str) -> str:
+    """The answer without its ``[n]`` markers: "Paris [1]." -> "Paris.".
+
+    What answer correctness is scored on, as ALCE does: the markers are not
+    part of the answer, and left in, "Paris [1]" fails exact match against
+    "Paris" and every citing generator loses token F1 to its own "1" tokens.
+    Text without markers is returned unchanged.
+    """
+    if not has_citations(text):
+        return text
+    return re.sub(r"\s+([.,;:!?])", r"\1", " ".join(_CITATION.sub(" ", text).split()))
+
+
 def _cited_statements(text: str) -> List[Tuple[str, List[int]]]:
     """Split an answer into sentences, each with the passage numbers it cites.
 
@@ -438,8 +451,7 @@ def _cited_statements(text: str) -> List[Tuple[str, List[int]]]:
             sentence = sentence[lead.end() :].strip()
         if not sentence:
             continue
-        # The claim the judge sees, without its markers: "France [1]." -> "France."
-        claim = re.sub(r"\s+([.,;:!?])", r"\1", " ".join(_CITATION.sub(" ", sentence).split()))
+        claim = strip_citations(sentence)
         if claim:
             statements.append((claim, _citation_ids(sentence)))
     return [(claim, list(dict.fromkeys(ids))) for claim, ids in statements]
