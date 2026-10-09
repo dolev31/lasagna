@@ -27,7 +27,7 @@ import hashlib
 import json
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
-#: The seven swappable stages, plus "other" for settings outside them.
+#: The eight swappable stages, plus "other" for settings outside them.
 STAGES: Tuple[str, ...] = (
     "document_processor",
     "chunker",
@@ -36,6 +36,7 @@ STAGES: Tuple[str, ...] = (
     "query_enhancer",
     "reranker",
     "agentic_pipeline",
+    "generator",
 )
 OTHER = "other"
 
@@ -211,6 +212,7 @@ _PREFIXES: Tuple[Tuple[str, str], ...] = (
     ("ensemble_reranker_", "reranker"),
     ("auto_refine_", "agentic_pipeline"),
     ("speculative_", "agentic_pipeline"),
+    ("generator_", "generator"),
 )
 
 

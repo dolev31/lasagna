@@ -45,6 +45,7 @@ COMPONENT_TYPES = frozenset(
         "document_processor",
         "query_enhancer",
         "agentic_pipeline",
+        "generator",
     }
 )
 
@@ -71,6 +72,7 @@ def _get_expected_abc(category: str) -> Optional[Type]:
             BaseDocumentProcessor,
             BaseQueryEnhancer,
             BaseAgenticPipeline,
+            BaseGenerator,
         )
 
         return {
@@ -81,6 +83,7 @@ def _get_expected_abc(category: str) -> Optional[Type]:
             "document_processor": BaseDocumentProcessor,
             "query_enhancer": BaseQueryEnhancer,
             "agentic_pipeline": BaseAgenticPipeline,
+            "generator": BaseGenerator,
         }.get(category)
     except ImportError:
         return None
@@ -385,6 +388,38 @@ class ComponentRegistry:
                 "Built-in extraction (pypdf and pdfplumber, OCR when enabled)",
                 None,
                 ["default_adapted"],
+            ),
+            (
+                "generator",
+                "concise",
+                "lasagna.generation.strategies:ConciseGenerator",
+                "One concise sentence from the context (the harness's default prompt)",
+                None,
+                [],
+            ),
+            (
+                "generator",
+                "cited",
+                "lasagna.generation.strategies:CitedGenerator",
+                "Answers citing their supporting passages as [n]",
+                "Gao et al. 2023, Enabling Large Language Models to Generate Text with Citations (ALCE)",
+                [],
+            ),
+            (
+                "generator",
+                "chain_of_thought",
+                "lasagna.generation.strategies:ChainOfThoughtGenerator",
+                "Step-by-step reasoning, then the final answer",
+                "Wei et al. 2022, Chain-of-Thought Prompting Elicits Reasoning in LLMs",
+                [],
+            ),
+            (
+                "generator",
+                "chain_of_note",
+                "lasagna.generation.strategies:ChainOfNoteGenerator",
+                "A reading note per passage, then the answer or 'unknown'",
+                "Yu et al. 2023, Chain-of-Note: Enhancing Robustness in Retrieval-Augmented LMs",
+                [],
             ),
         ]
         for stage, name, factory, description, paper, aliases in builtins:

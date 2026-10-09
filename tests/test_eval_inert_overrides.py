@@ -50,7 +50,9 @@ def _samples():
 
 
 class TestInertOverridesRefuse:
-    @pytest.mark.parametrize("key", sorted(_COMPONENT_KEYS))
+    # Every stage that acts on retrieval. A generator writes the answer from
+    # the gold context, so offline mode does measure it.
+    @pytest.mark.parametrize("key", sorted(_COMPONENT_KEYS - {"generator"}))
     def test_every_component_swap_is_refused(self, key):
         """This is the parametrisation that would have caught the original bug:
         it fails for any component key missing from the inert set."""

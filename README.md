@@ -69,9 +69,10 @@ Lasagna exists to make that question answerable.
                               is attributable to what you changed
 ```
 
-**All seven stages take effect.** Five at query time — `reranker`,
-`query_enhancer`, `embedder`, `retriever`, `agentic_pipeline` — and two at
-ingest: `chunker` and `document_processor`. Swap one with a single config key
+**All eight stages take effect.** Five at query time — `reranker`,
+`query_enhancer`, `embedder`, `retriever`, `agentic_pipeline` — two at
+ingest, `chunker` and `document_processor`, and `generator`, which writes the
+answer from what retrieval returned. Swap one with a single config key
 and the rest hold still, so the difference you measure belongs to the thing you
 changed.
 
@@ -327,7 +328,7 @@ nowhere else. Lasagna checks that rather than assuming it.
   stage's contract, does not mutate its input, and does not hand out chunks that
   share one metadata dict:
   `pytest tests/test_abc_conformance.py tests/test_stage_isolation_behavioural.py`.
-- **A stage manifest per task.** Each run records what reached each of the seven
+- **A stage manifest per task.** Each run records what reached each of the eight
   stages: every setting, from the configuration the search actually resolved,
   and the component in the slot.
 - **A check across arms.** If two arms differ at a stage neither of them names,

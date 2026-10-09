@@ -173,6 +173,11 @@ QUERY_TIME_STAGES = ("reranker", "query_enhancer", "embedder", "agentic_pipeline
 #: Stages injected at ingest time, through `ingest()`.
 INGEST_TIME_STAGES = ("chunker", "document_processor")
 
+#: The stage that writes the answer from what retrieval returned. The pipeline
+#: retrieves; whoever answers (the evaluation harness, an application) asks the
+#: pipeline for its generator with `get_component("generator")`.
+ANSWER_TIME_STAGES = ("generator",)
+
 #: Empty: every registrable stage now reaches the pipeline. Kept as a named
 #: constant rather than deleted so a future half-wired stage has an honest
 #: place to be declared, instead of being silently absent from both lists.
@@ -309,6 +314,17 @@ class KnowledgePipeline:
         instance = registry.get(component_type, name, **kwargs)
         self._instances[component_type] = instance
         return instance
+
+    def generate(
+        self, query: str, contexts: List[str], *, llm: Any = None, instructions: str = ""
+    ) -> str:
+        """Write the answer from ``contexts`` with the pipeline's generator.
+
+        ``concise`` unless ``replace("generator", ...)`` named another; ``llm``
+        is the model the generator calls (a strategy may bring its own).
+        """
+        generator = self.get_component("generator") or registry.get("generator", "concise")
+        return generator.generate(query, list(contexts), llm=llm, instructions=instructions)
 
     # =========================================================================
     # Agentic pipeline / node overrides

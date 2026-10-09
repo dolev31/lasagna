@@ -39,6 +39,7 @@ from .base_components import (
     BaseRetriever,
     BaseDocumentProcessor,
     BaseQueryEnhancer,
+    BaseGenerator,
     Chunk,
     ScoredDocument,
 )
@@ -95,6 +96,7 @@ _ABC_MAP = {
     BaseRetriever: "retriever",
     BaseDocumentProcessor: "document_processor",
     BaseQueryEnhancer: "query_enhancer",
+    BaseGenerator: "generator",
 }
 
 
@@ -428,6 +430,41 @@ def _validate_query_enhancer(component: BaseQueryEnhancer, report: ValidationRep
     _profile_latency(report, lambda: component.enhance(query))
 
 
+class _StubLLM:
+    """A deterministic stand-in model, so a generator's contract can be checked
+    without a key. It answers with the last line of the prompt it was given."""
+
+    def invoke(self, prompt):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(content="Answer: stub answer")
+
+
+def _validate_generator(component: Any, report: ValidationReport) -> None:
+    """Validate a BaseGenerator implementation."""
+    llm = _StubLLM()
+    contexts = ["Paris is the capital of France.", "The Seine flows through Paris."]
+
+    _check(
+        report,
+        "generate() returns a string",
+        lambda: _assert_type(component.generate("capital of France?", contexts, llm=llm), str),
+    )
+    _check(
+        report,
+        "generate() handles no contexts",
+        lambda: _assert_type(component.generate("capital of France?", [], llm=llm), str),
+    )
+
+    def _check_no_mutation():
+        handed = list(contexts)
+        component.generate("capital of France?", handed, llm=llm)
+        _assert_true(handed == contexts, "generate() modified the contexts it was handed")
+
+    _check(report, "generate() does not modify its input", _check_no_mutation)
+    _profile_latency(report, lambda: component.generate("q", contexts, llm=llm))
+
+
 _VALIDATORS = {
     "reranker": _validate_reranker,
     "chunker": _validate_chunker,
@@ -435,6 +472,7 @@ _VALIDATORS = {
     "retriever": _validate_retriever,
     "document_processor": _validate_document_processor,
     "query_enhancer": _validate_query_enhancer,
+    "generator": _validate_generator,
 }
 
 

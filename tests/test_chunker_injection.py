@@ -200,15 +200,21 @@ class TestTheStageListsStayTruthful:
         assert "chunker" in INGEST_TIME_STAGES
         assert "chunker" not in INGEST_TIME_STAGES_NOT_YET_INJECTED
 
-    def test_the_three_lists_partition_the_registry(self):
+    def test_the_stage_lists_partition_the_registry(self):
         from lasagna.core.pipeline import (
+            ANSWER_TIME_STAGES,
             INGEST_TIME_STAGES,
             INGEST_TIME_STAGES_NOT_YET_INJECTED,
             QUERY_TIME_STAGES,
         )
         from lasagna.core.registry import COMPONENT_TYPES
 
-        lists = [QUERY_TIME_STAGES, INGEST_TIME_STAGES, INGEST_TIME_STAGES_NOT_YET_INJECTED]
+        lists = [
+            QUERY_TIME_STAGES,
+            INGEST_TIME_STAGES,
+            ANSWER_TIME_STAGES,
+            INGEST_TIME_STAGES_NOT_YET_INJECTED,
+        ]
         union = set().union(*(set(x) for x in lists))
         assert union == set(COMPONENT_TYPES)
         total = sum(len(x) for x in lists)
@@ -320,7 +326,7 @@ class TestEveryStageNowInjects:
 
         assert INGEST_TIME_STAGES_NOT_YET_INJECTED == ()
 
-    def test_the_pipeline_resolves_all_seven(self):
+    def test_the_pipeline_resolves_every_stage(self):
         import inspect
 
         from lasagna.core.pipeline import KnowledgePipeline

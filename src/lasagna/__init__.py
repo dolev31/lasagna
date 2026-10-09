@@ -71,6 +71,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "embedder": (".components", "embedder"),
     "retriever": (".components", "retriever"),
     "document_processor": (".components", "document_processor"),
+    "generator": (".components", "generator"),
     # Core
     "RAGConfig": (".core", "RAGConfig"),
     "get_rag_config": (".core", "get_rag_config"),
@@ -172,6 +173,7 @@ __all__ = [
     "embedder",
     "retriever",
     "document_processor",
+    "generator",
     # Core
     "RAGConfig",
     "get_rag_config",

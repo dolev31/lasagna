@@ -373,6 +373,7 @@ class PipelineSweepSpec:
     embedders: List[str] = field(default_factory=list)
     chunkers: List[str] = field(default_factory=list)
     query_enhancers: List[str] = field(default_factory=list)
+    generators: List[str] = field(default_factory=list)
     config_overrides: List[Dict[str, Any]] = field(default_factory=list)
     factorial: FactorialSpec = field(default_factory=FactorialSpec)
 
@@ -819,6 +820,7 @@ _PIPELINE_KEYS = frozenset(
         "embedders",
         "chunkers",
         "query_enhancers",
+        "generators",
         "config_overrides",
         "factorial",
     }
@@ -943,6 +945,7 @@ def _parse_config(data: Dict[str, Any]) -> ExperimentConfig:
         embedders=pipeline_data.get("embedders", []),
         chunkers=pipeline_data.get("chunkers", []),
         query_enhancers=pipeline_data.get("query_enhancers", []),
+        generators=pipeline_data.get("generators", []),
         config_overrides=pipeline_data.get("config_overrides", []),
         factorial=factorial,
     )
@@ -1024,7 +1027,7 @@ def _generate_pipeline_configs(spec: PipelineSweepSpec) -> List[Dict[str, Any]]:
         # enable_reranking for a reranker sweep), so the sweep never ran.
         _lists = {
             name: getattr(spec, name)
-            for name in ("rerankers", "embedders", "chunkers", "query_enhancers")
+            for name in ("rerankers", "embedders", "chunkers", "query_enhancers", "generators")
             if getattr(spec, name)
         }
         if _lists:
@@ -1080,6 +1083,8 @@ def _generate_pipeline_configs(spec: PipelineSweepSpec) -> List[Dict[str, Any]]:
         dimensions["chunker"] = spec.chunkers
     if spec.query_enhancers:
         dimensions["query_enhancer"] = spec.query_enhancers
+    if spec.generators:
+        dimensions["generator"] = spec.generators
 
     # `null` in a dimension list reads as "the feature off" and is not.
     #
@@ -1751,6 +1756,7 @@ _COMPONENT_KEYS = frozenset(
         "document_processor",
         "query_enhancer",
         "agentic_pipeline",
+        "generator",
     }
 )
 
@@ -1945,7 +1951,10 @@ async def _eval_offline(
     #
     # `_RETRIEVAL_OVERRIDES` alone was not enough: it lists 14 feature flags and
     # omitted every component key, which is exactly the set a researcher passes.
-    inert_keys = (_RETRIEVAL_OVERRIDES | _COMPONENT_KEYS) & set(task.config_overrides.keys())
+    # A generator writes the answer from the gold context, so it acts here too.
+    inert_keys = ((_RETRIEVAL_OVERRIDES | _COMPONENT_KEYS) - {"generator"}) & set(
+        task.config_overrides.keys()
+    )
     if inert_keys and not task.config_overrides.get("allow_inert_overrides"):
         return TaskResult(
             task_key=task.task_key,
@@ -2033,6 +2042,13 @@ async def _eval_offline(
     per_sample_usage: List[TokenUsage] = []
     _has_unanswerable = any(_is_unanswerable(s) for s in eval_samples)
     _abstain = _ABSTAIN_INSTRUCTION if _has_unanswerable else ""
+    # A named generator writes the answers; with none, the prompt below does.
+    _gen_name = (task.config_overrides or {}).get("generator")
+    _offline_generator = None
+    if _gen_name:
+        from lasagna.core.registry import registry as _registry
+
+        _offline_generator = _registry.get("generator", _gen_name)
     # The judge needs a reference answer, so RAGAS scores the answerable ones.
     _ans_idx = [i for i, s in enumerate(eval_samples) if not _is_unanswerable(s)]
 
@@ -2046,23 +2062,33 @@ async def _eval_offline(
 
         # Generate answer from context using LLM
         sample_meter = UsageMeter()
-        if answer_llm and ctx:
+        if (answer_llm or _offline_generator) and ctx:
             q_start = time.monotonic()
             try:
-                context_str = "\n\n".join(ctx)
-                prompt = (
-                    f"Answer the following question based on the given context. "
-                    f"{_abstain}\n\n"
-                    f"Context:\n{context_str}\n\n"
-                    f"Question: {sample.question}\n\n"
-                    f"Answer:"
-                )
-                with sample_meter, sample_meter.scope(SYSTEM):
-                    response = await asyncio.to_thread(
-                        answer_llm.invoke,
-                        prompt,
+                if _offline_generator is not None:
+                    with sample_meter, sample_meter.scope(SYSTEM):
+                        answer = await asyncio.to_thread(
+                            _offline_generator.generate,
+                            sample.question,
+                            list(ctx),
+                            llm=answer_llm,
+                            instructions=_abstain,
+                        )
+                else:
+                    context_str = "\n\n".join(ctx)
+                    prompt = (
+                        f"Answer the following question based on the given context. "
+                        f"{_abstain}\n\n"
+                        f"Context:\n{context_str}\n\n"
+                        f"Question: {sample.question}\n\n"
+                        f"Answer:"
                     )
-                answer = response.content if hasattr(response, "content") else str(response)
+                    with sample_meter, sample_meter.scope(SYSTEM):
+                        response = await asyncio.to_thread(
+                            answer_llm.invoke,
+                            prompt,
+                        )
+                    answer = response.content if hasattr(response, "content") else str(response)
                 per_sample_latencies.append((time.monotonic() - q_start) * 1000)
             except Exception as exc:
                 # The gold context used to stand in as the answer here, which a
@@ -3337,6 +3363,13 @@ async def _eval_live(
             gen_agentic_answers: List[str] = []  # agentic pipeline's own answers
             _has_unanswerable = any(_is_unanswerable(s) for s in gen_samples)
             _abstain = _ABSTAIN_INSTRUCTION if _has_unanswerable else ""
+            # A named generator writes the answers; with none, the prompt
+            # below does, unchanged, so earlier results stay reproducible.
+            _generator = (
+                pipeline.get_component("generator")
+                if pipeline._component_names.get("generator")
+                else None
+            )
             # One meter for the whole generation phase, read as a delta at the
             # end of each sample. Re-entered around each region that can spend
             # tokens rather than wrapping the loop body, so the accounting does
@@ -3455,7 +3488,7 @@ async def _eval_live(
                     if _speculative and not answer.strip():
                         _speculative = False
 
-                if not _speculative and answer_llm and contexts:
+                if not _speculative and (answer_llm or _generator) and contexts:
                     ctx_text = "\n\n".join(contexts[:5])
                     prompt = (
                         "Answer the following question in ONE concise sentence "
@@ -3472,7 +3505,18 @@ async def _eval_live(
                     for _attempt in range(5):
                         try:
                             with gen_meter, gen_meter.scope(SYSTEM):
-                                if hasattr(answer_llm, "ainvoke"):
+                                if _generator is not None:
+                                    raw = await asyncio.wait_for(
+                                        asyncio.to_thread(
+                                            _generator.generate,
+                                            gen_sample.question,
+                                            list(contexts[:5]),
+                                            llm=answer_llm,
+                                            instructions=_abstain,
+                                        ),
+                                        timeout=120,
+                                    )
+                                elif hasattr(answer_llm, "ainvoke"):
                                     # 2-min timeout: same silent-hang guard as pipeline.query
                                     raw = await asyncio.wait_for(
                                         answer_llm.ainvoke(prompt),
@@ -3493,6 +3537,11 @@ async def _eval_live(
                             exc_str = str(exc)
                             # Do NOT retry content-policy / bad-request errors
                             # (400) — same prompt will be rejected again.
+                            if "needs an LLM" in exc_str:
+                                # Retrying cannot conjure a model: fail this
+                                # answer now instead of after 110 s of backoff.
+                                logger.warning(f"Answer generation impossible: {exc}")
+                                break
                             if (
                                 "400" in exc_str
                                 or "content_filter" in exc_str

@@ -266,6 +266,39 @@ class BaseQueryEnhancer(ABC):
         return self.__class__.__name__
 
 
+class BaseGenerator(ABC):
+    """Abstract base class for answer generation: the last stage.
+
+    Receives the question and the contexts the earlier stages selected, and
+    returns the answer text. ``llm`` is the run's generator model (a LangChain
+    chat model, called with ``invoke``); a strategy that brings its own model
+    may ignore it. ``instructions`` carries harness-level requirements the
+    strategy must honour, such as permission to abstain on a benchmark with
+    unanswerable questions.
+    """
+
+    @abstractmethod
+    def generate(
+        self, query: str, contexts: List[str], *, llm: Any = None, instructions: str = "", **kwargs
+    ) -> str:
+        """Answer ``query`` from ``contexts``.
+
+        Args:
+            query: The question.
+            contexts: Passage texts, best first.
+            llm: The generator model, when the strategy uses the run's model.
+            instructions: Extra requirements to include in the prompt.
+
+        Returns:
+            The answer text.
+        """
+        ...
+
+    @property
+    def name(self) -> str:
+        return self.__class__.__name__
+
+
 # ---------------------------------------------------------------------------
 # Agentic pipeline ABC
 # ---------------------------------------------------------------------------

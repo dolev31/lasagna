@@ -28,6 +28,7 @@ chunker             ``f(text)``                                         ``list[s
 embedder            ``f(texts)``                                        one vector per text
 retriever           ``f(query, top_k)``                                 ``list[str]`` or documents
 document_processor  ``f(file_path)``                                    ``str``
+generator           ``f(query, contexts)``                              ``str`` (the answer)
 ==================  ==================================================  ==========================
 
 A class that already implements the stage's interface can be registered the
@@ -51,6 +52,7 @@ from .core.base_components import (
     BaseChunker,
     BaseDocumentProcessor,
     BaseEmbedder,
+    BaseGenerator,
     BaseQueryEnhancer,
     BaseReranker,
     BaseRetriever,
@@ -66,6 +68,7 @@ _STAGE_ABCS = {
     "embedder": BaseEmbedder,
     "retriever": BaseRetriever,
     "document_processor": BaseDocumentProcessor,
+    "generator": BaseGenerator,
 }
 
 
@@ -249,6 +252,25 @@ class FunctionDocumentProcessor(_FunctionComponent, BaseDocumentProcessor):
         return out if isinstance(out, ProcessedDocument) else ProcessedDocument(text=str(out))
 
 
+class FunctionGenerator(_FunctionComponent, BaseGenerator):
+    """A generator from ``f(query, contexts) -> str``.
+
+    ``llm`` and ``instructions`` are passed only to a function that names them
+    as parameters, so the one-line form needs neither.
+    """
+
+    def generate(self, query, contexts, *, llm=None, instructions="", **kwargs) -> str:
+        names = {p.name for p in _positional(self._fn)} | set(
+            inspect.signature(self._fn).parameters
+        )
+        extra = {}
+        if "llm" in names:
+            extra["llm"] = llm
+        if "instructions" in names:
+            extra["instructions"] = instructions
+        return str(self._fn(query, list(contexts), **extra) or "")
+
+
 _WRAPPERS = {
     "reranker": FunctionReranker,
     "query_enhancer": FunctionQueryEnhancer,
@@ -256,6 +278,7 @@ _WRAPPERS = {
     "embedder": FunctionEmbedder,
     "retriever": FunctionRetriever,
     "document_processor": FunctionDocumentProcessor,
+    "generator": FunctionGenerator,
 }
 
 
@@ -375,6 +398,7 @@ chunker = _stage_decorator("chunker")
 embedder = _stage_decorator("embedder")
 retriever = _stage_decorator("retriever")
 document_processor = _stage_decorator("document_processor")
+generator = _stage_decorator("generator")
 
 
 def is_reference(value: Any) -> bool:

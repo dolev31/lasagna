@@ -964,6 +964,9 @@ def benchmark_run(
     query_enhancer: Optional[str] = typer.Option(
         None, "--query-enhancer", help="Run with this registered query enhancer"
     ),
+    generator: Optional[str] = typer.Option(
+        None, "--generator", help="Write answers with this registered generator"
+    ),
 ):
     """Run a single benchmark evaluation."""
     from .knowledge_evaluation_sdk.experiment import (
@@ -999,6 +1002,7 @@ def benchmark_run(
             base_profile=profile,
             rerankers=[reranker] if reranker else [],
             query_enhancers=[query_enhancer] if query_enhancer else [],
+            generators=[generator] if generator else [],
         ),
         mode=mode,
         n_runs=runs,

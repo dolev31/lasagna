@@ -117,6 +117,7 @@ VARIABLE_DIMENSIONS = (
     "query_enhancer",
     "retriever",
     "agentic_pipeline",
+    "generator",
 )
 
 #: Override keys that are machinery, not a research dimension.

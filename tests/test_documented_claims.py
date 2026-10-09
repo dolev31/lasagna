@@ -244,13 +244,19 @@ class TestReadmeCountsAreReal:
     def test_the_stage_lists_cover_every_component_type(self):
         """A stage in no list would be undocumented in every direction."""
         from lasagna.core.pipeline import (
+            ANSWER_TIME_STAGES,
             INGEST_TIME_STAGES,
             INGEST_TIME_STAGES_NOT_YET_INJECTED,
             QUERY_TIME_STAGES,
         )
         from lasagna.core.registry import COMPONENT_TYPES
 
-        lists = [QUERY_TIME_STAGES, INGEST_TIME_STAGES, INGEST_TIME_STAGES_NOT_YET_INJECTED]
+        lists = [
+            QUERY_TIME_STAGES,
+            INGEST_TIME_STAGES,
+            ANSWER_TIME_STAGES,
+            INGEST_TIME_STAGES_NOT_YET_INJECTED,
+        ]
         assert set().union(*(set(x) for x in lists)) == set(COMPONENT_TYPES)
         assert sum(len(x) for x in lists) == len(COMPONENT_TYPES), "a stage is in two lists"
 

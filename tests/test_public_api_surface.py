@@ -20,6 +20,7 @@ EXPECTED_LASAGNA = {
     # One-line components (lasagna.components)
     "chunker",
     "document_processor",
+    "generator",
     "embedder",
     "query_enhancer",
     "reranker",
