@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from lasagna.api.rag_backend import RAGBackend
 from lasagna.core.quota import QuotaExceededError
-from ..dependencies import get_backend, get_session_id
+from ..dependencies import get_backend, get_session_id, get_user_id
 from ..models import (
     SearchRequest,
     SearchResponse,
@@ -123,10 +123,38 @@ async def search(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+def _remember_citations(session_id: str, user_id: str, citations, results) -> None:
+    """Keep a search's citations for ``GET /citations``, as MCP search does.
+
+    The list read only what MCP search stored, so for a REST client it was
+    always empty, even right after this endpoint returned citations.
+    """
+    try:
+        from lasagna.core.session_config import get_knowledge_config_manager
+
+        get_knowledge_config_manager(
+            user_id=user_id, session_id=session_id
+        ).set_last_search_results(
+            citations=[c.model_dump() for c in citations],
+            chunks=[
+                {
+                    "chunk_id": str(r.chunk.chunk_id),
+                    "content": r.chunk.content,
+                    "chunk_index": r.chunk.chunk_index,
+                }
+                for r in results
+            ],
+            session_id=session_id,
+        )
+    except Exception as exc:
+        logger.warning(f"Search citations could not be kept for GET /citations: {exc}")
+
+
 @router.post("/citations", response_model=SearchWithCitationsResponse)
 async def search_with_citations(
     body: SearchRequest,
     session_id: str = Depends(get_session_id),
+    user_id: str = Depends(get_user_id),
     backend: RAGBackend = Depends(get_backend),
 ):
     """Search with citation tracking and formatted LLM context.
@@ -143,32 +171,34 @@ async def search_with_citations(
             routing_tier=body.routing_tier,
         )
         routing_info = _get_routing_info(backend)
+        cited = [
+            CitationResponse(
+                citation_id=c.citation_id,
+                document_id=c.document_id,
+                document_name=c.document_name,
+                chunk_id=c.chunk_id,
+                chunk_index=c.chunk_index,
+                page_number=c.page_number,
+                score=c.score,
+                content=c.content,
+                highlight=(
+                    c.highlights[0]
+                    if getattr(c, "highlights", None)
+                    else getattr(c, "highlight", None)
+                ),
+                highlights=getattr(c, "highlights", None),
+                highlight_ranges=(
+                    [list(r) for r in c.highlight_ranges]
+                    if getattr(c, "highlight_ranges", None)
+                    else None
+                ),
+            )
+            for c in citations
+        ]
+        _remember_citations(session_id, user_id, cited, results)
         return SearchWithCitationsResponse(
             results=[_result_to_response(r) for r in results],
-            citations=[
-                CitationResponse(
-                    citation_id=c.citation_id,
-                    document_id=c.document_id,
-                    document_name=c.document_name,
-                    chunk_id=c.chunk_id,
-                    chunk_index=c.chunk_index,
-                    page_number=c.page_number,
-                    score=c.score,
-                    content=c.content,
-                    highlight=(
-                        c.highlights[0]
-                        if getattr(c, "highlights", None)
-                        else getattr(c, "highlight", None)
-                    ),
-                    highlights=getattr(c, "highlights", None),
-                    highlight_ranges=(
-                        [list(r) for r in c.highlight_ranges]
-                        if getattr(c, "highlight_ranges", None)
-                        else None
-                    ),
-                )
-                for c in citations
-            ],
+            citations=cited,
             context=context,
             query=body.query,
             total_results=len(results),
@@ -228,6 +258,7 @@ async def multi_query_search(
 async def agentic_search(
     body: SearchRequest,
     session_id: str = Depends(get_session_id),
+    user_id: str = Depends(get_user_id),
     backend: RAGBackend = Depends(get_backend),
 ):
     """Agentic multi-hop search with iterative retrieval.
@@ -248,22 +279,24 @@ async def agentic_search(
             top_k=body.top_k,
             document_ids=body.document_ids,
         )
+        cited = [
+            CitationResponse(
+                citation_id=c.get("citation_id", ""),
+                document_id=c.get("document_id", ""),
+                document_name=c.get("document_name", ""),
+                chunk_id=c.get("chunk_id", ""),
+                chunk_index=c.get("chunk_index", 0),
+                page_number=c.get("page_number"),
+                score=c.get("score", 0.0),
+                content=c.get("content", ""),
+                highlight=c.get("highlight"),
+            )
+            for c in result.citations
+        ]
+        _remember_citations(session_id, user_id, cited, [])
         return SearchWithCitationsResponse(
             results=[],  # agentic search returns pre-formatted context
-            citations=[
-                CitationResponse(
-                    citation_id=c.get("citation_id", ""),
-                    document_id=c.get("document_id", ""),
-                    document_name=c.get("document_name", ""),
-                    chunk_id=c.get("chunk_id", ""),
-                    chunk_index=c.get("chunk_index", 0),
-                    page_number=c.get("page_number"),
-                    score=c.get("score", 0.0),
-                    content=c.get("content", ""),
-                    highlight=c.get("highlight"),
-                )
-                for c in result.citations
-            ],
+            citations=cited,
             context=result.formatted_context,
             query=body.query,
             total_results=len(result.citations),

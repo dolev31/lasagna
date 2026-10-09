@@ -40,6 +40,7 @@ async def list_citations(
                 score=c.get("score", 0.0),
                 content=c.get("content") or c.get("content_preview", ""),
                 highlight=c.get("highlight"),
+                highlights=c.get("highlights"),
                 highlight_ranges=c.get("highlight_ranges"),
             )
             for c in raw_citations
@@ -88,6 +89,7 @@ async def get_citation(
                     score=c.get("score", 0.0),
                     content=c.get("content") or c.get("content_preview", ""),
                     highlight=c.get("highlight"),
+                    highlights=c.get("highlights"),
                     highlight_ranges=c.get("highlight_ranges"),
                 )
 
