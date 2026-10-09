@@ -212,6 +212,7 @@ _PREFIXES: Tuple[Tuple[str, str], ...] = (
     ("auto_refine_", "agentic_pipeline"),
     ("speculative_", "agentic_pipeline"),
     ("query2doc_", "query_enhancer"),
+    ("self_ask_", "agentic_pipeline"),
 )
 
 

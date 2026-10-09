@@ -374,6 +374,10 @@ class AgenticRAGMetrics:
     crag_web_fallback_triggered: bool = False
     crag_grading_latency_ms: float = 0.0
 
+    # What a published loop (lasagna.agentic.loops) did on this question: its
+    # queries, its stopping reason and, for FLARE, which confidence signal ran.
+    loop_trace: Dict[str, Any] = field(default_factory=dict)
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for logging/API responses."""
         return {
@@ -426,6 +430,7 @@ class AgenticRAGMetrics:
                 "web_fallback_triggered": self.crag_web_fallback_triggered,
                 "grading_latency_ms": round(self.crag_grading_latency_ms, 2),
             },
+            **({"loop_trace": self.loop_trace} if self.loop_trace else {}),
         }
 
 

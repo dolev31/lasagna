@@ -351,6 +351,9 @@ class RAGConfig:
             "enable_speculative_rag": False,  # Speculative RAG: parallel drafts + verification
             "speculative_n_drafts": 3,  # Number of parallel draft answers
             "speculative_subset_size": 3,  # Context chunks per draft
+            # Published agentic loops (lasagna.agentic.loops), with their papers'
+            # defaults; each loop's own budget, not max_agent_iterations.
+            "self_ask_max_follow_ups": 5,  # Self-Ask: follow-up questions before concluding
             "enable_mmr": True,
             "mmr_lambda": 0.5,  # SOTA default (LangChain, LlamaIndex). Pre-MMR filter ensures only relevant items.
             "mmr_score_normalization": "sigmoid",  # Options: 'sigmoid', 'minmax', 'sigmoid_minmax', 'none'. Plain sigmoid preserves cross-encoder calibration.
@@ -2019,6 +2022,13 @@ class RAGConfig:
     def speculative_subset_size(self) -> int:
         """Number of context chunks per draft in speculative RAG."""
         return self._get_knowledge_setting("rag", "speculative_subset_size", default=3)
+
+    @property
+    def self_ask_max_follow_ups(self) -> int:
+        """Self-Ask: follow-up questions searched before the model must conclude."""
+        return self._get_knowledge_setting(
+            "rag", "self_ask_max_follow_ups", default=self._config["self_ask_max_follow_ups"]
+        )
 
     @property
     def coverage_scorer_mode(self) -> str:

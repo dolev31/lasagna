@@ -448,6 +448,19 @@ class ComponentRegistry:
         self._builtin_names.update(
             {("agentic_pipeline", "default"), ("agentic_pipeline", "legacy_react")}
         )
+        _l = "lasagna.agentic.loops."
+        for name, factory, description, paper in [
+            (
+                "self_ask",
+                _l + "self_ask:SelfAskPipeline",
+                "Self-Ask: follow-up questions answered by retrieval until the final answer",
+                "arxiv:2210.03350",
+            ),
+        ]:
+            self._components["agentic_pipeline"][name] = _Registration(
+                description=description, paper=paper, _factory=factory
+            )
+            self._builtin_names.add(("agentic_pipeline", name))
 
         # --- Built-in Graph Nodes (deferred) ---
         _node_factories = [
