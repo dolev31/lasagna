@@ -310,7 +310,7 @@ class ComponentRegistry:
                 "reranker",
                 "llm_listwise",
                 _r + "LLMListwiseRerankerAdapter",
-                "LLM listwise reranker with sliding-window Borda aggregation (RankGPT-style)",
+                "RankGPT: LLM permutations over windows sliding from the bottom up",
                 "arxiv:2304.09542",
                 [],
             ),

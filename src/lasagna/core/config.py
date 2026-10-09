@@ -337,7 +337,9 @@ class RAGConfig:
             # "<vendor>/<model>" is rejected outright by every other provider, so
             # it fails for anyone who did not happen to share our deployment.
             "llm_reranker_model": "",  # Model for LLM listwise reranker
-            "llm_reranker_window_size": 10,  # Sliding window size for listwise reranking
+            # RankGPT's sliding window (Sun et al. 2023): 20 passages, moved by 10.
+            "llm_reranker_window_size": 20,
+            "llm_reranker_step_size": 10,
             "colbert_model": "colbert-ir/colbertv2.0",  # ColBERT late-interaction model
             "enable_context_reordering": True,  # Lost-in-the-middle fix: place best results at start/end
             "enable_context_compression": False,  # Compress chunks to reduce noise/tokens
@@ -1047,6 +1049,13 @@ class RAGConfig:
         """Sliding window size for listwise reranking."""
         return self._get_knowledge_setting(
             "rag", "llm_reranker_window_size", default=self._config["llm_reranker_window_size"]
+        )
+
+    @property
+    def llm_reranker_step_size(self) -> int:
+        """How far the listwise reranker's window moves toward the top each step."""
+        return self._get_knowledge_setting(
+            "rag", "llm_reranker_step_size", default=self._config["llm_reranker_step_size"]
         )
 
     @property

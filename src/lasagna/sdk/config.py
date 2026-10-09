@@ -274,8 +274,8 @@ class KnowledgeConfig:
     Empty means "use the configured default LLM". Default: empty.
     """
 
-    llm_reranker_window_size: int = 10
-    """Sliding window size for listwise reranking. Default: 10"""
+    llm_reranker_window_size: int = 20
+    """Sliding window size for listwise reranking (RankGPT's). Default: 20"""
 
     colbert_model: str = "colbert-ir/colbertv2.0"
     """ColBERT late-interaction model name. Default: colbert-ir/colbertv2.0"""
