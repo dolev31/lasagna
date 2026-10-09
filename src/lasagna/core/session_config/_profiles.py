@@ -636,6 +636,11 @@ class ProfileMixin:
                 f"({len(self._global_custom_profiles)} total custom profiles)"
             )
 
+        # Saving as the active profile (the configurator's "Save As") must
+        # change what search runs, exactly as set_active_profile does; it used
+        # to report "Saved!" and leave retrieval as it was.
+        if set_active or state.active_profile == profile_name:
+            self._publish_to_search(session_id)
         return state.to_dict()
 
     def rename_profile(
@@ -737,6 +742,8 @@ class ProfileMixin:
 
             logger.info(f"Deleted profile '{profile_name}' globally")
 
+        # The session may have fallen back to default; search must follow.
+        self._publish_to_search(session_id)
         return state.to_dict()
 
     def update_profile_description(

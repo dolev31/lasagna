@@ -533,6 +533,17 @@ class TestProfileLifecycle:
         active = manager.get_active_profile(session_id=session_id)
         assert active == "new_active"
 
+    def test_save_as_active_changes_what_search_runs(self, manager, session_id):
+        """The configurator's "Save As" must reach search, not just the store.
+
+        It reported "Saved!" while retrieval kept its old settings, because
+        saving never published the profile to the config search reads.
+        """
+        from lasagna.core.config import rag_config
+
+        manager.save_profile("no_rerank", {"enable_reranking": False}, session_id=session_id)
+        assert rag_config.with_session(session_id).enable_reranking is False
+
     def test_create_profile_without_set_active(self, manager, session_id):
         """With set_active=False, the active profile should not change."""
         manager.save_profile(
