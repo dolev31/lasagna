@@ -63,3 +63,15 @@ def test_structural_settings_are_recorded_as_the_chunker_that_ran():
 
     plain = dict(ingestion, preserve_headers=False)
     assert _ran_system("m", 384, plain, {})["chunker"] == "semantic"
+
+
+def test_a_custom_reranker_is_recorded_instead_of_the_cross_encoder():
+    from lasagna.knowledge_evaluation_sdk.experiment import _ran_system
+
+    cfg = {"enable_reranking": True, "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2"}
+    assert _ran_system("m", 384, {}, cfg, "template_length")["reranker_model"] == (
+        "template_length"
+    )
+    assert _ran_system("m", 384, {}, cfg, "cross_encoder_adapted")["reranker_model"] == (
+        "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    )

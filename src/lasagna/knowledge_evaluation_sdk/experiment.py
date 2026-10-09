@@ -359,6 +359,9 @@ class ExperimentConfig:
     judge_model: str = ""  # LLM model for RAGAS judge (e.g. "gpt-4o-mini")
     ingestion_per_config: bool = False  # True = each config variant gets its own corpus session
     max_corpus_docs: int = 0  # 0 = no limit; >0 = cap corpus size (e.g. 500 for pilot runs)
+    #: Evaluation tracks to run: "retrieval", "generation", or both (the
+    #: default). A component sweep scored on retrieval needs no LLM or RAGAS.
+    tracks: List[str] = field(default_factory=lambda: ["retrieval", "generation"])
     _resolved_output_dir: Optional[str] = field(default=None, repr=False)
 
     def effective_output_dir(self) -> str:
@@ -434,11 +437,18 @@ def _embedder_collection_name(model: Optional[str], dim: Any) -> str:
     return f"rag_bench_emb_{hashlib.md5(emb_id.encode()).hexdigest()[:8]}"
 
 
+#: Registered rerankers that score with the configured cross-encoder model.
+_CROSS_ENCODER_RERANKERS = frozenset(
+    {"cross_encoder", "cross_encoder_adapted", "combined", "combined_adapted"}
+)
+
+
 def _ran_system(
     embedder_model: Any,
     embedder_dim: Any,
     ingestion: Optional[Dict[str, Any]],
     task_config: Dict[str, Any],
+    reranker_component: Optional[str] = None,
 ) -> Dict[str, Any]:
     """What a live task actually ran with, for its held-fixed block."""
     from lasagna.core.config import rag_config
@@ -468,7 +478,13 @@ def _ran_system(
         if chunker == "hierarchical"
         else _ingest("chunk_size"),
         "retriever_top_k": task_config.get("default_top_k"),
-        "reranker_model": task_config.get("reranker_model")
+        # A named component that is not a cross-encoder reranks on its own,
+        # so the configured cross-encoder model is not what ran.
+        "reranker_model": (
+            reranker_component
+            if reranker_component and reranker_component not in _CROSS_ENCODER_RERANKERS
+            else task_config.get("reranker_model")
+        )
         if task_config.get("enable_reranking")
         else None,
         "vector_backend": getattr(rag_config, "vector_backend", None),
@@ -609,6 +625,7 @@ _TOP_LEVEL_KEYS = frozenset(
         "judge_model",
         "ingestion_per_config",
         "max_corpus_docs",
+        "tracks",
     }
 )
 _PIPELINE_KEYS = frozenset(
@@ -707,12 +724,27 @@ def _parse_config(data: Dict[str, Any]) -> ExperimentConfig:
         judge_model=data.get("judge_model", ""),
         ingestion_per_config=data.get("ingestion_per_config", False),
         max_corpus_docs=data.get("max_corpus_docs", 0),
+        tracks=_parse_tracks(data.get("tracks")),
     )
 
 
 # ---------------------------------------------------------------------------
 # Pipeline config generation
 # ---------------------------------------------------------------------------
+
+
+_TRACKS = ("retrieval", "generation")
+
+
+def _parse_tracks(value: Any) -> List[str]:
+    """The ``tracks:`` list, checked: a typo must not silently run nothing."""
+    if value is None:
+        return list(_TRACKS)
+    tracks = [value] if isinstance(value, str) else list(value)
+    unknown = sorted(set(tracks) - set(_TRACKS))
+    if unknown or not tracks:
+        raise ValueError(f"tracks must be a non-empty subset of {list(_TRACKS)}; got {value!r}")
+    return [t for t in _TRACKS if t in tracks]
 
 
 def _generate_pipeline_configs(spec: PipelineSweepSpec) -> List[Dict[str, Any]]:
@@ -922,6 +954,7 @@ class Experiment:
                         filters=bench_spec.filters,
                         max_corpus_docs=cfg.max_corpus_docs,
                         variance_source=cfg.variance_source,
+                        tracks=(tuple(cfg.tracks) if list(cfg.tracks) != list(_TRACKS) else None),
                     )
                     tasks.append(task)
 
@@ -1102,6 +1135,7 @@ def _run_metadata(cfg: "ExperimentConfig") -> Dict[str, Any]:
         },
         "judge_model": _active_judge_model or cfg.judge_model or None,
         "max_corpus_docs": cfg.max_corpus_docs,
+        "tracks": list(cfg.tracks),
         "environment": capture(),
         # The system under test. Five of the fourteen comparability-key fields
         # are sourced from here, and without it they are all None -- which means
@@ -2566,6 +2600,13 @@ async def _eval_live(
     # They are queried twice: once with IR-forced config, once with gen config.
     ir_samples = [s for s in samples if s.expected_docs]
     gen_samples = [s for s in samples if s.ground_truth]
+    if task.tracks:
+        # Skipped by request, not by failure: nothing is scored for the
+        # track that did not run.
+        if "retrieval" not in task.tracks:
+            ir_samples = []
+        if "generation" not in task.tracks:
+            gen_samples = []
 
     # Build pipeline from profile and apply task-level overrides.
     pipeline = KnowledgePipeline.from_profile(task.profile)
@@ -3381,7 +3422,13 @@ async def _eval_live(
         # Deduplicate: e2e samples appear in both ir_samples and gen_samples
         n_samples=len({s.query_id for s in ir_samples} | {s.query_id for s in gen_samples}),
         error="; ".join(_eval_failures) or None,
-        system=_ran_system(_corpus_model, _corpus_dim, _ingestion_overrides, task_config),
+        system=_ran_system(
+            _corpus_model,
+            _corpus_dim,
+            _ingestion_overrides,
+            task_config,
+            reranker_component=(task.config_overrides or {}).get("reranker"),
+        ),
     )
     result.compute_latency_stats()
     _record_eval_usage(result, eval_meter)
