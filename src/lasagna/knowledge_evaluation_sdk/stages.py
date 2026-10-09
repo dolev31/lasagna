@@ -219,6 +219,7 @@ _PREFIXES: Tuple[Tuple[str, str], ...] = (
     ("semantic_", "chunker"),
     ("proposition_", "chunker"),
     ("contextual_", "chunker"),
+    ("late_chunking_", "chunker"),
 )
 
 

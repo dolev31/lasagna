@@ -152,6 +152,20 @@ def _resolve_prefixes(model_name: str) -> dict:
     return _DEFAULT_PREFIXES
 
 
+def _special_frame(tokenizer) -> tuple:
+    """The special tokens a tokenizer puts before and after a single sequence.
+
+    Read off an encoding rather than asked for: ``build_inputs_with_special_tokens``
+    is gone from transformers 5's tokenizers.
+    """
+    bare = tokenizer("a", add_special_tokens=False)["input_ids"]
+    full = tokenizer("a", add_special_tokens=True)["input_ids"]
+    for i in range(len(full) - len(bare) + 1):
+        if full[i : i + len(bare)] == bare:
+            return list(full[:i]), list(full[i + len(bare) :])
+    raise ValueError("cannot locate the text between the tokenizer's special tokens")
+
+
 def _resolve_backend(config: RAGConfig) -> str:
     """Resolve which embedding backend to use.
 
@@ -680,25 +694,63 @@ class EmbeddingManager:
             embeddings = self._maybe_truncate(np.asarray(embeddings))
         return list(embeddings)
 
+    def _late_chunking_unavailable(self, reason: str, chunk_texts: List[str]) -> List[np.ndarray]:
+        """Standard encoding when serving; an error when evaluating.
+
+        An arm that enables late chunking and quietly gets standard chunk
+        embeddings measures the control under the technique's name.
+        """
+        if strict_stages():
+            raise RuntimeError(
+                f"Late chunking cannot run: {reason}. An evaluation does not fall back to "
+                f"standard encoding, since the arm would then measure plain chunk "
+                f"embeddings under the late-chunking name."
+            )
+        logger.info(f"Late chunking: {reason}; using standard encoding")
+        return self.encode_documents_batch(chunk_texts, show_progress=True)
+
+    def _warn_if_not_mean_pooled(self) -> None:
+        """Late chunking mean-pools tokens; say so once if the model pools otherwise."""
+        if getattr(self, "_pooling_warned", False):
+            return
+        self._pooling_warned = True
+        pooling = next((m for m in self.model if type(m).__name__ == "Pooling"), None)
+        # sentence-transformers 6 names it `pooling_mode`; earlier releases had a getter.
+        mode = getattr(pooling, "pooling_mode", None)
+        if mode is None and hasattr(pooling, "get_pooling_mode_str"):
+            mode = pooling.get_pooling_mode_str()
+        if isinstance(mode, str) and mode not in ("mean", "mean_tokens"):
+            logger.warning(
+                f"Late chunking mean-pools token embeddings, but {self.model_name} was "
+                f"trained with {mode!r} pooling, so its late-chunked vectors are not the "
+                f"kind it was trained to produce. The paper used mean-pooled models."
+            )
+
     def encode_documents_late_chunking(
         self,
         full_text: str,
         chunk_texts: List[str],
     ) -> List[np.ndarray]:
-        """Late chunking: embed full document, extract per-chunk embeddings.
+        """Late chunking: embed the whole document, then pool tokens per chunk.
 
-        Passes the full document text through the transformer to get token-level
-        representations, then pools tokens within each chunk's span to produce
-        chunk-level embeddings.  This preserves cross-chunk context that is lost
-        when chunks are embedded independently.
+        The document goes through the transformer once, so every token's
+        representation has seen the whole document; each chunk's embedding is
+        the mean of its tokens' embeddings. Chunks embedded on their own lose
+        that context.
+
+        A document longer than the model's window is processed as overlapping
+        macro windows ("long late chunking"): each window holds the model's
+        maximum of tokens, consecutive windows share ``late_chunking_overlap``
+        tokens (capped at half a window), and an overlapping token keeps the
+        embedding from the window where it has left context.
 
         Reference: Günther et al., "Late Chunking: Contextual Chunk Embeddings
         Using Long-Context Embedding Models", arXiv:2409.04701.
 
-        Falls back to standard ``encode_documents_batch`` when:
-        - The backend is FlagEmbedding (no token-level access)
-        - The model doesn't support fast tokenizer / token-level output
-        - Any error occurs during token-level encoding
+        Needs a sentence-transformers model with a fast tokenizer and no Dense
+        projection. Otherwise (and for a chunk that is not a slice of
+        ``full_text``) it encodes chunks the standard way when serving, and
+        raises during an evaluation.
 
         Args:
             full_text: The complete document text (pre-chunking).
@@ -712,160 +764,131 @@ class EmbeddingManager:
 
         # Pre-flight checks OUTSIDE the lock so fallback doesn't deadlock
         if self._backend == "flag-embedding":
-            logger.info(
-                "Late chunking not supported with FlagEmbedding backend, using standard encoding"
+            return self._late_chunking_unavailable(
+                "the FlagEmbedding backend gives no token-level output", chunk_texts
             )
-            return self.encode_documents_batch(chunk_texts, show_progress=True)
-
         if not SENTENCE_TRANSFORMERS_AVAILABLE or self.model is None:
-            logger.info(
-                "Late chunking: sentence-transformers not available, using standard encoding"
+            return self._late_chunking_unavailable(
+                "sentence-transformers is not available", chunk_texts
             )
-            return self.encode_documents_batch(chunk_texts, show_progress=True)
-
         try:
             import torch
         except ImportError:
-            logger.info("Late chunking: torch not available, using standard encoding")
-            return self.encode_documents_batch(chunk_texts, show_progress=True)
+            return self._late_chunking_unavailable("torch is not available", chunk_texts)
 
         # Verify model structure: need model[0].auto_model for token-level output
         try:
-            transformer_module = self.model[0]
-            auto_model = transformer_module.auto_model
-        except (IndexError, AttributeError):
-            logger.info(
-                "Late chunking: model architecture not compatible (no auto_model), using standard encoding"
+            auto_model = self.model[0].auto_model
+        except (IndexError, AttributeError, TypeError):
+            return self._late_chunking_unavailable(
+                "the model exposes no token-level transformer", chunk_texts
             )
-            return self.encode_documents_batch(chunk_texts, show_progress=True)
 
         # Verify tokenizer supports offset mapping (fast tokenizers only)
         tokenizer = self.model.tokenizer
         if not getattr(tokenizer, "is_fast", False):
-            logger.info(
-                "Late chunking: slow tokenizer (no offset mapping support), using standard encoding"
+            return self._late_chunking_unavailable(
+                "the tokenizer is not a fast tokenizer, so it has no offsets", chunk_texts
             )
-            return self.encode_documents_batch(chunk_texts, show_progress=True)
 
-        # Verify the model has no Dense projection layer after the transformer.
-        # If it does, late chunking would produce raw hidden_dim embeddings that
-        # don't match the final embedding dimension after the Dense projection.
-        # Sentence-transformers pipeline: [0]=Transformer, [1]=Pooling, [2+]=Dense/Normalize
-        # Use iter(self.model) which yields ST module wrappers in pipeline order.
-        _has_dense = any(type(m).__name__ == "Dense" for idx, m in enumerate(self.model) if idx > 0)
-        if _has_dense:
-            logger.info(
-                "Late chunking: model has Dense projection layer — "
-                "late chunking would produce wrong dimensions, using standard encoding"
+        # Sentence-transformers pipeline: [0]=Transformer, [1]=Pooling, [2+]=Dense/Normalize.
+        # Token embeddings come out before a Dense projection, at the wrong size.
+        if any(type(m).__name__ == "Dense" for idx, m in enumerate(self.model) if idx > 0):
+            return self._late_chunking_unavailable(
+                "the model has a Dense projection after pooling", chunk_texts
             )
-            return self.encode_documents_batch(chunk_texts, show_progress=True)
+        self._warn_if_not_mean_pooled()
 
         try:
+            prefix = self.document_prefix or ""
+            encode_text = f"{prefix}{full_text}"
+            encoding = tokenizer(
+                encode_text,
+                add_special_tokens=False,
+                return_offsets_mapping=True,
+                verbose=False,
+            )
+            ids = list(encoding["input_ids"])
+            offsets = np.asarray(encoding["offset_mapping"], dtype=int).reshape(-1, 2)
+            head, tail = _special_frame(tokenizer)
+            max_len = int(getattr(self.model, "max_seq_length", None) or 512)
+            window = max_len - len(head) - len(tail)
+            overlap = min(int(getattr(self._config, "late_chunking_overlap", 0) or 0), window // 2)
+
+            token_embeddings: Optional[np.ndarray] = None
+            n_windows = 0
             with self._encode_lock, device_guard(self._device):
-                max_len = getattr(self.model, "max_seq_length", 8192)
-
-                # Apply document prefix to full text
-                encode_text = (
-                    f"{self.document_prefix}{full_text}" if self.document_prefix else full_text
-                )
-                full_encoding = tokenizer(
-                    encode_text,
-                    return_tensors="pt",
-                    truncation=True,
-                    max_length=max_len,
-                    return_offsets_mapping=True,
-                )
-
-                full_token_count = full_encoding["input_ids"].shape[1]
-                if full_token_count >= max_len:
-                    logger.warning(
-                        f"Late chunking: document ({len(full_text)} chars) truncated "
-                        f"to {max_len} tokens. Chunks beyond boundary will use standard encoding."
-                    )
-
-                # Get token-level embeddings from the model's transformer
                 device = self.model.device
-                input_ids = full_encoding["input_ids"].to(device)
-                attention_mask = full_encoding["attention_mask"].to(device)
-
-                with torch.no_grad():
-                    model_output = auto_model(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                    )
-                # token_embeddings shape: (1, seq_len, hidden_dim)
-                token_embeddings = model_output.last_hidden_state[0].cpu().numpy()
-                offsets = full_encoding["offset_mapping"][0].numpy()  # (seq_len, 2)
+                start = 0
+                while start < len(ids):
+                    end = min(start + window, len(ids))
+                    piece = ids[start:end]
+                    input_ids = torch.tensor([head + piece + tail], device=device)
+                    with torch.no_grad():
+                        hidden = auto_model(
+                            input_ids=input_ids, attention_mask=torch.ones_like(input_ids)
+                        ).last_hidden_state[0]
+                    hidden = hidden.float().cpu().numpy()
+                    content = hidden[len(head) : len(head) + len(piece)]
+                    if token_embeddings is None:
+                        token_embeddings = np.zeros((len(ids), content.shape[1]), dtype=np.float32)
+                    # The first `overlap` tokens of a later window were embedded by
+                    # the previous one with context on both sides; keep those.
+                    keep = 0 if start == 0 else overlap
+                    token_embeddings[start + keep : end] = content[keep:]
+                    n_windows += 1
+                    if end == len(ids):
+                        break
+                    start = end - overlap
 
             # --- Token-to-chunk mapping (no lock needed, pure numpy) ---
-            prefix_len = len(self.document_prefix) if self.document_prefix else 0
-
-            chunk_embeddings = []
-            fallback_indices = []  # chunks that need standard encoding
+            chunk_embeddings: List[Optional[np.ndarray]] = []
+            missing = []
             search_start = 0
-
             for idx, chunk_text in enumerate(chunk_texts):
-                # Find chunk's character span in full_text
                 chunk_start = full_text.find(chunk_text, search_start)
-                if chunk_start == -1:
-                    fallback_indices.append(idx)
+                if chunk_start == -1 or token_embeddings is None:
+                    missing.append(idx)
                     chunk_embeddings.append(None)
                     continue
-
                 chunk_end = chunk_start + len(chunk_text)
                 search_start = chunk_end
-
-                # Adjust for prefix offset in tokenized text
-                adj_start = chunk_start + prefix_len
-                adj_end = chunk_end + prefix_len
-
-                # Find token indices that overlap with chunk's character span
-                token_mask = (offsets[:, 1] > adj_start) & (offsets[:, 0] < adj_end)
-                # Exclude special tokens (offset 0,0)
-                special_mask = (offsets[:, 0] == 0) & (offsets[:, 1] == 0)
-                token_mask = token_mask & ~special_mask
-
+                lo, hi = chunk_start + len(prefix), chunk_end + len(prefix)
+                token_mask = (offsets[:, 1] > lo) & (offsets[:, 0] < hi)
                 if not token_mask.any():
-                    fallback_indices.append(idx)
+                    missing.append(idx)
                     chunk_embeddings.append(None)
                     continue
-
-                # Mean pooling of token embeddings for this chunk
-                chunk_token_embs = token_embeddings[token_mask]
-                chunk_emb = chunk_token_embs.mean(axis=0)
-
-                # Normalize
+                chunk_emb = token_embeddings[token_mask].mean(axis=0)
                 if self._config.normalize_embeddings:
                     norm = np.linalg.norm(chunk_emb)
                     if norm > 0:
                         chunk_emb = chunk_emb / norm
-
                 chunk_embeddings.append(chunk_emb)
-
-            # Batch-encode any fallback chunks (outside the lock)
-            if fallback_indices:
-                fallback_texts = [chunk_texts[i] for i in fallback_indices]
-                logger.debug(
-                    f"Late chunking: {len(fallback_indices)}/{len(chunk_texts)} chunks "
-                    f"need standard encoding (not found in full text or truncated)"
-                )
-                fallback_embs = self.encode_documents_batch(fallback_texts, show_progress=False)
-                for fi, emb in zip(fallback_indices, fallback_embs):
-                    chunk_embeddings[fi] = emb
-
-            # Matryoshka truncation
-            chunk_embeddings = [self._maybe_truncate(e) for e in chunk_embeddings]
-
-            logger.info(
-                f"Late chunking: {len(chunk_texts) - len(fallback_indices)}/{len(chunk_texts)} "
-                f"chunks from {full_token_count}-token document, "
-                f"{len(fallback_indices)} fallback"
-            )
-            return chunk_embeddings
-
         except Exception as e:
+            if strict_stages():
+                raise
             logger.warning(f"Late chunking failed ({e}), falling back to standard batch encoding")
             return self.encode_documents_batch(chunk_texts, show_progress=True)
+
+        if missing:
+            # A chunk that is not a slice of the document has no tokens to pool.
+            reason = f"{len(missing)} of {len(chunk_texts)} chunks are not slices of the document"
+            if strict_stages():
+                self._late_chunking_unavailable(reason, chunk_texts)
+            logger.info(f"Late chunking: {reason}; encoding those the standard way")
+            fallback = self.encode_documents_batch(
+                [chunk_texts[i] for i in missing], show_progress=False
+            )
+            for i, emb in zip(missing, fallback):
+                chunk_embeddings[i] = emb
+
+        chunk_embeddings = [self._maybe_truncate(e) for e in chunk_embeddings]
+        logger.info(
+            f"Late chunking: {len(chunk_texts) - len(missing)}/{len(chunk_texts)} chunks "
+            f"from a {len(ids)}-token document in {n_windows} window(s)"
+        )
+        return chunk_embeddings
 
     def encode_sparse(self, texts: List[str]) -> Optional[List[Dict[str, float]]]:
         """Encode texts and return sparse (lexical) weights.

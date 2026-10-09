@@ -300,6 +300,9 @@ class RAGConfig:
             "child_chunk_size": 500,
             "auto_merge_threshold": 0.5,
             "enable_late_chunking": False,  # Late chunking: embed full doc, pool per chunk (Jina, arxiv:2409.04701)
+            # Tokens shared by consecutive model windows when a document is longer
+            # than one (long late chunking); capped at half a window.
+            "late_chunking_overlap": 512,
             # What chunk_size and chunk_overlap count, for the fixed and recursive
             # chunkers: 'chars', 'words' (runs of non-whitespace) or 'tokens'
             # (of chunk_tokenizer: a Hugging Face tokenizer, or 'tiktoken:<encoding>').
@@ -1005,6 +1008,13 @@ class RAGConfig:
             "rag",
             "contextual_max_document_chars",
             default=self._config["contextual_max_document_chars"],
+        )
+
+    @property
+    def late_chunking_overlap(self) -> int:
+        """Tokens shared by consecutive windows in long late chunking."""
+        return self._get_knowledge_setting(
+            "rag", "late_chunking_overlap", default=self._config["late_chunking_overlap"]
         )
 
     @property
