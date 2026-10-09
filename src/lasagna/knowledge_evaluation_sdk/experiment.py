@@ -29,6 +29,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -379,13 +380,34 @@ class ExperimentConfig:
         # Cache on first call so repeated accesses return the same path
         if self._resolved_output_dir is None:
             self._resolved_output_dir = os.path.join(
-                os.path.expanduser("~"),
-                ".lasagna",
-                "research",
-                "results",
-                f"{self.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                _results_root(), f"{_slug(self.name)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             )
         return self._resolved_output_dir
+
+    def latest_output_dir(self) -> Optional[str]:
+        """The newest default output directory of this experiment that holds
+        checkpoints, for ``--resume``; None when there is nothing to resume.
+
+        Each run without ``output_dir`` writes to a new timestamped folder, so
+        ``--resume`` used to look in a fresh, empty one and re-run every task.
+        """
+        root = Path(_results_root())
+        if not root.is_dir():
+            return None
+        prefixes = {f"{_slug(self.name)}_", f"{self.name}_"}  # older runs kept the raw name
+        candidates = [
+            d
+            for d in root.iterdir()
+            if d.is_dir()
+            and any(
+                d.name.startswith(p) and re.fullmatch(r"\d{8}_\d{6}", d.name[len(p) :])
+                for p in prefixes
+            )
+            and any((d / ".checkpoints").glob("*.json"))
+        ]
+        if not candidates:
+            return None
+        return str(max(candidates, key=lambda d: d.name[-15:]))
 
     def config_hash(self) -> str:
         blob = json.dumps(
@@ -731,6 +753,17 @@ _PIPELINE_KEYS = frozenset(
 
 _FACTORIAL_KEYS = frozenset({"factor_a", "factor_b", "held_fixed"})
 _BENCHMARK_KEYS = frozenset({"name", "split", "n_samples", "filters"})
+
+
+def _results_root() -> str:
+    return os.path.join(os.path.expanduser("~"), ".lasagna", "research", "results")
+
+
+def _slug(name: str) -> str:
+    """A folder name a shell can take unquoted: the free-text experiment name
+    ("does it help?") made the printed path fail in zsh as a glob."""
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", name.strip()).strip("._")
+    return slug or "experiment"
 
 
 def _did_you_mean(key: str, known: Iterable[str]) -> str:

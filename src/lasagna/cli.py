@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 from pathlib import Path
 from typing import List, Optional
 
@@ -960,6 +961,7 @@ def benchmark_run(
 
     if results.failed_tasks:
         console.print(f"\n[red]{len(results.failed_tasks)} task(s) failed[/red]")
+    console.print(f"Output: {escape(config.effective_output_dir())}", soft_wrap=True)
     _release_backend()
     _exit_if_tasks_failed(results)
 
@@ -983,10 +985,22 @@ def benchmark_experiment(
     if concurrency:
         exp.config.max_concurrency = concurrency
 
-    # When not resuming, clear any stale checkpoints from a previous run
+    if resume and not (exp.config.output_dir or exp.config.checkpoint_dir):
+        # Without output_dir each run gets a new timestamped folder; resume
+        # the newest one of this experiment, or say there is none.
+        latest = exp.config.latest_output_dir()
+        if latest is None:
+            _error(
+                f"Nothing to resume: no checkpoints for experiment {exp.config.name!r} under "
+                f"~/.lasagna/research/results. Run without --resume, or set output_dir: in "
+                f"the sweep to resume a specific folder."
+            )
+        exp.config._resolved_output_dir = latest
+        console.print(f"Resuming from {escape(latest)}", soft_wrap=True)
+
+    cp = CheckpointManager(exp.config.checkpoint_dir or exp.config.effective_output_dir())
     if not resume:
-        cp_dir = exp.config.checkpoint_dir or exp.config.effective_output_dir()
-        cp = CheckpointManager(cp_dir)
+        # When not resuming, clear any stale checkpoints from a previous run
         cleared = cp.clear()
         if cleared:
             console.print(f"  [dim]Cleared {cleared} stale checkpoint(s)[/dim]")
@@ -998,6 +1012,9 @@ def benchmark_experiment(
 
     tasks = exp.generate_tasks()
     console.print(f"  Total tasks: {len(tasks)}")
+    if resume:
+        done = cp.completed_keys() & {t.task_key for t in tasks}
+        console.print(f"  Resumed {len(done)} of {len(tasks)} from checkpoints")
 
     def _progress(completed: int, total: int, task_key: str):
         console.print(f"  [{completed}/{total}] {task_key}")
@@ -1015,9 +1032,14 @@ def benchmark_experiment(
         Panel.fit(
             f"[bold]Experiment Complete[/bold]\n\n"
             f"Tasks: [cyan]{results.total_tasks}[/cyan]\n"
-            f"Failed: [{'red' if results.failed_tasks else 'green'}]{len(results.failed_tasks)}[/]\n"
-            f"Output: [cyan]{output_dir}[/cyan]",
+            f"Failed: [{'red' if results.failed_tasks else 'green'}]{len(results.failed_tasks)}[/]",
         )
+    )
+    # Outside the panel, unwrapped, so the path and the command can be copied.
+    results_file = shlex.quote(str(Path(output_dir) / "results.json"))
+    console.print(f"Output: {escape(output_dir)}", soft_wrap=True)
+    console.print(
+        f"Next:   lasagna results significance {escape(results_file)} --all", soft_wrap=True
     )
     _print_isolation(results)
     _release_backend()
