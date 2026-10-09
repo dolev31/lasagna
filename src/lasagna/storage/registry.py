@@ -35,6 +35,9 @@ from loguru import logger
 
 from .base import StorageBackend
 
+#: The extra that installs each optional built-in storage backend's library.
+_EXTRA_FOR_BACKEND = {"s3": "storage-s3", "fsspec": "storage-all"}
+
 
 class StorageRegistry:
     """Registry for file storage backend classes.
@@ -185,7 +188,18 @@ class StorageRegistry:
         backend_class = self._backends.get(name)
         if not backend_class:
             available = ", ".join(self._backends.keys())
-            raise ValueError(f"Unknown storage backend '{name}'. Available: {available or 'none'}")
+            # A built-in whose library is missing is simply not registered, so
+            # name the extra instead of implying it does not exist.
+            extra = _EXTRA_FOR_BACKEND.get(name)
+            hint = (
+                f" '{name}' is built in but its library is not installed: "
+                f'pip install "lasagna-rag[{extra}]"'
+                if extra
+                else ""
+            )
+            raise ValueError(
+                f"Unknown storage backend '{name}'. Available: {available or 'none'}.{hint}"
+            )
 
         if singleton:
             cache_key = self._build_cache_key(name, kwargs)
