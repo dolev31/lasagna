@@ -71,9 +71,12 @@ Lasagna exists to make that question answerable.
 
 **All seven stages take effect.** Five at query time — `reranker`,
 `query_enhancer`, `embedder`, `retriever`, `agentic_pipeline` — and two at
-ingest: `chunker` and `document_processor`. Swap one with a single config key
-and the rest hold still, so the difference you measure belongs to the thing you
-changed.
+ingest: `chunker` and `document_processor`. In a sweep, a reranker, query
+enhancer or retriever swaps as a component with a single config key. A chunker,
+embedder or document processor swaps through its settings (`chunking_strategy`,
+`chunk_size`, `embedding_model` and so on), which re-ingest the corpus for each
+arm. Either way the rest hold still, so the difference you measure belongs to
+the thing you changed.
 
 A swapped stage *replaces* the built-in rather than layering on top of it. A
 retriever owns how candidates are found; a chunker owns how text is split.
@@ -124,7 +127,7 @@ proven absent.
 | Significance tests | Paired bootstrap, Holm, power | Not found | Not found | Paired permutation, no correction | Not found | Yes, IR runs only |
 | Interaction between components | 2×2 test with CI | Not found | Not found | Not found | Greedy search assumes none | Not found |
 | Result provenance | Bundles with a validator | Saved configs and scores | Experiment folders | Not found | Trial folders | Not found |
-| Published methods | 21 components | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
+| Published methods | 17 components | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
 | Ready corpora and indexes | Benchmark loaders, no prebuilt index | Wikipedia + prebuilt index | KILT + prebuilt index | Not found | Not found | Via ir_datasets |
 | License | Apache-2.0 | MIT | CC BY-NC-SA 4.0 | Apache-2.0 | MIT (badge) | MPL-2.0 / MIT |
 
@@ -289,7 +292,7 @@ n_runs: 3
 
 ```bash
 lasagna benchmark experiment sweep.yaml
-lasagna results significance <output>/results.json -m ndcg@10 --all
+lasagna results significance "<output>/results.json" -m ndcg@10 --all
 ```
 
 Before any corpus is ingested, the run checks that each named component
@@ -325,7 +328,8 @@ nowhere else. Lasagna checks that rather than assuming it.
   declared types, and function components get copies of what they are handed.
   A conformance suite checks that every registered component subclasses its
   stage's contract, does not mutate its input, and does not hand out chunks that
-  share one metadata dict:
+  share one metadata dict. From a source checkout (the tests are not in the
+  wheel), run
   `pytest tests/test_abc_conformance.py tests/test_stage_isolation_behavioural.py`.
 - **A stage manifest per task.** Each run records what reached each of the seven
   stages: every setting, from the configuration the search actually resolved,
@@ -348,6 +352,12 @@ Answering it needs all four cells measured on the same queries. Declare the 2×2
 and the harness builds them:
 
 ```yaml
+# compose.yaml
+name: hyde with reranking
+benchmarks:
+  - name: beir/scifact
+    n_samples: 100
+tracks: [retrieval]
 pipeline:
   base_profile: standard
   factorial:
@@ -356,8 +366,15 @@ pipeline:
 ```
 
 ```bash
-lasagna results interaction results.json --metric ndcg@10
+lasagna benchmark experiment compose.yaml
+lasagna results interaction "<output>/results.json" --metric ndcg@10
 ```
+
+Unlike the sweep above, this one is neither keyless nor small. HyDE writes a
+hypothetical answer with an LLM, so it needs an API key: without one the HyDE
+cells fail rather than report the control's number. The `standard` profile
+embeds with `BAAI/bge-m3` (about 2.3 GB on first use) and reranks with a large
+cross-encoder.
 
 ```
   expected if additive : +0.1000
@@ -385,8 +402,8 @@ boolean setting, before the first corpus is ingested.
 
 | Stage | Registered | Notes |
 |---|---:|---|
-| `reranker` | 9 | cross-encoder, ColBERT, MMR, LLM listwise, ensemble |
-| `query_enhancer` | 5 | HyDE, expansion, decomposition, combined |
+| `reranker` | 6 | cross-encoder, ColBERT, MMR, LLM listwise, ensemble, combined |
+| `query_enhancer` | 4 | HyDE, expansion, decomposition, combined |
 | `chunker` | 3 | semantic, hierarchical, structure-aware |
 | `agentic_pipeline` | 2 | default graph, legacy ReAct |
 | `embedder` | 1 | pluggable via the same interface |
@@ -506,7 +523,9 @@ Lasagna never downloads the tokenizer data by itself. Without it, sentences are
 split with a regular expression, which can move chunk boundaries, and run
 bundles record that as the `sentence_split_without_punkt` fallback.
 
-To reproduce a result exactly, install the versions the release was tested with:
+To reproduce a result exactly, install the versions the release was tested with.
+The constraints file was resolved on Python 3.12 and does not install on 3.10 or
+3.11 (its numpy needs 3.12 or later):
 
 ```bash
 pip install "lasagna-rag[eval]==0.1.0a1" -c https://raw.githubusercontent.com/dolev31/lasagna/main/constraints/0.1.0a1.txt
@@ -598,12 +617,15 @@ official sources and carry their own terms.
 pytest tests/ --ignore=tests/live --ignore=tests/stress
 ```
 
-Hermetic by default: no network, no external services, and the suite never
-touches your real `~/.rag_knowledge` store. `tests/live/` needs a running stack;
-`tests/stress/` is long-running.
+Hermetic by default: no network, no external services, and the suite runs in a
+throwaway home directory, so it never touches your real `~/.rag_knowledge` store.
+CI enforces it: sockets are blocked except loopback, and test order is shuffled
+on every run (pytest-randomly prints the seed). `tests/live/` needs a running
+stack; `tests/stress/` is long-running.
 
-Branch coverage is measured and floored in CI — branches rather than statements,
-because this package's bugs have lived overwhelmingly in error paths.
+Coverage is measured with branches on and floored in CI. The floor is on the
+combined statement and branch total, because this package's bugs have lived
+overwhelmingly in error paths.
 
 ---
 
@@ -663,6 +685,10 @@ A framework that hides its gaps wastes your time. As of this release:
   **`retriever` has no built-in component**: the default search is not
   registered as one, so a retriever sweep compares yours against search with no
   retriever override.
+- **On Apple Silicon, models take turns on the GPU.** Two threads using MPS at
+  once crash Metal, which aborted every multi-arm sweep on a Mac, so all model
+  calls on MPS now run one at a time and concurrent arms wait for each other
+  there. To run everything on the CPU instead, set `RAG_USE_GPU=false`.
 - **Stage isolation is verified for live tasks.** `generation_only` tasks
   never build the pipeline, record no stage manifest, and are reported as
   unverified rather than passed.
