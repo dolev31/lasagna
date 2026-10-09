@@ -22,6 +22,7 @@ Usage::
 
 from __future__ import annotations
 
+import math
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -189,6 +190,27 @@ def _extract_session_id(request: Request) -> str:
         return "default"
 
 
+def _rate_limit_key(request: Request) -> str:
+    """The bucket a request is counted against.
+
+    With auth on, only a verified token names a session. Keying on the
+    asserted ``X-Session-ID`` let an unauthenticated client exhaust a chosen
+    session's bucket (and, through the shared "default" bucket, block every
+    new sign-up); an unverified request is counted against its client address
+    instead. With auth off the server is loopback-only and the asserted id is
+    as good as any.
+    """
+    from lasagna.api.rest.auth_mode import require_auth
+
+    session_id = _extract_session_id(request)
+    if not require_auth():
+        return session_id
+    if getattr(request.state, "decoded_session_token", None):
+        return f"sid:{session_id}"
+    client = request.client.host if request.client else "unknown"
+    return f"ip:{client}"
+
+
 async def _rate_limit_middleware(request: Request, call_next):
     """Enforce adaptive per-tenant rate limiting.
 
@@ -208,11 +230,8 @@ async def _rate_limit_middleware(request: Request, call_next):
     if not rl.is_enabled:
         return await call_next(request)
 
-    # Resolve session_id (token > header > query param)
-    session_id = _extract_session_id(request)
-
     route = getattr(request.scope.get("route"), "path", path)
-    allowed, retry_after = rl.try_acquire(session_id, route)
+    allowed, retry_after = rl.try_acquire(_rate_limit_key(request), route)
 
     if not allowed:
         from lasagna.utils.monitoring import METRICS
@@ -221,7 +240,8 @@ async def _rate_limit_middleware(request: Request, call_next):
         return JSONResponse(
             status_code=429,
             content={"detail": "Rate limit exceeded. Please retry later."},
-            headers={"Retry-After": str(int(retry_after or 1))},
+            # Rounded up: int() truncated 0.4 s to "0" while still refusing.
+            headers={"Retry-After": str(max(1, math.ceil(retry_after or 1)))},
         )
 
     return await call_next(request)
