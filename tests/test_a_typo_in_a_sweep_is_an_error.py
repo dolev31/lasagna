@@ -102,3 +102,14 @@ def test_python_says_when_every_task_failed(tmp_path, monkeypatch):
 
     with pytest.warns(RuntimeWarning, match="All 1 task.*Couldn't reach the Hub"):
         asyncio.run(Experiment(cfg, eval_fn=failing).run())
+
+
+def test_an_unknown_profile_is_refused_before_ingestion():
+    cfg = _parse(pipeline={"base_profile": "sped"})
+    with pytest.raises(ValueError, match=r"Unknown profile 'sped' \(did you mean 'speed'\?\)"):
+        Experiment(cfg).generate_tasks()
+    cfg = _parse(
+        pipeline={"base_profile": "speed", "config_overrides": [{"name": "a", "profile": "bogus"}]}
+    )
+    with pytest.raises(ValueError, match="Unknown profile 'bogus'"):
+        Experiment(cfg).generate_tasks()

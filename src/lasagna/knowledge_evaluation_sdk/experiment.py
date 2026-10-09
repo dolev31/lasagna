@@ -646,6 +646,26 @@ def _check_components_exist(pipeline_configs: List[Dict[str, Any]]) -> None:
         )
 
 
+def _check_profiles(pipeline_configs: List[Dict[str, Any]]) -> None:
+    """Refuse an unknown profile name before any corpus is ingested.
+
+    A misspelled ``--profile`` resolved to no ingestion defaults, so the run
+    fell back to the settings-file embedder and failed much later on that
+    model's download ("Could not load any embedding model ... bge-m3"),
+    naming the wrong problem.
+    """
+    from lasagna.core.session_config._profiles import ProfileMixin
+
+    known = set(ProfileMixin._PROFILE_SPECS) | {"default"}
+    for pc in pipeline_configs:
+        name = pc.get("profile") or "standard"
+        if name not in known:
+            raise ValueError(
+                f"Unknown profile {name!r}{_did_you_mean(name, known)} in arm "
+                f"{pc.get('name')!r}. Profiles: {', '.join(sorted(known))}."
+            )
+
+
 def _known_override_keys() -> set:
     """Every key an arm can set: settings, component slots and harness keys."""
     from lasagna.core.config import RAGConfig, rag_config
@@ -1169,6 +1189,7 @@ class Experiment:
                 "agentic_pipeline arms change generation metrics only: retrieval "
                 "metrics are measured on the standard tier for every arm."
             )
+        _check_profiles(pipeline_configs)
         _check_override_keys(pipeline_configs)
         _load_component_references(pipeline_configs, [cfg.base_dir] if cfg.base_dir else [])
         _check_components_exist(pipeline_configs)
