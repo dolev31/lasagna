@@ -1442,7 +1442,7 @@ PARAMETERS: list[ParameterDef] = [
         type="enum",
         label="File Storage",
         description="Where uploaded documents are stored.",
-        help_text="'Local' stores files on disk. 'S3' works with AWS S3, MinIO, R2, and 15+ S3-compatible services. 'fsspec' supports 30+ backends including GCS and Azure. Set via RAG_STORAGE_BACKEND env var.",
+        help_text="'Local' stores files on disk. 'S3' works with AWS S3, MinIO, R2, and 15+ S3-compatible services. 'fsspec' supports 30+ backends including GCS and Azure. Set via RAG_STORAGE_BACKEND env var. The S3 and fsspec details are read from environment variables only: RAG_STORAGE_S3_BUCKET, RAG_STORAGE_S3_ENDPOINT_URL, RAG_STORAGE_S3_REGION, RAG_STORAGE_FSSPEC_PROTOCOL and RAG_STORAGE_FSSPEC_BASE_PATH.",
         tab="advanced",
         group="storage",
         default="local",
@@ -1452,7 +1452,9 @@ PARAMETERS: list[ParameterDef] = [
             EnumOption("fsspec", "Universal (fsspec)", "GCS, Azure, FTP, SFTP, 30+ backends"),
         ],
     ),
-    # S3-specific parameters (applicable when storage_backend = "s3")
+    # S3- and fsspec-specific parameters. Hidden: the storage registry reads
+    # them from RAG_STORAGE_* environment variables only, so a value saved in
+    # the UI did nothing. The storage_backend help names the variables.
     ParameterDef(
         key="storage_s3_bucket",
         type="string",
@@ -1462,6 +1464,7 @@ PARAMETERS: list[ParameterDef] = [
         tab="advanced",
         group="storage",
         default="",
+        hidden=True,
     ),
     ParameterDef(
         key="storage_s3_endpoint_url",
@@ -1472,6 +1475,7 @@ PARAMETERS: list[ParameterDef] = [
         tab="advanced",
         group="storage",
         default="",
+        hidden=True,
     ),
     ParameterDef(
         key="storage_s3_region",
@@ -1482,8 +1486,8 @@ PARAMETERS: list[ParameterDef] = [
         tab="advanced",
         group="storage",
         default="us-east-1",
+        hidden=True,
     ),
-    # fsspec-specific parameters (applicable when storage_backend = "fsspec")
     ParameterDef(
         key="storage_fsspec_protocol",
         type="string",
@@ -1493,6 +1497,7 @@ PARAMETERS: list[ParameterDef] = [
         tab="advanced",
         group="storage",
         default="",
+        hidden=True,
     ),
     ParameterDef(
         key="storage_fsspec_base_path",
@@ -1503,6 +1508,7 @@ PARAMETERS: list[ParameterDef] = [
         tab="advanced",
         group="storage",
         default="",
+        hidden=True,
     ),
 ]
 

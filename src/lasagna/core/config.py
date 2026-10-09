@@ -388,7 +388,6 @@ class RAGConfig:
             "verify_citations": True,
             "track_citations_db": True,
             "show_page_numbers": True,
-            "show_confidence_scores": False,
             "include_source_preview": True,
             "citation_db_max_age_hours": 168,  # 1 week
             "citation_db_max_per_session": 1000,

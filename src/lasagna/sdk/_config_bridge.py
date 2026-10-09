@@ -188,7 +188,6 @@ RUNTIME_FIELD_MAP: Dict[str, str] = {
     "verify_citations": "verify_citations",
     "track_citations_db": "track_citations_db",
     "show_page_numbers": "show_page_numbers",
-    "show_confidence_scores": "show_confidence_scores",
     "citation_db_max_age_hours": "citation_db_max_age_hours",
     "citation_db_max_per_session": "citation_db_max_per_session",
     # Observability (runtime-readable)

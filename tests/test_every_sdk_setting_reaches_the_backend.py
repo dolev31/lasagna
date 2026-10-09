@@ -128,3 +128,9 @@ def test_storage_paths_that_cannot_take_effect_say_so(tmp_path):
     client = KnowledgeClient(config=KnowledgeConfig(db_path=str(tmp_path / "elsewhere")))
     with pytest.warns(UserWarning, match="db_path"):
         client._apply_storage_paths()
+
+
+def test_a_setting_nothing_reads_is_not_offered():
+    """show_confidence_scores was bridged to a key no code read; setting it did nothing."""
+    with pytest.raises(TypeError):
+        KnowledgeConfig(show_confidence_scores=True)

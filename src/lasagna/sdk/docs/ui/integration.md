@@ -1278,7 +1278,6 @@ All fields from `KnowledgeConfig`. Grouped by category.
 | `verify_citations` | bool | true | Verify in DB |
 | `track_citations_db` | bool | true | Persist citations |
 | `show_page_numbers` | bool | true | Include page numbers |
-| `show_confidence_scores` | bool | false | Show scores |
 | `citation_db_max_age_hours` | int | 168 | TTL (1 week) |
 | `citation_db_max_per_session` | int | 1000 | Max per session |
 

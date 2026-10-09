@@ -431,9 +431,6 @@ class KnowledgeConfig:
     show_page_numbers: bool = True
     """Include page numbers in citations. Default: True"""
 
-    show_confidence_scores: bool = False
-    """Show confidence scores in citations. Default: False"""
-
     citation_db_max_age_hours: int = 168
     """Maximum age of citations in hours (1 week). Default: 168"""
 
