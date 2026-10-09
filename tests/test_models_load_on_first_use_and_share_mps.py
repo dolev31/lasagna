@@ -156,7 +156,9 @@ def test_the_first_encode_on_a_fresh_manager_is_guarded_too(fake_st, monkeypatch
     managers = [_manager(), _manager(), _manager()]
     fake_st.peak = 0
     threads = [
-        threading.Thread(target=lambda m=m: m.encode_documents_batch(["a", "b"], show_progress=False))
+        threading.Thread(
+            target=lambda m=m: m.encode_documents_batch(["a", "b"], show_progress=False)
+        )
         for m in managers
     ]
     for t in threads:
