@@ -38,6 +38,11 @@ fi
 step "environment"
 [[ -x "$PY" ]] || uv venv -q --python 3.12 "$VENV"
 uv pip install -q --python "$PY" -e ".[eval]" --group dev "qdrant-client>=1.7.0"
+# The plugin-template step installs the template into this venv. CI runs the
+# suite where it is not installed, and an installed plugin adds a benchmark and
+# a reranker that the README and catalogue counts do not include, so remove it
+# left over from an earlier run.
+uv pip uninstall -q --python "$PY" lasagna-plugin-template
 
 # The suite is hermetic: a throwaway HOME keeps it away from your real
 # ~/.rag_knowledge store, the model hub is offline, and sockets are blocked
