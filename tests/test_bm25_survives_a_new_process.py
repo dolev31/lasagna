@@ -48,7 +48,7 @@ def test_a_fresh_process_fills_the_index_from_the_store():
     index = s.get_session_index("sess")
     assert index._is_built
     assert [d["chunk_id"] for d in index.documents] == ["c0", "c1", "c2", "c3"]
-    hits = index.search("fox", top_k=2)
+    hits = index.search("noon", top_k=2)  # in one document, stemmed or not
     assert hits, "BM25 must answer once filled"
 
 
