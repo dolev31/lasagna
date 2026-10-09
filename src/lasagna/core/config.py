@@ -286,6 +286,11 @@ class RAGConfig:
             "chunk_size": 800,
             "chunk_overlap": 0,  # Research: no measurable benefit from overlap (arXiv:2601.14123)
             "semantic_threshold": 0.75,
+            # 'absolute' (semantic_threshold) or Kamradt's 'percentile',
+            # 'standard_deviation', 'interquartile', 'gradient'
+            "semantic_breakpoint_method": "absolute",
+            "semantic_breakpoint_amount": None,  # None = the method's default (95, 3, 1.5, 95)
+            "semantic_buffer_size": 1,  # neighbours embedded with each sentence (Kamradt)
             "min_chunk_size": 200,
             "max_chunk_size": 1500,
             "window_size": 3,
@@ -295,6 +300,30 @@ class RAGConfig:
             "child_chunk_size": 500,
             "auto_merge_threshold": 0.5,
             "enable_late_chunking": False,  # Late chunking: embed full doc, pool per chunk (Jina, arxiv:2409.04701)
+            # Tokens shared by consecutive model windows when a document is longer
+            # than one (long late chunking); capped at half a window.
+            "late_chunking_overlap": 512,
+            # What chunk_size and chunk_overlap count, for the fixed and recursive
+            # chunkers: 'chars', 'words' (runs of non-whitespace) or 'tokens'
+            # (of chunk_tokenizer: a Hugging Face tokenizer, or 'tiktoken:<encoding>').
+            "chunk_unit": "chars",
+            "chunk_tokenizer": None,
+            # Recursive chunker: paragraph, line, sentence, word, character. With
+            # ["\n\n", "\n", " ", ""] and keep 'start' it is LangChain's
+            # RecursiveCharacterTextSplitter default exactly.
+            "recursive_separators": ["\n\n", "\n", ". ", "? ", "! ", " ", ""],
+            "recursive_keep_separator": "end",  # 'end' or 'start': which piece a separator stays with
+            # Markdown header chunker (LangChain MarkdownHeaderTextSplitter semantics)
+            "markdown_header_levels": 6,  # split on # .. ###### up to this depth
+            "markdown_strip_headers": True,  # header text goes to metadata, not the chunk
+            "markdown_split_long_sections": True,  # split sections over chunk_size recursively
+            # Proposition chunker (Dense X Retrieval, arXiv:2312.06648)
+            "proposition_model": None,  # None = the configured default LLM
+            "proposition_passage_size": 100,  # words per passage handed to the LLM (paper: 100)
+            # Contextual chunker (Anthropic Contextual Retrieval)
+            "contextual_base_chunker": "recursive",  # registered chunker that makes the chunks
+            "contextual_model": None,  # None = the configured default LLM
+            "contextual_max_document_chars": 50000,  # document shown per call; None = all of it
             "preserve_tables": True,
             "preserve_headers": True,
             "extract_metadata": True,
@@ -870,6 +899,31 @@ class RAGConfig:
         )
 
     @property
+    def semantic_breakpoint_method(self) -> str:
+        """How the semantic chunker picks breakpoints: 'absolute' or a Kamradt method."""
+        return self._get_knowledge_setting(
+            "rag",
+            "semantic_breakpoint_method",
+            default=self._config["semantic_breakpoint_method"],
+        )
+
+    @property
+    def semantic_breakpoint_amount(self) -> Optional[float]:
+        """The breakpoint method's parameter; None uses the method's default."""
+        return self._get_knowledge_setting(
+            "rag",
+            "semantic_breakpoint_amount",
+            default=self._config["semantic_breakpoint_amount"],
+        )
+
+    @property
+    def semantic_buffer_size(self) -> int:
+        """Neighbouring sentences embedded with each sentence, on either side."""
+        return self._get_knowledge_setting(
+            "rag", "semantic_buffer_size", default=self._config["semantic_buffer_size"]
+        )
+
+    @property
     def min_chunk_size(self) -> int:
         return self._get_knowledge_setting(
             "rag", "min_chunk_size", default=self._config["min_chunk_size"]
@@ -909,6 +963,99 @@ class RAGConfig:
     def enable_late_chunking(self) -> bool:
         return self._get_knowledge_setting(
             "rag", "enable_late_chunking", default=self._config["enable_late_chunking"]
+        )
+
+    @property
+    def chunk_unit(self) -> str:
+        """What chunk_size and chunk_overlap count: 'chars', 'words' or 'tokens'."""
+        return self._get_knowledge_setting("rag", "chunk_unit", default=self._config["chunk_unit"])
+
+    @property
+    def chunk_tokenizer(self) -> Optional[str]:
+        """Tokenizer for chunk_unit='tokens': a Hugging Face name, or 'tiktoken:<encoding>'."""
+        return self._get_knowledge_setting(
+            "rag", "chunk_tokenizer", default=self._config["chunk_tokenizer"]
+        )
+
+    @property
+    def recursive_separators(self) -> List[str]:
+        """Separators the recursive chunker tries, coarsest first."""
+        return self._get_knowledge_setting(
+            "rag", "recursive_separators", default=self._config["recursive_separators"]
+        )
+
+    @property
+    def recursive_keep_separator(self) -> str:
+        """Whether a separator ends the piece before it ('end') or starts the next ('start')."""
+        return self._get_knowledge_setting(
+            "rag", "recursive_keep_separator", default=self._config["recursive_keep_separator"]
+        )
+
+    @property
+    def markdown_header_levels(self) -> int:
+        """Deepest Markdown header level the markdown_header chunker splits on (1-6)."""
+        return self._get_knowledge_setting(
+            "rag", "markdown_header_levels", default=self._config["markdown_header_levels"]
+        )
+
+    @property
+    def markdown_strip_headers(self) -> bool:
+        """Leave header lines out of markdown_header chunk text (they are in metadata)."""
+        return self._get_knowledge_setting(
+            "rag", "markdown_strip_headers", default=self._config["markdown_strip_headers"]
+        )
+
+    @property
+    def markdown_split_long_sections(self) -> bool:
+        """Split Markdown sections longer than chunk_size with the recursive chunker."""
+        return self._get_knowledge_setting(
+            "rag",
+            "markdown_split_long_sections",
+            default=self._config["markdown_split_long_sections"],
+        )
+
+    @property
+    def proposition_model(self) -> Optional[str]:
+        """LLM that writes propositions; None uses the configured default."""
+        return self._get_knowledge_setting(
+            "rag", "proposition_model", default=self._config["proposition_model"]
+        )
+
+    @property
+    def proposition_passage_size(self) -> int:
+        """Words per passage the proposition chunker hands to the LLM."""
+        return self._get_knowledge_setting(
+            "rag", "proposition_passage_size", default=self._config["proposition_passage_size"]
+        )
+
+    @property
+    def contextual_base_chunker(self) -> str:
+        """Registered chunker whose chunks the contextual chunker situates."""
+        return self._get_knowledge_setting(
+            "rag", "contextual_base_chunker", default=self._config["contextual_base_chunker"]
+        )
+
+    @property
+    def contextual_model(self) -> Optional[str]:
+        """LLM that writes each chunk's context; None uses the configured default."""
+        return self._get_knowledge_setting(
+            "rag", "contextual_model", default=self._config["contextual_model"]
+        )
+
+    @property
+    def contextual_max_document_chars(self) -> Optional[int]:
+        """Characters of the document in each context prompt; None for all of it."""
+        return self._get_knowledge_setting(
+            "rag",
+            "contextual_max_document_chars",
+            default=self._config["contextual_max_document_chars"],
+        )
+
+    @property
+    def late_chunking_overlap(self) -> int:
+        """Tokens shared by consecutive windows in long late chunking."""
+        return self._get_knowledge_setting(
+            "rag", "late_chunking_overlap", default=self._config["late_chunking_overlap"]
         )
 
     @property

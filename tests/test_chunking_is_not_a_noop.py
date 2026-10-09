@@ -13,7 +13,8 @@ a perfectly plausible number.
 Two smaller defects in the same area: `create_chunker` computed a strategy,
 logged "Created chunker with strategy: X", and returned a chunker that ignored
 it; and `chunking_strategy="recursive"` was accepted, documented as "splits by
-separators", and silently ran fixed-size chunking.
+separators", and silently ran fixed-size chunking. It was refused until it had
+a real implementation; it now runs recursive separator splitting.
 """
 
 from __future__ import annotations
@@ -114,21 +115,30 @@ class TestTheShadowingIsAnnounced:
         assert a == b
 
 
-class TestRecursiveIsRefusedNotFaked:
-    def test_requesting_recursive_raises(self):
-        with pytest.raises(ValueError, match="recursive"):
-            resolve_effective_strategy(_Config(strategy="recursive"))
-
-    def test_the_error_names_the_real_options(self):
-        with pytest.raises(ValueError) as exc:
-            resolve_effective_strategy(_Config(strategy="recursive"))
-        message = str(exc.value)
-        assert "fixed" in message and "semantic" in message
+class TestRecursiveRunsTheRecursiveAlgorithm:
+    def test_requesting_recursive_resolves_to_recursive(self):
+        assert resolve_effective_strategy(_Config(strategy="recursive")) == "recursive"
 
     def test_it_is_still_in_the_enum(self):
-        """Kept so existing config does not fail to parse — it fails to *run*,
-        loudly, which is the difference that matters."""
         assert ChunkingStrategy.RECURSIVE.value == "recursive"
+
+    def test_recursive_and_fixed_produce_different_chunks(self):
+        """It used to fall through to fixed-size chunking under its own name."""
+        from lasagna.core.config import rag_config
+        from lasagna.processing.chunker.semantic import chunk_document
+
+        text = ("A short paragraph about chunking.\n\n" + "word " * 60 + "\n\n") * 4
+        flat = {"enable_hierarchical": False, "preserve_headers": False, "preserve_tables": False}
+
+        def run(strategy):
+            config = rag_config.with_query_overrides(
+                {**flat, "chunking_strategy": strategy, "chunk_size": 120}
+            )
+            return [c for c, _ in chunk_document(text, "d", "s", "f", config=config)]
+
+        recursive = run("recursive")
+        assert recursive != run("fixed")
+        assert "A short paragraph about chunking." in recursive
 
 
 class TestCreateChunkerNoLongerLies:
@@ -142,6 +152,6 @@ class TestCreateChunkerNoLongerLies:
         chunker = create_chunker(strategy="fixed", config=cfg)
         assert chunker.effective_strategy == ChunkingStrategy.HIERARCHICAL.value
 
-    def test_create_chunker_rejects_recursive(self):
-        with pytest.raises(ValueError, match="recursive"):
-            create_chunker(strategy="recursive", config=_Config())
+    def test_create_chunker_reports_recursive(self):
+        chunker = create_chunker(strategy="recursive", config=_Config(strategy="recursive"))
+        assert chunker.effective_strategy == "recursive"

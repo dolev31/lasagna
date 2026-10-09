@@ -380,3 +380,87 @@ class DoclingProcessor:
             if "formula" in label_lower:
                 return "formula"
         return "text"
+
+
+# ---------------------------------------------------------------------------
+# ABC-compliant component
+# ---------------------------------------------------------------------------
+
+from lasagna.core.base_components import (  # noqa: E402
+    BaseDocumentProcessor,
+    ProcessedDocument,
+)
+
+
+class DoclingDocumentProcessor(BaseDocumentProcessor):
+    """Docling: layout analysis, TableFormer tables and OCR, exported as Markdown.
+
+    The same converter the pipeline uses when ``docling_enabled`` is on (the
+    process-wide ``DoclingProcessor``, built from the first config it sees),
+    run for extraction only: the Markdown it exports goes to the arm's chunker,
+    so a comparison of processors is not also a comparison of chunkers. That
+    is the difference from the built-in Docling path, which chunks with
+    Docling's own HybridChunker.
+
+    Settings: ``docling_mode``, ``docling_ocr_enabled``,
+    ``docling_table_structure``, ``docling_timeout``. Needs
+    ``pip install 'lasagna-rag[docling]'``. Reference: Auer et al., "Docling
+    Technical Report", arXiv:2408.09869.
+    """
+
+    # Reads the arm's docling_* settings.
+    _forwards_session_config = True
+
+    #: Formats Docling converts.
+    EXTENSIONS = [
+        ".pdf",
+        ".docx",
+        ".pptx",
+        ".xlsx",
+        ".html",
+        ".htm",
+        ".md",
+        ".csv",
+        ".adoc",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tif",
+        ".tiff",
+        ".bmp",
+    ]
+
+    def __init__(self, config: Optional[RAGConfig] = None, **kwargs):
+        self._config = config
+
+    @property
+    def name(self) -> str:
+        return "docling"
+
+    @property
+    def supported_extensions(self) -> List[str]:
+        return list(self.EXTENSIONS)
+
+    def extract(self, file_path: str, **kwargs) -> ProcessedDocument:
+        if not is_docling_available():
+            raise ImportError(
+                "the docling processor needs Docling: pip install 'lasagna-rag[docling]'"
+            )
+        cfg = kwargs.get("config") or self._config or rag_config
+        processor = DoclingProcessor.get_instance(cfg)
+        result = _convert_with_timeout(
+            processor._get_converter(), file_path, float(getattr(cfg, "docling_timeout", 0) or 0)
+        )
+        doc = result.document
+        text = doc.export_to_markdown()
+        tables = []
+        for table in getattr(doc, "tables", None) or []:
+            try:
+                tables.append(table.export_to_markdown(doc=doc))
+            except TypeError:  # docling-core before tables took the document
+                tables.append(table.export_to_markdown())
+        return ProcessedDocument(
+            text=text,
+            metadata={"source": file_path, "processor": "docling"},
+            tables=tables or None,
+        )

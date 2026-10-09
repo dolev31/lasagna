@@ -12,6 +12,8 @@ import hashlib
 from functools import lru_cache
 from typing import List, Tuple, Optional, Dict, Any, Union
 from enum import Enum
+
+import numpy as np
 from loguru import logger
 
 try:
@@ -72,6 +74,47 @@ def _note_regex_split() -> None:
     )
 
 
+#: Whether this process has looked for (and tried to fetch) NLTK's Punkt data.
+
+#: Breakpoint methods for semantic chunking. "absolute" is this package's
+#: original rule (split where adjacent sentences fall below semantic_threshold,
+#: within min/max sizes); the others are Kamradt's, with LangChain's
+#: SemanticChunker defaults for semantic_breakpoint_amount.
+BREAKPOINT_DEFAULTS: Dict[str, Optional[float]] = {
+    "absolute": None,
+    "percentile": 95.0,
+    "standard_deviation": 3.0,
+    "interquartile": 1.5,
+    "gradient": 95.0,
+}
+
+
+def breakpoint_threshold(
+    distances: List[float], method: str, amount: float
+) -> Tuple[float, np.ndarray]:
+    """The distance above which a gap between sentences is a breakpoint.
+
+    As LangChain's ``SemanticChunker`` computes it. Returns the threshold and
+    the series it applies to: the distances, or for ``gradient`` their
+    gradient. ``interquartile`` is the mean plus ``amount`` interquartile ranges
+    (LangChain's form, not Tukey's Q3 + 1.5 IQR).
+    """
+    d = np.asarray(distances, dtype=float)
+    if method == "percentile":
+        return float(np.percentile(d, amount)), d
+    if method == "standard_deviation":
+        return float(np.mean(d) + amount * np.std(d)), d
+    if method == "interquartile":
+        q1, q3 = np.percentile(d, [25, 75])
+        return float(np.mean(d) + amount * (q3 - q1)), d
+    if method == "gradient":
+        g = np.gradient(d, range(len(d)))
+        return float(np.percentile(g, amount)), g
+    raise ValueError(
+        f"semantic_breakpoint_method must be one of {sorted(BREAKPOINT_DEFAULTS)}, got {method!r}"
+    )
+
+
 class ChunkingStrategy(str, Enum):
     """Available chunking strategies."""
 
@@ -119,13 +162,17 @@ class SemanticChunker:
     creating coherent chunks that preserve meaning.
     """
 
-    def __init__(self, embedding_manager=None):
+    def __init__(self, embedding_manager=None, config: Optional[RAGConfig] = None):
         """Initialize semantic chunker.
 
         Args:
             embedding_manager: Optional embedding manager for semantic splitting
+            config: The settings to chunk with. Defaults to the process-wide
+                config; ``chunk_document`` passes the arm's, so a swept
+                ``chunk_size`` reaches the chunker instead of the global value.
         """
         self.embedding_manager = embedding_manager
+        self._config = config if config is not None else rag_config
 
     def _split_sentences(self, text: str) -> List[str]:
         """Split text into sentences: nltk's punkt when installed, else a regex."""
@@ -140,6 +187,19 @@ class SemanticChunker:
         # Fallback: simple regex-based splitting
         sentences = re.split(r"(?<=[.!?])\s+", text)
         return [s.strip() for s in sentences if s.strip()]
+
+    @staticmethod
+    def _sentence_starts(text: str, sentences: List[str]) -> List[int]:
+        """Where each sentence starts in ``text``, searching forward in order."""
+        starts = []
+        pos = 0
+        for sentence in sentences:
+            start = text.find(sentence, pos)
+            if start == -1:
+                start = pos  # the tokenizer changed the sentence; keep the order
+            starts.append(start)
+            pos = start + len(sentence)
+        return starts
 
     def chunk_semantic(
         self,
@@ -165,9 +225,10 @@ class SemanticChunker:
             logger.warning("No embedding manager - falling back to fixed chunking")
             return self.chunk_fixed(text)
 
-        threshold = threshold or rag_config.semantic_threshold
-        min_size = min_size or rag_config.min_chunk_size
-        max_size = max_size or rag_config.max_chunk_size
+        # `is not None`, not `or`: a threshold of 0.0 is a value, not a gap.
+        threshold = threshold if threshold is not None else self._config.semantic_threshold
+        min_size = min_size if min_size is not None else self._config.min_chunk_size
+        max_size = max_size if max_size is not None else self._config.max_chunk_size
 
         sentences = self._split_sentences(text)
         if not sentences:
@@ -185,14 +246,7 @@ class SemanticChunker:
         current_start = 0
 
         # Pre-compute sentence start positions for accurate char tracking
-        sentence_starts = []
-        pos = 0
-        for sentence in sentences:
-            start = text.find(sentence, pos)
-            if start == -1:
-                start = pos  # fallback if sentence was modified by tokenizer
-            sentence_starts.append(start)
-            pos = start + len(sentence)
+        sentence_starts = self._sentence_starts(text, sentences)
 
         for i, (sentence, embedding) in enumerate(zip(sentences, embeddings)):
             current_chunk.append(sentence)
@@ -234,6 +288,93 @@ class SemanticChunker:
         logger.info(f"Semantic chunking: {len(sentences)} sentences -> {len(chunks)} chunks")
         return chunks
 
+    def chunk_semantic_breakpoints(
+        self,
+        text: str,
+        method: Optional[str] = None,
+        amount: Optional[float] = None,
+        buffer_size: Optional[int] = None,
+    ) -> List[Chunk]:
+        """Kamradt's semantic chunking: split where meaning shifts most.
+
+        Each sentence is embedded together with ``buffer_size`` neighbours on
+        either side; a gap whose cosine distance to the next exceeds the
+        method's threshold (95th percentile by default) is a breakpoint. No size
+        limits apply, as in the original. Chunk text is the source slice from the
+        first sentence of a group to the end of its last.
+
+        Reference: G. Kamradt, "5 Levels of Text Splitting" (2024), as
+        implemented by LangChain's ``SemanticChunker``.
+        """
+        cfg = self._config
+        method = method or getattr(cfg, "semantic_breakpoint_method", "percentile")
+        if method not in BREAKPOINT_DEFAULTS or method == "absolute":
+            raise ValueError(
+                f"breakpoint method must be one of "
+                f"{sorted(m for m in BREAKPOINT_DEFAULTS if m != 'absolute')}, got {method!r}"
+            )
+        if amount is None:
+            amount = getattr(cfg, "semantic_breakpoint_amount", None)
+        if amount is None:
+            amount = BREAKPOINT_DEFAULTS[method]
+        if buffer_size is None:
+            buffer_size = getattr(cfg, "semantic_buffer_size", 1)
+        if self.embedding_manager is None:
+            raise RuntimeError("semantic chunking needs an embedding model, and none was given")
+
+        sentences = self._split_sentences(text)
+        if not sentences:
+            return []
+        starts = self._sentence_starts(text, sentences)
+        ends = [st + len(sentence) for st, sentence in zip(starts, sentences)]
+
+        def group(first: int, last: int) -> Chunk:
+            return Chunk(
+                content=text[starts[first] : ends[last]],
+                chunk_index=0,
+                start_char=starts[first],
+                end_char=ends[last],
+                metadata={"sentence_start": first, "sentence_end": last + 1},
+            )
+
+        n = len(sentences)
+        # Too few gaps to rank: one sentence is one chunk, and the gradient of a
+        # single distance is undefined (LangChain returns the two sentences).
+        if n == 1 or (method == "gradient" and n == 2):
+            out = [group(i, i) for i in range(n)]
+        else:
+            b = int(buffer_size)
+            windows = [" ".join(sentences[max(0, i - b) : i + b + 1]) for i in range(n)]
+            vectors = np.asarray(
+                self.embedding_manager.encode_documents_batch(windows, show_progress=False),
+                dtype=float,
+            )
+            norms = np.linalg.norm(vectors, axis=1)
+            norms[norms == 0] = 1.0
+            unit = vectors / norms[:, None]
+            distances = [1.0 - float(np.dot(unit[i], unit[i + 1])) for i in range(n - 1)]
+            threshold, series = breakpoint_threshold(distances, method, float(amount))
+            breaks = [i for i, value in enumerate(series) if value > threshold]
+            out = []
+            first = 0
+            for i in breaks:
+                out.append(group(first, i))
+                first = i + 1
+            if first < n:
+                out.append(group(first, n - 1))
+
+        for i, chunk in enumerate(out):
+            chunk.chunk_index = i
+        logger.info(f"Semantic chunking ({method}): {n} sentences -> {len(out)} chunks")
+        return out
+
+    def chunk_semantic_configured(self, text: str) -> List[Chunk]:
+        """Semantic chunking by the configured ``semantic_breakpoint_method``."""
+        method = getattr(self._config, "semantic_breakpoint_method", "absolute")
+        if method == "absolute" or self.embedding_manager is None:
+            return self.chunk_semantic(text)
+        return self.chunk_semantic_breakpoints(text)
+
     def chunk_fixed(
         self, text: str, chunk_size: Optional[int] = None, overlap: Optional[int] = None
     ) -> List[Chunk]:
@@ -249,8 +390,8 @@ class SemanticChunker:
         Returns:
             List of Chunk objects
         """
-        chunk_size = chunk_size if chunk_size is not None else rag_config.chunk_size
-        overlap = overlap if overlap is not None else rag_config.chunk_overlap
+        chunk_size = chunk_size if chunk_size is not None else self._config.chunk_size
+        overlap = overlap if overlap is not None else self._config.chunk_overlap
 
         if not text or not text.strip():
             return []
@@ -311,8 +452,9 @@ class SemanticChunker:
         Raises:
             ValueError: If overlap >= window_size (would cause infinite loop)
         """
-        window_size = window_size or rag_config.window_size
-        overlap = overlap or rag_config.sentence_overlap
+        # `or` turned a requested overlap of 0 into the configured default of 1.
+        window_size = window_size if window_size is not None else self._config.window_size
+        overlap = overlap if overlap is not None else self._config.sentence_overlap
 
         # Validate to prevent infinite loop
         if overlap >= window_size:
@@ -325,6 +467,7 @@ class SemanticChunker:
         sentences = self._split_sentences(text)
         if not sentences:
             return []
+        starts = self._sentence_starts(text, sentences)
 
         chunks = []
         i = 0
@@ -337,16 +480,24 @@ class SemanticChunker:
         while i < len(sentences):
             window = sentences[i : i + window_size]
             chunk_content = " ".join(window)
+            last = i + len(window) - 1
 
             if chunk_content.strip():
                 chunks.append(
                     Chunk(
                         content=chunk_content.strip(),
                         chunk_index=len(chunks),
+                        start_char=starts[i],
+                        end_char=starts[last] + len(sentences[last]),
                         metadata={"sentence_start": i, "sentence_end": i + len(window)},
                     )
                 )
 
+            # The window that reaches the last sentence is the last one. Going
+            # on emitted trailing windows wholly inside the one before, each a
+            # duplicate retrieval hit.
+            if i + window_size >= len(sentences):
+                break
             i += step
 
         logger.info(f"Sentence window chunking: {len(sentences)} sentences -> {len(chunks)} chunks")
@@ -381,8 +532,9 @@ class HierarchicalChunker:
         Returns:
             Tuple of (parent_chunks, child_chunks)
         """
-        parent_size = parent_size if parent_size is not None else rag_config.parent_chunk_size
-        child_size = child_size if child_size is not None else rag_config.child_chunk_size
+        cfg = self.semantic_chunker._config
+        parent_size = parent_size if parent_size is not None else cfg.parent_chunk_size
+        child_size = child_size if child_size is not None else cfg.child_chunk_size
 
         # Create parent chunks
         parent_chunks = self.semantic_chunker.chunk_fixed(text, chunk_size=parent_size, overlap=0)
@@ -468,7 +620,7 @@ class StructureAwareChunker:
                     current_header = section_header
 
                 # Handle special content types
-                if rag_config.preserve_tables:
+                if self.semantic_chunker._config.preserve_tables:
                     section_text, table_chunks = self._extract_tables(
                         section_text, len(chunks), current_header, page_number
                     )
@@ -478,7 +630,7 @@ class StructureAwareChunker:
                     chunks.extend(table_chunks)
 
                 # Chunk remaining text
-                text_chunks = self.semantic_chunker.chunk_semantic(section_text)
+                text_chunks = self.semantic_chunker.chunk_semantic_configured(section_text)
 
                 for chunk in text_chunks:
                     chunk.chunk_index = len(chunks)
@@ -598,19 +750,8 @@ def resolve_effective_strategy(config, requested=None) -> str:
     That is invisible and it is worse than a crash. A chunking ablation sweeping
     ``fixed`` against ``semantic`` produces byte-identical arms, a difference of
     exactly zero, and a confident conclusion that chunking does not matter.
-
-    Raises on ``recursive``: the enum accepts it, the configurator documents it
-    as "splits by separators", and the dispatch falls through to fixed-size
-    chunking. Running one algorithm under another's name is the one option worse
-    than not offering it.
     """
     requested = requested or config.chunking_strategy
-    if str(requested) == ChunkingStrategy.RECURSIVE.value:
-        raise ValueError(
-            "chunking_strategy='recursive' is declared but not implemented -- it "
-            "would silently run fixed-size chunking. Use 'fixed', 'semantic' or "
-            "'sentence_window'."
-        )
 
     if config.enable_hierarchical:
         effective = ChunkingStrategy.HIERARCHICAL.value
@@ -649,11 +790,10 @@ def create_chunker(
         Configured chunker instance
     """
     config = config or rag_config
-    # Resolves and warns; also rejects 'recursive' rather than quietly running
-    # fixed-size chunking under that name.
+    # Resolves and warns when a structural flag shadows the request.
     effective = resolve_effective_strategy(config, strategy)
 
-    chunker = SemanticChunker(embedding_manager=embedding_manager)
+    chunker = SemanticChunker(embedding_manager=embedding_manager, config=config)
     # Carried on the instance so a caller can see what it actually got. The
     # previous version logged the requested strategy and returned a chunker
     # that ignored it, which made the log actively misleading.
@@ -777,7 +917,15 @@ def chunk_document(
         logger.info(f"Chunking with injected component: {component.name}")
     else:
         resolve_effective_strategy(config, strategy)
-    chunker = SemanticChunker(embedding_manager=embedding_manager)
+    # The arm's config, not the process-wide one: the strategies below read
+    # chunk_size and friends from it, and with the global config two arms
+    # sweeping chunk_size produced the same chunks. Only the built-in
+    # strategies need it (and its NLTK check).
+    chunker = (
+        SemanticChunker(embedding_manager=embedding_manager, config=config)
+        if component is None
+        else None
+    )
 
     parent_chunks_data: Optional[List[Dict[str, Any]]] = None
 
@@ -786,7 +934,10 @@ def chunk_document(
 
     # Component branch first: it is the whole point of injecting one.
     if component is not None:
-        chunks = adapt_component_chunks(component.chunk(text), text)
+        # Built-ins read the arm's settings (chunk_size, the breakpoint method);
+        # a user's chunker is shown only the public contract.
+        extra = {"config": config} if getattr(component, "_forwards_session_config", False) else {}
+        chunks = adapt_component_chunks(component.chunk(text, **extra), text)
     # Hierarchical chunking: parent-child structure for auto-merge retrieval
     elif config.enable_hierarchical:
         hierarchical_chunker = HierarchicalChunker(chunker)
@@ -828,9 +979,15 @@ def chunk_document(
         structure_chunker = StructureAwareChunker(chunker)
         chunks = structure_chunker.chunk_with_structure(text)
     elif strategy == ChunkingStrategy.SEMANTIC and embedding_manager:
-        chunks = chunker.chunk_semantic(text)
+        chunks = chunker.chunk_semantic_configured(text)
     elif strategy == ChunkingStrategy.SENTENCE_WINDOW:
         chunks = chunker.chunk_sentence_window(text)
+    elif strategy == ChunkingStrategy.RECURSIVE:
+        # It used to fall through to fixed-size chunking under this name, and
+        # was refused until there was a real implementation to run.
+        from .splitters import RecursiveChunker
+
+        chunks = adapt_component_chunks(RecursiveChunker(config=config).chunk(text), text)
     else:
         chunks = chunker.chunk_fixed(text)
 
@@ -885,21 +1042,63 @@ from lasagna.core.base_components import BaseChunker, Chunk as BaseChunk  # noqa
 
 
 class SemanticChunkerAdapter(BaseChunker):
-    """Adapts ``SemanticChunker`` to the public ``BaseChunker`` ABC."""
+    """Semantic chunking: split where adjacent sentences' embeddings diverge.
 
-    def __init__(self, embedding_manager=None, **kwargs):
-        self._inner = SemanticChunker(embedding_manager=embedding_manager)
+    ``semantic_breakpoint_method`` picks the rule. ``percentile``,
+    ``standard_deviation``, ``interquartile`` and ``gradient`` are Kamradt's
+    (G. Kamradt, "5 Levels of Text Splitting", 2024; LangChain's
+    ``SemanticChunker``): embed each sentence with ``semantic_buffer_size``
+    neighbours, and break where the cosine distance to the next exceeds the
+    method's threshold over the document, set by ``semantic_breakpoint_amount``
+    (95th percentile, 3 standard deviations, 1.5 IQR, 95th percentile of the
+    gradient). ``absolute``, the default for continuity with earlier results,
+    breaks where similarity falls below ``semantic_threshold`` while the chunk is
+    within ``min_chunk_size``..``max_chunk_size`` characters.
+
+    Embeds with the arm's ``embedding_model`` unless an ``embedding_manager`` is
+    given, loading it once per process. Without a model to load it raises; it
+    no longer falls back to fixed-size chunking under this name.
+    """
+
+    # Reads the arm's breakpoint method, thresholds and embedding model.
+    _forwards_session_config = True
+
+    def __init__(self, embedding_manager=None, config=None, **kwargs):
+        self._embedding_manager = embedding_manager
+        self._config = config
+
+    @property
+    def name(self) -> str:
+        return "semantic"
 
     def chunk(self, text: str, **kwargs) -> List[BaseChunk]:
-        # Only forward kwargs accepted by chunk_semantic
+        if not text or not text.strip():
+            return []
+        config = kwargs.get("config") or self._config or rag_config
+        manager = self._embedding_manager
+        if manager is None:
+            from lasagna.infrastructure.embedding.manager import shared_embedding_manager
+
+            manager = shared_embedding_manager(config)
+        inner = SemanticChunker(embedding_manager=manager, config=config)
+        method = kwargs.get("breakpoint_method") or config.semantic_breakpoint_method
+        if method != "absolute":
+            return inner.chunk_semantic_breakpoints(
+                text,
+                method=method,
+                amount=kwargs.get("breakpoint_amount"),
+                buffer_size=kwargs.get("buffer_size"),
+            )
+        # Only forward kwargs accepted by chunk_semantic, under its own names:
+        # passing min_chunk_size through as-is raised TypeError.
         accepted = {}
         if "threshold" in kwargs:
             accepted["threshold"] = kwargs["threshold"]
         if "min_chunk_size" in kwargs:
-            accepted["min_chunk_size"] = kwargs["min_chunk_size"]
+            accepted["min_size"] = kwargs["min_chunk_size"]
         if "max_chunk_size" in kwargs:
-            accepted["max_chunk_size"] = kwargs["max_chunk_size"]
-        return self._inner.chunk_semantic(text, **accepted)
+            accepted["max_size"] = kwargs["max_chunk_size"]
+        return inner.chunk_semantic(text, **accepted)
 
 
 class HierarchicalChunkerAdapter(BaseChunker):
@@ -912,15 +1111,27 @@ class HierarchicalChunkerAdapter(BaseChunker):
 
     _ACCEPTED_KWARGS = frozenset({"parent_size", "child_size"})
 
-    def __init__(self, semantic_chunker=None, **kwargs):
-        sc = semantic_chunker or SemanticChunker()
+    # Reads the arm's parent_chunk_size and child_chunk_size.
+    _forwards_session_config = True
+
+    def __init__(self, semantic_chunker=None, config=None, **kwargs):
+        self._fixed_chunker = semantic_chunker is not None
+        sc = semantic_chunker or SemanticChunker(config=config)
         self._inner = HierarchicalChunker(sc)
 
     def _filter_kwargs(self, kwargs: dict) -> dict:
         return {k: v for k, v in kwargs.items() if k in self._ACCEPTED_KWARGS}
 
+    def _for(self, kwargs: dict) -> HierarchicalChunker:
+        config = kwargs.get("config")
+        if config is None or self._fixed_chunker:
+            return self._inner
+        return HierarchicalChunker(SemanticChunker(config=config))
+
     def chunk(self, text: str, **kwargs) -> List[BaseChunk]:
-        _parents, children = self._inner.chunk_hierarchical(text, **self._filter_kwargs(kwargs))
+        _parents, children = self._for(kwargs).chunk_hierarchical(
+            text, **self._filter_kwargs(kwargs)
+        )
         return children
 
     def chunk_with_parents(self, text: str, **kwargs) -> Tuple[List[BaseChunk], List[BaseChunk]]:
@@ -929,16 +1140,77 @@ class HierarchicalChunkerAdapter(BaseChunker):
         Returns:
             Tuple of (parent_chunks, child_chunks).
         """
-        return self._inner.chunk_hierarchical(text, **self._filter_kwargs(kwargs))
+        return self._for(kwargs).chunk_hierarchical(text, **self._filter_kwargs(kwargs))
+
+
+class SentenceWindowChunkerAdapter(BaseChunker):
+    """Sliding windows of whole sentences: the ``sentence_window`` strategy.
+
+    Each chunk is ``window_size`` consecutive sentences, and consecutive chunks
+    share ``sentence_overlap`` of them. Sentences come from NLTK's Punkt
+    tokenizer when its data is installed, else a regex on terminal punctuation.
+    The chunk text joins its sentences with single spaces; ``start_char`` and
+    ``end_char`` span them in the source.
+
+    Not LlamaIndex's ``SentenceWindowNodeParser``, which indexes single
+    sentences and swaps in their neighbours after retrieval.
+
+    Settings: ``window_size``, ``sentence_overlap``.
+    """
+
+    # Reads the arm's window_size and sentence_overlap.
+    _forwards_session_config = True
+
+    def __init__(
+        self,
+        config=None,
+        window_size: Optional[int] = None,
+        sentence_overlap: Optional[int] = None,
+        **kwargs,
+    ):
+        self._config = config
+        self._window_size = window_size
+        self._overlap = sentence_overlap
+
+    @property
+    def name(self) -> str:
+        return "sentence_window"
+
+    def chunk(self, text: str, **kwargs) -> List[BaseChunk]:
+        inner = SemanticChunker(config=kwargs.get("config") or self._config)
+        return inner.chunk_sentence_window(
+            text, window_size=self._window_size, overlap=self._overlap
+        )
 
 
 class StructureAwareChunkerAdapter(BaseChunker):
-    """Adapts ``StructureAwareChunker`` to the public ``BaseChunker`` ABC."""
+    """Adapts ``StructureAwareChunker`` to the public ``BaseChunker`` ABC.
 
-    def __init__(self, semantic_chunker=None, **kwargs):
-        sc = semantic_chunker or SemanticChunker()
-        self._inner = StructureAwareChunker(sc)
+    Tables become chunks of their own and headers mark sections; the text in
+    between is chunked semantically, as on the built-in path, with the arm's
+    embedding model. Without an ``embedding_manager`` it loads that model
+    (once per process) rather than chunking the text by size, which is what it
+    did unannounced when built with no arguments.
+    """
+
+    # Reads the arm's table, semantic and embedding settings.
+    _forwards_session_config = True
+
+    def __init__(self, semantic_chunker=None, config=None, embedding_manager=None, **kwargs):
+        self._semantic_chunker = semantic_chunker
+        self._config = config
+        self._embedding_manager = embedding_manager
 
     def chunk(self, text: str, **kwargs) -> List[BaseChunk]:
-        # chunk_with_structure() accepts no extra parameters
-        return self._inner.chunk_with_structure(text)
+        if not text or not text.strip():
+            return []
+        sc = self._semantic_chunker
+        if sc is None:
+            config = kwargs.get("config") or self._config or rag_config
+            manager = self._embedding_manager
+            if manager is None:
+                from lasagna.infrastructure.embedding.manager import shared_embedding_manager
+
+                manager = shared_embedding_manager(config)
+            sc = SemanticChunker(embedding_manager=manager, config=config)
+        return StructureAwareChunker(sc).chunk_with_structure(text)
