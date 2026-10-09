@@ -264,6 +264,7 @@ class ComponentRegistry:
         _r = "lasagna.retrieval.search.ranker:"
         _e = "lasagna.retrieval.enhancement.enhancer:"
         _c = "lasagna.processing.chunker.semantic:"
+        _a = "lasagna.retrieval.enhancement.augmentation:"
         builtins = [
             # (stage, name, "module:Class", description, paper, aliases)
             (
@@ -385,6 +386,38 @@ class ComponentRegistry:
                 "Built-in extraction (pypdf and pdfplumber, OCR when enabled)",
                 None,
                 ["default_adapted"],
+            ),
+            (
+                "query_enhancer",
+                "step_back",
+                _a + "StepBackEnhancer",
+                "Step-back prompting: the question and a more generic step-back question",
+                "arxiv:2310.06117",
+                [],
+            ),
+            (
+                "query_enhancer",
+                "query2doc",
+                _a + "Query2DocEnhancer",
+                "Query2doc: the query followed by an LLM-written pseudo-document",
+                "arxiv:2303.07678",
+                [],
+            ),
+            (
+                "query_enhancer",
+                "rewrite",
+                _a + "RewriteEnhancer",
+                "Rewrite-Retrieve-Read: search queries rewritten by an LLM",
+                "arxiv:2305.14283",
+                [],
+            ),
+            (
+                "query_enhancer",
+                "multi_query",
+                _a + "MultiQueryEnhancer",
+                "RAG-Fusion: LLM-generated search queries, fused by reciprocal rank",
+                "arxiv:2402.03367",
+                [],
             ),
         ]
         for stage, name, factory, description, paper, aliases in builtins:

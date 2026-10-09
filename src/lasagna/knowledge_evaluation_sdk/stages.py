@@ -211,6 +211,7 @@ _PREFIXES: Tuple[Tuple[str, str], ...] = (
     ("ensemble_reranker_", "reranker"),
     ("auto_refine_", "agentic_pipeline"),
     ("speculative_", "agentic_pipeline"),
+    ("query2doc_", "query_enhancer"),
 )
 
 

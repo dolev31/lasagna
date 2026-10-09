@@ -369,6 +369,12 @@ class RAGConfig:
             "enable_contextual_retrieval": False,  # Anthropic-style chunk enrichment at index time
             "enable_rag_fusion": False,  # Multi-query generation + RRF fusion
             "rag_fusion_n_queries": 3,  # Number of query variations for RAG Fusion
+            # Query2doc (arXiv:2303.07678): the expansion form ('dense': q [SEP] d';
+            # 'sparse': q repeated n times, then d'), n, and the pseudo-document's
+            # token budget, all at the paper's values.
+            "query2doc_format": "dense",
+            "query2doc_query_repeats": 5,
+            "query2doc_max_tokens": 128,
             "enable_crag": False,  # Corrective RAG: LLM grades retrieval quality
             "crag_web_search_fallback": False,  # Fall back to web search if retrieval quality is low
             # =================================================================
@@ -1254,6 +1260,27 @@ class RAGConfig:
         """Number of query variations to generate for RAG Fusion."""
         return self._get_knowledge_setting(
             "rag", "rag_fusion_n_queries", default=self._config["rag_fusion_n_queries"]
+        )
+
+    @property
+    def query2doc_format(self) -> str:
+        """Query2doc: 'dense' (q [SEP] d') or 'sparse' (q repeated, then d')."""
+        return self._get_knowledge_setting(
+            "rag", "query2doc_format", default=self._config["query2doc_format"]
+        )
+
+    @property
+    def query2doc_query_repeats(self) -> int:
+        """Query2doc: how many times the query precedes its pseudo-document (sparse form)."""
+        return self._get_knowledge_setting(
+            "rag", "query2doc_query_repeats", default=self._config["query2doc_query_repeats"]
+        )
+
+    @property
+    def query2doc_max_tokens(self) -> int:
+        """Query2doc: token budget for the generated pseudo-document."""
+        return self._get_knowledge_setting(
+            "rag", "query2doc_max_tokens", default=self._config["query2doc_max_tokens"]
         )
 
     @property
