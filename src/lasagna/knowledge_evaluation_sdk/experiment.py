@@ -362,6 +362,9 @@ class ExperimentConfig:
     #: Evaluation tracks to run: "retrieval", "generation", or both (the
     #: default). A component sweep scored on retrieval needs no LLM or RAGAS.
     tracks: List[str] = field(default_factory=lambda: ["retrieval", "generation"])
+    #: Folder of the sweep file, where `module:function` components are found.
+    #: Set by `Experiment.from_file`; not a YAML key.
+    base_dir: str = ""
     _resolved_output_dir: Optional[str] = field(default=None, repr=False)
 
     def effective_output_dir(self) -> str:
@@ -554,7 +557,7 @@ def _check_components_exist(pipeline_configs: List[Dict[str, Any]]) -> None:
         for key, value in (pc.get("overrides") or {}).items():
             if key in _COMPONENT_KEYS and isinstance(value, str):
                 known = registry.list(key).get(key, [])
-                if value not in known:
+                if not registry.has(key, value):
                     unknown.append(
                         f"{pc.get('name')}: {key}={value!r} (registered: {sorted(known)})"
                     )
@@ -565,6 +568,70 @@ def _check_components_exist(pipeline_configs: List[Dict[str, Any]]) -> None:
             "Install your component as a lasagna_components entry point "
             "(see docs/contributing-components.md)."
         )
+
+
+def _load_component_references(
+    pipeline_configs: List[Dict[str, Any]], search_paths: List[str]
+) -> None:
+    """Import and register every ``module:function`` an arm names.
+
+    One line in the sweep (``rerankers: ["my_ideas:keyword_overlap"]``) is the
+    whole integration: no package, no entry point, no registration call.
+    """
+    from lasagna import components
+
+    for pc in pipeline_configs:
+        for key, value in (pc.get("overrides") or {}).items():
+            if key in _COMPONENT_KEYS and components.is_reference(value):
+                try:
+                    components.load(key, value, search_paths)
+                except Exception as exc:
+                    raise ValueError(
+                        f"{pc.get('name')}: cannot load {key}={value!r}: "
+                        f"{type(exc).__name__}: {exc}"
+                    ) from exc
+
+
+def _check_components_conform(pipeline_configs: List[Dict[str, Any]]) -> None:
+    """Refuse an arm whose component would not be measured like-for-like.
+
+    Two checks, before any corpus is ingested. The component must implement
+    its stage's interface, or the comparison also measures an interface
+    difference. And a component that is not a built-in must pass its stage's
+    behavioural contract (return types, top_k, empty input, no mutation of what
+    it was handed), or it fails mid-run with a number already half-recorded.
+    """
+    from lasagna.core.registry import _get_expected_abc, registry
+    from lasagna.core.testing import ComponentTestHarness
+
+    checked: set = set()
+    problems: List[str] = []
+    for pc in pipeline_configs:
+        for key, value in (pc.get("overrides") or {}).items():
+            if key not in _COMPONENT_KEYS or not isinstance(value, str):
+                continue
+            if (key, value) in checked:
+                continue
+            checked.add((key, value))
+            cls = registry.get_class(key, value)
+            abc = _get_expected_abc(key)
+            if abc is not None and not (isinstance(cls, type) and issubclass(cls, abc)):
+                problems.append(
+                    f"{key}={value!r} does not implement {abc.__name__}; subclass it, or "
+                    f"register a plain function with @lasagna.{key}"
+                )
+                continue
+            if registry.is_builtin(key, value) or key == "agentic_pipeline":
+                continue
+            try:
+                report = ComponentTestHarness().validate(registry.get(key, value))
+                failures = [] if report.passed else list(report.failures)
+            except Exception as exc:  # a crash is a failed contract, not a crash here
+                failures = [f"raised {type(exc).__name__}: {exc}"]
+            if failures:
+                problems.append(f"{key}={value!r} fails its contract: {'; '.join(failures)}")
+    if problems:
+        raise ValueError("These components cannot be measured: " + " | ".join(problems))
 
 
 def _fix_retrieval_depth(task_config: Dict[str, Any], depth: int) -> None:
@@ -898,6 +965,7 @@ class Experiment:
             raise ValueError(f"Unsupported config format: {ext} (use .yaml or .toml)")
 
         config = _parse_config(data)
+        config.base_dir = str(p.resolve().parent)
         return cls(config=config, eval_fn=eval_fn)
 
     @classmethod
@@ -933,7 +1001,9 @@ class Experiment:
                 "agentic_pipeline arms change generation metrics only: retrieval "
                 "metrics are measured on the standard tier for every arm."
             )
+        _load_component_references(pipeline_configs, [cfg.base_dir] if cfg.base_dir else [])
         _check_components_exist(pipeline_configs)
+        _check_components_conform(pipeline_configs)
 
         for bench_spec in cfg.benchmarks:
             for pipe_cfg in pipeline_configs:
@@ -3411,6 +3481,32 @@ async def _eval_live(
                 f"{_failed_generations} of {_n_generations} answers could not be generated"
             )
 
+    _system = _ran_system(
+        _corpus_model,
+        _corpus_dim,
+        _ingestion_overrides,
+        task_config,
+        reranker_component=(task.config_overrides or {}).get("reranker"),
+    )
+    # What reached each stage, from the config the search actually resolved
+    # (session plus this arm's overrides) and the components it named; the
+    # bundle's isolation check compares these across arms.
+    try:
+        from lasagna.core.config import rag_config as _rc
+
+        from .stages import stage_manifest
+
+        _system["stages"] = stage_manifest(
+            _rc.with_session(shared_session_id).with_query_overrides(task_config),
+            {
+                k: v
+                for k, v in (task.config_overrides or {}).items()
+                if k in _COMPONENT_KEYS and isinstance(v, str)
+            },
+        )
+    except Exception as exc:  # the manifest must never cost a result
+        logger.warning(f"Could not record the stage manifest: {exc}")
+
     result = TaskResult(
         task_key=task.task_key,
         benchmark_name=task.benchmark_name,
@@ -3422,13 +3518,7 @@ async def _eval_live(
         # Deduplicate: e2e samples appear in both ir_samples and gen_samples
         n_samples=len({s.query_id for s in ir_samples} | {s.query_id for s in gen_samples}),
         error="; ".join(_eval_failures) or None,
-        system=_ran_system(
-            _corpus_model,
-            _corpus_dim,
-            _ingestion_overrides,
-            task_config,
-            reranker_component=(task.config_overrides or {}).get("reranker"),
-        ),
+        system=_system,
     )
     result.compute_latency_stats()
     _record_eval_usage(result, eval_meter)

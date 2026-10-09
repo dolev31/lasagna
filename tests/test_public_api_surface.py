@@ -17,6 +17,13 @@ import lasagna.sdk
 
 
 EXPECTED_LASAGNA = {
+    # One-line components (lasagna.components)
+    "chunker",
+    "document_processor",
+    "embedder",
+    "query_enhancer",
+    "reranker",
+    "retriever",
     "AgenticRAG",
     "AgenticRAGMetrics",
     "AgenticRAGResult",

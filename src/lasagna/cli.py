@@ -1019,8 +1019,28 @@ def benchmark_experiment(
             f"Output: [cyan]{output_dir}[/cyan]",
         )
     )
+    _print_isolation(results)
     _release_backend()
     _exit_if_tasks_failed(results)
+
+
+def _print_isolation(results) -> None:
+    """Say whether the arms differed only in the stages they named."""
+    from .knowledge_evaluation_sdk.stages import isolation_report
+
+    rows = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results._results]
+    report = isolation_report(rows)
+    if report["undeclared"]:
+        console.print(
+            "[red]Stage isolation FAILED: the arms differ outside the stages they "
+            "name, so the comparison is not attributable.[/red]"
+        )
+        for line in report["undeclared"]:
+            console.print(f"  - {escape(line)}")
+    elif rows and not report["unverified"]:
+        console.print("[green]Stage isolation: arms differ only in the stages they name.[/green]")
+    for line in report["inert"]:
+        console.print(f"[yellow]Inert arm: {escape(line)}[/yellow]")
 
 
 def _release_backend() -> None:
@@ -1383,6 +1403,8 @@ def results_validate(
 
     blocking = (bundle.get("integrity") or {}).get("blocking") or []
     problems.extend(f"integrity: {code}" for code in blocking)
+    for line in ((bundle.get("integrity") or {}).get("isolation") or {}).get("undeclared", []):
+        problems.append(f"  {line}")
 
     warnings = (bundle.get("integrity") or {}).get("warnings") or []
     if strict:

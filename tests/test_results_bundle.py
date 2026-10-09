@@ -146,8 +146,18 @@ class TestIntegrityFlags:
     def test_clean_run_has_no_warnings(self):
         from lasagna.knowledge_evaluation_sdk.bundle import _integrity
 
+        # A clean live row carries its stage manifest; without one, isolation
+        # is unverified, which is itself a warning.
         integ = _integrity(
-            [{"benchmark_name": "b", "corpus_fingerprint": "abc", "split": "test", "error": None}],
+            [
+                {
+                    "benchmark_name": "b",
+                    "corpus_fingerprint": "abc",
+                    "split": "test",
+                    "error": None,
+                    "system": {"stages": {"reranker": {"digest": "d"}}},
+                }
+            ],
             {"n_runs": 3, "judge_model": "gpt-4o-2024-08-06", "determinism": "seeded"},
         )
         assert integ["warnings"] == []

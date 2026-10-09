@@ -559,7 +559,24 @@ def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str
     if run_meta.get("determinism") != "seeded":
         warnings.append("UNSEEDED")
 
-    return {"warnings": sorted(set(warnings)), "blocking": sorted(set(blocking))}
+    # Stage isolation: two arms may differ only in the stages they name. A
+    # difference anywhere else means the comparison is not attributable, which
+    # is the property the whole framework exists to provide, so it blocks.
+    from .stages import isolation_report
+
+    isolation = isolation_report(rows)
+    if isolation["undeclared"]:
+        blocking.append("UNDECLARED_STAGE_CHANGE")
+    if isolation["inert"]:
+        warnings.append("INERT_ARM")
+    if isolation["unverified"] and rows:
+        warnings.append("STAGE_ISOLATION_UNVERIFIED")
+
+    return {
+        "warnings": sorted(set(warnings)),
+        "blocking": sorted(set(blocking)),
+        "isolation": isolation,
+    }
 
 
 def _is_floating_alias(model: str) -> bool:

@@ -64,6 +64,13 @@ _logger.disable("lasagna")
 
 # Mapping: public_name -> (submodule, attribute)
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    # One-line components: @lasagna.reranker above a plain function.
+    "reranker": (".components", "reranker"),
+    "query_enhancer": (".components", "query_enhancer"),
+    "chunker": (".components", "chunker"),
+    "embedder": (".components", "embedder"),
+    "retriever": (".components", "retriever"),
+    "document_processor": (".components", "document_processor"),
     # Core
     "RAGConfig": (".core", "RAGConfig"),
     "get_rag_config": (".core", "get_rag_config"),
@@ -158,6 +165,13 @@ def __dir__():
 # =============================================================================
 
 __all__ = [
+    # One-line components
+    "reranker",
+    "query_enhancer",
+    "chunker",
+    "embedder",
+    "retriever",
+    "document_processor",
     # Core
     "RAGConfig",
     "get_rag_config",
