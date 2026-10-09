@@ -689,6 +689,7 @@ class SearchOrchestrator:
         filter_parts = []
 
         # Only add session_id filter if provided and valid
+        session_filter = None
         if session_id:
             if not is_valid_session_id(session_id):
                 raise ValueError(f"Invalid session_id format: {session_id[:50]}...")
@@ -696,9 +697,10 @@ class SearchOrchestrator:
             # session_id is stored as a top-level field (for non-Milvus backends)
             # and inside metadata JSON (for Milvus)
             if backend.backend_name == "milvus":
-                filter_parts.append(FilterExpression.json_eq("metadata", "session_id", session_id))
+                session_filter = FilterExpression.json_eq("metadata", "session_id", session_id)
             else:
-                filter_parts.append(FilterExpression.eq("session_id", session_id))
+                session_filter = FilterExpression.eq("session_id", session_id)
+            filter_parts.append(session_filter)
 
         if document_ids:
             # Validate each document_id before using in filter
@@ -868,6 +870,18 @@ class SearchOrchestrator:
                 f"classification_enabled={config.enable_query_classification}, "
                 f"alpha_override={'yes' if effective_alpha != config.hybrid_alpha else 'no'}"
             )
+            # The BM25 index lives in memory, filled at upload. In a process that
+            # did not upload (the next CLI call, a server), hybrid search ran
+            # dense-only with a DEBUG line: same query, same store, different
+            # results. Fill it from the store once per session and collection.
+            if session_filter is not None:
+                self.hybrid_searcher.hydrate_session_index(
+                    session_id,
+                    backend,
+                    collection_name,
+                    session_filter,
+                    partition_key=partition_key,
+                )
             with TRACER.span(
                 "hybrid_fusion", attributes={"alpha": effective_alpha}
             ) as _hybrid_span:

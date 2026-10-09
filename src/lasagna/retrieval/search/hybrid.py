@@ -207,8 +207,16 @@ class MilvusNativeHybridSearcher:
         # Check if collection has sparse_embedding field
         try:
             collection_info = self.client.describe_collection(self.collection_name)
-            fields = collection_info.get("fields", [])
-            has_sparse = any(f.get("name") == "sparse_embedding" for f in fields)
+            # pymilvus 3 returns a CollectionInfo object, 2.x a dict.
+            if isinstance(collection_info, dict):
+                fields = collection_info.get("fields", [])
+            else:
+                fields = getattr(collection_info, "fields", []) or []
+            has_sparse = any(
+                (f.get("name") if isinstance(f, dict) else getattr(f, "name", None))
+                == "sparse_embedding"
+                for f in fields
+            )
             self._native_bm25_supported = has_sparse
             if has_sparse:
                 logger.info("Native Milvus BM25 hybrid search is available")
@@ -345,6 +353,8 @@ class BM25FallbackIndex:
         self.tokenized_corpus: List[List[str]] = []
         self.bm25: Optional[BM25Okapi] = None
         self._is_built = False
+        # Collections whose stored chunks were loaded into this index.
+        self.hydrated_from: set = set()
 
         # Version counter for CAS-safe concurrent builds.
         # Incremented on every mutation (add/remove/clear).
@@ -598,6 +608,7 @@ class HybridSearcher:
         # Per-session backend overrides for multi-backend support
         # session_id -> (backend, collection_name)
         self._session_backends: Dict[str, tuple] = {}
+        self._warned_dense_only: set = set()
 
         # MEDIUM PRIORITY FIX: Periodic cleanup configuration
         self._enable_periodic_cleanup = enable_periodic_cleanup
@@ -1072,7 +1083,13 @@ class HybridSearcher:
         self._ensure_index_built(session_id)
         index = self.get_session_index(session_id)
         if not index._is_built:
-            logger.debug("BM25 index not built - using dense only")
+            if session_id not in self._warned_dense_only:
+                self._warned_dense_only.add(session_id)
+                logger.warning(
+                    "Hybrid search is running dense-only for this session: its BM25 "
+                    "index is empty. Results differ from a hybrid run."
+                )
+            metrics["hybrid_mode"] = "dense_only_fallback"
             return self._convert_dense_results(dense_results), metrics
 
         sparse_timer = time.perf_counter()
@@ -1300,6 +1317,65 @@ class HybridSearcher:
         # Build outside lock — CAS in build_index() handles races.
         if index is not None:
             index.build_index()
+
+    def hydrate_session_index(
+        self,
+        session_id: str,
+        backend: Any,
+        collection_name: str,
+        session_filter: Any,
+        *,
+        partition_key: Optional[str] = None,
+    ) -> int:
+        """Add the session's stored chunks that this process's BM25 index lacks.
+
+        Once per (session, collection) per process, and only on the rank_bm25
+        fallback path. Matching on chunk_id keeps it idempotent: the process
+        that uploaded already has every chunk and adds none, and a new process
+        that uploads more gets the earlier chunks too.
+
+        Returns:
+            The number of chunks added.
+        """
+        if not BM25_FALLBACK_AVAILABLE:
+            return 0
+        with self._session_lock:
+            index = self._get_or_create_session_locked(session_id)
+            # Marked on the index itself, so an evicted session that comes
+            # back with a fresh index is filled again.
+            if collection_name in index.hydrated_from:
+                return 0
+            index.hydrated_from.add(collection_name)
+            have = {str(d.get("chunk_id")) for d in index.documents}
+        if self.is_native_mode_available() or self._backend_supports_native_hybrid(session_id):
+            return 0
+        if backend is None or not hasattr(backend, "iter_all"):
+            return 0
+        try:
+            rows = backend.iter_all(
+                collection_name=collection_name,
+                filter_expr=session_filter,
+                output_fields=["chunk_id", "content", "document_id", "metadata"],
+                partition_key=partition_key,
+            )
+            missing = [
+                {
+                    "chunk_id": r.get("chunk_id"),
+                    "content": r.get("content", ""),
+                    "document_id": r.get("document_id", ""),
+                    "metadata": r.get("metadata", {}) or {},
+                }
+                for r in rows
+                if r.get("chunk_id") and str(r.get("chunk_id")) not in have
+            ]
+        except Exception as e:
+            logger.warning(f"Could not load stored chunks into the BM25 index: {e}")
+            return 0
+        if missing:
+            self.index_chunks(missing, session_id, build_now=False)
+            self.build_session_index(session_id)
+            logger.info(f"BM25 index filled from the store: {len(missing)} chunks")
+        return len(missing)
 
     def build_session_index(self, session_id: str) -> bool:
         """Explicitly build/rebuild BM25 index for a session.
