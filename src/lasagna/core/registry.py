@@ -386,6 +386,23 @@ class ComponentRegistry:
                 None,
                 ["default_adapted"],
             ),
+            (
+                "chunker",
+                "fixed",
+                "lasagna.processing.chunker.splitters:FixedSizeChunker",
+                "Fixed-size windows with overlap, in characters, words or tokens",
+                None,
+                [],
+            ),
+            (
+                "chunker",
+                "recursive",
+                "lasagna.processing.chunker.splitters:RecursiveChunker",
+                "Recursive separator splitting: paragraph, line, sentence, word "
+                "(LangChain RecursiveCharacterTextSplitter)",
+                "https://github.com/langchain-ai/langchain/tree/master/libs/text-splitters",
+                [],
+            ),
         ]
         for stage, name, factory, description, paper, aliases in builtins:
             try:

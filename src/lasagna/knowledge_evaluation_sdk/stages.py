@@ -195,6 +195,9 @@ _EXACT: Dict[str, str] = {
     "enable_context_compression": "agentic_pipeline",
     "compression_method": "agentic_pipeline",
     "compression_ratio": "agentic_pipeline",
+    # size units for the fixed and recursive chunkers
+    "chunk_unit": "chunker",
+    "chunk_tokenizer": "chunker",
 }
 
 _PREFIXES: Tuple[Tuple[str, str], ...] = (
@@ -211,6 +214,7 @@ _PREFIXES: Tuple[Tuple[str, str], ...] = (
     ("ensemble_reranker_", "reranker"),
     ("auto_refine_", "agentic_pipeline"),
     ("speculative_", "agentic_pipeline"),
+    ("recursive_", "chunker"),
 )
 
 

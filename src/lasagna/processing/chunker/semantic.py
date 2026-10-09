@@ -574,19 +574,8 @@ def resolve_effective_strategy(config, requested=None) -> str:
     That is invisible and it is worse than a crash. A chunking ablation sweeping
     ``fixed`` against ``semantic`` produces byte-identical arms, a difference of
     exactly zero, and a confident conclusion that chunking does not matter.
-
-    Raises on ``recursive``: the enum accepts it, the configurator documents it
-    as "splits by separators", and the dispatch falls through to fixed-size
-    chunking. Running one algorithm under another's name is the one option worse
-    than not offering it.
     """
     requested = requested or config.chunking_strategy
-    if str(requested) == ChunkingStrategy.RECURSIVE.value:
-        raise ValueError(
-            "chunking_strategy='recursive' is declared but not implemented -- it "
-            "would silently run fixed-size chunking. Use 'fixed', 'semantic' or "
-            "'sentence_window'."
-        )
 
     if config.enable_hierarchical:
         effective = ChunkingStrategy.HIERARCHICAL.value
@@ -625,8 +614,7 @@ def create_chunker(
         Configured chunker instance
     """
     config = config or rag_config
-    # Resolves and warns; also rejects 'recursive' rather than quietly running
-    # fixed-size chunking under that name.
+    # Resolves and warns when a structural flag shadows the request.
     effective = resolve_effective_strategy(config, strategy)
 
     chunker = SemanticChunker(embedding_manager=embedding_manager, config=config)
@@ -765,7 +753,10 @@ def chunk_document(
 
     # Component branch first: it is the whole point of injecting one.
     if component is not None:
-        chunks = adapt_component_chunks(component.chunk(text), text)
+        # Built-ins read the arm's settings (chunk_size, the breakpoint method);
+        # a user's chunker is shown only the public contract.
+        extra = {"config": config} if getattr(component, "_forwards_session_config", False) else {}
+        chunks = adapt_component_chunks(component.chunk(text, **extra), text)
     # Hierarchical chunking: parent-child structure for auto-merge retrieval
     elif config.enable_hierarchical:
         hierarchical_chunker = HierarchicalChunker(chunker)
@@ -810,6 +801,12 @@ def chunk_document(
         chunks = chunker.chunk_semantic(text)
     elif strategy == ChunkingStrategy.SENTENCE_WINDOW:
         chunks = chunker.chunk_sentence_window(text)
+    elif strategy == ChunkingStrategy.RECURSIVE:
+        # It used to fall through to fixed-size chunking under this name, and
+        # was refused until there was a real implementation to run.
+        from .splitters import RecursiveChunker
+
+        chunks = adapt_component_chunks(RecursiveChunker(config=config).chunk(text), text)
     else:
         chunks = chunker.chunk_fixed(text)
 

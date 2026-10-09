@@ -295,6 +295,16 @@ class RAGConfig:
             "child_chunk_size": 500,
             "auto_merge_threshold": 0.5,
             "enable_late_chunking": False,  # Late chunking: embed full doc, pool per chunk (Jina, arxiv:2409.04701)
+            # What chunk_size and chunk_overlap count, for the fixed and recursive
+            # chunkers: 'chars', 'words' (runs of non-whitespace) or 'tokens'
+            # (of chunk_tokenizer: a Hugging Face tokenizer, or 'tiktoken:<encoding>').
+            "chunk_unit": "chars",
+            "chunk_tokenizer": None,
+            # Recursive chunker: paragraph, line, sentence, word, character. With
+            # ["\n\n", "\n", " ", ""] and keep 'start' it is LangChain's
+            # RecursiveCharacterTextSplitter default exactly.
+            "recursive_separators": ["\n\n", "\n", ". ", "? ", "! ", " ", ""],
+            "recursive_keep_separator": "end",  # 'end' or 'start': which piece a separator stays with
             "preserve_tables": True,
             "preserve_headers": True,
             "extract_metadata": True,
@@ -868,6 +878,32 @@ class RAGConfig:
     def enable_late_chunking(self) -> bool:
         return self._get_knowledge_setting(
             "rag", "enable_late_chunking", default=self._config["enable_late_chunking"]
+        )
+
+    @property
+    def chunk_unit(self) -> str:
+        """What chunk_size and chunk_overlap count: 'chars', 'words' or 'tokens'."""
+        return self._get_knowledge_setting("rag", "chunk_unit", default=self._config["chunk_unit"])
+
+    @property
+    def chunk_tokenizer(self) -> Optional[str]:
+        """Tokenizer for chunk_unit='tokens': a Hugging Face name, or 'tiktoken:<encoding>'."""
+        return self._get_knowledge_setting(
+            "rag", "chunk_tokenizer", default=self._config["chunk_tokenizer"]
+        )
+
+    @property
+    def recursive_separators(self) -> List[str]:
+        """Separators the recursive chunker tries, coarsest first."""
+        return self._get_knowledge_setting(
+            "rag", "recursive_separators", default=self._config["recursive_separators"]
+        )
+
+    @property
+    def recursive_keep_separator(self) -> str:
+        """Whether a separator ends the piece before it ('end') or starts the next ('start')."""
+        return self._get_knowledge_setting(
+            "rag", "recursive_keep_separator", default=self._config["recursive_keep_separator"]
         )
 
     @property
