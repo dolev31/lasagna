@@ -5,7 +5,7 @@ This module handles text extraction, chunking, and preprocessing for various fil
 
 import mimetypes
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Optional
 from loguru import logger
 
 # Text extraction libraries
@@ -256,99 +256,6 @@ class DocumentProcessor:
             return DocumentProcessor.extract_text_from_html(file_path)
         else:
             raise ValueError(f"No extractor available for file type: {file_type}")
-
-
-class TextChunker:
-    """Splits text into overlapping chunks for embedding."""
-
-    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
-        """Initialize the chunker.
-
-        Args:
-            chunk_size: Maximum characters per chunk
-            chunk_overlap: Number of characters to overlap between chunks
-        """
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
-
-    def split_text(self, text: str) -> List[str]:
-        """Split text into overlapping chunks.
-
-        Args:
-            text: The text to split
-
-        Returns:
-            List of text chunks
-        """
-        if not text or not text.strip():
-            return []
-
-        chunks = []
-        start = 0
-        text_length = len(text)
-
-        while start < text_length:
-            # Find the end of this chunk
-            end = start + self.chunk_size
-
-            # If this is not the last chunk, try to break at a sentence boundary
-            if end < text_length:
-                # Look for sentence endings in the last 20% of the chunk
-                search_start = end - int(self.chunk_size * 0.2)
-                chunk_text = text[search_start:end]
-
-                # Try to find sentence boundaries
-                for delimiter in [". ", ".\n", "! ", "!\n", "? ", "?\n"]:
-                    last_sentence_end = chunk_text.rfind(delimiter)
-                    if last_sentence_end != -1:
-                        end = search_start + last_sentence_end + len(delimiter)
-                        break
-
-            # Extract the chunk
-            chunk = text[start:end].strip()
-            if chunk:
-                chunks.append(chunk)
-
-            # Move to next chunk with overlap
-            start = end - self.chunk_overlap
-
-            # Prevent infinite loop if overlap is too large
-            if start <= end - self.chunk_size:
-                start = end
-
-        logger.info(
-            f"Split text into {len(chunks)} chunks (size={self.chunk_size}, overlap={self.chunk_overlap})"
-        )
-        return chunks
-
-    def create_chunks_with_metadata(
-        self, text: str, document_id: str, session_id: str, filename: str
-    ) -> List[Tuple[str, dict]]:
-        """Create chunks with associated metadata.
-
-        Args:
-            text: The text to split
-            document_id: ID of the parent document
-            session_id: Session this document belongs to
-            filename: Original filename
-
-        Returns:
-            List of (chunk_text, metadata) tuples
-        """
-        chunks = self.split_text(text)
-        result = []
-
-        for idx, chunk_text in enumerate(chunks):
-            metadata = {
-                "document_id": document_id,
-                "session_id": session_id,
-                "filename": filename,
-                "chunk_index": idx,
-                "total_chunks": len(chunks),
-            }
-            result.append((chunk_text, metadata))
-
-        return result
 
 
 # ---------------------------------------------------------------------------

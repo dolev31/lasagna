@@ -8,21 +8,10 @@ is low.  Both strategies are informed by Adaptive-RAG (NAACL 2024).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Protocol
+from typing import Any
 
 from ..enhancement.classifier import QueryType
 from .models import RoutingDecision, RoutingSignals, RoutingTier
-
-
-# ---------------------------------------------------------------------------
-# Config protocol — only the properties we actually need
-# ---------------------------------------------------------------------------
-
-
-class _RoutingConfig(Protocol):
-    """Minimal config surface used by strategies."""
-
-    routing_confidence_threshold: float
 
 
 # ---------------------------------------------------------------------------
