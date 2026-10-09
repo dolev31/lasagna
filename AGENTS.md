@@ -15,7 +15,7 @@ lasagna skills list
 
 ## What this project is
 
-A RAG framework whose point is **attribution**: swap one of seven pipeline
+A RAG framework whose point is **attribution**: swap one of eight pipeline
 stages, hold the rest fixed, and the measured difference belongs to the swap.
 Everything below follows from protecting that property.
 
@@ -47,9 +47,11 @@ means updating the docs in the same commit — the suite will tell you.
 |---|---|
 | `src/lasagna/core/` | registry, ABCs, config, provenance, diagnostics |
 | `src/lasagna/api/` | search orchestrator, REST surface |
-| `src/lasagna/retrieval/` | chunking, embedding, hybrid search, reranking |
-| `src/lasagna/agentic/` | multi-step retrieval (CRAG, self-RAG, quality gates) |
-| `src/lasagna/vector_backends/` | 7 backends behind one adapter interface |
+| `src/lasagna/retrieval/` | retrievers, hybrid search, reranking, query enhancement |
+| `src/lasagna/processing/` | document processors and chunkers |
+| `src/lasagna/generation/` | answer generators (the `generator` stage) |
+| `src/lasagna/agentic/` | multi-step retrieval: the structured graph (CRAG, quality gates) and the published loops (Self-Ask, IRCoT, FLARE, Adaptive-RAG, Self-RAG) |
+| `src/lasagna/vector_backends/` | 6 backends behind one adapter interface |
 | `src/lasagna/knowledge_evaluation_sdk/` | benchmarks, metrics, bundles, leaderboard |
 | `src/lasagna/mcp/` | MCP server, 31 tools |
 | `e2e/` | release gate — phases, typed contract, GO/NO-GO |

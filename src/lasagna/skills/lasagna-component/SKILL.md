@@ -1,11 +1,11 @@
 ---
 name: lasagna-component
-description: Use when implementing, validating, benchmarking or publishing a Lasagna pipeline component — a reranker, chunker, embedder, query enhancer, retriever, document processor or agentic pipeline. Covers the contract, the conformance check, and how to prove the component actually helps.
+description: Use when implementing, validating, benchmarking or publishing a Lasagna pipeline component: a reranker, chunker, embedder, query enhancer, retriever, document processor, agentic pipeline or generator. Covers the contract, the conformance check, and how to prove the component actually helps.
 ---
 
 # Build a Lasagna component
 
-Seven stages are pluggable. Implement one abstract base class and the pipeline
+Eight stages are pluggable. Implement one abstract base class and the pipeline
 will use your component in place of the built-in, with everything else held
 fixed — which is what makes a measured difference attributable to your change.
 
@@ -18,6 +18,11 @@ fixed — which is what makes a measured difference attributable to your change.
 | Retriever | `BaseRetriever` |
 | Document processor | `BaseDocumentProcessor` |
 | Agentic pipeline | `BaseAgenticPipeline` |
+| Generator | `BaseGenerator` |
+
+Every stage but the agentic pipeline also takes a plain function with one
+decorator (`@lasagna.reranker`, `@lasagna.generator` and so on), and a sweep can
+name that function as `module:function`.
 
 ## 1. Implement
 
@@ -63,17 +68,26 @@ Conforming is not the same as helping. Measure against a baseline with
 everything else fixed:
 
 ```bash
-lasagna benchmark run smoke                    # 24 docs, no download — wiring check
-lasagna benchmark run beir/scifact \
-  --rerankers cross_encoder,my_reranker \
-  --n-runs 3
+lasagna benchmark run smoke --reranker my_reranker --profile speed --tracks retrieval
+lasagna benchmark experiment sweep.yaml        # the comparison, from a sweep file
+```
+
+```yaml
+# sweep.yaml
+name: does my reranker help
+benchmarks: [{name: beir/scifact, n_samples: 200}]
+tracks: [retrieval]
+pipeline:
+  base_profile: speed
+  rerankers: [cross_encoder, my_reranker]       # a control and yours
+n_runs: 3
 ```
 
 Always include a baseline arm. Without it you cannot distinguish "my component
 reordered things" from "my component never ran" — the two look identical from
 outside.
 
-`--n-runs 3` is not decoration: retrieval metrics move between runs, and a
+`n_runs: 3` is not decoration: retrieval metrics move between runs, and a
 single run says nothing about whether a gap is real.
 
 **Component overrides only apply in live mode.** `generation_only` never

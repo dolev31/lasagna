@@ -58,8 +58,11 @@ not enough for a separate package. To ship one, declare an entry point — see
 [the plugin template](examples/lasagna-plugin-template/) — and check discovery
 found it with `lasagna plugins list`.
 
-Seven types are pluggable: `embedder`, `chunker`, `reranker`, `retriever`,
-`query_enhancer`, `document_processor`, `agentic_pipeline`.
+Eight types are pluggable: `embedder`, `chunker`, `reranker`, `retriever`,
+`query_enhancer`, `document_processor`, `agentic_pipeline`, `generator`. Every
+one but `agentic_pipeline` also takes a plain function with one decorator
+(`@lasagna.reranker` and so on); see
+[docs/contributing-components.md](docs/contributing-components.md).
 
 **Your component must not read state it did not declare.** Stage isolation is
 what makes an interaction estimate attributable rather than an artifact, so

@@ -144,7 +144,7 @@ pre-release with none of either. Install weight — torch and sentence-transform
 are core dependencies: about 1.3 GB installed on macOS arm64, and on Linux x86_64
 the default PyPI torch pulls CUDA wheels, about 3.2 GB of downloads. That is a
 real cost for an API-embeddings user, and both of them are far lighter. Document parsing — LlamaParse handles formats our
-pypdf/pdfplumber stack does not. Production observability — LangSmith exists;
+built-in pypdf/pdfplumber extraction does not. Production observability — LangSmith exists;
 we have nothing comparable. Agent orchestration — LangGraph is the standard, and
 we build on it.
 
@@ -273,13 +273,16 @@ interchangeable: True
 
 `paper` and `claims` travel with the component and come back out of the
 registry, so a results table can put the claimed number beside the one you
-reproduced. Every stage takes a function the same way: `@lasagna.query_enhancer`
-(`query -> [str]`), `@lasagna.chunker` (`text -> [str]`), `@lasagna.embedder`
-(`texts -> vectors`), `@lasagna.retriever` and `@lasagna.document_processor`. A
-reranker can also order the whole list (`query, documents, top_k`). The function
-is handed copies, so it cannot change what another stage sees. When a technique
-needs state or a model, subclass the stage's interface (`BaseReranker` and so on)
-and register the class with `@registry.register` instead.
+reproduced. Every stage but the agentic pipeline takes a function the same way:
+`@lasagna.query_enhancer` (`query -> [str]`), `@lasagna.chunker` (`text -> [str]`),
+`@lasagna.embedder` (`texts -> vectors`), `@lasagna.generator`
+(`query, contexts -> answer`), `@lasagna.retriever` and
+`@lasagna.document_processor`. A reranker can also order the whole list
+(`query, documents, top_k`). The function is handed copies, so it cannot change
+what another stage sees. When a technique needs state or a model, or is an
+agentic loop, subclass the stage's interface (`BaseReranker`,
+`BaseAgenticPipeline` and so on) and register the class with
+`@registry.register` instead.
 
 Then measure it, again in one line. A sweep can name the function by its import
 path, with no registration call and no package:
@@ -319,7 +322,8 @@ is what `implements_contract` in a listing reports:
 from lasagna.core.registry import registry
 
 [r["name"] for r in registry.list_rerankers() if r["implements_contract"]]
-# ['cross_encoder', 'combined', 'ensemble', 'mmr', 'colbert', 'llm_listwise']
+# ['cross_encoder', 'combined', 'ensemble', 'mmr', 'colbert', 'llm_listwise',
+#  'monot5', 'llm_pointwise', 'flashrank', 'cohere']
 ```
 
 A component registered without its stage's interface (a duck-typed class) is
@@ -427,9 +431,10 @@ a sweep with one line.
 - **Ingest and chunk:** built-in PDF extraction, Docling, MarkItDown,
   PyMuPDF4LLM; fixed (characters, words or tokens), recursive, sentence
   window, Markdown header, semantic breakpoints, hierarchical, propositions
-  (Dense X Retrieval), Contextual Retrieval, late chunking.
+  (Dense X Retrieval), Contextual Retrieval.
 - **Embed:** any sentence-transformers model with its model card's query and
-  document prefixes, BGE-M3, OpenAI, Cohere, Voyage, Matryoshka truncation.
+  document prefixes, BGE-M3, OpenAI, Cohere, Voyage, Matryoshka truncation,
+  and late chunking (a setting that works with any chunker).
 - **Retrieve:** dense, BM25, SPLADE, hybrid by reciprocal rank fusion, hybrid by
   normalized score fusion.
 - **Rerank:** cross-encoders (bge-reranker, mxbai and any Hugging Face
@@ -558,7 +563,9 @@ pip install "lasagna-rag[eval]==0.1.0a1" -c https://raw.githubusercontent.com/do
 |---|---|
 | `eval` | RAGAS metrics, benchmark loaders, statistics, plots |
 | `ingest` | EasyOCR for scanned documents |
-| `docling` | structure-aware document conversion |
+| `docling` | structure-aware document conversion (the `docling` processor) |
+| `markitdown` | Microsoft MarkItDown: PDF, Office and HTML to Markdown (the `markitdown` processor) |
+| `pymupdf4llm` | PDF to Markdown (the `pymupdf4llm` processor); AGPL-3.0 |
 | `vector-backends` | Pinecone, Qdrant, Weaviate clients |
 | `opensearch` / `pgvector` | those backends |
 | `flag-embedding` | BGE-M3 dense+sparse+ColBERT |
@@ -570,7 +577,13 @@ pip install "lasagna-rag[eval]==0.1.0a1" -c https://raw.githubusercontent.com/do
 | `web` | web search fallback for corrective RAG |
 | `lifecycle` | scheduled document expiry and cleanup |
 | `production` | Redis, Celery, Prometheus, OpenTelemetry and PostgreSQL: what `settings.lasagna_production.toml` turns on |
-| `all` | everything above |
+| `all` | everything above except `markitdown` and `pymupdf4llm` |
+
+A few components need a package or an API key of their own: the `flashrank`
+reranker (`pip install flashrank`), the `cohere` reranker and embedder
+(`pip install cohere`, `COHERE_API_KEY`), the `voyage` embedder
+(`pip install voyageai`, `VOYAGE_API_KEY`) and the `openai` embedder
+(`OPENAI_API_KEY`). Each raises naming what is missing.
 
 > **`pip` cannot resolve `eval` together with `storage-all`**, and so cannot
 > resolve `all` either. The requirement set is satisfiable — pip's resolver just
