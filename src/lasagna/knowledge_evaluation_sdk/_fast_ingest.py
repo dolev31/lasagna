@@ -636,17 +636,6 @@ async def fast_ingest_corpus(
             stage, exc = error_channel.get()
             raise RuntimeError(f"Fast ingest pipeline failed in {stage} stage") from exc
 
-        # Post-pipeline: save parent chunks
-        if all_parent_chunks:
-            try:
-                from ..core.database import get_rag_database
-
-                rag_db = get_rag_database()
-                parent_count = rag_db.save_parent_chunks(all_parent_chunks)
-                logger.info(f"Saved {parent_count} parent chunks for hierarchical retrieval")
-            except Exception as e:
-                logger.warning(f"Failed to save parent chunks: {e}")
-
         # Register the documents themselves.
         #
         # Without this, chunks land in the vector store with no corresponding
@@ -692,6 +681,20 @@ async def fast_ingest_corpus(
                     f"Failed to register ingested documents ({e}). Retrieval will "
                     f"return no results for this corpus."
                 )
+
+        # Parent chunks for hierarchical retrieval. After the documents are
+        # registered: each parent row references its document, and saving them
+        # first failed every time on the foreign key, so parent retrieval and
+        # auto-merge silently had no parents in any benchmark run.
+        if all_parent_chunks:
+            try:
+                from ..core.database import get_rag_database
+
+                rag_db = get_rag_database()
+                parent_count = rag_db.save_parent_chunks(all_parent_chunks)
+                logger.info(f"Saved {parent_count} parent chunks for hierarchical retrieval")
+            except Exception as e:
+                logger.error(f"Failed to save parent chunks: {e}")
 
         elapsed = time.perf_counter() - t0
         rate = total_docs / elapsed * 60 if elapsed > 0 else 0
