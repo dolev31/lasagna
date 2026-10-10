@@ -512,7 +512,25 @@ lasagna results significance <span class="tok-s">"&lt;output&gt;/results.json"</
         <div class="term reveal"><dt>31 benchmarks, four metric families</dt><dd>BEIR, HotpotQA, SQuAD v2, MuSiQue, Natural Questions, MS MARCO and more. Retrieval metrics; answer metrics with and without an LLM judge, including ALCE citation scores; and latency, tokens and LLM calls per query.</dd></div>
       </dl>
     </div>
-    <!-- LAUNCH: reproduction table -->
+    <div class="repro reveal">
+      <h3 class="use-facts-title">It reproduces published numbers</h3>
+      <p class="repro-lede">Before you trust a harness with your component, check it on methods whose numbers are already known. On the full SciFact and NFCorpus test sets, with nothing tuned, the built-in components land within 0.008 NDCG@10 of BEIR and MTEB, and the dense models within 0.002.</p>
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr><th scope="col">Method</th><th scope="col" class="num">SciFact, published</th><th scope="col" class="num">SciFact, Lasagna</th><th scope="col" class="num">NFCorpus, published</th><th scope="col" class="num">NFCorpus, Lasagna</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">BM25 (k1 0.9, b 0.4)</th><td class="num" data-label="SciFact, published">0.665</td><td class="num" data-label="SciFact, Lasagna"><strong>0.664</strong></td><td class="num" data-label="NFCorpus, published">0.325</td><td class="num" data-label="NFCorpus, Lasagna"><strong>0.317</strong></td></tr>
+            <tr><th scope="row">all-MiniLM-L6-v2</th><td class="num" data-label="SciFact, published">0.645</td><td class="num" data-label="SciFact, Lasagna"><strong>0.645</strong></td><td class="num" data-label="NFCorpus, published">0.316</td><td class="num" data-label="NFCorpus, Lasagna"><strong>0.317</strong></td></tr>
+            <tr><th scope="row">bge-small-en-v1.5</th><td class="num" data-label="SciFact, published">0.713</td><td class="num" data-label="SciFact, Lasagna"><strong>0.713</strong></td><td class="num" data-label="NFCorpus, published">0.343</td><td class="num" data-label="NFCorpus, Lasagna"><strong>0.344</strong></td></tr>
+            <tr><th scope="row">BM25 + MiniLM-L6 cross-encoder</th><td class="num" data-label="SciFact, published">0.688</td><td class="num" data-label="SciFact, Lasagna"><strong>0.685</strong></td><td class="num" data-label="NFCorpus, published">0.350</td><td class="num" data-label="NFCorpus, Lasagna"><strong>0.351</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="repro-note">NDCG@10. Published: BEIR (Thakur et al., NeurIPS 2021, Table 2) and the MTEB results repository.</p>
+      <p><a class="link-arrow" href="https://github.com/dolev31/lasagna/blob/main/examples/reproduction/README.md">Rerun it in about half an hour, with no API key<span aria-hidden="true"> →</span></a></p>
+    </div>
   </div>
 </section>
 
