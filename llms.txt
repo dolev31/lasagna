@@ -27,6 +27,14 @@ Three pre-declared hypotheses; a 167-configuration D-optimal design over eight p
 - Faithfulness gains transfer near-additively: +28% predicted, +32% realized.
 - The design leading at small corpora trails by 13.7% NDCG@10 at 200K, with a rank flip visible from 25K.
 
+## Software
+
+- Install with `pip install lasagna-rag` (Apache-2.0); code at https://github.com/dolev31/lasagna.
+- Eight swappable pipeline stages and 53 built-in components; a new component can be one Python function with one decorator.
+- A sweep holds every other stage fixed, records what reached each stage, flags arms that never changed a ranking, and reports paired sign-flip tests with Holm correction.
+- For agents: an MCP server with 31 tools for Claude Code, Claude Desktop and Cursor, a REST API, and a Docker deployment over six vector backends.
+- Colab notebook comparing a one-function reranker with a cross-encoder on BEIR SciFact: https://colab.research.google.com/github/dolev31/lasagna/blob/main/examples/notebooks/compare_your_reranker.ipynb
+
 ## Limitations and scope
 
 - The pre-declared test of H1, a threshold on interaction variance in faithfulness, was not met; a focused follow-up found the flagged interaction real but small.
