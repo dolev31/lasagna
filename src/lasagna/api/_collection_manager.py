@@ -407,18 +407,8 @@ class CollectionManager:
             return None
 
         try:
-            info = backend.describe_collection(collection_name)
-            fields = []
-            if isinstance(info, dict):
-                fields = info.get("fields") or []
-                if not fields:
-                    schema = info.get("schema")
-                    if isinstance(schema, dict):
-                        fields = schema.get("fields") or []
-                    else:
-                        fields = getattr(schema, "fields", []) or []
-            else:
-                fields = getattr(info, "fields", []) or []
+            # Runs on every search; the fields alone skip a count of the rows.
+            fields = backend.describe_fields(collection_name) or []
 
             for field in fields:
                 name = _field_value(field, "name")

@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Searching on Milvus no longer pays for a JSON filter.** A search was
+  confined to its session through `metadata["session_id"]`, which Milvus parses
+  row by row; it now uses the `session_id` field every collection has and every
+  writer fills with the same value. A search also stopped counting the
+  collection's rows twice for a count it never used. Measured on Milvus Lite
+  with 18,442 chunks in three sessions, the median search fell from 293 ms to
+  32 ms without a reranker and from 415 ms to 144 ms with a MiniLM
+  cross-encoder, returning the same ranked chunks and scores. A collection
+  without the field keeps the old filter.
+
 ## [0.1.0] - YYYY-MM-DD
 
 Lasagna now has eight swappable stages and 53 built-in components; each one that

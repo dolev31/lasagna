@@ -1106,16 +1106,10 @@ class DocumentPipeline:
         try:
             backend = self._collection_manager.resolve_backend(session_id)
 
-            if backend.backend_name == "milvus":
-                filter_expr = FilterExpression.and_(
-                    FilterExpression.eq("document_id", document_id),
-                    FilterExpression.json_eq("metadata", "session_id", session_id),
-                )
-            else:
-                filter_expr = FilterExpression.and_(
-                    FilterExpression.eq("document_id", document_id),
-                    FilterExpression.eq("session_id", session_id),
-                )
+            filter_expr = FilterExpression.and_(
+                FilterExpression.eq("document_id", document_id),
+                backend.session_filter(rag_config.collection_name, session_id),
+            )
             results = backend.query(
                 collection_name=rag_config.collection_name,
                 filter_expr=filter_expr,

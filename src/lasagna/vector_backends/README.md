@@ -230,6 +230,8 @@ backend.create_collection(name, schema, index_config)
 backend.drop_collection(name)
 backend.describe_collection(name)           # -> CollectionInfo
 backend.get_collection_stats(name)          # -> {"row_count": ...}
+backend.describe_fields(name)               # -> field definitions, without counting rows
+backend.session_filter(name, session_id)    # -> the FilterExpression for one session's rows
 ```
 
 ### Data Operations
