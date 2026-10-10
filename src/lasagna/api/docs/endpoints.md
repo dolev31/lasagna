@@ -43,7 +43,7 @@ Readiness probe. Checks embedding model, vector backend, and metadata database. 
     "vector_backend": {"status": "up", "latency_ms": 0.8, "detail": "milvus"},
     "database":       {"status": "up", "latency_ms": 2.1, "detail": "sqlite"}
   },
-  "version": "0.1.0a1"
+  "version": "0.1.0"
 }
 ```
 

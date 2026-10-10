@@ -118,6 +118,18 @@ class TestVersionIsSingleSourced:
             numeric.append(int(digits) if digits else 0)
         assert __version_info__ == tuple(numeric)
 
+    def test_the_cli_reports_the_package_version(self):
+        """`lasagna --version` is the first thing a bug report asks for, and the
+        release workflow's smoke check runs it against the installed wheel."""
+        from typer.testing import CliRunner
+
+        import lasagna
+        from lasagna.cli import app
+
+        result = CliRunner().invoke(app, ["--version"])
+        assert result.exit_code == 0, result.output
+        assert result.output.strip() == f"lasagna {lasagna.__version__}"
+
 
 class TestCountsThatDriftedOnce:
     """Each of these was wrong in a shipped document because nothing checked it.

@@ -74,10 +74,25 @@ def _configure_cli_logging(verbose: bool = False, default: str = "WARNING") -> N
     logger.add(sys.stderr, level=min(threshold, logger.level("INFO").no), filter=_shown)
 
 
+def _print_version(value: bool) -> None:
+    if value:
+        from lasagna import __version__
+
+        typer.echo(f"lasagna {__version__}")
+        raise typer.Exit()
+
+
 @app.callback()
 def _cli(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Show INFO and DEBUG logs (default: warnings only)"
+    ),
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_print_version,
+        is_eager=True,
+        help="Print the installed version and exit.",
     ),
 ):
     from loguru import logger
