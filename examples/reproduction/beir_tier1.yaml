@@ -1,0 +1,137 @@
+# Reproduce published BEIR numbers: BM25, two dense models, BM25 + cross-encoder.
+#
+# Usage:  lasagna benchmark experiment examples/reproduction/beir_tier1.yaml
+#
+# No LLM, no API key. Full test query sets and full corpora:
+#   beir/scifact   300 queries, 5,183 documents
+#   beir/nfcorpus  323 queries, 3,633 documents
+# Results, sources and notes: examples/reproduction/README.md.
+#
+# Every arm starts from the `speed` profile, which already turns off hybrid
+# fusion, reranking, MMR, HyDE, query enhancement and agentic retrieval. Each
+# arm then names exactly one first stage and, for the reranker arm, one
+# reranker. Nothing else changes between arms.
+#
+# BEIR scores whole documents. The anchor below makes each document exactly one
+# chunk: fixed-size chunking with a chunk far longer than any document, the
+# structure-aware and hierarchical chunkers off (they would otherwise take
+# precedence over `chunking_strategy`), and a storage cap above the longest
+# document (10,128 characters). Models still truncate to their own maximum
+# sequence length, as in the published setups.
+
+name: "BEIR Tier 1 reproduction"
+description: "BM25, all-MiniLM-L6-v2, bge-small-en-v1.5, hybrid RRF and BM25 + MiniLM cross-encoder on SciFact and NFCorpus"
+
+benchmarks:
+  - name: beir/scifact
+    split: test
+  - name: beir/nfcorpus
+    split: test
+
+tracks: [retrieval]
+mode: live
+max_corpus_docs: 0   # the whole corpus; 0 means no cap
+n_runs: 1            # every arm is deterministic; a rerun gives the same numbers
+seed: 42
+max_concurrency: 1
+
+output_formats: [markdown, json]
+
+pipeline:
+  base_profile: speed
+  config_overrides:
+    # -- NDCG@10 ------------------------------------------------------------
+    # metric_k 10 with an over-fetch of 10 asks the pipeline for 100 chunks
+    # (= 100 documents here). That is the rerank depth of the cross-encoder
+    # arm, and it leaves the top 10 of every other arm unchanged.
+    - &bm25
+      name: bm25
+      retriever: bm25
+      # Lucene's defaults, which BEIR's Anserini BM25 used.
+      bm25_k1: 0.9
+      bm25_b: 0.4
+      # One document, one chunk.
+      chunking_strategy: fixed
+      chunk_size: 100000
+      chunk_overlap: 0
+      preserve_headers: false
+      preserve_tables: false
+      enable_hierarchical: false
+      max_content_length: 20000
+      # The corpus every MiniLM and BM25 arm shares.
+      embedding_model: sentence-transformers/all-MiniLM-L6-v2
+      embedding_dim: 384
+      metric_k: 10
+      retrieval_chunk_overfetch: 10
+
+    # Lasagna's own BM25 defaults (k1 1.2, b 0.75), for comparison.
+    - <<: *bm25
+      name: bm25_k1.2_b0.75
+      bm25_k1: 1.2
+      bm25_b: 0.75
+
+    - <<: *bm25
+      name: dense_minilm
+      retriever: dense
+
+    # The query instruction from the model card is applied automatically.
+    - &bge
+      <<: *bm25
+      name: dense_bge_small
+      retriever: dense
+      embedding_model: BAAI/bge-small-en-v1.5
+      embedding_dim: 384
+
+    - <<: *bm25
+      name: hybrid_rrf_minilm
+      retriever: hybrid_rrf
+
+    - <<: *bge
+      name: hybrid_rrf_bge_small
+      retriever: hybrid_rrf
+
+    # BM25 top 100, reranked by the cross-encoder BEIR used.
+    - <<: *bm25
+      name: bm25_ce
+      reranker: cross_encoder
+      reranker_model: cross-encoder/ms-marco-MiniLM-L-6-v2
+
+    # -- Recall@100 ---------------------------------------------------------
+    # The IR metrics are computed at one cutoff per arm, so recall@100 needs
+    # arms of its own. The cross-encoder arm here reorders the same 100 BM25
+    # candidates, so its recall@100 must equal bm25_k100's: a check that all
+    # 100 reached the reranker.
+    - &k100
+      <<: *bm25
+      name: bm25_k100
+      metric_k: 100
+      retrieval_chunk_overfetch: 1
+
+    - <<: *k100
+      name: bm25_k1.2_b0.75_k100
+      bm25_k1: 1.2
+      bm25_b: 0.75
+
+    - <<: *k100
+      name: dense_minilm_k100
+      retriever: dense
+
+    - &bge_k100
+      <<: *k100
+      name: dense_bge_small_k100
+      retriever: dense
+      embedding_model: BAAI/bge-small-en-v1.5
+      embedding_dim: 384
+
+    - <<: *k100
+      name: hybrid_rrf_minilm_k100
+      retriever: hybrid_rrf
+
+    - <<: *bge_k100
+      name: hybrid_rrf_bge_small_k100
+      retriever: hybrid_rrf
+
+    - <<: *k100
+      name: bm25_ce_k100
+      reranker: cross_encoder
+      reranker_model: cross-encoder/ms-marco-MiniLM-L-6-v2

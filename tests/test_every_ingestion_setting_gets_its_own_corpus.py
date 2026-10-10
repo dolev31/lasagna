@@ -34,6 +34,10 @@ def _task(**overrides):
         ("chunk_unit", "tokens"),
         ("recursive_separators", ["\n\n", "\n"]),
         ("embedding_model", "BAAI/bge-small-en-v1.5"),
+        # Cuts every chunk before it is embedded and indexed. Filed as
+        # operational, it never reached the ingest: a whole-document arm
+        # (chunk_size 100000) still had its documents cut at 4,000 characters.
+        ("max_content_length", 100_000),
     ],
 )
 def test_a_changed_ingestion_setting_is_a_different_corpus(key, value):

@@ -950,6 +950,35 @@ def _fix_retrieval_depth(task_config: Dict[str, Any], depth: int) -> None:
     task_config["default_top_k"] = max(int(task_config.get("default_top_k") or 0), depth)
 
 
+def _short_list_warning(short: int, exhausted: int, n_queries: int, k: int, overfetch: int) -> str:
+    """Why ``short`` queries scored fewer than ``k`` documents, and what would help.
+
+    The warning used to blame merged chunks and advise raising the over-fetch
+    for every short list. A lexical retriever returns only passages that share
+    a term with the query, so a one-word NFCorpus query can match three
+    documents in the whole corpus; no over-fetch changes that, and the advice
+    made a correct BEIR number look deflated.
+    """
+    parts = [
+        f"{short} of {n_queries} queries had fewer than {k} distinct documents, "
+        f"which lowers @{k} metrics."
+    ]
+    if exhausted:
+        parts.append(
+            f"For {exhausted} of them the retriever returned fewer results than were "
+            f"requested: it ran out of candidates (BM25 and SPLADE return only "
+            f"passages that share a term with the query), and over-fetching does "
+            f"not change that."
+        )
+    if short - exhausted:
+        parts.append(
+            f"For {short - exhausted} of them the full request came back and merged "
+            f"into fewer documents; raise retrieval_chunk_overfetch (now "
+            f"{overfetch}) if the corpus has more documents than that."
+        )
+    return " ".join(parts)
+
+
 #: Above this share of failed answer generations, a task is failed, not scored.
 _MAX_FAILED_GENERATION_RATE = 0.1
 
@@ -3475,6 +3504,7 @@ async def _eval_live(
     relevances: List[Dict[str, int]] = []
     retrieved_lists: List[List[str]] = []
     _short_lists = 0  # queries left with fewer than k distinct documents
+    _exhausted_lists = 0  # ...of which the retriever returned fewer than requested
     per_sample_scores: List[Dict[str, float]] = []
     #: Reasons this task's numbers cannot be trusted. Any entry fails the task
     #: (TaskResult.error) instead of letting a failure stand in as a score.
@@ -3614,6 +3644,8 @@ async def _eval_live(
             retrieved_detail = retrieved_detail[:_metric_k]
             if len(retrieved_ids) < _metric_k:
                 _short_lists += 1
+                if len(search_results) < _retrieval_depth:
+                    _exhausted_lists += 1
 
             relevances.append(mapped_expected)
             retrieved_lists.append(retrieved_ids)
@@ -3693,10 +3725,13 @@ async def _eval_live(
             # documents split into more chunks than the over-fetch covers.
             metrics["short_lists"] = float(_short_lists)
             logger.warning(
-                f"{_short_lists} of {len(retrieved_lists)} queries had fewer than "
-                f"{_metric_k} distinct documents after merging chunks, which lowers "
-                f"@{_metric_k} metrics. Raise retrieval_chunk_overfetch (now "
-                f"{_chunk_overfetch}) if the corpus has more documents than that."
+                _short_list_warning(
+                    _short_lists,
+                    _exhausted_lists,
+                    len(retrieved_lists),
+                    _metric_k,
+                    _chunk_overfetch,
+                )
             )
 
         # ── Generation path ──────────────────────────────────────────────────
