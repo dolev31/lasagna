@@ -83,7 +83,6 @@ _OPERATIONAL = frozenset(
         "lifecycle",
         "log_level",
         "max_concurrent_uploads",
-        "max_content_length",
         "max_document_ids_filter",
         "max_file_size",
         "max_query_length",
@@ -136,6 +135,10 @@ _EXACT: Dict[str, str] = {
     "enable_contextual_retrieval": "chunker",
     "enable_raptor": "chunker",
     "document_awareness": "chunker",
+    # Every chunk is cut to this many characters before it is embedded and
+    # indexed, so it decides what the corpus holds; filed as operational, an
+    # arm could not change it and the manifest did not record it.
+    "max_content_length": "chunker",
     # embedding and the index it lives in
     "normalize_embeddings": "embedder",
     "collection_name": "embedder",
