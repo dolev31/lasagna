@@ -303,7 +303,7 @@ The Knowledge SDK provides built-in multi-tenancy support through session-based 
 | Layer | Isolation Mechanism |
 | ----- | ------------------- |
 | **SQLite (metadata)** | All queries filter by `session_id` |
-| **Vector Database** | Chunks store `session_id` in metadata JSON, filtered on search |
+| **Vector Database** | Chunks store `session_id` in a field of their own and in their metadata; search filters on the field |
 | **API Layer** | Every operation validates and uses `session_id` |
 | **BM25 Index** | Separate indices per session |
 

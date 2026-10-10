@@ -1035,13 +1035,9 @@ class HybridSearcher:
             timer = time.perf_counter()
 
             # Build filter expression for session/document filtering
-            # Use backend-appropriate filter syntax (Milvus stores session_id in JSON metadata)
             from lasagna.vector_backends.filters import FilterExpression
 
-            if backend.backend_name == "milvus":
-                filters = [FilterExpression.json_eq("metadata", "session_id", session_id)]
-            else:
-                filters = [FilterExpression.eq("session_id", session_id)]
+            filters = [backend.session_filter(coll_name, session_id)]
             if document_ids:
                 # Limit document IDs to prevent filter overflow
                 max_doc_ids = config.max_document_ids_filter

@@ -2979,7 +2979,6 @@ async def _ensure_corpus_ingested(
         # chunk → embed → insert pipeline for eval corpus.
         from ..api.rag_backend import get_rag_backend as _get_ingest_backend
         from ..core.config import rag_config as _rag_cfg
-        from ..vector_backends.filters import FilterExpression as _FE
         from ._fast_ingest import fast_ingest_corpus as _fast_ingest
 
         _ingest_backend = _get_ingest_backend()
@@ -3040,10 +3039,7 @@ async def _ensure_corpus_ingested(
                         f"{len(missing_non_error)} missing). Cleaning up and re-ingesting."
                     )
                     try:
-                        if _resolved.backend_name == "milvus":
-                            _filt = _FE.json_eq("metadata", "session_id", shared_session_id)
-                        else:
-                            _filt = _FE.eq("session_id", shared_session_id)
+                        _filt = _resolved.session_filter(_coll_name, shared_session_id)
                         _resolved.delete(collection_name=_coll_name, filter_expr=_filt)
                     except Exception as _del_exc:
                         # Re-ingesting on top of vectors that could not be
@@ -3406,8 +3402,6 @@ async def _eval_live(
                     f"Building BM25 fallback index for session {shared_session_id} "
                     f"(fetching from vector store)"
                 )
-                from ..vector_backends.filters import FilterExpression
-
                 _vec = _backend._vector_backend
                 _coll = pipeline._config.get("collection_name", _rag_cfg.collection_name)
                 # Fetch every chunk for this session. This must be exhaustive:
@@ -3416,10 +3410,7 @@ async def _eval_live(
                 # number from a corpus that was never fully indexed. `iter_all`
                 # uses a native cursor rather than limit+offset paging, which
                 # previously failed outright past 16384 rows.
-                if _vec.backend_name == "milvus":
-                    _filt = FilterExpression.json_eq("metadata", "session_id", shared_session_id)
-                else:
-                    _filt = FilterExpression.eq("session_id", shared_session_id)
+                _filt = _vec.session_filter(_coll, shared_session_id)
                 _all_chunks: list = list(
                     _vec.iter_all(
                         collection_name=_coll,

@@ -212,6 +212,13 @@ class PooledVectorBackend(VectorStoreAdapter):
         finally:
             self._release(backend)
 
+    def describe_fields(self, collection_name: str) -> List[Dict[str, Any]]:
+        backend = self._acquire()
+        try:
+            return backend.describe_fields(collection_name)
+        finally:
+            self._release(backend)
+
     def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
         backend = self._acquire()
         try:
@@ -308,6 +315,13 @@ class PooledVectorBackend(VectorStoreAdapter):
                 limit=limit,
                 offset=offset,
             )
+        finally:
+            self._release(backend)
+
+    def session_filter(self, collection_name: str, session_id: str) -> FilterExpression:
+        backend = self._acquire()
+        try:
+            return backend.session_filter(collection_name, session_id)
         finally:
             self._release(backend)
 

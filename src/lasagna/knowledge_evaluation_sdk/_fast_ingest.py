@@ -497,9 +497,10 @@ def _flush_insert(
             "embedding": embedding,
             "metadata": chunk.get("metadata", {}),
         }
-        # Ensure session_id is in metadata
-        if "session_id" not in insert_doc["metadata"]:
-            insert_doc["metadata"]["session_id"] = session_id
+        # The column and metadata["session_id"] must name the same session:
+        # search filters on the column, and a chunker's own metadata must not
+        # move a chunk into another session.
+        insert_doc["metadata"]["session_id"] = insert_doc["session_id"]
 
         # Optional sparse tokens
         if "sparse_tokens" in chunk and chunk["sparse_tokens"]:

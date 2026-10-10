@@ -753,13 +753,7 @@ class SearchOrchestrator:
         if session_id:
             if not is_valid_session_id(session_id):
                 raise ValueError(f"Invalid session_id format: {session_id[:50]}...")
-            # Use FilterExpression for backend-agnostic filtering
-            # session_id is stored as a top-level field (for non-Milvus backends)
-            # and inside metadata JSON (for Milvus)
-            if backend.backend_name == "milvus":
-                session_filter = FilterExpression.json_eq("metadata", "session_id", session_id)
-            else:
-                session_filter = FilterExpression.eq("session_id", session_id)
+            session_filter = backend.session_filter(config.collection_name, session_id)
             filter_parts.append(session_filter)
 
         if document_ids:
@@ -789,13 +783,6 @@ class SearchOrchestrator:
             f"Searching vector backend ({backend.backend_name}): "
             f"collection={collection_name}, filter={'yes' if filter_expr else 'none'}, limit={initial_top_k}"
         )
-
-        # First, verify the collection has data
-        try:
-            collection_stats = backend.get_collection_stats(collection_name)
-            logger.debug(f"Collection stats: {collection_stats}")
-        except Exception as stats_error:
-            logger.warning(f"Could not get collection stats: {stats_error}")
 
         dense_start = perf_counter()
         # P1-3 FIX: Include 'embedding' in output_fields to reuse for MMR
@@ -2293,10 +2280,7 @@ class SearchOrchestrator:
             # Batch fetch: use IN filter for all chunk_ids, scoped to session
             chunk_filter = FilterExpression.in_list("chunk_id", list(chunk_ids))
             # Add session_id filter to prevent cross-session leakage
-            if backend.backend_name == "milvus":
-                session_filter = FilterExpression.json_eq("metadata", "session_id", session_id)
-            else:
-                session_filter = FilterExpression.eq("session_id", session_id)
+            session_filter = backend.session_filter(collection_name, session_id)
             filter_expr = FilterExpression.and_all([chunk_filter, session_filter])
             hits = backend.query(
                 collection_name=collection_name,

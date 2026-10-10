@@ -173,6 +173,8 @@ class MilvusBackend(VectorStoreAdapter):
         self._connection_lock = threading.Lock()
         # Collections verified loaded on the current connection (see _ensure_loaded).
         self._loaded_collections: set = set()
+        # Whether each collection has a scalar session_id field (see session_filter).
+        self._session_column: Dict[str, bool] = {}
 
     # =========================================================================
     # Capability Detection
@@ -288,6 +290,7 @@ class MilvusBackend(VectorStoreAdapter):
                 logger.debug(f"Error closing Milvus connection: {e}")
             self._client = None
         self._loaded_collections.clear()
+        self._session_column.clear()
 
     def is_connected(self) -> bool:
         """Check if connected to Milvus."""
@@ -349,6 +352,7 @@ class MilvusBackend(VectorStoreAdapter):
     ) -> None:
         """Create a new collection."""
         client = self._ensure_connected()
+        self._session_column.pop(collection_name, None)
 
         # Convert our schema to Milvus schema
         milvus_schema = self._to_milvus_schema(schema)
@@ -387,10 +391,11 @@ class MilvusBackend(VectorStoreAdapter):
         client = self._ensure_connected()
         client.drop_collection(collection_name)
         self._loaded_collections.discard(collection_name)
+        self._session_column.pop(collection_name, None)
         logger.info(f"Dropped Milvus collection: {collection_name}")
 
-    def describe_collection(self, collection_name: str) -> CollectionInfo:
-        """Get collection information."""
+    def _describe(self, collection_name: str):
+        """The server's description of the collection, and its fields as dicts."""
         client = self._ensure_connected()
         info = client.describe_collection(collection_name)
 
@@ -412,6 +417,11 @@ class MilvusBackend(VectorStoreAdapter):
                         "params": getattr(f, "params", {}),
                     }
                 )
+        return info, fields
+
+    def describe_collection(self, collection_name: str) -> CollectionInfo:
+        """Get collection information."""
+        info, fields = self._describe(collection_name)
 
         # Get row count
         stats = self.get_collection_stats(collection_name)
@@ -424,6 +434,10 @@ class MilvusBackend(VectorStoreAdapter):
             description=info.get("description", "") if isinstance(info, dict) else "",
         )
 
+    def describe_fields(self, collection_name: str) -> List[Dict[str, Any]]:
+        """The fields alone: counting rows is a second call, as slow as the first."""
+        return self._describe(collection_name)[1]
+
     def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
         """Get collection statistics."""
         client = self._ensure_connected()
@@ -435,6 +449,37 @@ class MilvusBackend(VectorStoreAdapter):
         except Exception as e:
             logger.debug(f"Could not get stats for {collection_name}: {e}")
             return {"row_count": 0}
+
+    def session_filter(self, collection_name: str, session_id: str) -> FilterExpression:
+        """Select one session's rows: by the scalar column when the collection has one.
+
+        Both writers (upload and benchmark ingest) store the same value in the
+        ``session_id`` column and in ``metadata["session_id"]``, so the two
+        filters select the same rows. The JSON path is parsed row by row: on
+        Milvus Lite it made a filtered search about 20 times slower than the
+        column. A collection without the column keeps the JSON path.
+        """
+        if self._has_session_column(collection_name):
+            return FilterExpression.eq("session_id", session_id)
+        return FilterExpression.json_eq("metadata", "session_id", session_id)
+
+    def _has_session_column(self, collection_name: str) -> bool:
+        known = self._session_column.get(collection_name)
+        if known is not None:
+            return known
+        try:
+            fields = self.describe_fields(collection_name)
+        except Exception as e:
+            # Not cached: the read that follows reports the real error.
+            logger.debug(f"Could not describe {collection_name}: {e}")
+            return False
+        varchar = (DataType.VARCHAR, str(DataType.VARCHAR), "VARCHAR")
+        known = any(
+            f.get("name") == "session_id" and f.get("type", f.get("dtype")) in varchar
+            for f in fields
+        )
+        self._session_column[collection_name] = known
+        return known
 
     # =========================================================================
     # Index Management

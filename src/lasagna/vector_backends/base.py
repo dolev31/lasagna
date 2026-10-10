@@ -322,6 +322,15 @@ class VectorStoreAdapter(ABC):
         """
         pass
 
+    def describe_fields(self, collection_name: str) -> List[Dict[str, Any]]:
+        """The collection's field definitions, without its statistics.
+
+        Every search checks the embedding size of the collection; a backend for
+        which ``describe_collection`` costs a second call to count rows
+        overrides this to skip it.
+        """
+        return self.describe_collection(collection_name).fields
+
     @abstractmethod
     def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
         """Get statistics for a collection.
@@ -516,7 +525,7 @@ class VectorStoreAdapter(ABC):
             Pinecone does not support true distinct queries — this operation
             may be O(N) on the number of stored vectors.
         """
-        filter_expr = FilterExpression.eq("session_id", session_id) if session_id else None
+        filter_expr = self.session_filter(collection_name, session_id) if session_id else None
         # Scan chunk rows rather than paging: a collection with many chunks per
         # document would otherwise return only a fraction of documents in the
         # first page, and paging past a backend's limit+offset ceiling fails
@@ -540,6 +549,15 @@ class VectorStoreAdapter(ABC):
             if len(result) >= limit:
                 break
         return result
+
+    def session_filter(self, collection_name: str, session_id: str) -> FilterExpression:
+        """The filter that selects one session's rows in ``collection_name``.
+
+        Every writer stores ``session_id`` as a top-level field, so the default
+        matches on it. A backend whose collections may lack that field
+        overrides this (Milvus).
+        """
+        return FilterExpression.eq(Fields.SESSION_ID, session_id)
 
     # =========================================================================
     # Vector Search

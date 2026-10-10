@@ -25,7 +25,7 @@ from lasagna.core.testing import ComponentTestHarness
 from lasagna.knowledge_evaluation_sdk.stages import stage_of
 from lasagna.retrieval.search import hybrid, retrievers
 from lasagna.retrieval.search.hybrid import HybridSearcher, SPLADESparseEncoder, _SparseCorpus
-from lasagna.vector_backends.base import VectorSearchResult
+from lasagna.vector_backends.base import VectorSearchResult, VectorStoreAdapter
 
 pytestmark = pytest.mark.skipif(
     not hybrid.BM25_FALLBACK_AVAILABLE, reason="rank_bm25 not installed"
@@ -469,9 +469,7 @@ def test_dense_and_bm25_disagree_on_a_real_embedding(tmp_path):
 
 class _Backend:
     backend_name = "fake"
-
-    def get_collection_stats(self, name):
-        return {}
+    session_filter = VectorStoreAdapter.session_filter
 
     def search(self, **kw):
         raise AssertionError("the store's own search ran instead of the retriever")
