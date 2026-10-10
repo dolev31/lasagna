@@ -1,0 +1,15 @@
+method,dataset,split,ndcg@10,recall@100,n_queries,short_lists_at_10,run_date,package_commit
+bm25,beir/scifact,test,0.6636,0.9060,300,0,2026-10-10,9fe1f78
+bm25_k1.2_b0.75,beir/scifact,test,0.6762,0.9133,300,0,2026-10-10,9fe1f78
+dense_minilm,beir/scifact,test,0.6451,0.9250,300,0,2026-10-10,9fe1f78
+dense_bge_small,beir/scifact,test,0.7127,0.9417,300,0,2026-10-10,9fe1f78
+hybrid_rrf_minilm,beir/scifact,test,0.7077,0.9550,300,0,2026-10-10,9fe1f78
+hybrid_rrf_bge_small,beir/scifact,test,0.7212,0.9683,300,0,2026-10-10,9fe1f78
+bm25_ce,beir/scifact,test,0.6846,0.9060,300,0,2026-10-10,9fe1f78
+bm25,beir/nfcorpus,test,0.3172,0.2431,323,75,2026-10-10,9fe1f78
+bm25_k1.2_b0.75,beir/nfcorpus,test,0.3172,0.2427,323,75,2026-10-10,9fe1f78
+dense_minilm,beir/nfcorpus,test,0.3167,0.3115,323,0,2026-10-10,9fe1f78
+dense_bge_small,beir/nfcorpus,test,0.3438,0.3110,323,0,2026-10-10,9fe1f78
+hybrid_rrf_minilm,beir/nfcorpus,test,0.3533,0.3229,323,0,2026-10-10,9fe1f78
+hybrid_rrf_bge_small,beir/nfcorpus,test,0.3638,0.3162,323,0,2026-10-10,9fe1f78
+bm25_ce,beir/nfcorpus,test,0.3514,0.2431,323,75,2026-10-10,9fe1f78
