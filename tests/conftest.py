@@ -173,3 +173,35 @@ def _lasagna_logs_enabled():
 
     logger.enable("lasagna")
     yield
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Close every vector-store connection before the interpreter exits.
+
+    Milvus Lite's gRPC threads are not daemons, and Python joins non-daemon
+    threads before it exits: a test that left a client open kept the process
+    alive after pytest printed its summary (seen intermittently in CI, with
+    "too_many_pings" from the server), so a green run could still time out.
+    """
+    try:
+        from lasagna.api.rag_backend import close_backend
+
+        close_backend()
+    except Exception:
+        pass
+    try:
+        from pymilvus import connections
+
+        for alias, _ in list(connections.list_connections()):
+            try:
+                connections.disconnect(alias)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        from milvus_lite.server_manager import server_manager_instance
+
+        server_manager_instance.release_all()
+    except Exception:
+        pass
