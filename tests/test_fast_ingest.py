@@ -410,6 +410,61 @@ class TestIngestConfig:
 
 
 # ---------------------------------------------------------------------------
+# Test: chunks cut to max_content_length
+# ---------------------------------------------------------------------------
+
+
+class TestContentCut:
+    """A chunk cut before embedding is reported, not cut silently.
+
+    A whole-document arm (chunk_size 100000) had its longer documents cut at
+    4,000 characters, embedded and indexed that way, and logged nothing.
+    """
+
+    @staticmethod
+    def _run(lengths, max_content_length):
+        import queue as _queue
+
+        from loguru import logger
+
+        from lasagna.knowledge_evaluation_sdk._fast_ingest import _embed_stage
+
+        chunk_q: _queue.Queue = _queue.Queue()
+        insert_q: _queue.Queue = _queue.Queue()
+        for i, n in enumerate(lengths):
+            chunk = {"content": "x" * n, "document_id": f"d{i}", "chunk_index": 0}
+            chunk_q.put((f"d{i}", [chunk], None))
+        warnings: List[str] = []
+        sink = logger.add(lambda m: warnings.append(m.record["message"]), level="WARNING")
+        try:
+            _embed_stage(
+                chunk_q,
+                insert_q,
+                MockEmbeddingManager(),
+                embed_batch_size=8,
+                total_docs=len(lengths),
+                enable_late_chunking=False,
+                enable_sparse=False,
+                max_content_length=max_content_length,
+            )
+        finally:
+            logger.remove(sink)
+        stored = []
+        while (batch := insert_q.get()) is not None:
+            stored.extend(batch)
+        return warnings, stored
+
+    def test_a_cut_chunk_is_reported(self):
+        warnings, stored = self._run([5000, 100], max_content_length=4000)
+        assert [len(c["content"]) for c in stored] == [4000, 100]
+        assert any("1 chunks were longer than max_content_length=4000" in w for w in warnings)
+
+    def test_nothing_is_reported_when_nothing_is_cut(self):
+        warnings, _ = self._run([5000, 100], max_content_length=100_000)
+        assert not any("max_content_length" in w for w in warnings)
+
+
+# ---------------------------------------------------------------------------
 # Test: worker count rules
 # ---------------------------------------------------------------------------
 

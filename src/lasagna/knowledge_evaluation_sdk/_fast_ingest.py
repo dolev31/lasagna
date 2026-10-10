@@ -280,6 +280,7 @@ def _embed_stage(
     """Drain chunk_queue, batch-embed cross-doc, push to insert_queue."""
     pending_chunks: List[Dict[str, Any]] = []
     docs_processed = 0
+    cut = 0
     progress = _Progress(total_docs)
 
     while docs_processed < total_docs:
@@ -294,6 +295,8 @@ def _embed_stage(
             else:
                 chunk["chunk_id"] = f"{chunk['document_id']}_chunk_{idx}"
             # Truncate content
+            if len(chunk["content"]) > max_content_length:
+                cut += 1
             chunk["content"] = chunk["content"][:max_content_length]
 
         # Store full_text for late_chunking
@@ -325,6 +328,15 @@ def _embed_stage(
             enable_late_chunking,
             enable_sparse,
             embedder=embedder,
+        )
+    if cut:
+        # The cut text is what gets embedded and indexed, so a chunker asked
+        # for whole documents measured their first max_content_length
+        # characters, and nothing said so.
+        logger.warning(
+            f"{cut} chunks were longer than max_content_length={max_content_length} "
+            f"characters and were cut to it before embedding and indexing. Raise "
+            f"max_content_length to keep whole chunks."
         )
     insert_queue.put(None)  # sentinel
 
