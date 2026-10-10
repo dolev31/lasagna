@@ -187,4 +187,11 @@
       if (!video.hasAttribute("controls")) video.setAttribute("controls", "");
     });
   }
+  /* ---- terminal demo: autoplays muted on loop, unless reduced motion is set ---- */
+  var demo = document.getElementById("demo");
+  if (demo && reduceMotion.matches) {
+    demo.removeAttribute("autoplay");
+    demo.pause();
+    demo.controls = true;
+  }
 })();
