@@ -38,6 +38,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -54,6 +55,7 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       # Full history: a credential committed and then deleted is still in the
       # pack, and still recoverable by anyone who clones.
@@ -84,6 +86,7 @@ jobs:
   plugin-template:
     name: Plugin template
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -125,6 +128,7 @@ jobs:
   test:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -213,6 +217,8 @@ jobs:
   e2e-smoke:
     name: E2E gate (quick subset)
     runs-on: ubuntu-latest
+    # Phase p2 downloads the default models (about 4.5 GB) on a cold cache.
+    timeout-minutes: 60
     if: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.event.repository.private) }}
     steps:
       # The gate installs torch twice (here, and again in its own clean venv),
@@ -246,6 +252,7 @@ jobs:
   compliance:
     name: Secrets and licenses
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
