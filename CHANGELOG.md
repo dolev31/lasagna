@@ -6,18 +6,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- **Searching on Milvus no longer pays for a JSON filter.** A search was
-  confined to its session through `metadata["session_id"]`, which Milvus parses
-  row by row; it now uses the `session_id` field every collection has and every
-  writer fills with the same value. A search also stopped counting the
-  collection's rows twice for a count it never used. Measured on Milvus Lite
-  with 18,442 chunks in three sessions, the median search fell from 293 ms to
-  32 ms without a reranker and from 415 ms to 144 ms with a MiniLM
-  cross-encoder, returning the same ranked chunks and scores. A collection
-  without the field keeps the old filter.
-
 ## [0.1.0] - YYYY-MM-DD
 
 Lasagna now has eight swappable stages and 53 built-in components; each one that
@@ -86,9 +74,38 @@ Sweeps, validation and metrics:
   tokens and LLM calls per query. The judge is now also asked for
   `factual_correctness`.
 - `lasagna --version` prints the installed version.
+- **`lasagna results significance` ends in a verdict.** A green box names each
+  pair that survives Holm correction, which side won (lower-is-better metrics
+  included) and by how much; when nothing survives, a yellow box says so and
+  points at `lasagna results power`.
+- **A Colab notebook**, `examples/notebooks/compare_your_reranker.ipynb`: a
+  one-function reranker against the built-in cross-encoder on 100 BEIR SciFact
+  queries over the full corpus, ending in the significance test, the isolation
+  check and a validated bundle. No API key.
+- **A BEIR reproduction**, `examples/reproduction/`: BM25, two dense models,
+  hybrid RRF and BM25 with a cross-encoder on the full SciFact and NFCorpus test
+  sets. The dense models land within 0.002 NDCG@10 of MTEB, BM25 with the
+  cross-encoder within 0.004 of the BEIR paper, BM25 within 0.008.
+- A terminal demo, `docs/assets/demo.gif`, regenerated from a real run by
+  `docs/assets/demo/record.sh`.
 
 ### Changed
 
+- **Searching on Milvus no longer pays for a JSON filter.** A search was
+  confined to its session through `metadata["session_id"]`, which Milvus parses
+  row by row; it now uses the `session_id` field every collection has and every
+  writer fills with the same value. A search also stopped counting the
+  collection's rows twice for a count it never used. Measured on Milvus Lite
+  with 18,442 chunks in three sessions, the median search fell from 293 ms to
+  32 ms without a reranker and from 415 ms to 144 ms with a MiniLM
+  cross-encoder, returning the same ranked chunks and scores. A collection
+  without the field keeps the old filter.
+- Every title, banner, help text and guide that said "RAG Knowledge" says
+  Lasagna, and the MCP server announces itself as `lasagna` (it was
+  `rag_knowledge`). Clients name the server in their own config, so existing
+  configs keep working.
+- `max_content_length` is a chunker setting: a sweep can vary it, each value
+  gets a corpus of its own, and the chunker's stage digest includes it.
 - **`METRICS_VERSION` 1.4:** an answer counts as an abstention only when it opens
   with one, so a hedge later in the answer no longer zeroes exact match and
   token F1. Answers are normalized in the official SQuAD order.
@@ -108,6 +125,11 @@ Sweeps, validation and metrics:
 ### Fixed
 
 Numbers that were wrong:
+
+- **Chunks cut at ingest without a word.** Benchmark ingest cut every chunk to
+  `max_content_length` (4,000 characters) before embedding and indexing, and a
+  sweep could not raise it. The default is unchanged and `chunk_size` 800 never
+  reaches it, so no published number moves; a cut is now logged.
 
 - **NDCG with negative grades.** A negative grade lowered the score:
   `{a: 2, b: -1, c: 1}` ranked `[b, a, c]` scored 0.358 where `trec_eval` gives
@@ -155,6 +177,10 @@ Numbers that were wrong:
   were embedded the standard way. Long documents are now processed in
   overlapping windows (`late_chunking_overlap`), and under evaluation late
   chunking raises instead of falling back.
+- **The short-list warning blamed the wrong setting.** It told users to raise
+  `retrieval_chunk_overfetch` even when BM25 had simply run out of documents
+  matching a one- or two-word query; it now names the cause.
+- `results significance` and the isolation summary said "1 pairs".
 
 ## 0.1.0a1 — 2026-08-18
 
