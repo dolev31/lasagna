@@ -154,10 +154,13 @@ command prints each pair with the difference, the effect size and both the raw
 and the Holm-adjusted p:
 
 ```
-ndcg@10 on beir/scifact — 1 pairs, Holm-Bonferroni
+ndcg@10 on beir/scifact — 1 pair, Holm-Bonferroni
 
-A                      B            diff    d_z       p  p (Holm)
-reranker=cross_encoder  reranker=my_ideas:keyword_overlap  ...
+pair                                 diff    d_z        p  p (Holm)    n
+reranker=cross_encoder                ...    ...      ...       ...  ...
+vs reranker=my_ideas:keyword_overlap
+
+  1 of 1 pair survives correction at family-wise alpha=0.05.
 ```
 
 Three things this enforces that a hand-rolled comparison does not:

@@ -353,3 +353,21 @@ class TestEveryRowSaysWhatItCompared:
         assert "3 pairs" in result.output
         assert "could not be tested" in result.output
         assert "elsewhere" in result.output
+
+
+def test_a_single_pair_reads_as_english(tmp_path):
+    """The demo's two-arm sweep printed "1 pairs" and "1 of 1 pairs survive"."""
+    n = 40
+    path = _results_file(
+        tmp_path,
+        {
+            "control": [0.50 + 0.001 * i for i in range(n)],
+            "mine": [0.80 + 0.001 * i for i in range(n)],
+        },
+    )
+    result = runner.invoke(app, ["results", "significance", path, "--all"])
+    assert result.exit_code == 0, result.output
+    out = " ".join(result.output.split())
+    assert "1 pair, Holm-Bonferroni" in out
+    assert "1 of 1 pair survives correction" in out
+    assert "pairs" not in out

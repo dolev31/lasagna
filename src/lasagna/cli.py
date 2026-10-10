@@ -194,6 +194,11 @@ def _load_profile_config(session_id: str):
         return KnowledgeConfig()
 
 
+def _count(n: int, noun: str) -> str:
+    """``_count(1, "pair")`` -> ``"1 pair"``; ``_count(2, "pair")`` -> ``"2 pairs"``."""
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
 def _error(msg: str, exit_code: int = 1):
     """Print error and exit."""
     console.print(f"[red]Error: {escape(msg)}[/red]")
@@ -1169,7 +1174,7 @@ def _print_isolation(results) -> None:
     elif pairs and not report["inert"]:
         console.print(
             f"[green]Stage isolation: the configuration that reached each stage differs "
-            f"only in the stages the arms name ({pairs} pair(s) compared).[/green]"
+            f"only in the stages the arms name ({_count(pairs, 'pair')} compared).[/green]"
         )
     elif not pairs and len(rows) > 1:
         console.print(
@@ -1794,7 +1799,7 @@ def results_significance(
 
     label = "Holm-Bonferroni" if correction == "holm" else "uncorrected"
     console.print(
-        f"[bold]{escape(metric)}[/bold] on {escape(benchmark)} — {len(rows)} pairs, {label}"
+        f"[bold]{escape(metric)}[/bold] on {escape(benchmark)} — {_count(len(rows), 'pair')}, {label}"
     )
     console.print()
 
@@ -1856,11 +1861,14 @@ def results_significance(
     console.print()
     if correction == "holm":
         console.print(
-            f"  {survivors} of {len(rows)} pairs survive correction at family-wise alpha={alpha}."
+            f"  {survivors} of {_count(len(rows), 'pair')} "
+            f"{'survives' if survivors == 1 else 'survive'} correction at "
+            f"family-wise alpha={alpha}."
         )
     else:
         console.print(
-            f"  {survivors} of {len(rows)} pairs are significant at alpha={alpha}, "
+            f"  {survivors} of {_count(len(rows), 'pair')} "
+            f"{'is' if survivors == 1 else 'are'} significant at alpha={alpha}, "
             f"[yellow]uncorrected[/yellow] — with {len(rows)} comparisons, expect "
             f"about {len(rows) * alpha:.1f} of these by chance."
         )
@@ -1871,7 +1879,7 @@ def results_significance(
         )
     if untestable:
         console.print(
-            f"  [yellow]{len(untestable)} pair(s) could not be tested[/yellow] and count in "
+            f"  [yellow]{_count(len(untestable), 'pair')} could not be tested[/yellow] and count in "
             "the family as p = 1:"
         )
         for row in untestable:
