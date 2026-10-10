@@ -13,7 +13,8 @@ Shared singletons for embedding, caching, session state, LLM client management, 
 | `session_store.py` | `SessionStore` protocol + in-memory/Redis implementations |
 | `cache/backend.py` | `CacheBackend` protocol + in-memory/Redis LRU implementations |
 | `cache/search_cache.py` | TTL-based LRU search result cache with session-aware invalidation |
-| `embedding/manager.py` | `EmbeddingManager` (BGE-M3 / sentence-transformers), `EmbeddingCache`, `EmbeddingManagerAdapter` |
+| `embedding/manager.py` | `EmbeddingManager` (BGE-M3 / sentence-transformers), `EmbeddingCache`, `EmbeddingManagerAdapter` (the `default` embedder), late chunking |
+| `embedding/embedders.py` | The embedder components: `sentence_transformers`, `bge_m3`, `openai`, `cohere`, `voyage` |
 | `tasks/celery_app.py` | Celery application configuration |
 | `tasks/document_tasks.py` | Background document processing task + synchronous fallback |
 
@@ -61,12 +62,34 @@ from lasagna.infrastructure.llm_manager import LLMManager
 
 ---
 
+## Embedder Components
+
+The `embedder` stage has six registered components. A sweep arm that names one (`embedders: [...]`) gets a corpus embedded by it, in a collection of its own at its dimension, and its queries are encoded by the same component.
+
+| Name | What it embeds with | Needs |
+| ---- | ------------------- | ----- |
+| `default` | The configured `embedding_model`, through the shared `EmbeddingManager` | core |
+| `sentence_transformers` | Any sentence-transformers model named by `embedding_model`, with the query and document prefixes its model card prescribes | core |
+| `bge_m3` | BGE-M3's dense vectors (Chen et al. 2024), through FlagEmbedding when installed and sentence-transformers otherwise. Its sparse and multi-vector outputs are available as methods but are not indexed | `lasagna-rag[flag-embedding]` for FlagEmbedding |
+| `openai` | OpenAI `text-embedding-3-small` (default), `-3-large` or `ada-002`; `embedding_truncate_dim` becomes the API's `dimensions` | `OPENAI_API_KEY` |
+| `cohere` | Cohere Embed v3 (`embed-english-v3.0` by default) or v4, with `search_query` / `search_document` input types | `pip install cohere`, `COHERE_API_KEY` or `CO_API_KEY` |
+| `voyage` | Voyage AI `voyage-3` family, with `query` / `document` input types | `pip install voyageai`, `VOYAGE_API_KEY` |
+
+An `embedding_model` that starts with the provider's model prefix (`text-embedding-`, `embed-`, `voyage-`) picks the API model; any other name gets the provider's default. A missing package or key raises naming it. Model-card prefixes are resolved from the model name, a specific family before a general one: E5's `query:`/`passage:`, the BGE v1.5 retrieval instruction, Nomic's `search_query:`/`search_document:`, the instruction templates of Qwen3-Embedding, gte-Qwen and E5-Mistral, and the query prefixes of mxbai and Arctic-Embed. BGE-M3, GTE and MiniLM get none.
+
+**Late chunking** is an embedding-time setting, not a component: with `enable_late_chunking`, the whole document is embedded once and each chunk's vector is the mean of its tokens' embeddings, so it works with any chunker. See [docs/embedding.md](docs/embedding.md#late-chunking).
+
+---
+
 ## Quick Config Reference
 
 | Option | Default | What it does |
 | ------ | ------- | ------------ |
 | `embedding_model` | `"BAAI/bge-m3"` | Embedding model name (HuggingFace ID) |
 | `embedding_backend` | `"auto"` | `"auto"` / `"flag-embedding"` / `"sentence-transformers"` |
+| `embedding_truncate_dim` | `None` | Matryoshka truncation: keep this many dimensions and renormalize; the API embedders request that output size where the model supports one |
+| `enable_late_chunking` | `false` | Embed the whole document once and pool each chunk's vector from its tokens |
+| `late_chunking_overlap` | `512` | Tokens shared by consecutive windows when a document is longer than the model's window |
 | `use_gpu` | `true` | Enable GPU acceleration for embeddings |
 | `enable_embedding_cache` | `true` | LRU embedding cache |
 | `embedding_cache_size` | `10000` | Max cached embeddings (~40 MB at 1024-dim float32) |

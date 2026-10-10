@@ -22,8 +22,8 @@ Guide for researchers and ML engineers extending RAG pipeline components.
 
 The SDK uses a **Registry + Factory** pattern at two levels:
 
-1. **Vector backend registry** — swap the underlying vector database (Milvus, Qdrant, etc.)
-2. **Retrieval component registry** — swap pipeline components (rerankers, embedders, chunkers, query enhancers)
+1. **Vector backend registry**: swap the underlying vector database (Milvus, Qdrant, etc.)
+2. **Retrieval component registry**: swap a component of any of the eight pipeline stages
 
 ### Retrieval Component Registry
 
@@ -52,8 +52,8 @@ component_registry.register_enhancer("my_hyde", MyHyDE)
 print(component_registry.list_all())
 # {
 #   "reranker": ["cross_encoder", "combined", ..., "my_colbert"],
-#   "embedder": ["default"],
-#   "chunker": ["semantic", "hierarchical", "structure_aware"],
+#   "embedder": ["default", "sentence_transformers", "bge_m3", ...],
+#   "chunker": ["semantic", "hierarchical", "structure_aware", "fixed", ...],
 #   "query_enhancer": ["hyde", "query_expansion", ..., "my_hyde"],
 #   ...
 # }
@@ -67,7 +67,7 @@ reranker = component_registry.create_reranker("my_colbert")
 #   custom_query_enhancer = "my_hyde"
 ```
 
-Four component categories are supported:
+These four categories have `register_*` shortcuts. Every stage, including retrievers, document processors, agentic pipelines and generators, also registers with `registry.register(stage, name)` (below). A class that does not subclass its stage's interface still registers, but is listed with `implements_contract: False`, and a sweep refuses it.
 
 | Category | Registration | Required Interface |
 |----------|-------------|--------------------|
@@ -217,7 +217,8 @@ class MyNovelReranker(BaseReranker):
 ```python
 # See all components in a namespace
 registry.list("reranker")
-# {'reranker': ['cross_encoder', 'combined', 'ensemble', 'mmr', 'colbert', 'llm_listwise', 'my_novel_reranker']}
+# {'reranker': ['cross_encoder', 'combined', 'ensemble', 'mmr', 'colbert', 'llm_listwise',
+#               'monot5', 'llm_pointwise', 'flashrank', 'cohere', 'my_novel_reranker']}
 
 # Get an instantiated component
 instance = registry.get("reranker", "my_novel_reranker")
@@ -228,7 +229,7 @@ cls = registry.get_class("reranker", "my_novel_reranker")
 
 ### Registry Namespaces
 
-Each of the six swappable component types lives in its own namespace. Register into the correct one to make your component available throughout the pipeline.
+Each of the eight swappable component types lives in its own namespace. Register into the correct one to make your component available throughout the pipeline.
 
 | Namespace | Base Class | Description |
 |-----------|------------|-------------|
@@ -239,6 +240,7 @@ Each of the six swappable component types lives in its own namespace. Register i
 | `document_processor` | `BaseDocumentProcessor` | Text extraction from files |
 | `query_enhancer` | `BaseQueryEnhancer` | Query rewriting and expansion |
 | `agentic_pipeline` | `BaseAgenticPipeline` | Pluggable agentic RAG pipelines |
+| `generator` | `BaseGenerator` | Answer generation from the retrieved passages |
 
 **Note:** `graph_node` callables are stored separately from `COMPONENT_TYPES` to prevent accidental instantiation (since `registry.get()` would execute a callable node). Use the dedicated methods `registry.register_graph_node()`, `registry.get_graph_node()`, and `registry.list_graph_nodes()` to manage them.
 
@@ -246,7 +248,7 @@ Each of the six swappable component types lives in its own namespace. Register i
 
 ## Swappable Components
 
-The pipeline is composed of six **swappable component types**. Each has a base class with a well-defined interface. Implement the required methods and register your class to plug it into any pipeline configuration.
+The pipeline is composed of eight **swappable component types**. Each has a base class with a well-defined interface. Seven are below; agentic pipelines have [their own section](#agentic-pipeline-extensibility). Implement the required methods and register your class to plug it into any pipeline configuration.
 
 ### 1. BaseEmbedder
 
@@ -387,6 +389,23 @@ class MyQueryEnhancer(BaseQueryEnhancer):
         """
         ...
 ```
+
+### 7. BaseGenerator
+
+Writes the answer from the passages retrieval selected. `llm` is the run's generator model (a LangChain chat model, called with `invoke`); a strategy that brings its own model may ignore it. `instructions` carries requirements the harness adds, such as permission to answer "unanswerable" on a benchmark with unanswerable questions.
+
+```python
+from lasagna.core.base_components import BaseGenerator
+
+class MyGenerator(BaseGenerator):
+    def generate(self, query, contexts, *, llm=None, instructions="", **kwargs) -> str:
+        """Answer ``query`` from ``contexts`` (passage texts, best first)."""
+        prompt = f"{instructions}\n\nContext:\n" + "\n\n".join(contexts) + f"\n\nQuestion: {query}\nAnswer:"
+        reply = llm.invoke(prompt)
+        return reply.content if hasattr(reply, "content") else str(reply)
+```
+
+A plain function `f(query, contexts) -> str` becomes a generator with `@lasagna.generator("name")`. The built-ins are `concise`, `cited`, `chain_of_thought` and `chain_of_note`; `KnowledgePipeline.generate()` answers with the pipeline's generator.
 
 ---
 
@@ -631,7 +650,7 @@ grid_results.to_dataframe()
 
 ## Agentic Pipeline Extensibility
 
-The `agentic_pipeline` component slot and `graph_node` callable registry enable systematic experimentation with retrieval strategies.
+The `agentic_pipeline` component slot and `graph_node` callable registry enable systematic experimentation with retrieval strategies. The five published loops (`self_ask`, `ircot`, `flare`, `adaptive`, `self_rag`) are registered names like `default`, so any of them can be a variant below; see the [agentic README](../../agentic/README.md#published-loops).
 
 ### Sweeping Pipelines
 

@@ -51,6 +51,10 @@ cannot change what another stage sees. Each stage takes the natural signature:
 | embedder | `f(texts) -> one vector per text` |
 | retriever | `f(query, top_k) -> list[str]` or documents |
 | document_processor | `f(file_path) -> str` |
+| generator | `f(query, contexts) -> str` (the answer) |
+
+The agentic pipeline is the one stage with no one-line form: a loop is a class
+(below).
 
 `paper` and `claims` are optional and worth filling in: they come back out of
 the registry, so a results table can show the claimed number beside the one you
@@ -109,6 +113,8 @@ key. It runs the real pipeline end to end with your component in its stage, so a
 green run means your component is genuinely wired in. `my_ideas:keyword_overlap`
 is an import path: the CLI imports it from the working directory, so the
 function needs no package. Installed plugins are named by their registered name.
+`--query-enhancer` and `--generator` name a component of those stages the same
+way.
 
 It is deliberately easy. The score means "this works", never "this is good".
 
@@ -165,6 +171,16 @@ split, same sample. The difference is attributable because nothing else moved.
 **More than one run.** Retrieval metrics move between runs. `n_runs: 1` cannot
 separate a real gap from noise, and per-sample scores are carried through and
 paired by sample identity so significance testing is actually possible.
+
+Other stages sweep the same way. `chunkers:`, `embedders:`, `query_enhancers:`
+and `generators:` take lists like `rerankers:`. A chunker or embedder arm gets a
+corpus of its own, chunked or embedded by its component (an embedder also gets
+its own collection), so arms never share an index. A retriever or an agentic
+pipeline is named in a `config_overrides` entry, such as
+`{name: bm25, retriever: bm25}`, with `dense` as the retriever control. Document
+processors do not sweep, since benchmark corpora are loaded as text.
+[The guide, section 8](guide.md#sweep-the-other-stages) has a retriever sweep
+and a generator sweep.
 
 > **Component overrides only apply in live mode.** `generation_only` never
 > constructs the pipeline, so passing a component there is a hard error rather
@@ -264,9 +280,13 @@ Stated rather than hidden, because you will hit these.
   [the guide, section 8](guide.md#8-measure-it-on-a-benchmark)). The rest score
   generation against gold context only.
 - **`lasagna component validate` checks input mutation for rerankers (the
-  documents) and embedders (the list of texts).** The other stages are handed
-  strings or a file path, which cannot be changed in place. A class component
-  that keeps state should still copy what it is handed before changing it.
+  documents), embedders (the list of texts) and generators (the list of
+  contexts).** The other stages are handed strings or a file path, which cannot
+  be changed in place. A class component that keeps state should still copy what
+  it is handed before changing it.
+- **`--stage` does not take `generator`.** It covers the six other one-line
+  stages. Decorate a generator function with `@lasagna.generator` and validate
+  it by name, or validate a `BaseGenerator` class.
 - **`judge_model` is `None` in the comparability key for retrieval-only runs.**
   That is accurate rather than a gap — there is no judge — but it means two runs
   scored by *different* judges group together if neither recorded one. Pin a

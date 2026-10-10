@@ -33,7 +33,7 @@ fork a RAG pipeline, patch your component in, run it — changes more than one
 thing at once. Different chunking, a different embedding model, a different
 top-k, and the +4 you measured belongs to something other than your idea.
 
-Lasagna's answer is that the seven stages are isolated behind typed contracts.
+Lasagna's answer is that the eight stages are isolated behind typed contracts.
 You swap exactly one and everything else stays fixed, so a difference in the
 result is attributable to the swap. That property is enforced by a conformance
 suite, not by convention.
@@ -91,6 +91,7 @@ decorator.
 | Reranker | `BaseReranker` | the ordering of retrieved candidates |
 | Document processor | `BaseDocumentProcessor` | how files are parsed |
 | Agentic pipeline | `BaseAgenticPipeline` | the multi-step retrieval loop |
+| Generator | `BaseGenerator` | how the answer is written from the retrieved passages |
 
 ---
 
@@ -309,7 +310,7 @@ config = ExperimentConfig(
     name="does my reranker help",
     benchmarks=[BenchmarkSpec(name="beir/scifact", n_samples=200)],
     # Sweep across rerankers with everything else fixed. The comparison is
-    # only meaningful because the other six stages do not move.
+    # only meaningful because the other seven stages do not move.
     pipeline=PipelineSweepSpec(rerankers=["cross_encoder", "length_demo"]),
     # `mode` defaults to "auto": live when the benchmark ships a corpus, so
     # retrieval is actually measured. Say mode="generation_only" only when you
@@ -360,6 +361,63 @@ Natural Questions and TriviaQA carry no context at all and stay
 tells you nothing about whether a gap is real. The evaluation SDK carries
 per-sample scores through so significance testing is possible — and pairs them
 by sample identity, so the comparison is between the same queries on both sides.
+
+### Sweep the other stages
+
+The same sweep file swaps any stage. Two you will often want:
+
+**A retriever.** Name it in a `config_overrides` entry. Put `dense`, the default
+vector search as a component, in as the control. Then every arm names its first
+stage, and the comparison is between retrieval methods:
+
+```yaml
+# retrievers.yaml
+name: which first stage
+benchmarks:
+  - name: beir/scifact
+    n_samples: 200
+tracks: [retrieval]
+pipeline:
+  base_profile: speed
+  config_overrides:
+    - {name: dense, retriever: dense}           # the control
+    - {name: bm25, retriever: bm25}
+    - {name: hybrid_rrf, retriever: hybrid_rrf}
+n_runs: 3
+```
+
+This one is keyless: BM25 needs no model, and `speed` embeds with the 80 MB one.
+
+**A generator.** List the answer strategies under `generators:`. Every arm
+retrieves the same way, so a difference comes from how the answer was written.
+`concise` is the harness's own prompt, word for word, so it is the control:
+
+```yaml
+# generators.yaml
+name: how the answer is written
+benchmarks:
+  - name: hotpotqa
+    n_samples: 100
+tracks: [generation]
+pipeline:
+  base_profile: speed
+  generators: [concise, cited, chain_of_note]
+n_runs: 3
+```
+
+This one needs an LLM API key and the `[eval]` extra. `cited` answers carry
+`[n]` markers, and the citation metrics score them. From the shell,
+`lasagna benchmark run <name> --generator cited` runs one generator.
+
+**Chunkers and embedders sweep as components too** (`chunkers:`,
+`embedders:`). Each arm's corpus is chunked or embedded by its own component and
+kept apart from the other arms' corpora; an embedder also gets its own
+collection. Every chunking or embedding setting (`chunk_size`, `chunk_unit`,
+`embedding_model` and so on) gets its own corpus in the same way. An agentic
+loop is named like a retriever (`{name: ircot, agentic_pipeline: ircot}`), and
+each hop it makes searches with the arm's components. Document processors do not
+sweep: benchmark corpora are loaded as text, so check a processor on your own
+files.
 
 For what the metrics mean and which are trustworthy, see
 [metrics](../src/lasagna/knowledge_evaluation_sdk/docs/metrics.md); for the

@@ -22,7 +22,7 @@ pyproject.toml   the entry points are the whole integration
 ```toml
 [project.entry-points."lasagna_components"]
 # "{stage}.{name}" — stages: reranker, embedder, chunker, retriever,
-# document_processor, query_enhancer, agentic_pipeline
+# document_processor, query_enhancer, agentic_pipeline, generator
 "reranker.template_length" = "lasagna_plugin_template.reranker:LengthReranker"
 
 [project.entry-points.lasagna_benchmarks]

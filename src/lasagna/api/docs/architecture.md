@@ -111,11 +111,12 @@ Cache Check              Fingerprint-isolated per session
 HyDE Expansion           Strategy: off / always / first_hop / adaptive
   |
   v
-Embed Query              BGE-large with "Represent this sentence..." prefix
+Embed Query              The configured embedder, with its model card's query prefix
   |
   v
 Dense Vector Search      Top-K nearest neighbours from vector backend
-  |
+  |                      (a retriever component, when one is named,
+  |                      replaces this step and the fusion below)
   v
 Hybrid Fusion            BM25 + dense via weighted Reciprocal Rank Fusion
   |

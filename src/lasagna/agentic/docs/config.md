@@ -10,7 +10,9 @@ Set via `settings.lasagna.toml`, environment variables, or the session config AP
 | ------ | ---- | ------- | ----------- |
 | `use_agentic_rag` | bool | `true` | Enable agentic multi-hop retrieval |
 | `max_agent_iterations` | int | `3` | Maximum retrieval hops per query |
-| `agentic_pipeline` | str | `"legacy_react"` | Pipeline selection: `"legacy_react"`, `"default"` (structured graph), or any registered `BaseAgenticPipeline` name |
+| `agentic_pipeline` | str | `"legacy_react"` | Pipeline selection: `"legacy_react"`, `"default"` (structured graph), a published loop (`"self_ask"`, `"ircot"`, `"flare"`, `"adaptive"`, `"self_rag"`), or any registered `BaseAgenticPipeline` name |
+| `agentic_models` | dict | `{}` | Model pins keyed by graph node name or by published loop name; empty uses the pipeline's model |
+| `agentic_prompts` | dict | `{}` | Prompt overrides keyed by graph node name (the published loops keep their papers' prompts) |
 | `use_structured_graph` | bool | `false` | *Legacy alias* -- `true` maps to `agentic_pipeline="default"`, `false` maps to `"legacy_react"` |
 | `agentic_hyde_strategy` | str | `"adaptive"` | HyDE strategy: `off`, `always`, `first_hop`, `adaptive` |
 | `chunk_refinement_method` | str | `"auto"` | Refinement mode: `vanilla`, `refined`, `auto` |
@@ -38,6 +40,31 @@ The effective pipeline is resolved in the following order:
 When both `agentic_pipeline` and `use_structured_graph` are explicitly set, `agentic_pipeline` wins and `use_structured_graph` is ignored.
 
 The resolved pipeline name is available in search metrics via `AgenticRAGMetrics.pipeline_name`.
+
+#### Published Loop Settings
+
+Each published loop reads its own settings, with its paper's defaults, instead of `max_agent_iterations`. All of them belong to the `agentic_pipeline` stage, so a sweep arm that changes one is recorded as an agentic change.
+
+| Option | Type | Default | Loop | Description |
+| ------ | ---- | ------- | ---- | ----------- |
+| `self_ask_max_follow_ups` | int | `5` | `self_ask` | Follow-up questions before the loop asks for the final answer (the paper sets no bound) |
+| `ircot_paragraphs_per_step` | int | `6` | `ircot`, `adaptive` | Paragraphs retrieved per step (K) |
+| `ircot_max_steps` | int | `8` | `ircot`, `adaptive` | Reasoning steps before stopping |
+| `ircot_max_paragraphs` | int | `15` | `ircot`, `adaptive` | Cap on paragraphs collected |
+| `flare_retrieval_threshold` | float | `0.8` | `flare` | Retrieve when any token of the draft sentence is below this probability (theta) |
+| `flare_mask_threshold` | float | `0.4` | `flare` | Mask tokens below this probability out of the query (beta) |
+| `flare_max_sentences` | int | `8` | `flare` | Sentences written before stopping |
+| `flare_docs_per_retrieval` | int | `2` | `flare` | Documents per retrieval |
+| `flare_confidence_source` | str | `"auto"` | `flare` | `auto`, `logprobs` or `self_reported`; which one ran is recorded in `loop_trace` |
+| `adaptive_rag_classifier_model` | str | `""` | `adaptive` | Model for the complexity classifier; empty uses the loop's model |
+| `adaptive_rag_single_step_docs` | int | `5` | `adaptive` | Documents for the single-step route |
+| `self_rag_passages` | int | `5` | `self_rag` | Passages retrieved and critiqued |
+| `self_rag_weight_rel` | float | `1.0` | `self_rag` | Weight of the relevance critique (ISREL) |
+| `self_rag_weight_sup` | float | `1.0` | `self_rag` | Weight of the support critique (ISSUP) |
+| `self_rag_weight_use` | float | `0.5` | `self_rag` | Weight of the usefulness critique (ISUSE) |
+| `self_rag_retrieval` | str | `"adaptive"` | `self_rag` | `adaptive` asks the model whether to retrieve; `always` always retrieves |
+
+`adaptive` and `self_rag` are prompted variants: their papers train a classifier and a critic model, and these prompt a general LLM instead. See [Published Loops](../README.md#published-loops) for what that leaves out.
 
 #### Auto-Refinement Thresholds
 
