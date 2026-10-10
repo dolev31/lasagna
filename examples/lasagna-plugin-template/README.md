@@ -61,7 +61,7 @@ and free text can hold spaces or a `?`, which the shell would split or expand
 (zsh stops with "no matches found").
 
 Without `--profile speed --tracks retrieval`, step 3 runs the `standard`
-profile, which downloads about 5.4 GB of models, and the generation track,
+profile, which downloads about 4.5 GB of models, and the generation track,
 which needs an LLM API key.
 
 Step 4 is the one the template exists for, and it needs `sweep.yaml` rather

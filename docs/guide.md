@@ -49,11 +49,12 @@ pip install lasagna-rag
 ```
 
 **First run downloads models.** The default profile pulls an embedding model
-*and* a reranker: about **5.4 GB**, and between 7 and 35 minutes to your first
+*and* a reranker: about **4.5 GB**, and between 7 and 40 minutes to your first
 search result depending on your connection, as measured on every release-gate
-run to date. After that, measured warm on two CPU threads, a search takes about
-0.3 s on the speed profile and 7–9 s on the default profile, whose large
-reranker scores every query; more cores or a GPU cut the second.
+run to date. After that, a warm search on the speed profile takes tens of
+milliseconds (median 32 ms over 18,442 chunks on Milvus Lite). The default
+profile takes 7–9 s on two CPU threads, because its large reranker scores every
+query; more cores or a GPU cut that.
 
 To try it faster, start on the `speed` profile: pure vector search on an 80 MB
 model, no reranker.
@@ -322,7 +323,7 @@ print(config.mode, "->", len(config.benchmarks), "benchmark(s)")
 
 As written, this is not the small path. It runs the `standard` profile on both
 tracks, so it needs an LLM API key (to write answers and to judge them), the
-`[eval]` extra, and `BAAI/bge-m3` plus a large reranker (about 5.4 GB on first
+`[eval]` extra, and `BAAI/bge-m3` plus a large reranker (about 4.5 GB on first
 use). For a keyless run on small models, pass `tracks=["retrieval"]` to
 `ExperimentConfig` and `base_profile="speed"` to `PipelineSweepSpec`. Run it,
 and look at the failed tasks before the scores: a task that failed is listed

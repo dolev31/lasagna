@@ -204,11 +204,11 @@ what this library is actually for, and it is where we suggest you start.
 > **First run is a real download, and you should know before you start.** The
 > default profile fetches an embedding model *and* a reranker on first use.
 > Measured on a cold cache on every release-gate run to date:
-> **5.4 GB downloaded, and 7–35 minutes to the first search result** — the
-> download size was identical every time, so the spread is your connection, not
-> the software. After that, measured warm on two CPU threads, a search takes
-> about 0.3 s on the speed profile and 7–9 s on the default profile, whose large
-> reranker scores every query; more cores or a GPU cut the second. The install itself is
+> **about 4.5 GB downloaded, and 7–40 minutes to the first search result**;
+> the spread is your connection, not the software. After that, a warm search on
+> the speed profile takes tens of milliseconds (median 32 ms over 18,442 chunks
+> on Milvus Lite). The default profile takes 7–9 s on two CPU threads, because
+> its large reranker scores every query; more cores or a GPU cut that. The install itself is
 > about 1.3 GB on macOS; see [Install](#install) for Linux.
 >
 > To get the 80 MB model instead, run `lasagna init` and choose the speed
@@ -259,7 +259,7 @@ documents as a tool call.
 
 ```bash
 pip install lasagna-rag
-lasagna configure --profile speed -s my-corpus   # 80 MB model instead of 5.4 GB
+lasagna configure --profile speed -s my-corpus   # 80 MB model instead of 4.5 GB
 for f in ./docs/*.md; do lasagna upload "$f" -s my-corpus; done
 ```
 
