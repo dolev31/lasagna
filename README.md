@@ -164,6 +164,30 @@ we build on it.
 
 ---
 
+## It reproduces published numbers
+
+Before you trust a harness with your component, check it on methods whose
+numbers are already known. On the full SciFact and NFCorpus test sets, Lasagna's
+built-in components land within 0.002 NDCG@10 of MTEB for the dense models,
+within 0.004 of the BEIR paper for BM25 followed by a MiniLM cross-encoder, and
+within 0.008 for BM25. Nothing was tuned: BM25 uses BEIR's k1 and b, and every
+model is its published checkpoint.
+
+| Method | SciFact published | SciFact Lasagna | NFCorpus published | NFCorpus Lasagna |
+|---|---:|---:|---:|---:|
+| BM25 (k1 0.9, b 0.4) | 0.665 | 0.664 | 0.325 | 0.317 |
+| all-MiniLM-L6-v2 | 0.645 | 0.645 | 0.316 | 0.317 |
+| bge-small-en-v1.5 | 0.713 | 0.713 | 0.343 | 0.344 |
+| BM25 + MiniLM-L6 cross-encoder | 0.688 | 0.685 | 0.350 | 0.351 |
+
+NDCG@10. Published: BEIR (Thakur et al., NeurIPS 2021, Table 2) and the MTEB
+results repository. It reruns in about half an hour on a laptop, with no API key:
+`lasagna benchmark experiment examples/reproduction/beir_tier1.yaml`. Sources,
+setup, recall@100 and the remaining BM25 gap are in
+[examples/reproduction](https://github.com/dolev31/lasagna/blob/main/examples/reproduction/README.md).
+
+---
+
 ## Quickstart
 
 ```bash
