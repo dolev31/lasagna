@@ -11,6 +11,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/dolev31/lasagna/blob/main/LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12%20|%203.13-blue.svg)](https://www.python.org/downloads/)
 [![Tests](https://github.com/dolev31/lasagna/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/dolev31/lasagna/actions/workflows/tests.yml)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dolev31/lasagna/blob/main/examples/notebooks/compare_your_reranker.ipynb)
 
 [Guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md) · [Quickstart](#quickstart) · [Why](#the-problem) · [Compare components](#compare-a-component) · [Give your agent RAG](#give-your-agent-rag-mcp-rest-docker) · [What's inside](#whats-inside) · [Docs](#documentation)
 
@@ -329,6 +330,12 @@ lasagna doctor --issue        # a redacted block to paste into a bug report
 ---
 
 ## Compare a component
+
+> **Run it on a real benchmark:** [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dolev31/lasagna/blob/main/examples/notebooks/compare_your_reranker.ipynb)
+> One notebook writes a reranker as a single function, sweeps it against a
+> built-in cross-encoder on 100 SciFact queries over the full corpus, and ends
+> with a paired significance test, the stage isolation check and a validated
+> results bundle. No API key; a GPU runtime keeps it to a few minutes.
 
 This is what Lasagna is for. Adding a technique is one line: a decorator on a
 plain function. The function becomes a component of its stage, interchangeable
