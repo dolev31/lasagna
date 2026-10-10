@@ -148,6 +148,41 @@ class TestTheEndpointItselfRefuses:
                 f"the refusal should say why and how to enable it: {body[:200]}"
             )
 
+    def test_a_body_that_arrives_late_still_gets_the_refusal(self, server):
+        """The refusal used to be sent before the body was read.
+
+        The server then closed the connection with the body still arriving, and
+        the kernel reset it: a client whose body came a moment after its headers
+        read "connection reset by peer" instead of the 404 and its reason. It
+        failed the test above once, on Python 3.13 under a full suite; sending
+        the body late makes it happen every time.
+        """
+        import socket
+        import time
+
+        body = b'{"tool": "get_system_status", "arguments": {}}'
+        head = (
+            f"POST /api/call HTTP/1.1\r\nHost: 127.0.0.1:{server}\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n"
+        ).encode()
+        with socket.create_connection(("127.0.0.1", server), timeout=10) as sock:
+            sock.sendall(head)
+            time.sleep(0.5)
+            try:
+                sock.sendall(body)
+            except OSError:
+                pass  # the old server had already closed; the read below shows it
+            time.sleep(0.5)
+            response = b""
+            try:
+                while chunk := sock.recv(65536):
+                    response += chunk
+            except ConnectionResetError:
+                pytest.fail(f"connection reset before the refusal was read: {response[:120]!r}")
+        assert response.startswith(b"HTTP/1.1 404"), response[:120]
+        assert b"disabled" in response.lower()
+
 
 class TestTheDocsNoLongerRecommendTheUnsafeCommand:
     def test_readme_does_not_present_a_public_bind_as_production(self):

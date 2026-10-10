@@ -3605,6 +3605,21 @@ def _docs_api_enabled() -> bool:
     }
 
 
+async def _drain_body(request: Request, limit: int = 1 << 20) -> None:
+    """Read and drop a request's body before refusing it.
+
+    Answering before the body is read lets the server close the connection with
+    the body still arriving, and the kernel then resets it: the client reads
+    "connection reset" instead of the refusal and its reason. Capped, so a
+    refusal never buffers an arbitrary upload.
+    """
+    seen = 0
+    async for chunk in request.stream():
+        seen += len(chunk)
+        if seen > limit:
+            break
+
+
 def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
     """Register custom HTTP routes for welcome page, docs, and health check."""
 
@@ -3652,6 +3667,7 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
         button, so requiring an opt-in costs nothing real.
         """
         if not _docs_api_enabled():
+            await _drain_body(request)
             return JSONResponse(
                 {
                     "error": (
@@ -3673,6 +3689,7 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
             transport_guard.loopback_browser_guard()
         ).validate_request(request, is_post=True)
         if refused is not None:
+            await _drain_body(request)
             return refused
         try:
             body = await request.json()
