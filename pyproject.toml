@@ -298,6 +298,9 @@ dev = [
     # Builds the PDFs the Docling processor tests feed it; without it those
     # tests skipped on every machine.
     "reportlab>=4.0",
+    # Reads and validates the Colab notebook in examples/notebooks/, which is
+    # the first thing many people run and is not otherwise executed by CI.
+    "nbformat>=5.7",
 ]
 
 [build-system]
