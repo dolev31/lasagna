@@ -169,7 +169,9 @@ eval = [
     # lasagna-rag[eval]" while ragas was installed. 0.4.1 still ships the
     # module. Lift this once a ragas release stops importing it.
     "langchain-community<0.4.2",
-    "datasets>=2.0.0,<6",
+    # ragas 0.4 needs datasets 4; saying so up front spares an older pip a
+    # backtrack through every datasets 2.x and 3.x release.
+    "datasets>=4.0,<6",
     "pandas>=2.0.0,<4",
     "scipy>=1.10,<2",
     "matplotlib>=3.7",
@@ -181,6 +183,11 @@ vector-backends = [
     "pinecone>=5.0.0",
     "qdrant-client>=1.7.0",
     "weaviate-client>=4.4.0",
+    # weaviate-client caps grpcio below 1.80, and the Google packages other
+    # extras bring want the newest grpcio-status, which needs a newer grpcio.
+    # An older pip installing extras one command at a time left the two
+    # mismatched; bounding grpcio-status here keeps them a matching pair.
+    "grpcio-status<1.80",
 ]
 opensearch = ["opensearch-py>=2.4.0"]
 # All three, per pgvector_backend.py:51-52 -- `psycopg[binary]` provides
@@ -191,8 +198,12 @@ pgvector = ["pgvector>=0.2.5", "psycopg[binary,pool]>=3.1"]
 storage-s3 = ["boto3>=1.28"]
 storage-all = [
     "boto3>=1.28",
-    "fsspec>=2024.1",
-    "s3fs>=2024.1",
+    # datasets (in `eval`) caps fsspec, and s3fs pins fsspec to its own
+    # release, so a newer s3fs and datasets cannot be installed together. The
+    # bound keeps `storage-all` installable beside `eval` with any pip, in one
+    # command or several.
+    "fsspec>=2024.1,<2026.8",
+    "s3fs>=2024.1,<2026.8",
     "gcsfs>=2024.1",
     "adlfs>=2024.1",
 ]
