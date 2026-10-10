@@ -456,6 +456,8 @@ strong.cell-val { color: var(--accent); font-weight: 650; }
 .link-arrow { font-weight: 600; text-decoration: none; }
 .link-arrow:hover { text-decoration: underline; }
 .use-code { display: grid; gap: 14px; min-width: 0; }
+.use-facts { margin-top: clamp(48px, 7vw, 80px); }
+.use-facts-title { font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.01em; margin-bottom: 18px; }
 
 .code-block {
   min-width: 0;
@@ -476,6 +478,7 @@ strong.cell-val { color: var(--accent); font-weight: 650; }
 .code-block code { font: inherit; }
 .tok-k { color: var(--code-key); }
 .tok-s { color: var(--code-str); }
+.tok-c { color: var(--code-muted); }
 .copy {
   min-height: 32px; padding: 0 12px; border-radius: 8px;
   border: 1px solid rgb(255 255 255 / 0.16); background: rgb(255 255 255 / 0.06); color: var(--code-ink);

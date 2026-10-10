@@ -50,7 +50,11 @@ Not reliably. In a study of 450 configurations across eight benchmarks, three re
 
 ### What is LASAGNA?
 
-LASAGNA is an open-source framework for controlled evaluation of retrieval-augmented generation. Each pipeline stage sits behind a fixed interface, so swapping one method cannot silently change the implementation at another. Adding a new technique is a single line of code, and the framework tests it inside a complete modern pipeline without reimplementing the surrounding stack. It was used to test 450 configurations across eight benchmarks and corpora from 5K to 200K documents.
+LASAGNA is an open-source framework for controlled evaluation of retrieval-augmented generation. Each pipeline stage sits behind a fixed interface, so swapping one method cannot silently change the implementation at another. Adding a new technique is a single line of code, and the framework tests it inside a complete modern pipeline without reimplementing the surrounding stack. The release has eight swappable stages and 53 built-in components. A sweep checks that its arms differ only in the stage they name, and it reports a paired significance test for each comparison. LASAGNA was used to test 450 configurations across eight benchmarks and corpora from 5K to 200K documents.
+
+### Which RAG methods does LASAGNA include?
+
+The release ships 53 built-in components across eight stages, and each one that implements a published method names its paper. Retrievers: dense, BM25, SPLADE, and hybrid fusion by reciprocal rank or by normalized scores. Rerankers include cross-encoders, ColBERT, monoT5 and RankGPT. Query enhancers include HyDE, Query2doc, step-back prompting and RAG-Fusion. Agentic loops: Self-Ask, IRCoT, FLARE, Adaptive-RAG and Self-RAG; the last two prompt a general LLM where their papers train a model. Generators write concise, cited (ALCE), chain-of-thought or chain-of-note answers. Chunkers, embedders and document processors complete the set.
 
 ### Does the best RAG pipeline on a small corpus stay the best at large scale?
 
@@ -67,7 +71,7 @@ Eight benchmarks unified into one multi-domain corpus: five BEIR sets for retrie
 ## Links
 
 - [Project page](https://dolev31.github.io/lasagna/): overview, results and citation
-- [Code](https://github.com/dolev31/lasagna): The LASAGNA framework and evaluation harness: swap one RAG pipeline stage, hold the rest fixed, and benchmark the change. Apache-2.0.
+- [Code](https://github.com/dolev31/lasagna): The LASAGNA framework and evaluation harness: eight swappable RAG pipeline stages and 53 built-in components. Swap one stage, hold the rest fixed, and get a paired significance test on the change. Apache-2.0.
 - [Preregistration](https://github.com/dolev31/Lasagna-Retrieval-Augmented-Generation-Compositionality): The pre-declared hypotheses and analysis plan.
 
 ## Abstract
