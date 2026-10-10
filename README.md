@@ -20,6 +20,12 @@
 > **For engineers** choosing between six vector backends and a dozen retrieval
 > strategies without building the harness first.
 
+<p align="center">
+  <img src="https://github.com/dolev31/lasagna/raw/main/docs/assets/demo.gif" width="800" alt="Terminal demo: a three-line @lasagna.reranker function that scores query-word overlap is swept against the built-in cross_encoder on 100 BEIR SciFact queries. The run confirms stage isolation, and lasagna results significance reports cross_encoder ahead by +0.091 nDCG@10 (d_z 0.38, Holm p = 1e-4).">
+  <br>
+  <sub>A real run with the idle waits cut: write a reranker, sweep it against a built-in, read a Holm-corrected significance table.</sub>
+</p>
+
 ---
 
 ## The paper
