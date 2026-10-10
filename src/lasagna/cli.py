@@ -1324,6 +1324,7 @@ _FUNCTION_STAGES = (
     "embedder",
     "retriever",
     "document_processor",
+    "generator",
 )
 
 

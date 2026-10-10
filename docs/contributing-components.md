@@ -284,9 +284,6 @@ Stated rather than hidden, because you will hit these.
   contexts).** The other stages are handed strings or a file path, which cannot
   be changed in place. A class component that keeps state should still copy what
   it is handed before changing it.
-- **`--stage` does not take `generator`.** It covers the six other one-line
-  stages. Decorate a generator function with `@lasagna.generator` and validate
-  it by name, or validate a `BaseGenerator` class.
 - **`judge_model` is `None` in the comparability key for retrieval-only runs.**
   That is accurate rather than a gap — there is no judge — but it means two runs
   scored by *different* judges group together if neither recorded one. Pin a

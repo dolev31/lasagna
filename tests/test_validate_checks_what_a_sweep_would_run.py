@@ -29,6 +29,10 @@ _IDEAS = textwrap.dedent(
 
     def plain(query):
         return [query + " extra"]
+
+
+    def first_context(query, contexts):
+        return contexts[0] if contexts else ""
     """
 )
 
@@ -106,3 +110,9 @@ def test_the_sweep_pre_flight_refuses_it_too(workdir):
     _load_component_references(configs, [str(workdir)])
     with pytest.raises(ValueError, match="modified the documents"):
         _check_components_conform(configs)
+
+
+def test_a_plain_generator_function_validates_with_its_stage(workdir):
+    result = _validate("t_validate_ideas:first_context", "--stage", "generator")
+    assert result.exit_code == 0, result.output
+    assert "generate() does not modify its input" in result.output
