@@ -144,11 +144,10 @@ Numbers that were wrong:
   overlapping windows (`late_chunking_overlap`), and under evaluation late
   chunking raises instead of falling back.
 
-## [0.1.0a1] — 2026-08-18
+## 0.1.0a1 — 2026-08-18
 
-Pre-release. The name is reserved on PyPI and the package installs, but the
-correctness work below is recent enough that `0.1.0` is deliberately withheld:
-`pip install lasagna-rag` will not resolve to this without `--pre`.
+Internal pre-release, never published to PyPI. Its correctness work is part of
+`0.1.0`.
 
 ### Changed — metric definitions (`METRICS_VERSION` 1.0 → 1.1)
 
@@ -308,4 +307,3 @@ The first standalone release of Lasagna; this is everything it brings.
 
 [Unreleased]: https://github.com/dolev31/lasagna/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/dolev31/lasagna/releases/tag/v0.1.0
-[0.1.0a1]: https://github.com/dolev31/lasagna/releases/tag/v0.1.0a1

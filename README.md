@@ -140,7 +140,7 @@ Lasagna ships none of its own paper's per-query results yet.
 
 **Where the others plainly win.** Ecosystem — LangChain and LlamaIndex have
 thousands of integrations and years of production hardening; Lasagna is a
-pre-release with none of either. Install weight — torch and sentence-transformers
+first release with none of either. Install weight — torch and sentence-transformers
 are core dependencies: about 1.3 GB installed on macOS arm64, and on Linux x86_64
 the default PyPI torch pulls CUDA wheels, about 3.2 GB of downloads. That is a
 real cost for an API-embeddings user, and both of them are far lighter. Document parsing — LlamaParse handles formats our
@@ -482,7 +482,8 @@ Python SDK · REST API · MCP server · CLI · schema-driven configuration UI.
 ### Operating profiles
 
 Four built-in profiles, from `speed` (pure vector search) through `standard`
-and `balanced` to `max_quality` (everything on). Each is genuinely distinct and
+and `balanced` to `max_quality` (everything on; the paper calls it
+Max-Reliable). Each is genuinely distinct and
 does what it documents — `speed` really does disable reranking, hybrid, MMR,
 HyDE and the agentic loop.
 
