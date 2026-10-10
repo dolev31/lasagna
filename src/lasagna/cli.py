@@ -1,4 +1,4 @@
-"""RAG Knowledge Base CLI.
+"""Lasagna CLI.
 
 Standalone CLI for the knowledge package — no dependencies outside
 ``lasagna``.  Runnable as::
@@ -28,7 +28,7 @@ from rich.table import Table
 console = Console()
 app = typer.Typer(
     name="rag-knowledge",
-    help="RAG Knowledge Base — upload, search, configure, and serve.",
+    help="Lasagna — upload, search, benchmark, configure, and serve.",
     no_args_is_help=True,
 )
 
@@ -227,7 +227,7 @@ def init():
     console.print()
     console.print(
         Panel.fit(
-            "[bold cyan]RAG Knowledge Base Setup[/bold cyan]",
+            "[bold cyan]Lasagna Setup[/bold cyan]",
             subtitle="Configure your knowledge base",
         )
     )
@@ -620,7 +620,7 @@ def serve(
     base = f"http://{shown}:{port}"
     console.print(
         Panel.fit(
-            f"[bold cyan]RAG Knowledge API[/bold cyan]\n\n"
+            f"[bold cyan]Lasagna API[/bold cyan]\n\n"
             f"API: {base}/api/v1\n"
             f"Health: {base}/api/v1/health\n"
             f"Docs: {base}/docs\n"
@@ -1860,11 +1860,7 @@ def results_significance(
     survivors = sum(1 for r in rows if r.get("significant"))
     console.print()
     if correction == "holm":
-        console.print(
-            f"  {survivors} of {_count(len(rows), 'pair')} "
-            f"{'survives' if survivors == 1 else 'survive'} correction at "
-            f"family-wise alpha={alpha}."
-        )
+        console.print(_significance_verdict(rows, metric, benchmark, alpha))
     else:
         console.print(
             f"  {survivors} of {_count(len(rows), 'pair')} "
@@ -1890,6 +1886,67 @@ def results_significance(
     hidden = len(tested) - len(shown_rows)
     if not show_all and hidden:
         console.print(f"  {hidden} non-significant pairs hidden; --all shows them.")
+
+
+def _significance_verdict(rows: list, metric: str, benchmark: str, alpha: float) -> Panel:
+    """The answer the table supports, in one box.
+
+    A green box names each pair that survives Holm correction, which side won and
+    by how much. When nothing survives, the box says so and points at
+    `results power`, because "not significant" has two readings (no difference,
+    or too few queries to see one) that call for opposite next steps.
+    """
+    from .knowledge_evaluation_sdk.results import lower_is_better
+
+    winners = sorted(
+        (r for r in rows if r.get("significant")),
+        key=lambda r: r.get("p_adjusted", r["p_value"]),
+    )
+    family = _count(len(rows), "pair")
+    if not winners:
+        body = (
+            f"No pair survives Holm correction at family-wise alpha={alpha} "
+            f"(0 of {family}).\n"
+            "Either the arms perform alike or this run has too few queries to tell; "
+            "[bold]lasagna results power[/bold] says which."
+        )
+        return Panel(
+            body,
+            title="no significant difference",
+            title_align="left",
+            border_style="yellow",
+            expand=False,
+        )
+
+    shown = 5
+    lines = []
+    for row in winners[:shown]:
+        a, b, diff = str(row["config_a"]), str(row["config_b"]), row["difference"]
+        a_wins = diff < 0 if lower_is_better(metric) else diff > 0
+        win, lose = (a, b) if a_wins else (b, a)
+        sign = "-" if lower_is_better(metric) else "+"
+        effect = row.get("effect_size")
+        lines.append(f"[bold green]{escape(win)}[/bold green] beats {escape(lose)}")
+        lines.append(
+            f"  {escape(metric)} {sign}{abs(diff):.4f} on {escape(benchmark)}, "
+            f"d_z {_format_effect_size(abs(effect) if effect is not None else None)}, "
+            f"p (Holm) {_format_p(row.get('p_adjusted', row['p_value']))}, "
+            f"{row.get('n_paired', '?')} queries"
+        )
+    if len(winners) > shown:
+        lines.append(f"  and {len(winners) - shown} more in the table above")
+    lines.append("")
+    lines.append(
+        f"{len(winners)} of {family} {'survives' if len(winners) == 1 else 'survive'} "
+        f"correction at family-wise alpha={alpha}."
+    )
+    return Panel(
+        "\n".join(lines),
+        title="[bold]significant after Holm correction[/bold]",
+        title_align="left",
+        border_style="green",
+        expand=False,
+    )
 
 
 def _format_p(p: float) -> str:

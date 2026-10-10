@@ -160,8 +160,18 @@ pair                                 diff    d_z        p  p (Holm)    n
 reranker=cross_encoder                ...    ...      ...       ...  ...
 vs reranker=my_ideas:keyword_overlap
 
-  1 of 1 pair survives correction at family-wise alpha=0.05.
+╭─ significant after Holm correction ─────────────────────────────────╮
+│ reranker=cross_encoder beats reranker=my_ideas:keyword_overlap      │
+│   ndcg@10 ... on beir/scifact, d_z ..., p (Holm) ..., ... queries   │
+│                                                                     │
+│ 1 of 1 pair survives correction at family-wise alpha=0.05.          │
+╰─────────────────────────────────────────────────────────────────────╯
 ```
+
+The box at the end says what the table supports. Green names each pair that
+survives the correction, which side won and by how much. When nothing survives,
+a yellow box says so and points at `lasagna results power`, which tells "the
+arms perform alike" apart from "too few queries to tell".
 
 Three things this enforces that a hand-rolled comparison does not:
 

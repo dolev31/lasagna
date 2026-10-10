@@ -40,7 +40,7 @@ if [[ -z ${RENDER_ONLY:-} ]]; then
     env HOME="$work/home" PATH="$work/bin:$PATH" TERM=xterm-256color \
       LASAGNA_LOG_LEVEL=ERROR LOGURU_FORMAT='{message}' GRPC_VERBOSITY=ERROR \
       HF_HUB_DISABLE_PROGRESS_BARS=1 DATASETS_VERBOSITY=error \
-      uvx --from asciinema==2.4.0 asciinema rec --overwrite --quiet --cols 100 --rows 32 \
+      uvx --from asciinema==2.4.0 asciinema rec --overwrite --quiet --cols 100 --rows 36 \
       --command "bash $(printf %q "$here/session.sh")" "$work/raw.cast" </dev/null
   )
   # The run takes about five minutes; cut its idle waits. Output is unchanged.
@@ -49,9 +49,18 @@ if [[ -z ${RENDER_ONLY:-} ]]; then
   echo "The run and its results are in $work/project"
 fi
 
+frames=$(mktemp -d)
 "$agg" --quiet ${FONT_DIR:+--font-dir "$FONT_DIR"} --theme github-dark \
   --font-size 16 --line-height 1.35 --idle-time-limit 10 --last-frame-duration 6 --fps-cap 15 \
-  "$here/demo.cast" "$assets/demo.gif"
+  "$here/demo.cast" "$frames/terminal.gif"
+# End card: the hero image and where to get Lasagna, held 4.5 s after the run.
+# One palette from every frame keeps the card's colors exact, and rectangle
+# diffs store only the pixels that change, so the card costs little.
+"$py" "$here/end_card.py" "$frames/terminal.gif" "$frames/card.png" "${FONT_DIR:-}"
+"$ffmpeg" -y -loglevel error -i "$frames/terminal.gif" \
+  -loop 1 -framerate 15 -t 4.5 -i "$frames/card.png" \
+  -filter_complex "[0:v]fps=15,format=rgb24,setsar=1[t];[1:v]fps=15,format=rgb24,setsar=1[c];[t][c]concat=n=2:v=1:a=0,split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" \
+  -loop 0 "$assets/demo.gif"
 # fps=15 keeps the GIF's final hold, which a straight conversion cuts short.
 "$ffmpeg" -y -loglevel error -i "$assets/demo.gif" -movflags +faststart \
   -vf "fps=15,scale=trunc(iw/2)*2:trunc(ih/2)*2" -pix_fmt yuv420p -c:v libx264 -crf 24 \

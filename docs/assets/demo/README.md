@@ -4,7 +4,7 @@
 real run: the commands in [`session.sh`](session.sh), executed against
 [`my_ideas.py`](my_ideas.py) and [`sweep.yaml`](sweep.yaml) in this folder, on
 100 BEIR SciFact queries with the `speed` profile. The typing is scripted, and
-every line of output is what the commands printed. Two things differ from
+every line of output is what the commands printed. Three things differ from
 watching it live:
 
 - **Time is compressed.** The run takes about five minutes on a laptop CPU,
@@ -22,6 +22,10 @@ watching it live:
   | `HF_HUB_DISABLE_PROGRESS_BARS=1` | model-loading progress bars |
   | `DATASETS_VERBOSITY=error` | dataset-cache notices |
 
+- **An end card follows the run**: the README's hero image and where to get
+  Lasagna, drawn by [`end_card.py`](end_card.py) and held for 4.5 s. It is the
+  only frame that was not printed by a command.
+
 `lasagna` on screen is `python -m lasagna`, through a two-line wrapper that
 `record.sh` puts on `PATH`.
 
@@ -30,7 +34,8 @@ watching it live:
 You need an interpreter with Lasagna installed (`pip install "lasagna-rag[eval]"`,
 or a checkout with `PYTHONPATH=src`), [uv](https://docs.astral.sh/uv/) (it
 fetches asciinema 2.4), [agg](https://github.com/asciinema/agg/releases) 1.9 and
-ffmpeg. The font is JetBrains Mono: agg finds it when it is installed, or point
+ffmpeg (`FFMPEG=` names one). `end_card.py` needs Pillow, which the
+interpreter above already has. The font is JetBrains Mono: agg finds it when it is installed, or point
 `FONT_DIR` at a folder holding its `.ttf` files.
 
 ```bash
@@ -39,7 +44,7 @@ LASAGNA_PYTHON=.venv/bin/python AGG=agg docs/assets/demo/record.sh
 
 This records a fresh run in a temporary directory with an empty `HOME`, writes
 the retimed recording to `demo.cast`, and renders `demo.gif` and `demo.mp4` into
-`docs/assets/`. The first run downloads `BAAI/bge-small-en-v1.5`,
+`docs/assets/`, with the end card appended. The first run downloads `BAAI/bge-small-en-v1.5`,
 `cross-encoder/ms-marco-MiniLM-L-6-v2` and SciFact; with them cached, set
 `HF_HUB_OFFLINE=1`.
 
@@ -50,5 +55,5 @@ To change only the look (theme, font size, speed), edit the `agg` line in
 RENDER_ONLY=1 AGG=agg docs/assets/demo/record.sh
 ```
 
-The terminal is 100 columns by 32 rows, rendered at 16 px in agg's
+The terminal is 100 columns by 36 rows, rendered at 16 px in agg's
 `github-dark` theme: about 980 px wide, legible at the 800 px a README shows.

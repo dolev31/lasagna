@@ -371,3 +371,70 @@ def test_a_single_pair_reads_as_english(tmp_path):
     assert "1 pair, Holm-Bonferroni" in out
     assert "1 of 1 pair survives correction" in out
     assert "pairs" not in out
+
+
+class TestTheVerdict:
+    """The table ends in a box that says what it supports, in words.
+
+    Reading a winner off `diff` and `p (Holm)` means knowing which column is
+    which and which sign is good. The box names the winner, so a run whose
+    result survives correction says so, and one whose result does not says that
+    too, with the command that tells the two readings of a null result apart.
+    """
+
+    def _run(self, path, *extra):
+        result = runner.invoke(app, ["results", "significance", path, "--all", *extra])
+        assert result.exit_code == 0, result.output
+        return " ".join(result.output.replace("│", " ").split())
+
+    def test_a_surviving_pair_names_its_winner(self, tmp_path):
+        n = 40
+        path = _results_file(
+            tmp_path,
+            {
+                "control": [0.50 + 0.001 * i for i in range(n)],
+                "mine": [0.60 + 0.001 * i for i in range(n)],
+            },
+        )
+        out = self._run(path)
+        assert "significant after Holm correction" in out
+        assert "mine beats control" in out
+        assert "ndcg@10 +0.1000 on bench" in out
+
+    def test_lower_is_better_metrics_name_the_lower_side(self, tmp_path):
+        n = 40
+        task_results = []
+        for config, base in (("slow", 900.0), ("fast", 300.0)):
+            scores = [base + i for i in range(n)]
+            task_results.append(
+                {
+                    "task_key": f"bench|{config}|cfg|corpus|live|run_0",
+                    "run_index": 0,
+                    "benchmark_name": "bench",
+                    "config_name": config,
+                    "metrics": {"latency_ms": sum(scores) / n},
+                    "per_sample_scores": [
+                        {"_sample_id": f"q{i}", "latency_ms": s} for i, s in enumerate(scores)
+                    ],
+                    "error": None,
+                }
+            )
+        path = tmp_path / "results.json"
+        path.write_text(json.dumps({"results": task_results}))
+        out = self._run(str(path), "--metric", "latency_ms")
+        assert "fast beats slow" in out
+        assert "latency_ms -600.0000" in out
+
+    def test_nothing_surviving_says_so_and_points_at_power(self, tmp_path):
+        n = 40
+        path = _results_file(
+            tmp_path,
+            {
+                "control": [0.50 + 0.001 * i for i in range(n)],
+                "mine": [0.50 + 0.001 * i + (0.002 if i % 2 else -0.002) for i in range(n)],
+            },
+        )
+        out = self._run(path)
+        assert "no significant difference" in out
+        assert "beats" not in out
+        assert "lasagna results power" in out
