@@ -556,7 +556,7 @@ The constraints file was resolved on Python 3.12 and does not install on 3.10 or
 3.11 (its numpy needs 3.12 or later):
 
 ```bash
-pip install "lasagna-rag[eval]==0.1.0a1" -c https://raw.githubusercontent.com/dolev31/lasagna/main/constraints/0.1.0a1.txt
+pip install "lasagna-rag[eval]==0.1.0" -c https://raw.githubusercontent.com/dolev31/lasagna/v0.1.0/constraints/0.1.0.txt
 ```
 
 | Extra | Adds |

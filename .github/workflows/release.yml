@@ -1,116 +1,164 @@
 name: Release
 
-# Publishes to PyPI on a version tag.
+# Publishes lasagna-rag to PyPI when a GitHub Release is published. RELEASING.md
+# is the runbook, including the one-time setup this needs: a PyPI trusted
+# publisher for this workflow file and the `pypi` environment below. There is no
+# API token anywhere; PyPI trusts this workflow's OIDC identity.
 #
-# There was no release automation at all: `tests.yml` triggers on push to main,
-# pull_request and workflow_dispatch, so `git tag v0.1.0a1 && git push --tags`
-# ran zero CI and published nothing. `hub/publish.yml` is a template for the
-# *results* repository, not this one.
+# Only a published Release triggers it, not a tag push: `gh release create`
+# pushes the tag too, and a second trigger would publish twice, which PyPI
+# refuses after the first (a filename can never be reused).
 #
-# BEFORE THE FIRST RUN, one manual step that cannot be automated: register a
-# PyPI **pending publisher** for `lasagna-rag` (owner, repository, this workflow
-# filename, and the environment name below). The project does not exist on PyPI
-# yet, so trusted publishing has nothing to attach to until that form is filled
-# in. It cannot be done after the fact.
+# A manual run (Actions > Release > Run workflow) builds, checks and smoke-tests
+# the current tree and never publishes. Use it before release day.
+#
+# Actions are pinned by commit SHA, the tag in the trailing comment: this job
+# can publish to PyPI, so a moved tag must not change what runs.
 
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Build and check, but do not publish"
-        type: boolean
-        default: true
 
 permissions:
   contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   build:
     name: Build distributions
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          # The gate's `wheel is built from a committed tree` check compares
-          # against git; a shallow clone with no tags reports a dirty tree.
-          fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
-      - uses: actions/setup-node@v4
+      # Before anything is built: the tag must be v<pyproject version>, and the
+      # CHANGELOG, CITATION.cff, constraints file and README must say the same
+      # version and date. A manual run has no tag and may still carry the
+      # placeholder date.
+      - name: Check the tag matches the version
+        id: version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = release ]; then
+            python scripts/check_release.py "$TAG"
+          else
+            python scripts/check_release.py "v$version" --allow-placeholder
+          fi
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: src/lasagna/configurator/frontend/package-lock.json
 
-      # `pyproject.toml` declares `configurator/frontend/dist/**/*` as
-      # package-data with the comment "produced by CI at release". This is that
-      # CI. Without it the directory is absent (it is gitignored), the wheel
-      # ships no UI, and `lasagna serve` prints a configurator URL and opens a
-      # browser at a 404 for every installed user.
+      # `pyproject.toml` ships `configurator/frontend/dist/**/*` as package data.
+      # The directory is gitignored, so without this step the wheel has no UI
+      # and `lasagna serve` opens a browser at a 404.
       - name: Build the configurator frontend
         working-directory: src/lasagna/configurator/frontend
         run: |
           npm ci
           npm run build
 
-      - name: Verify the frontend actually built
-        run: |
-          if [ ! -d src/lasagna/configurator/frontend/dist ]; then
-            echo "::error::frontend dist/ missing — the wheel would ship a 404"
-            exit 1
-          fi
-          echo "dist contains $(find src/lasagna/configurator/frontend/dist -type f | wc -l) files"
-
       - name: Build sdist and wheel
         run: |
-          python -m pip install --upgrade build twine
+          python -m pip install build==1.6.1 twine==7.0.0
           python -m build
 
-      # A wheel that does not contain the frontend is the defect this workflow
-      # exists to prevent, so it is checked rather than assumed.
-      - name: Verify the wheel ships the frontend
+      - name: Check the distributions
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
+          ls -l dist/
+          test -f "dist/lasagna_rag-$VERSION-py3-none-any.whl"
+          test -f "dist/lasagna_rag-$VERSION.tar.gz"
+          test "$(ls dist | wc -l)" -eq 2
+          python -m twine check --strict dist/*
           python - <<'PY'
-          import pathlib, sys, zipfile
-          wheel = sorted(pathlib.Path("dist").glob("*.whl"))[-1]
+          import pathlib, re, sys, tarfile, zipfile
+          wheel = next(pathlib.Path("dist").glob("*.whl"))
+          sdist = next(pathlib.Path("dist").glob("*.tar.gz"))
           names = zipfile.ZipFile(wheel).namelist()
-          hits = [n for n in names if "configurator/frontend/dist/" in n]
-          print(f"{wheel.name}: {len(hits)} frontend files")
-          if not hits:
-              sys.exit("::error::wheel does not contain the configurator frontend")
+          required = [
+              "lasagna/settings.lasagna.toml",
+              "lasagna/py.typed",
+              "lasagna/configurator/frontend/dist/index.html",
+          ]
+          missing = [n for n in required if n not in names]
+          missing += [f"*.dist-info/licenses/{f}" for f in ("LICENSE", "NOTICE")
+                      if not any(n.endswith(f".dist-info/licenses/{f}") for n in names)]
+          unwanted = re.compile(r"(^|/)(tests/|conftest\.py|node_modules/|\.env$|\.env\.(?!example))")
+          shipped = [n for n in names + tarfile.open(sdist).getnames() if unwanted.search(n)]
+          print(f"{wheel.name}: {len(names)} files")
+          if missing or shipped:
+              sys.exit(f"::error::missing {missing}, should not ship {shipped[:20]}")
           PY
 
-      - name: Check metadata renders on PyPI
-        run: python -m twine check dist/*
-
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist
           path: dist/
+          if-no-files-found: error
+
+  smoke:
+    name: Install the wheel and run it
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      # From an empty directory, with no checkout, so nothing but the wheel can
+      # be imported: this is what `pip install lasagna-rag` gives a user.
+      - name: Clean venv, wheel only
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet "dist/lasagna_rag-$VERSION-py3-none-any.whl"
+          mkdir "$RUNNER_TEMP/smoke" "$RUNNER_TEMP/home" && cd "$RUNNER_TEMP/smoke"
+          export PATH="$RUNNER_TEMP/venv/bin:$PATH" HOME="$RUNNER_TEMP/home"
+          set -x
+          test "$(lasagna --version)" = "lasagna $VERSION"
+          test "$(python -c 'import lasagna; print(lasagna.__version__)')" = "$VERSION"
+          printf 'def longer_first(query, text):\n    return len(text.split())\n' > smoke_component.py
+          lasagna component validate smoke_component:longer_first --stage reranker
 
   publish:
     name: Publish to PyPI
-    needs: build
+    needs: [build, smoke]
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
-    # Only on a real tag. A manual dry run builds and checks without publishing,
-    # because a PyPI filename cannot be replaced once it is taken.
-    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
     environment:
       name: pypi
-      url: https://pypi.org/p/lasagna-rag
+      url: https://pypi.org/project/lasagna-rag/${{ needs.build.outputs.version }}/
     permissions:
-      # Trusted publishing (OIDC). No API token in repository secrets.
+      # Trusted publishing (OIDC) and the attestations the action uploads.
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist
           path: dist/
 
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@a892a5a61159132606e93a2fa6f4358831b04d26 # v1.14.2

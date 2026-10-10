@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - YYYY-MM-DD
+
 Lasagna now has eight swappable stages and 53 built-in components; each one that
 implements a published method names its paper. Several fixes below change
 measured numbers, so `METRICS_VERSION` is now 1.5 (it was 1.3), and results from
@@ -71,6 +73,7 @@ Sweeps, validation and metrics:
   (`has_ans`) and unanswerable (`no_ans`) questions, and input tokens, output
   tokens and LLM calls per query. The judge is now also asked for
   `factual_correctness`.
+- `lasagna --version` prints the installed version.
 
 ### Changed
 
@@ -303,5 +306,6 @@ The first standalone release of Lasagna; this is everything it brings.
 - Lasagna vendors no third-party source, bundles no model weights, and
   redistributes no benchmark corpora.
 
-[Unreleased]: https://github.com/dolev31/lasagna/compare/v0.1.0a1...HEAD
+[Unreleased]: https://github.com/dolev31/lasagna/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/dolev31/lasagna/releases/tag/v0.1.0
 [0.1.0a1]: https://github.com/dolev31/lasagna/releases/tag/v0.1.0a1
