@@ -1,4 +1,4 @@
-"""FastAPI application factory for the RAG Knowledge Base REST API.
+"""FastAPI application factory for the Lasagna REST API.
 
 Creates a production-ready FastAPI app with:
 - Versioned API routes (``/api/v1/``)
@@ -80,7 +80,7 @@ async def _lifespan(app: FastAPI):
         from lasagna.core.config import rag_config
 
         logger.info("=" * 60)
-        logger.info("RAG Knowledge Service")
+        logger.info("Lasagna")
         logger.info(f"  Database:       {rag_config.database_backend}")
         if rag_config.database_backend == "postgresql":
             dsn = rag_config.database_dsn
@@ -282,7 +282,7 @@ def _require_a_shared_signing_secret() -> None:
 
 
 def create_app(
-    title: str = "RAG Knowledge Base API",
+    title: str = "Lasagna API",
     cors_origins: Optional[list[str]] = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
@@ -298,7 +298,7 @@ def create_app(
     app = FastAPI(
         title=title,
         description=(
-            "Production-ready REST API for the RAG Knowledge Base. "
+            "Production-ready REST API for Lasagna. "
             "Upload documents, search semantically, retrieve citations, "
             "and manage configuration profiles."
         ),
@@ -479,7 +479,7 @@ def create_app(
     @app.get("/", include_in_schema=False)
     async def root():
         return {
-            "service": "RAG Knowledge Base",
+            "service": "Lasagna",
             "version": _package_version(),
             "docs": "/docs",
             "api": "/api/v1",

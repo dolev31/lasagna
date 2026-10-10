@@ -1,6 +1,6 @@
-# API Layer — RAG Knowledge Base Facade & REST API
+# API Layer — Lasagna Facade & REST API
 
-Public interface for the RAG Knowledge system: a thread-safe singleton facade (`RAGBackend`) backed by four specialized managers, exposed through a FastAPI REST API with 38 endpoints, middleware chain, stateless JWT sessions, and optional embedded MCP server.
+Public interface for Lasagna: a thread-safe singleton facade (`RAGBackend`) backed by four specialized managers, exposed through a FastAPI REST API with 38 endpoints, middleware chain, stateless JWT sessions, and optional embedded MCP server.
 
 ---
 

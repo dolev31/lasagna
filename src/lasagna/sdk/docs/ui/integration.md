@@ -1,6 +1,6 @@
-# RAG Knowledge — UI Integration Guide
+# Lasagna — UI Integration Guide
 
-A contract-safe reference for integrating RAG Knowledge features into any frontend or system. Organized by priority tier with SDK (Python) and REST (HTTP) examples for each feature.
+A contract-safe reference for integrating Lasagna features into any frontend or system. Organized by priority tier with SDK (Python) and REST (HTTP) examples for each feature.
 
 ---
 

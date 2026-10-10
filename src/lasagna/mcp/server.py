@@ -1,4 +1,4 @@
-"""RAG Knowledge Base MCP Server.
+"""Lasagna MCP Server.
 
 Exposes the RAG knowledge base as MCP tools so any agent can upload documents,
 search them semantically, list documents, and delete them.
@@ -87,7 +87,7 @@ _server_port = 8005
 # root logger is put back as it was.
 _root_logger = logging.getLogger()
 _root_state = (list(_root_logger.handlers), _root_logger.level)
-mcp = FastMCP("rag_knowledge", host=_server_host, port=_server_port)
+mcp = FastMCP("lasagna", host=_server_host, port=_server_port)
 _root_logger.handlers[:] = _root_state[0]
 _root_logger.setLevel(_root_state[1])
 
@@ -3016,7 +3016,7 @@ def _get_welcome_html(host: str, port: int) -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RAG Knowledge Base - MCP Server</title>
+    <title>Lasagna - MCP Server</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
@@ -3119,7 +3119,7 @@ def _get_welcome_html(host: str, port: int) -> str:
 </head>
 <body>
     <div class="container">
-        <h1>RAG Knowledge Base <span class="status">Running</span></h1>
+        <h1>Lasagna <span class="status">Running</span></h1>
         <p class="subtitle">MCP Server for Document Management & Semantic Search</p>
 
         <div class="links">
@@ -3206,7 +3206,7 @@ def _get_welcome_html(host: str, port: int) -> str:
             <p style="margin-bottom: 10px;">MCP clients can connect using:</p>
             <code>http://{host}:{port}/sse</code>
             <p style="margin-top: 15px; color: #888;">
-                RAG Knowledge Base MCP Server.
+                Lasagna MCP Server.
                 Uses Milvus for vector storage and sentence-transformers for embeddings.
             </p>
         </div>
@@ -3224,7 +3224,7 @@ def _get_docs_html(host: str, port: int) -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RAG Knowledge Base - API Docs</title>
+    <title>Lasagna - API Docs</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
@@ -3380,7 +3380,7 @@ def _get_docs_html(host: str, port: int) -> str:
     <div class="container">
         <a href="/" class="back-link">← Back to Home</a>
         <h1>📚 API Documentation</h1>
-        <p class="subtitle">Interactive testing for RAG Knowledge Base tools</p>
+        <p class="subtitle">Interactive testing for Lasagna tools</p>
 
         <!-- search -->
         <div class="tool-section">
@@ -3737,7 +3737,7 @@ def create_mcp_server(
     ``transport_security`` is FastMCP's Host/Origin check for the SSE
     endpoints; FastMCP turns it on by itself only for a loopback ``host``.
     """
-    server = FastMCP("rag_knowledge", host=host, port=port, transport_security=transport_security)
+    server = FastMCP("lasagna", host=host, port=port, transport_security=transport_security)
 
     # Search
     server.add_tool(_flag_failures(search))
@@ -3802,7 +3802,7 @@ def create_mcp_server(
 
 
 def main():
-    """Run the RAG Knowledge MCP server."""
+    """Run the Lasagna MCP server."""
     global mcp, _eager_init, _owns_logging
     import argparse
 
@@ -3812,7 +3812,7 @@ def main():
         _owns_logging = True
         _configure_rag_logging("DEBUG")
 
-    parser = argparse.ArgumentParser(description="RAG Knowledge Base MCP Server")
+    parser = argparse.ArgumentParser(description="Lasagna MCP Server")
     parser.add_argument(
         "--transport", default="sse", choices=["sse", "stdio"], help="Transport type (default: sse)"
     )
@@ -3951,7 +3951,7 @@ def main():
     mcp = create_mcp_server(host=args.host, port=args.port)
 
     logger.info("=" * 60)
-    logger.info("RAG Knowledge Base MCP Server")
+    logger.info("Lasagna MCP Server")
     logger.info("=" * 60)
     logger.info(f"Transport: {args.transport}")
     if args.transport == "sse":

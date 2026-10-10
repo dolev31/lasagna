@@ -1,6 +1,6 @@
 # REST API Endpoint Reference
 
-The RAG Knowledge Base exposes 38 HTTP endpoints across two route groups: 28 versioned endpoints under `/api/v1/` (including 2 document lifecycle + 4 admin GC routes) and 10 non-versioned endpoints for the configurator UI and bulk operations. All endpoints accept and return JSON (except document upload, which uses multipart form data). Session identity is resolved from headers/tokens on every request.
+Lasagna exposes 38 HTTP endpoints across two route groups: 28 versioned endpoints under `/api/v1/` (including 2 document lifecycle + 4 admin GC routes) and 10 non-versioned endpoints for the configurator UI and bulk operations. All endpoints accept and return JSON (except document upload, which uses multipart form data). Session identity is resolved from headers/tokens on every request.
 
 ---
 

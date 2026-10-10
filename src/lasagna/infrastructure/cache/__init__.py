@@ -1,4 +1,4 @@
-"""Caching subsystem for RAG Knowledge Base.
+"""Caching subsystem for Lasagna.
 
 This module provides:
 - **SearchCache**: TTL-based LRU cache for search results with session-aware invalidation

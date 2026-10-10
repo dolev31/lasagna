@@ -1,4 +1,4 @@
-"""Utility layer for RAG Knowledge Base system.
+"""Utility layer for Lasagna.
 
 This module provides common utilities including:
 - Monitoring and metrics

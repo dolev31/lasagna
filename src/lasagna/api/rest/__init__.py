@@ -1,4 +1,4 @@
-"""REST API for RAG Knowledge Base.
+"""REST API for Lasagna.
 
 Provides a versioned HTTP API (``/api/v1/``) for document management,
 semantic search, citation retrieval, health probes, and system

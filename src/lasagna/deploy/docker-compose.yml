@@ -1,5 +1,5 @@
 # ============================================================================
-# RAG Knowledge Service — Base Compose (shared infrastructure)
+# Lasagna — Base Compose (shared infrastructure)
 #
 # This is the base file.  Combine with a backend fragment:
 #   docker compose -f docker-compose.yml -f backends/pgvector.yml up -d

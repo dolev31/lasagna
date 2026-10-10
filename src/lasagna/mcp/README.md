@@ -1,4 +1,4 @@
-# MCP Server — RAG Knowledge Base
+# MCP Server — Lasagna
 
 MCP server exposing the RAG knowledge base as 31 tools for semantic search, document management, runtime configuration, and document lifecycle management. Compatible with Claude Desktop, custom agents, and any MCP client.
 
@@ -200,9 +200,9 @@ Add to `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "rag_knowledge": {
-      "command": "python",
-      "args": ["-m", "lasagna.mcp", "--transport", "stdio"]
+    "lasagna": {
+      "command": "lasagna-mcp",
+      "args": ["--transport", "stdio"]
     }
   }
 }

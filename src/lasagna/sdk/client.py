@@ -152,13 +152,13 @@ class KnowledgeClient:
         api_key: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> "KnowledgeClient":
-        """Connect to a remote RAG Knowledge API server.
+        """Connect to a remote Lasagna API server.
 
         Creates a lightweight client that delegates all operations to a
         REST API — no heavy dependencies required (only ``httpx``).
 
         Args:
-            url: Base URL of the RAG Knowledge API (e.g. ``https://rag.myapp.com``)
+            url: Base URL of the Lasagna API (e.g. ``https://rag.myapp.com``)
             api_key: Optional Bearer token for authentication
             session_id: Session identifier. Auto-generated if not provided.
 

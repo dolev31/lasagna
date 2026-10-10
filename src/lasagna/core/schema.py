@@ -1,4 +1,4 @@
-"""Schema definitions for RAG Knowledge Base system.
+"""Schema definitions for Lasagna.
 
 This module defines Pydantic models for documents, chunks, and metadata
 used throughout the RAG backend.

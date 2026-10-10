@@ -1,10 +1,10 @@
-# Architecture -- API Layer for RAG Knowledge Base
+# Architecture -- API Layer for Lasagna
 
 ---
 
 ## Package Overview
 
-The `api/` package is the primary interface layer for the RAG Knowledge system. It exposes a thread-safe singleton facade (`RAGBackend`) that delegates to four specialized managers, and a full FastAPI REST API with 38 endpoints, a middleware chain, and stateless session tokens.
+The `api/` package is the primary interface layer for Lasagna. It exposes a thread-safe singleton facade (`RAGBackend`) that delegates to four specialized managers, and a full FastAPI REST API with 38 endpoints, a middleware chain, and stateless session tokens.
 
 Components:
 

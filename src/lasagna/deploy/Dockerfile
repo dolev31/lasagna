@@ -1,5 +1,5 @@
 # ============================================================================
-# RAG Knowledge Service — Multi-stage Docker Build
+# Lasagna — Multi-stage Docker Build
 #
 # Bakes in embedding + reranker models at build time to eliminate cold-start
 # downloads.  Supports both API-only and Celery worker modes via CMD override.
@@ -46,7 +46,7 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 FROM python:3.12-slim AS production
 
 LABEL maintainer="Lasagna contributors"
-LABEL description="RAG Knowledge Service — SOTA retrieval with multi-tenant support"
+LABEL description="Lasagna — SOTA retrieval with multi-tenant support"
 
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

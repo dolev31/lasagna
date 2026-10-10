@@ -1,6 +1,6 @@
 # Retrieval Module
 
-The retrieval layer provides hybrid search, reranking, query enhancement, and intelligent routing for the RAG Knowledge system. This module is **independent** from the larger Lasagna package and can be used standalone via the SDK or REST API.
+The retrieval layer provides hybrid search, reranking, query enhancement, and intelligent routing for Lasagna. This module is **independent** from the rest of the package and can be used standalone via the SDK or REST API.
 
 ## Architecture
 

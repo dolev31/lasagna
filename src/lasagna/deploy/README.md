@@ -1,6 +1,6 @@
-# RAG Knowledge — Deployment Guide
+# Lasagna — Deployment Guide
 
-Deploy the RAG Knowledge Service — a standalone SOTA retrieval system with document ingestion, hybrid search, reranking, and multi-tenant support. One command to start, swap vector backends without duplicating config.
+Deploy Lasagna as a standalone SOTA retrieval system with document ingestion, hybrid search, reranking, and multi-tenant support. One command to start, swap vector backends without duplicating config.
 
 ## Architecture
 

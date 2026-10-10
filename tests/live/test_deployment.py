@@ -1,4 +1,4 @@
-"""End-to-end integration tests for the RAG Knowledge Service Docker deployment.
+"""End-to-end integration tests for the Lasagna Docker deployment.
 
 These tests run against a live Docker Compose stack (API + Celery + Redis +
 PostgreSQL + Milvus).  The API is expected at http://localhost:8000/api/v1/.

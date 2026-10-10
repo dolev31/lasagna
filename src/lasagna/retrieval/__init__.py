@@ -1,4 +1,4 @@
-"""Retrieval layer for RAG Knowledge Base system.
+"""Retrieval layer for Lasagna.
 
 This layer provides retrieval and ranking capabilities:
 - Search: Hybrid search (dense + sparse) with reranking

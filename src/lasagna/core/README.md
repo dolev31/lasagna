@@ -1,4 +1,4 @@
-# `core/` — RAG Knowledge Foundation Package
+# `core/` — Lasagna foundation package
 
 Foundational layer for the RAG knowledge system. Every other module
 (`agentic/`, `sdk/`, `api/`, `retrieval/`, `processing/`) depends on `core/`.

@@ -1,1 +1,1 @@
-"""Production stress test suite for multi-tenant RAG Knowledge Service."""
+"""Production stress test suite for multi-tenant Lasagna."""

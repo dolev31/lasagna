@@ -1,5 +1,5 @@
 # =============================================================================
-# RAG Knowledge Service — Deployment Makefile
+# Lasagna — Deployment Makefile
 # =============================================================================
 # Usage:
 #   make up                         Start with VECTOR_BACKEND from .env

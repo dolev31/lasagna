@@ -1,4 +1,4 @@
-"""MCP Knowledge Client — SSE transport layer for the RAG Knowledge MCP Server.
+"""MCP Knowledge Client — SSE transport layer for the Lasagna MCP server.
 
 Provides persistent connection management, automatic reconnection with
 exponential backoff, periodic health checks, and optional query caching.
@@ -24,7 +24,7 @@ from loguru import logger
 
 
 class MCPKnowledgeClient:
-    """Client for communicating with the RAG Knowledge MCP Server.
+    """Client for communicating with the Lasagna MCP server.
 
     This class provides the SDK's interface to the MCP knowledge server,
     ensuring all RAG operations go through MCP rather than direct backend calls.

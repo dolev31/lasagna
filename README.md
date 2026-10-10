@@ -5,25 +5,32 @@
   <img src="https://github.com/dolev31/lasagna/raw/main/docs/assets/hero-light.png" width="100%" alt="Lasagna: swap one RAG stage, hold the rest fixed, and measure what actually changed.">
 </picture>
 
-**Test your RAG components against a real stack — not a toy baseline.**
+**Test your RAG components against a real stack, not a toy baseline. Then give that stack to your agent.**
 
 [![Project page](https://img.shields.io/badge/project-page-1f6feb.svg)](https://dolev31.github.io/lasagna/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/dolev31/lasagna/blob/main/LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12%20|%203.13-blue.svg)](https://www.python.org/downloads/)
 [![Tests](https://github.com/dolev31/lasagna/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/dolev31/lasagna/actions/workflows/tests.yml)
 
-[Guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md) · [Quickstart](#quickstart) · [Why](#the-problem) · [Compare components](#compare-a-component) · [What's inside](#whats-inside) · [Docs](#documentation)
+[Guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md) · [Quickstart](#quickstart) · [Why](#the-problem) · [Compare components](#compare-a-component) · [Give your agent RAG](#give-your-agent-rag-mcp-rest-docker) · [What's inside](#whats-inside) · [Docs](#documentation)
 
 </div>
 
-> **For researchers** publishing a component and needing a defensible number.
+> **For researchers** publishing a component and needing a defensible number:
+> [compare a component](#compare-a-component) against a real stack, with a
+> significance test, in minutes and with no key.
+>
+> **For agent builders** who want search over their own documents as a tool
+> call: [an MCP server](#give-your-agent-rag-mcp-rest-docker) for Claude Code,
+> Claude Desktop and Cursor, a REST API, and a Docker stack for production.
+>
 > **For engineers** choosing between six vector backends and a dozen retrieval
 > strategies without building the harness first.
 
 <p align="center">
-  <img src="https://github.com/dolev31/lasagna/raw/main/docs/assets/demo.gif" width="800" alt="Terminal demo: a three-line @lasagna.reranker function that scores query-word overlap is swept against the built-in cross_encoder on 100 BEIR SciFact queries. The run confirms stage isolation, and lasagna results significance reports cross_encoder ahead by +0.091 nDCG@10 (d_z 0.38, Holm p = 1e-4).">
+  <img src="https://github.com/dolev31/lasagna/raw/main/docs/assets/demo.gif" width="800" alt="Terminal demo: a three-line @lasagna.reranker function that scores query-word overlap is swept against the built-in cross_encoder on 100 BEIR SciFact queries. The run confirms stage isolation, and lasagna results significance ends in a green box: cross_encoder beats keyword_overlap by +0.091 nDCG@10 (d_z 0.38, Holm p = 1e-4) on 100 queries.">
   <br>
-  <sub>A real run with the idle waits cut: write a reranker, sweep it against a built-in, read a Holm-corrected significance table.</sub>
+  <sub>A real run with the idle waits cut: write a reranker, sweep it against a built-in, and get a Holm-corrected verdict.</sub>
 </p>
 
 ---
@@ -233,6 +240,91 @@ Note that `upload()` returns as soon as the document is queued — processing is
 asynchronous, so `result.chunk_count` is `0` at that moment. Await
 `client.documents.wait_for_processing(result.document_id)` if you need the
 final count.
+
+---
+
+## Give your agent RAG: MCP, REST, Docker
+
+The pipeline you measure is the pipeline you serve. The MCP server and the REST
+API run the same retrieval pipeline, profiles and settings that the benchmarks
+measure, so a profile or setting that won your comparison is what your agent
+searches with.
+
+### MCP: a search tool for Claude Code, Claude Desktop and Cursor
+
+Lasagna ships an MCP server with **31 tools** (search, upload, document
+lifecycle, profiles and configuration), so any MCP client can search your
+documents as a tool call.
+
+```bash
+pip install lasagna-rag
+lasagna configure --profile speed -s my-corpus   # 80 MB model instead of 5.4 GB
+for f in ./docs/*.md; do lasagna upload "$f" -s my-corpus; done
+```
+
+Then register the server. **Claude Code** — `.mcp.json` in your project:
+
+```json
+{
+  "mcpServers": {
+    "lasagna": {
+      "command": "lasagna-mcp",
+      "args": ["--transport", "stdio"],
+      "env": { "RAG_SESSION_ID": "my-corpus" }
+    }
+  }
+}
+```
+
+**Claude Desktop** — the same block inside `claude_desktop_config.json`. If
+`lasagna-mcp` is not on the inherited `PATH`, use the absolute path to it inside
+your virtualenv.
+
+The `speed` profile above matters for more than download size: the default
+profile enables agentic RAG, which calls an LLM, so a keyless `search` fails.
+On `speed` retrieval is fully keyless. Generation, LLM reranking and benchmark
+judging always need a key.
+
+### REST API
+
+```bash
+lasagna serve                 # REST API and configuration UI on http://127.0.0.1:8000
+```
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/search \
+  -H "X-Session-ID: my-corpus" -H "Content-Type: application/json" \
+  -d '{"query": "what did the ablation show?", "top_k": 5}'
+```
+
+The OpenAPI reference is at `/docs`, and every endpoint is listed in
+[endpoints.md](https://github.com/dolev31/lasagna/blob/main/src/lasagna/api/docs/endpoints.md).
+`lasagna serve` binds to loopback and is unauthenticated; for anything shared,
+use the production stack below.
+
+### In production
+
+[`src/lasagna/deploy/`](https://github.com/dolev31/lasagna/blob/main/src/lasagna/deploy/README.md)
+runs Lasagna as a service with `make up`: the API behind Gunicorn, signed
+per-tenant session tokens, Postgres for metadata, Redis for caching, optional
+Celery workers for ingestion, Prometheus metrics and the MCP server, on any of
+the six vector backends (`VECTOR_BACKEND=qdrant`, `pgvector`, `milvus`, ...).
+
+### Skills, so the agent stops guessing
+
+```bash
+lasagna skills install        # writes .claude/skills/
+```
+
+Four skills — using retrieval, building a component, running an evaluation, and
+filing a useful bug report. They encode the things an agent otherwise gets wrong:
+which mode a benchmark must run in, why the first search is slow, and which
+config actually applies.
+
+```bash
+lasagna doctor                # what is wrong with this install, and how to fix it
+lasagna doctor --issue        # a redacted block to paste into a bug report
+```
 
 ---
 
@@ -492,58 +584,6 @@ and `balanced` to `max_quality` (everything on; the paper calls it
 Max-Reliable). Each is genuinely distinct and
 does what it documents — `speed` really does disable reranking, hybrid, MMR,
 HyDE and the agentic loop.
-
----
-
-## MCP server: give an AI agent RAG over your documents
-
-Lasagna ships an MCP server with **31 tools**, so any MCP client — Claude Code,
-Claude Desktop, Cursor — can search your documents as a tool call.
-
-```bash
-pip install lasagna-rag
-lasagna configure --profile speed -s my-corpus   # 80 MB model instead of 5.4 GB
-for f in ./docs/*.md; do lasagna upload "$f" -s my-corpus; done
-```
-
-Then register the server. **Claude Code** — `.mcp.json` in your project:
-
-```json
-{
-  "mcpServers": {
-    "lasagna": {
-      "command": "lasagna-mcp",
-      "args": ["--transport", "stdio"],
-      "env": { "RAG_SESSION_ID": "my-corpus" }
-    }
-  }
-}
-```
-
-**Claude Desktop** — the same block inside `claude_desktop_config.json`. If
-`lasagna-mcp` is not on the inherited `PATH`, use the absolute path to it inside
-your virtualenv.
-
-The `speed` profile above matters for more than download size: the default
-profile enables agentic RAG, which calls an LLM, so a keyless `search` fails.
-On `speed` retrieval is fully keyless. Generation, LLM reranking and benchmark
-judging always need a key.
-
-### Skills, so the agent stops guessing
-
-```bash
-lasagna skills install        # writes .claude/skills/
-```
-
-Four skills — using retrieval, building a component, running an evaluation, and
-filing a useful bug report. They encode the things an agent otherwise gets wrong:
-which mode a benchmark must run in, why the first search is slow, and which
-config actually applies.
-
-```bash
-lasagna doctor                # what is wrong with this install, and how to fix it
-lasagna doctor --issue        # a redacted block to paste into a bug report
-```
 
 ---
 

@@ -1,4 +1,4 @@
-"""Infrastructure layer for RAG Knowledge Base system.
+"""Infrastructure layer for Lasagna.
 
 This layer provides core infrastructure components:
 

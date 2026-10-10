@@ -1,4 +1,4 @@
-"""MCP server for RAG Knowledge Base.
+"""MCP server for Lasagna.
 
 Run standalone::
 

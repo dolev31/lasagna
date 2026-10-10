@@ -31,7 +31,7 @@ def _find_available_port(start: int, max_attempts: int = 10) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="RAG Knowledge Configurator")
+    parser = argparse.ArgumentParser(description="Lasagna Configurator")
     parser.add_argument(
         "--host",
         default="127.0.0.1",

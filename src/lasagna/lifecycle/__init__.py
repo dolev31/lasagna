@@ -1,4 +1,4 @@
-"""Document Lifecycle Management for the RAG Knowledge Package.
+"""Document Lifecycle Management for Lasagna.
 
 Public API::
 

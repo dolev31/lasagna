@@ -1,4 +1,4 @@
-"""Processing layer for RAG Knowledge Base system.
+"""Processing layer for Lasagna.
 
 This layer handles input processing including:
 - Document extraction from various formats

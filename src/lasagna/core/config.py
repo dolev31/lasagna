@@ -1,4 +1,4 @@
-"""Configuration management for RAG Knowledge Base system.
+"""Configuration management for Lasagna.
 
 This module provides comprehensive configuration for the SOTA RAG implementation
 including embedding models, chunking strategies, hybrid search, reranking, and more.

@@ -1,4 +1,4 @@
-"""LLM Manager for the RAG Knowledge Service.
+"""LLM Manager for Lasagna.
 
 Provides a singleton manager for creating and caching LangChain LLM instances
 across multiple platforms (OpenAI, Azure, Groq, WatsonX, Google GenAI, OpenRouter).

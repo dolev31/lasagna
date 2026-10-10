@@ -1,6 +1,6 @@
 # RAG Stress Tests
 
-End-to-end stress tests that validate the RAG Knowledge Service under load across all supported vector backends.
+End-to-end stress tests that validate Lasagna under load across all supported vector backends.
 
 ## Quick Start
 
