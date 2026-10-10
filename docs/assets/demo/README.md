@@ -22,9 +22,10 @@ watching it live:
   | `HF_HUB_DISABLE_PROGRESS_BARS=1` | model-loading progress bars |
   | `DATASETS_VERBOSITY=error` | dataset-cache notices |
 
-- **An end card follows the run**: the README's hero image and where to get
-  Lasagna, drawn by [`end_card.py`](end_card.py) and held for 4.5 s. It is the
-  only frame that was not printed by a command.
+- **Two cards frame the run**: the README's hero image with the question the
+  run answers (3 s) before it, and with where to get Lasagna (4.5 s) after it,
+  drawn by [`cards.py`](cards.py). They are the only frames not printed by a
+  command.
 
 `lasagna` on screen is `python -m lasagna`, through a two-line wrapper that
 `record.sh` puts on `PATH`.
@@ -34,7 +35,7 @@ watching it live:
 You need an interpreter with Lasagna installed (`pip install "lasagna-rag[eval]"`,
 or a checkout with `PYTHONPATH=src`), [uv](https://docs.astral.sh/uv/) (it
 fetches asciinema 2.4), [agg](https://github.com/asciinema/agg/releases) 1.9 and
-ffmpeg (`FFMPEG=` names one). `end_card.py` needs Pillow, which the
+ffmpeg (`FFMPEG=` names one). `cards.py` needs Pillow, which the
 interpreter above already has. The font is JetBrains Mono: agg finds it when it is installed, or point
 `FONT_DIR` at a folder holding its `.ttf` files.
 
@@ -44,7 +45,7 @@ LASAGNA_PYTHON=.venv/bin/python AGG=agg docs/assets/demo/record.sh
 
 This records a fresh run in a temporary directory with an empty `HOME`, writes
 the retimed recording to `demo.cast`, and renders `demo.gif` and `demo.mp4` into
-`docs/assets/`, with the end card appended. The first run downloads `BAAI/bge-small-en-v1.5`,
+`docs/assets/`, with the title and end cards around it. The first run downloads `BAAI/bge-small-en-v1.5`,
 `cross-encoder/ms-marco-MiniLM-L-6-v2` and SciFact; with them cached, set
 `HF_HUB_OFFLINE=1`.
 

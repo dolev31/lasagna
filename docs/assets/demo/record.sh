@@ -53,13 +53,16 @@ frames=$(mktemp -d)
 "$agg" --quiet ${FONT_DIR:+--font-dir "$FONT_DIR"} --theme github-dark \
   --font-size 16 --line-height 1.35 --idle-time-limit 10 --last-frame-duration 6 --fps-cap 15 \
   "$here/demo.cast" "$frames/terminal.gif"
-# End card: the hero image and where to get Lasagna, held 4.5 s after the run.
-# One palette from every frame keeps the card's colors exact, and rectangle
-# diffs store only the pixels that change, so the card costs little.
-"$py" "$here/end_card.py" "$frames/terminal.gif" "$frames/card.png" "${FONT_DIR:-}"
-"$ffmpeg" -y -loglevel error -i "$frames/terminal.gif" \
-  -loop 1 -framerate 15 -t 4.5 -i "$frames/card.png" \
-  -filter_complex "[0:v]fps=15,format=rgb24,setsar=1[t];[1:v]fps=15,format=rgb24,setsar=1[c];[t][c]concat=n=2:v=1:a=0,split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" \
+# Title card (3 s) and end card (4.5 s) around the run: the hero image with
+# what the run answers, then where to get Lasagna. One palette from every frame
+# keeps the cards' colors exact, and rectangle diffs store only the pixels that
+# change, so the cards cost little.
+"$py" "$here/cards.py" "$frames/terminal.gif" "$frames/title.png" "$frames/end.png" "${FONT_DIR:-}"
+"$ffmpeg" -y -loglevel error \
+  -loop 1 -framerate 15 -t 3 -i "$frames/title.png" \
+  -i "$frames/terminal.gif" \
+  -loop 1 -framerate 15 -t 4.5 -i "$frames/end.png" \
+  -filter_complex "[0:v]fps=15,format=rgb24,setsar=1[s];[1:v]fps=15,format=rgb24,setsar=1[t];[2:v]fps=15,format=rgb24,setsar=1[e];[s][t][e]concat=n=3:v=1:a=0,split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" \
   -loop 0 "$assets/demo.gif"
 # fps=15 keeps the GIF's final hold, which a straight conversion cuts short.
 "$ffmpeg" -y -loglevel error -i "$assets/demo.gif" -movflags +faststart \
