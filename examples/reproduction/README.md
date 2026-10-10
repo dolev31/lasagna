@@ -59,13 +59,13 @@ lasagna benchmark experiment examples/reproduction/beir_tier1.yaml
 
 It needs no LLM and no API key. The first run downloads the two datasets (about
 15 MB) and three models (about 300 MB). The sweep is 28 tasks, 14 arms on each
-dataset, and took 94 minutes on an Apple M1 Max (10 cores, 64 GB, embeddings and
-the cross-encoder on MPS), with a peak memory of 2.4 GB. Results land in
+dataset, and took 33 minutes on an Apple M1 Max (10 cores, 64 GB, embeddings and
+the cross-encoder on MPS), with a peak memory of 2.6 GB. Results land in
 `~/.lasagna/research/results/BEIR_Tier_1_reproduction_<timestamp>/`.
 
-Every arm is deterministic, so the sweep runs once (`n_runs: 1`). Two runs, each
-from an empty store, gave identical results: every metric and every ranked list
-of all 28 tasks.
+Every arm is deterministic, so the sweep runs once (`n_runs: 1`). Three runs,
+each from an empty store, gave identical results: every metric and every ranked
+list of all 28 tasks.
 
 ## What the sweep holds fixed
 
