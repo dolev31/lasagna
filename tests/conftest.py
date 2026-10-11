@@ -205,3 +205,49 @@ def pytest_sessionfinish(session, exitstatus):
         server_manager_instance.release_all()
     except Exception:
         pass
+    _stop_idle_anyio_workers()
+    _exit_even_if_a_thread_never_finishes(exitstatus)
+
+
+def _stop_idle_anyio_workers():
+    """Stop AnyIO worker threads that will never be told to stop.
+
+    A worker stops when the task that owns its event loop finishes. The MCP
+    tests run many short `asyncio.run` loops, and now and then one stops before
+    the worker's stop callback runs: the thread then waits on its queue forever,
+    and Python, which joins non-daemon threads at exit, never exits. Caught in
+    5 of 12 local runs with a thread dump at exit.
+    """
+    import threading
+
+    for thread in threading.enumerate():
+        if thread.name == "AnyIO worker thread" and hasattr(thread, "stop"):
+            try:
+                thread.stop()
+            except Exception:
+                pass
+
+
+def _exit_even_if_a_thread_never_finishes(exitstatus, grace_s: float = 120.0):
+    """If something else keeps the process alive after the summary, say what and exit.
+
+    A daemon thread keeps running while Python joins the others at exit. After
+    `grace_s` it prints every thread's stack, so the culprit is named in the CI
+    log, and exits with pytest's own status: a green run stays green instead of
+    hanging until the job's timeout.
+    """
+    import faulthandler
+    import threading
+    import time
+
+    def guard():
+        time.sleep(grace_s)
+        sys.stderr.write(
+            f"\nThe test process did not exit {grace_s:.0f}s after the run ended; "
+            "these threads kept it alive:\n"
+        )
+        faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+        sys.stderr.flush()
+        os._exit(int(exitstatus))
+
+    threading.Thread(target=guard, name="exit-guard", daemon=True).start()
