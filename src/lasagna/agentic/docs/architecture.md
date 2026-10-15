@@ -1,10 +1,10 @@
-# Architecture -- Structured Graph Pipeline
+# Architecture: Structured Graph Pipeline
 
 ## Pipeline Overview
 
-The structured graph (enabled via `use_structured_graph = true`) is a LangGraph `StateGraph` with 13 nodes and 6 conditional edges. All nodes read from and write to `RAGGraphState`.
+The structured graph (enabled via `use_structured_graph = true`, or `agentic_pipeline = "default"`) is a LangGraph `StateGraph` with 13 nodes and 6 conditional edges, built by `build_rag_graph()` in `agentic/graph_builder.py`. All nodes read from and write to `RAGGraphState`.
 
-This document covers that graph (`agentic_pipeline = "default"`) and the legacy ReAct mode. The five published loops (`self_ask`, `ircot`, `flare`, `adaptive`, `self_rag`) do not use this graph. Each is a short loop in `agentic/loops/`, described in [the agentic README](../README.md#published-loops).
+This document covers that graph and the legacy ReAct mode (`agentic_pipeline = "legacy_react"`, the default). The five published loops (`self_ask`, `ircot`, `flare`, `adaptive`, `self_rag`) do not use this graph. Each is a short loop in `agentic/loops/`, listed in [the agentic README](../README.md#which-pipeline-runs).
 
 ```
 START
@@ -50,7 +50,7 @@ check_answer_quality     ISUSE relevance verification
   |                                   +--- quality bad -------> generate (retry)
   |
   v
-select_chunks            Filter citations by strategy (adaptive / fixed / threshold / agent_decides)
+select_chunks            Filter citations by strategy (adaptive / fixed / above_threshold / agent_decides)
   |
   |--- [route_after_select_chunks] ---+--- more sub-queries + budget --> advance_sub_query
   |                                   +--- else -----------------------> final_search
@@ -62,7 +62,7 @@ advance_sub_query        Move to next decomposed sub-query
   +---> retrieve (loops back)
 
   v (when sub-queries exhausted or no decomposition)
-final_search             Optional comprehensive search on original question
+final_search             Optional wide search on the original question
   |
   v
 format_output            Assemble final result, reindex citations, compute metrics
@@ -90,19 +90,19 @@ Rewrite loop:
 | `route_after_select_chunks` | `select_chunks` | `advance_sub_query`, `final_search` | Remaining sub-queries + global hop budget |
 | `route_after_rewrite` | `rewrite_query` | `retrieve`, `generate` | Rewrite budget (`max_rewrites`) |
 
-**Budget enforcement:** Most edges enforce iteration or budget caps. `route_after_generation` is the exception -- it routes purely based on config flags (which quality gates are enabled). `route_after_select_chunks` enforces the global retrieval budget (`max_retrieval_attempts`) across all sub-queries, preventing large decompositions from bypassing the hop limit.
+**Budget enforcement:** Most edges enforce iteration or budget caps. `route_after_generation` is the exception: it routes purely on config flags (which quality gates are enabled). `route_after_select_chunks` enforces the global retrieval budget (`max_retrieval_attempts`) across all sub-queries, preventing large decompositions from bypassing the hop limit.
 
 ---
 
-## SOTA Techniques
+## Techniques
 
 ### Corrective RAG (CRAG)
 
 Per-chunk LLM grading evaluates whether each retrieved chunk is relevant to the query. Individual grades are aggregated by majority vote into an overall grade:
 
-- **"correct"** (>50% of chunks graded correct) -- proceed to generation
-- **"ambiguous"** -- rewrite query and retry if budget allows
-- **"incorrect"** -- trigger web fallback (DuckDuckGo) if enabled, otherwise rewrite
+- **"correct"** (>50% of chunks graded correct): proceed to generation
+- **"ambiguous"**: rewrite query and retry if budget allows
+- **"incorrect"**: trigger web fallback (DuckDuckGo) if enabled, otherwise rewrite
 
 When web fallback fires, citations from the failed hop are stripped and replaced with web results. Prior-hop citations are preserved.
 
@@ -124,10 +124,10 @@ Config: `enable_hallucination_check`, `enable_answer_quality_check`, `max_qualit
 
 Generates a hypothetical answer document to use for embedding-based search instead of the raw query. Four strategies:
 
-- **`off`** -- disabled
-- **`always`** -- HyDE on every hop
-- **`first_hop`** -- HyDE on first hop only
-- **`adaptive`** (default) -- HyDE when: (a) query is short (<=`max_query_length` tokens) on first or final hop, or (b) prior hop returned insufficient chunks/documents
+- **`off`**: disabled
+- **`always`**: HyDE on every hop
+- **`first_hop`**: HyDE on first hop only
+- **`adaptive`** (default): HyDE when (a) the query is short (<=`max_query_length` tokens) on the first or final hop, or (b) the prior hop returned too few chunks or documents
 
 Config: `agentic_hyde_strategy`, `max_query_length`
 
@@ -141,9 +141,9 @@ Config: `enable_query_decomposition`
 
 Three modes for processing retrieved chunks:
 
-- **`vanilla`** -- Pass-through with deduplication and citation building. No LLM cost.
-- **`refined`** -- Parallel LLM-based refinement. Each chunk is independently refined with context from the query. Chunks receiving `NOT_RELEVANT` classification are filtered. Tracks token reduction metrics.
-- **`auto`** (default) -- Heuristic gate: refines only when chunks are numerous (>7), long (avg >1000 chars), or have high score variance. Falls back to vanilla when refinement is unnecessary.
+- **`vanilla`**: pass-through with deduplication and citation building. No LLM cost.
+- **`refined`**: parallel LLM-based refinement. Each chunk is independently refined with context from the query. Chunks receiving `NOT_RELEVANT` classification are filtered. Tracks token reduction metrics.
+- **`auto`** (default): heuristic gate. Refines only when chunks are numerous (>7), long (avg >1000 chars), or have high score variance, and otherwise behaves as vanilla.
 
 Safety net: if all chunks are filtered as irrelevant, the top-scoring original chunk is kept.
 
@@ -153,7 +153,7 @@ Config: `chunk_refinement_method`, `refinement_model`
 
 Keyword-based or LLM-based assessment of how well retrieved chunks cover the aspects of the query. Computes `coverage_ratio` (0.0-1.0), `coverage_confidence`, and `uncovered_aspects`.
 
-**Coverage informs rewrite targeting** -- the `uncovered_aspects` list is fed to `rewrite_query_node` to generate queries that target missing information. Coverage does NOT directly control stopping; stopping is determined by retrieval budgets and sub-query progression.
+**Coverage informs rewrite targeting:** the `uncovered_aspects` list is fed to `rewrite_query_node` to generate queries that target missing information. Coverage does NOT directly control stopping; stopping is determined by retrieval budgets and sub-query progression.
 
 Config: `coverage_scorer_mode` (`"keyword"` or `"llm"`)
 
@@ -171,9 +171,9 @@ Config: `[rag.document_awareness]` section in settings
 
 ## Legacy ReAct Mode
 
-When `use_structured_graph = false` (default), the system uses a LangChain agent with two tools:
+When `use_structured_graph = false` (default) and no other `agentic_pipeline` is named, the system uses a LangChain agent with two tools:
 
-**`search_knowledge_base(query, config)`** -- Performs a single retrieval hop with:
+**`search_knowledge_base(query, config)`** performs a single retrieval hop with:
 - Query deduplication (exact + semantic)
 - HyDE decision
 - Backend search via RAGBackend
@@ -183,6 +183,6 @@ When `use_structured_graph = false` (default), the system uses a LangChain agent
 - Coverage scoring
 - Query stabilization detection
 
-**`mark_chunk_for_citation(result_number, config)`** -- For the `agent_decides` citation strategy, the agent marks which results to include in final context.
+**`mark_chunk_for_citation(result_number, config)`**: for the `agent_decides` citation strategy, the agent marks which results to include in final context.
 
 The agent LLM receives a system prompt (`AGENTIC_RAG_SYSTEM_PROMPT`) that instructs it on search strategy, iteration budget, and when to stop. The agent decides autonomously when to perform additional searches or finalize results.

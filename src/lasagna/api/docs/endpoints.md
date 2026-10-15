@@ -1,19 +1,21 @@
 # REST API Endpoint Reference
 
-Lasagna exposes 38 HTTP endpoints across two route groups: 28 versioned endpoints under `/api/v1/` (including 2 document lifecycle + 4 admin GC routes) and 10 non-versioned endpoints for the configurator UI and bulk operations. All endpoints accept and return JSON (except document upload, which uses multipart form data). Session identity is resolved from headers/tokens on every request.
+Lasagna exposes 41 HTTP endpoints across two route groups: 32 versioned endpoints under `/api/v1/` (including 2 document lifecycle and 6 admin routes) and 9 non-versioned endpoints for the configurator UI and bulk reindexing. All endpoints accept and return JSON, except the two document upload routes, which take multipart form data. Session identity is resolved from headers or tokens on every request.
+
+`tests/snapshots/openapi.json` records the full schema of every route, and `GET /openapi.json` on a running server returns the same document. When this page and that schema disagree, the schema is right.
 
 ---
 
-## Versioned Routes (`/api/v1/`) -- 28 endpoints
+## Versioned Routes (`/api/v1/`): 32 endpoints
 
 ### Health & Stats
 
 | # | Method | Path | Description | Response Model |
 |---|--------|------|-------------|----------------|
 | 1 | `GET` | `/api/v1/health/live` | Liveness probe. Always returns 200. | `LivenessResponse` |
-| 2 | `GET` | `/api/v1/health/ready` | Readiness probe. Returns 503 if dependencies are down. | `HealthResponse` |
+| 2 | `GET` | `/api/v1/health/ready` | Readiness probe. Returns 503 if a dependency is down. | `HealthResponse` |
 | 3 | `GET` | `/api/v1/health` | Full health check. Always returns 200. | `HealthResponse` |
-| 4 | `GET` | `/api/v1/stats` | System statistics (model, features, cache). | `StatsResponse` |
+| 4 | `GET` | `/api/v1/stats` | System statistics (model, collection, feature flags). | `StatsResponse` |
 
 ---
 
@@ -31,7 +33,7 @@ Kubernetes liveness probe. Always returns 200 unless the process is deadlocked.
 
 #### `GET /api/v1/health/ready`
 
-Readiness probe. Checks embedding model, vector backend, and metadata database. Returns 503 with the same response body when any critical dependency is down.
+Readiness probe. Checks the embedding model, then pings the vector store, the metadata database (SQLite or Postgres) and, when this instance uses it, Redis, each with a 2 s timeout. Returns 503 with the same response body when any of them is down, and names each one that did not answer in `failing`.
 
 **Response:** `HealthResponse`
 
@@ -39,20 +41,22 @@ Readiness probe. Checks embedding model, vector backend, and metadata database. 
 {
   "status": "healthy",
   "checks": {
-    "embedding_model": {"status": "up", "latency_ms": 1.2, "detail": "all-MiniLM-L6-v2 (dim=384)"},
+    "embedding_model": {"status": "up", "latency_ms": 0.01, "detail": "BAAI/bge-m3 (dim=1024)"},
     "vector_backend": {"status": "up", "latency_ms": 0.8, "detail": "milvus"},
     "database":       {"status": "up", "latency_ms": 2.1, "detail": "sqlite"}
   },
+  "failing": [],
+  "require_auth": false,
   "version": "0.1.0"
 }
 ```
 
-`version` is the installed package's version (`lasagna.__version__`).
+`version` is the installed package's version (`lasagna.__version__`). `require_auth` reports whether `RAG_REQUIRE_AUTH` is on. When a dependency is down, `status` is `"unhealthy"` and `failing` lists it (for example `["redis"]`).
 
 | Status Code | Condition |
 |-------------|-----------|
-| 200 | All dependencies healthy |
-| 503 | One or more dependencies down |
+| 200 | All dependencies answered |
+| 503 | One or more dependencies down or not answering within 2 s |
 
 ```bash
 curl http://localhost:8000/api/v1/health/ready
@@ -62,7 +66,7 @@ curl http://localhost:8000/api/v1/health/ready
 
 #### `GET /api/v1/health`
 
-Full health check -- same dependency checks as `/ready` but always returns 200 regardless of dependency status. Use for dashboards and monitoring.
+Full health check. Checks the same embedding model, vector backend and database as `/ready` (without the Redis ping or the timeouts) but always returns 200, whatever the dependency status. `status` is `healthy`, `degraded` (only the database is down) or `unhealthy`. Use it for dashboards and monitoring, and `/ready` for orchestrator probes.
 
 ---
 
@@ -74,14 +78,16 @@ With `RAG_REQUIRE_AUTH=true`, this needs a session token like every other data r
 
 ```json
 {
-  "embedding_model": "all-MiniLM-L6-v2",
-  "embedding_dim": 384,
-  "collection_name": "rag_default",
-  "vector_backend": "milvus",
-  "features": {"hybrid_search": true, "reranking": true, "hyde": true},
-  "cache": {"hit_rate": 0.72, "size": 128}
+  "embedding_model": "BAAI/bge-m3",
+  "embedding_dim": 1024,
+  "collection_name": "rag_documents_v2__baai_bge_m3__1024",
+  "vector_backend": null,
+  "features": {"hybrid_search": true, "reranking": true, "mmr": true, "hyde": false, "ocr": false},
+  "cache": {}
 }
 ```
+
+Each embedding model gets its own collection, named `rag_documents_v2__<model>__<dim>`. `vector_backend` and `cache` are declared in `StatsResponse`, but the backend's statistics do not fill them, so they come back `null` and `{}`. `GET /api/v1/health` names the vector backend.
 
 ---
 
@@ -95,14 +101,23 @@ With `RAG_REQUIRE_AUTH=true`, this needs a session token like every other data r
 
 #### `POST /api/v1/sessions`
 
-Creates a self-contained JWT session token encoding `(session_id, user_id)`. The server decodes it on each request without database lookup. Pass the token via `X-Session-Token` header on subsequent requests.
+Creates a self-contained JWT session token encoding `(session_id, user_id)`. The server decodes it on each request without a database lookup. Pass the token in the `X-Session-Token` header on later requests.
 
-**Request:** `SessionRequest`
+**Request:** `SessionRequest` (the body is optional)
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `session_id` | string | No | Desired session ID. Auto-generated (`sess_<hex>`) if omitted. Max 128 chars. |
-| `user_id` | string | No | Desired user ID. Auto-generated (`user_<hex>`) if omitted. Max 128 chars. |
+| `session_id` | string | No | Desired session ID. Generated (`sess_<hex>`) if omitted. Max 128 chars. Naming one needs `X-Admin-Token`. |
+| `user_id` | string | No | Desired user ID. Generated (`user_<hex>`) if omitted. Max 128 chars. Naming one needs `X-Admin-Token`. |
+
+**Headers:**
+
+| Header | When it is needed |
+|--------|-------------------|
+| `X-API-Key` | With `RAG_REQUIRE_AUTH=true`: one of the comma-separated keys in `RAG_API_KEYS` (each at least 32 characters). The key's principal is written into the token, and rate limits are counted per principal. |
+| `X-Admin-Token` | To name a `session_id` or `user_id`; it must match `RAG_ADMIN_TOKEN`. It also stands in for `X-API-Key` when auth is on. |
+
+Sessions are the isolation boundary, so a requested identity without a valid admin token is refused (403) rather than silently replaced with a generated one.
 
 **Response:** `SessionResponse`
 
@@ -115,15 +130,29 @@ Creates a self-contained JWT session token encoding `(session_id, user_id)`. The
 }
 ```
 
+| Status Code | Condition |
+|-------------|-----------|
+| 201 | Token created |
+| 401 | `RAG_REQUIRE_AUTH` is on and `X-API-Key` is missing or wrong |
+| 403 | `session_id` or `user_id` named without a valid `X-Admin-Token` |
+| 503 | `RAG_REQUIRE_AUTH` is on and `RAG_API_KEYS` lists no usable key |
+
 ```bash
-# Create session with auto-generated IDs
+# Create a session with generated IDs (auth off: no credentials needed)
 curl -X POST http://localhost:8000/api/v1/sessions
 
-# Create session with explicit IDs
+# With RAG_REQUIRE_AUTH=true
+curl -X POST http://localhost:8000/api/v1/sessions \
+  -H "X-API-Key: $LASAGNA_API_KEY"
+
+# Create a session with explicit IDs (needs the admin token)
 curl -X POST http://localhost:8000/api/v1/sessions \
   -H "Content-Type: application/json" \
+  -H "X-Admin-Token: $RAG_ADMIN_TOKEN" \
   -d '{"session_id": "my-session", "user_id": "alice"}'
 ```
+
+`$LASAGNA_API_KEY` stands for one of the keys you put in `RAG_API_KEYS`; the server reads no variable of that name.
 
 ---
 
@@ -132,22 +161,27 @@ curl -X POST http://localhost:8000/api/v1/sessions \
 | # | Method | Path | Description | Response Model | Status |
 |---|--------|------|-------------|----------------|--------|
 | 6 | `POST` | `/api/v1/documents` | Upload and index a document. | `UploadResponse` | 201 |
-| 7 | `GET` | `/api/v1/documents` | List all session documents. | `DocumentListResponse` | 200 |
-| 8 | `GET` | `/api/v1/documents/{document_id}` | Get document metadata. | `DocumentResponse` | 200 |
-| 9 | `DELETE` | `/api/v1/documents/{document_id}` | Hard-delete document and all chunks/vectors (irreversible). | `DeleteResponse` | 200 |
-| 10 | `GET` | `/api/v1/documents/{document_id}/chunks` | Get document chunks (paginated). | `List[ChunkResponse]` | 200 |
-| 11 | `GET` | `/api/v1/documents/{document_id}/status` | Poll processing status. | `DocumentStatusResponse` | 200 |
-| 12 | `POST` | `/api/v1/documents/{document_id}/reindex` | Re-index with current settings. | `UploadResponse` | 200 |
-| 13 | `POST` | `/api/v1/documents/{document_id}/archive` | Soft-delete a document (recoverable within grace window). | `DocumentResponse` | 200 |
-| 14 | `POST` | `/api/v1/documents/{document_id}/restore` | Restore a soft-deleted document within the grace window. | `DocumentResponse` | 200 |
+| 7 | `POST` | `/api/v1/documents/batch` | Upload several documents in one request. | `BatchUploadResponse` | 201 |
+| 8 | `GET` | `/api/v1/documents` | List all session documents. | `DocumentListResponse` | 200 |
+| 9 | `GET` | `/api/v1/documents/{document_id}` | Get document metadata. | `DocumentResponse` | 200 |
+| 10 | `DELETE` | `/api/v1/documents/{document_id}` | Hard-delete document and all chunks/vectors (irreversible). | `DeleteResponse` | 200 |
+| 11 | `GET` | `/api/v1/documents/{document_id}/chunks` | Get document chunks (paginated). | `List[ChunkResponse]` | 200 |
+| 12 | `GET` | `/api/v1/documents/{document_id}/status` | Poll processing status. | `DocumentStatusResponse` | 200 |
+| 13 | `POST` | `/api/v1/documents/{document_id}/reindex` | Re-index with current settings. | `UploadResponse` | 200 |
+| 14 | `POST` | `/api/v1/documents/{document_id}/archive` | Soft-delete a document (recoverable within grace window). | `DocumentResponse` | 200 |
+| 15 | `POST` | `/api/v1/documents/{document_id}/restore` | Restore a soft-deleted document within the grace window. | `DocumentResponse` | 200 |
 
 ---
 
 #### `POST /api/v1/documents`
 
-Upload and index a document. Accepts multipart form data with a single `file` field. Supported file types: PDF, DOCX, TXT, MD, CSV, JSON, HTML, XML. The document is chunked, embedded, and indexed into the vector store.
+Upload and index a document. Accepts multipart form data with a `file` field and an optional `document_id` field. Supported file types: PDF, DOCX, TXT, MD, CSV, JSON, HTML, XML. The document is chunked, embedded, and indexed into the vector store.
 
-**Request:** Multipart form (`file` field)
+By default (`async_processing` on, Celery off) the file is stored and handed to a background thread pool, and the response comes back before indexing finishes, with `status` `"processing"` and `chunks_count` `0`. Poll `GET /api/v1/documents/{document_id}/status` until it reads `ready`. With `async_processing` off the document is indexed in the request.
+
+`document_id` is an idempotency key: re-uploading with an id the session already owns replaces that document instead of creating a duplicate. An id that belongs to another session is refused with 404.
+
+**Request:** Multipart form (`file`, optional `document_id`)
 
 **Response:** `UploadResponse`
 
@@ -157,17 +191,19 @@ Upload and index a document. Accepts multipart form data with a single `file` fi
   "filename": "report.pdf",
   "file_type": "pdf",
   "file_size": 1048576,
-  "status": "ready",
-  "chunks_count": 42
+  "status": "processing",
+  "chunks_count": 0
 }
 ```
 
 | Status Code | Condition |
 |-------------|-----------|
-| 201 | Document uploaded and indexed |
+| 201 | Document accepted (indexed, or queued for indexing) |
 | 400 | Invalid file type or validation error |
-| 413 | File exceeds `max_file_size` |
+| 404 | `document_id` belongs to another session |
+| 413 | File exceeds `max_file_size` (50 MB by default) |
 | 429 | Quota exceeded |
+| 503 | The processing pool is full (`Retry-After: 5`) |
 | 500 | Internal server error |
 
 ```bash
@@ -178,9 +214,23 @@ curl -X POST http://localhost:8000/api/v1/documents \
 
 ---
 
+#### `POST /api/v1/documents/batch`
+
+Upload several documents in one request: multipart form data with one or more `files` fields. Files are processed concurrently, up to `max_concurrent_uploads` (default 5) at a time, each through the same pipeline as the single upload. A batch may hold at most `RAG_MAX_BATCH_FILES` files (default 20, 400 above it) and `RAG_MAX_BATCH_BYTES` in total (default 200 MiB, 413 before the body is read).
+
+**Response:** `BatchUploadResponse`: `total`, `succeeded`, `failed`, and one `results` entry per file (`document_id`, `filename`, `status`, `file_type`, `file_size`, `chunks_count`, `error`).
+
+```bash
+curl -X POST http://localhost:8000/api/v1/documents/batch \
+  -H "X-Session-Token: eyJhbGciOi..." \
+  -F "files=@report.pdf" -F "files=@notes.md"
+```
+
+---
+
 #### `GET /api/v1/documents`
 
-List all documents in the current session.
+List all documents in the current session. The optional `exclude_ids` query parameter takes a comma-separated list of document IDs to leave out.
 
 **Response:** `DocumentListResponse`
 
@@ -244,7 +294,7 @@ Get chunks from a document with pagination.
 | Param | Type | Default | Constraints |
 |-------|------|---------|-------------|
 | `offset` | int | `0` | >= 0 |
-| `limit` | int | `50` | 1--500 |
+| `limit` | int | `50` | 1 to 500 |
 
 **Response:** `List[ChunkResponse]`
 
@@ -265,7 +315,7 @@ Get chunks from a document with pagination.
 
 #### `GET /api/v1/documents/{document_id}/status`
 
-Poll the processing status of a document. Useful after async uploads to check when processing is complete.
+Poll the processing status of a document, to see when a background upload has finished indexing.
 
 **Response:** `DocumentStatusResponse`
 
@@ -278,7 +328,7 @@ Poll the processing status of a document. Useful after async uploads to check wh
 }
 ```
 
-Status values: `processing`, `ready`, `error`
+Status values: `uploading`, `processing`, `indexing`, `ready`, `error`, `soft_deleted`
 
 | Status Code | Condition |
 |-------------|-----------|
@@ -311,22 +361,24 @@ curl -X POST http://localhost:8000/api/v1/documents/doc_abc123/reindex \
 
 | # | Method | Path | Description | Auth |
 |---|--------|------|-------------|------|
-| 13 | `POST` | `/api/v1/documents/{document_id}/archive` | Soft-delete — moves to `SOFT_DELETED` status; quota still counted until GC hard-deletes. | Session token |
-| 14 | `POST` | `/api/v1/documents/{document_id}/restore` | Restore a soft-deleted document within the grace window (default 24h). Returns 409 if grace window expired. | Session token |
+| 14 | `POST` | `/api/v1/documents/{document_id}/archive` | Soft-delete: moves the document to `soft_deleted` status. Vectors and the stored file stay, and quota is still counted, until GC hard-deletes it. | Session token |
+| 15 | `POST` | `/api/v1/documents/{document_id}/restore` | Restore a soft-deleted document to `ready` within the grace window (`soft_delete_grace_hours`, default 24). Returns 409 if the grace window expired. | Session token |
 
 ---
 
-### Admin — GC & Lifecycle (requires `X-Admin-Token`)
+### Admin: GC and Lifecycle (requires `X-Admin-Token`)
 
-All endpoints below require the `X-Admin-Token` header matching `RAG_ADMIN_TOKEN` env var.
-If `RAG_ADMIN_TOKEN` is not set, these endpoints return `503 Service Unavailable`.
+All endpoints below require the `X-Admin-Token` header matching the `RAG_ADMIN_TOKEN` environment variable (401 when it does not match).
+If `RAG_ADMIN_TOKEN` is not set, is a placeholder, or is shorter than 32 characters, these endpoints return `503 Service Unavailable`.
 
 | # | Method | Path | Description |
 |---|--------|------|-------------|
-| 15 | `POST` | `/api/v1/admin/gc/run` | Trigger a full 6-phase GC cycle. Acquires advisory lock — returns immediately if lock is held. |
-| 16 | `GET` | `/api/v1/admin/gc/orphans` | Read-only orphan scan: lists documents in DB-only or vector-only state. Does NOT modify data. |
-| 17 | `POST` | `/api/v1/admin/gc/repair` | Detect and repair orphans. `?dry_run=true` (default) previews changes; `?dry_run=false` applies. |
-| 18 | `DELETE` | `/api/v1/admin/sessions/{session_id}` | Hard-delete ALL documents in a session. Irreversible. |
+| 16 | `POST` | `/api/v1/admin/gc/run` | Run a full 6-phase GC cycle (`?session_id=` limits it to one session). Takes the database advisory lock, and returns at once if another GC run holds it. |
+| 17 | `GET` | `/api/v1/admin/gc/orphans` | Read-only orphan scan: lists documents in DB-only or vector-only state. Does NOT modify data. |
+| 18 | `POST` | `/api/v1/admin/gc/repair` | Detect and repair orphans. `?dry_run=true` (default) previews changes; `?dry_run=false` applies. |
+| 19 | `GET` | `/api/v1/admin/gc/policy` | The lifecycle policy in force (grace window, TTL, GC intervals, safety thresholds). |
+| 20 | `PATCH` | `/api/v1/admin/gc/policy` | Change policy fields for this process only; a restart reverts to `[rag.lifecycle]` in `settings.lasagna.toml` and the `RAG_GC_*` variables. Unknown fields are rejected with 422. |
+| 21 | `DELETE` | `/api/v1/admin/sessions/{session_id}` | Hard-delete ALL documents in a session. Irreversible. |
 
 ---
 
@@ -334,10 +386,10 @@ If `RAG_ADMIN_TOKEN` is not set, these endpoints return `503 Service Unavailable
 
 | # | Method | Path | Description | Response Model |
 |---|--------|------|-------------|----------------|
-| 13 | `POST` | `/api/v1/search` | Semantic search with full SOTA pipeline. | `SearchResponse` |
-| 14 | `POST` | `/api/v1/search/citations` | Search with citation tracking and LLM context. | `SearchWithCitationsResponse` |
-| 15 | `POST` | `/api/v1/search/multi-query` | RAG Fusion multi-query expansion search. | `SearchResponse` |
-| 16 | `POST` | `/api/v1/search/agentic` | Agentic multi-hop retrieval with iterative search. | `SearchWithCitationsResponse` |
+| 22 | `POST` | `/api/v1/search` | Search with the session's retrieval pipeline. | `SearchResponse` |
+| 23 | `POST` | `/api/v1/search/citations` | Search with citation tracking and LLM context. | `SearchWithCitationsResponse` |
+| 24 | `POST` | `/api/v1/search/multi-query` | RAG Fusion multi-query expansion search. | `SearchResponse` |
+| 25 | `POST` | `/api/v1/search/agentic` | Agentic multi-hop retrieval with iterative search. | `SearchWithCitationsResponse` |
 
 All search endpoints accept the same `SearchRequest` body.
 
@@ -347,19 +399,19 @@ All search endpoints accept the same `SearchRequest` body.
 
 | Field | Type | Default | Constraints | Description |
 |-------|------|---------|-------------|-------------|
-| `query` | string | (required) | 1--10,000 chars | Search query |
-| `top_k` | int | `5` | 1--100 | Number of results to return |
-| `min_score` | float | `-100.0` | -- | Minimum score threshold |
-| `document_ids` | list[string] | `null` | -- | Filter to specific documents |
-| `use_hyde` | bool | `true` | -- | Enable HyDE query expansion |
-| `use_reranking` | bool | `true` | -- | Enable cross-encoder reranking |
+| `query` | string | (required) | 1 to 10,000 chars | Search query |
+| `top_k` | int | `5` | 1 to 100 | Number of results to return |
+| `min_score` | float | `-100.0` | | Minimum score threshold |
+| `document_ids` | list[string] | `null` | | Filter to specific documents |
+| `use_hyde` | bool | `true` | | Enable HyDE query expansion |
+| `use_reranking` | bool | `true` | | Enable cross-encoder reranking |
 | `routing_tier` | string | `null` | `fast`, `standard`, `comprehensive` | Force a specific routing tier |
 
 ---
 
 #### `POST /api/v1/search`
 
-Semantic search with the full SOTA pipeline: hybrid dense+BM25, cross-encoder reranking, MMR diversity, HyDE query expansion, adaptive-k retrieval, hierarchical auto-merge.
+Search with the session's retrieval pipeline. Each stage runs as the session config sets it: hybrid dense and BM25 search, cross-encoder reranking, MMR diversity, HyDE query expansion, adaptive-k retrieval, hierarchical auto-merge. A stage that failed and fell back is named in `degraded_stages`, so an empty list means every configured stage ran.
 
 **Response:** `SearchResponse`
 
@@ -389,7 +441,8 @@ Semantic search with the full SOTA pipeline: hybrid dense+BM25, cross-encoder re
     "rationale": "Medium complexity factual query",
     "query_type": "factual",
     "estimated_complexity": "moderate"
-  }
+  },
+  "degraded_stages": []
 }
 ```
 
@@ -398,6 +451,8 @@ Semantic search with the full SOTA pipeline: hybrid dense+BM25, cross-encoder re
 | 200 | Success |
 | 400 | Invalid query or validation error |
 | 429 | Quota exceeded |
+| 503 | The session's focused documents could not be read |
+| 504 | The search ran past `RAG_SEARCH_TIMEOUT` (default 120 s) |
 | 500 | Internal server error |
 
 ```bash
@@ -434,7 +489,8 @@ Search with citation tracking. Returns search results, stable citations with hig
   "context": "<knowledge_base>\n[1] Revenue grew 15%...\n</knowledge_base>",
   "query": "quarterly revenue growth",
   "total_results": 5,
-  "routing": null
+  "routing": null,
+  "degraded_stages": []
 }
 ```
 
@@ -449,7 +505,7 @@ curl -X POST http://localhost:8000/api/v1/search/citations \
 
 #### `POST /api/v1/search/multi-query`
 
-RAG Fusion multi-query expansion. Generates `n_variations` alternative query phrasings, searches each independently, and fuses results via reciprocal rank fusion for higher recall. The `routing_tier` field in `SearchRequest` is ignored.
+RAG Fusion multi-query expansion. Generates `n_variations` alternative query phrasings with an LLM, searches each, and fuses the results with reciprocal rank fusion, weighting the original query twice. It needs `enable_query_expansion` on in the session config; with it off (or `n_variations` 0) the request runs as a plain `POST /api/v1/search`. The `routing_tier` field in `SearchRequest` is ignored.
 
 **Query Parameters:**
 
@@ -463,11 +519,11 @@ RAG Fusion multi-query expansion. Generates `n_variations` alternative query phr
 
 #### `POST /api/v1/search/agentic`
 
-Agentic multi-hop retrieval with iterative search. Uses an LLM agent to decompose complex queries, perform multiple retrieval rounds, and synthesize results with citations. Requires `use_agentic_rag` to be enabled in session config. The `routing_tier` field in `SearchRequest` is ignored.
+Agentic multi-hop retrieval with iterative search. Uses an LLM agent to decompose complex queries, perform multiple retrieval rounds, and synthesize results with citations. Requires `use_agentic_rag` to be enabled in session config. The `routing_tier` field in `SearchRequest` is ignored. When no LLM is configured, it answers 503 with what to set.
 
 **Response:** `SearchWithCitationsResponse`
 
-Note: the `results` array is empty for agentic search -- results are returned via `citations` and the pre-formatted `context` string.
+Note: the `results` array is empty for agentic search. Results come back in `citations` and the pre-formatted `context` string.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/search/agentic \
@@ -482,8 +538,8 @@ curl -X POST http://localhost:8000/api/v1/search/agentic \
 
 | # | Method | Path | Description | Response Model |
 |---|--------|------|-------------|----------------|
-| 17 | `GET` | `/api/v1/citations` | List session citations from last search. | `CitationListResponse` |
-| 18 | `GET` | `/api/v1/citations/{citation_id}` | Get a specific citation by ID. | `CitationResponse` |
+| 26 | `GET` | `/api/v1/citations` | List session citations from last search. | `CitationListResponse` |
+| 27 | `GET` | `/api/v1/citations/{citation_id}` | Get a specific citation by ID. | `CitationResponse` |
 
 ---
 
@@ -532,31 +588,31 @@ Get a specific citation by ID. Uses a two-tier lookup: first checks the in-memor
 
 | # | Method | Path | Description | Response Model |
 |---|--------|------|-------------|----------------|
-| 19 | `GET` | `/api/v1/config` | Get current session configuration. | `ConfigResponse` |
-| 20 | `GET` | `/api/v1/config/profiles` | List available profiles. | `ProfileListResponse` |
-| 21 | `PATCH` | `/api/v1/config` | Patch configuration keys. | `ConfigResponse` |
-| 22 | `PUT` | `/api/v1/config/profiles/{profile_name}` | Apply a named profile. | `ConfigResponse` |
+| 28 | `GET` | `/api/v1/config` | Get current session configuration. | `ConfigResponse` |
+| 29 | `GET` | `/api/v1/config/profiles` | List available profiles. | `ProfileListResponse` |
+| 30 | `PATCH` | `/api/v1/config` | Patch configuration keys. | `ConfigResponse` |
+| 31 | `PUT` | `/api/v1/config/profiles/{profile_name}` | Apply a named profile. | `ConfigResponse` |
 
 ---
 
 #### `GET /api/v1/config`
 
-Get the current RAG configuration for this session.
+Get the current RAG configuration for this session. The response has 60 fields: the 57 patchable keys (see `PATCH /api/v1/config`), `embedding_model`, `embedding_dim`, and `warnings`. An excerpt:
 
 **Response:** `ConfigResponse`
 
 ```json
 {
-  "embedding_model": "all-MiniLM-L6-v2",
-  "embedding_dim": 384,
+  "embedding_model": "BAAI/bge-m3",
+  "embedding_dim": 1024,
   "chunking_strategy": "semantic",
   "enable_hybrid_search": true,
   "enable_reranking": true,
   "enable_mmr": true,
-  "enable_hyde": true,
-  "enable_hierarchical": false,
-  "default_top_k": 5,
-  "rerank_top_k": 20,
+  "enable_hyde": false,
+  "enable_hierarchical": true,
+  "default_top_k": 20,
+  "rerank_top_k": 5,
   "similarity_threshold": 0.3,
   "hybrid_alpha": 0.7,
   "mmr_lambda": 0.5,
@@ -572,7 +628,8 @@ Get the current RAG configuration for this session.
   "enable_answer_quality_check": false,
   "max_quality_check_attempts": 2,
   "coverage_scorer_mode": "keyword",
-  "final_search_mode": "merge"
+  "final_search_mode": "merge",
+  "warnings": []
 }
 ```
 
@@ -587,46 +644,52 @@ List available configuration profiles and the currently active profile.
 ```json
 {
   "profiles": [
-    {"name": "speed",       "description": "Pure vector search -- fastest, no reranking/hybrid/HyDE"},
-    {"name": "standard",    "description": "Core SOTA features with lightweight embedding model"},
-    {"name": "balanced",    "description": "Best quality-speed tradeoff with BGE-large embeddings"},
-    {"name": "max_quality", "description": "All features enabled -- maximum recall and precision"}
+    {"name": "speed",       "description": "..."},
+    {"name": "standard",    "description": "..."},
+    {"name": "balanced",    "description": "..."},
+    {"name": "max_quality", "description": "..."}
   ],
   "active": "standard"
 }
 ```
 
+Each profile carries a one-line description. `active` is `null` when no profile has been applied to the session.
+
 ---
 
 #### `PATCH /api/v1/config`
 
-Patch session-scoped RAG configuration. Only non-null keys are updated. Unknown keys are rejected with 422.
+Patch session-scoped RAG configuration. Only non-null keys are updated. Unknown keys are rejected with 422. A change that would put a different embedding size into the session's existing collection is refused with 409.
 
 **Request:** `ConfigPatchRequest` (extra="forbid")
 
+`ConfigPatchRequest` accepts 57 keys. The table lists the retrieval and agentic ones; the rest cover chunking (`chunking_strategy`, `chunk_size`, `chunk_overlap`, ...), Docling and OCR, document awareness, context compression and reordering, CRAG, RAG Fusion, `sparse_method`, `rrf_k` and `vector_backend`. `ConfigPatchRequest` in `src/lasagna/api/rest/models.py` has every key with its constraint.
+
 | Field | Type | Constraints |
 |-------|------|-------------|
-| `enable_hybrid_search` | bool | -- |
-| `enable_reranking` | bool | -- |
-| `enable_mmr` | bool | -- |
-| `enable_hyde` | bool | -- |
-| `enable_hierarchical` | bool | -- |
-| `use_agentic_rag` | bool | -- |
-| `enable_prometheus` | bool | -- |
-| `enable_tracing` | bool | -- |
-| `default_top_k` | int | 1--100 |
-| `rerank_top_k` | int | 1--100 |
-| `similarity_threshold` | float | -1.0--1.0 |
-| `hybrid_alpha` | float | 0.0--1.0 |
-| `mmr_lambda` | float | 0.0--1.0 |
-| `enable_query_routing` | bool | -- |
+| `enable_hybrid_search` | bool | |
+| `enable_reranking` | bool | |
+| `enable_mmr` | bool | |
+| `enable_hyde` | bool | |
+| `enable_hierarchical` | bool | |
+| `use_agentic_rag` | bool | |
+| `enable_prometheus` | bool | |
+| `enable_tracing` | bool | |
+| `default_top_k` | int | 1 to 100 |
+| `rerank_top_k` | int | 1 to 100 |
+| `similarity_threshold` | float | -1.0 to 1.0 |
+| `hybrid_alpha` | float | 0.0 to 1.0 |
+| `mmr_lambda` | float | 0.0 to 1.0 |
+| `enable_query_classification` | bool | |
+| `enable_query_routing` | bool | |
 | `routing_strategy` | string | `rule_based` or `adaptive` |
 | `routing_default_tier` | string | `fast`, `standard`, or `comprehensive` |
-| `agentic_pipeline` | string | `legacy_react`, `default`, or any registered pipeline name |
-| `use_structured_graph` | bool | -- |
-| `enable_hallucination_check` | bool | -- |
-| `enable_answer_quality_check` | bool | -- |
-| `max_quality_check_attempts` | int | 1--10 |
+| `routing_confidence_threshold` | float | 0.0 to 1.0 |
+| `agentic_pipeline` | string | `legacy_react`, `default`, or any registered pipeline name (1 to 100 chars) |
+| `use_structured_graph` | bool | |
+| `enable_hallucination_check` | bool | |
+| `enable_answer_quality_check` | bool | |
+| `max_quality_check_attempts` | int | 1 to 10 |
 | `coverage_scorer_mode` | string | `keyword` or `llm` |
 | `final_search_mode` | string | `merge` or `replace` |
 
@@ -645,7 +708,7 @@ curl -X PATCH http://localhost:8000/api/v1/config \
 
 Apply a preset configuration profile for this session.
 
-**Path Parameters:** `profile_name` -- one of: `speed`, `standard`, `balanced`, `max_quality`
+**Path Parameters:** `profile_name`: one of `speed`, `standard`, `balanced`, `max_quality`
 
 **Response:** `ConfigResponse` (full config after profile applied)
 
@@ -653,6 +716,7 @@ Apply a preset configuration profile for this session.
 |-------------|-----------|
 | 200 | Profile applied |
 | 404 | Profile name not found |
+| 409 | The profile's embedding size does not fit the session's existing collection |
 
 ```bash
 curl -X PUT http://localhost:8000/api/v1/config/profiles/max_quality \
@@ -665,7 +729,7 @@ curl -X PUT http://localhost:8000/api/v1/config/profiles/max_quality \
 
 | # | Method | Path | Description | Response Model |
 |---|--------|------|-------------|----------------|
-| 23 | `GET` | `/api/v1/pipelines` | List all registered agentic pipelines. | `PipelineListResponse` |
+| 32 | `GET` | `/api/v1/pipelines` | List all registered agentic pipelines. | `PipelineListResponse` |
 
 ---
 
@@ -705,7 +769,7 @@ List all registered agentic pipelines. With `RAG_REQUIRE_AUTH=true`, this needs 
 
 ---
 
-## Non-Versioned Routes -- 9 endpoints
+## Non-Versioned Routes: 9 endpoints
 
 ### Configurator (`/api/config/knowledge`)
 
@@ -715,14 +779,14 @@ With `RAG_CONFIGURATOR=true`, the UI's own routes are mounted too: `GET /configu
 
 | # | Method | Path | Description |
 |---|--------|------|-------------|
-| 23 | `GET` | `/api/config/knowledge` | Get full config state (profiles, overrides, RAG status). |
-| 24 | `PUT` | `/api/config/knowledge/active` | Set active profile with optional config overrides. |
-| 25 | `POST` | `/api/config/knowledge/profile` | Save or update a named profile. |
-| 26 | `POST` | `/api/config/knowledge/profile/delete` | Delete a custom profile (built-ins protected). |
-| 27 | `POST` | `/api/config/knowledge/profile/rename` | Rename a custom profile (built-ins protected). |
-| 28 | `POST` | `/api/config/knowledge/reset` | Reset config to defaults. |
-| 29 | `GET` | `/api/config/knowledge/export` | Export full session config as JSON. |
-| 30 | `POST` | `/api/config/knowledge/import` | Import config from JSON (validated depth/size). |
+| 33 | `GET` | `/api/config/knowledge` | Get full config state (profiles, overrides, RAG status). |
+| 34 | `PUT` | `/api/config/knowledge/active` | Set active profile with optional config overrides. |
+| 35 | `POST` | `/api/config/knowledge/profile` | Save or update a named profile. |
+| 36 | `POST` | `/api/config/knowledge/profile/delete` | Delete a custom profile (built-ins protected). |
+| 37 | `POST` | `/api/config/knowledge/profile/rename` | Rename a custom profile (built-ins protected). |
+| 38 | `POST` | `/api/config/knowledge/reset` | Reset config to defaults. |
+| 39 | `GET` | `/api/config/knowledge/export` | Export full session config as JSON. |
+| 40 | `POST` | `/api/config/knowledge/import` | Import config from JSON (validated depth/size). |
 
 ---
 
@@ -733,7 +797,7 @@ With `RAG_CONFIGURATOR=true`, the UI's own routes are mounted too: `GET /configu
   "schema_version": 1,
   "defaults_source": "settings.lasagna.toml",
   "profiles": [
-    {"name": "standard", "description": "Core SOTA features", "config": {"enable_reranking": true}}
+    {"name": "standard", "description": "...", "config": {"enable_reranking": true}}
   ],
   "active_profile": "standard",
   "session_overrides": {},
@@ -745,7 +809,7 @@ With `RAG_CONFIGURATOR=true`, the UI's own routes are mounted too: `GET /configu
 
 #### `GET /api/config/knowledge`
 
-Primary endpoint the configurator UI calls on load. Returns all profiles, active profile, session overrides, and RAG status.
+The endpoint the configurator UI calls on load. Returns the profiles this caller may see, the active profile, session overrides, and RAG status.
 
 ---
 
@@ -757,7 +821,7 @@ Set the active profile and optionally apply config overrides.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `active_profile` | string | Yes | Profile name (1--100 chars) |
+| `active_profile` | string | Yes | Profile name (1 to 100 chars) |
 | `config` | object | No | Additional config overrides to apply |
 
 ---
@@ -770,7 +834,7 @@ Save or update a named profile globally.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `profile_name` | string | Yes | -- | Profile name (1--100 chars) |
+| `profile_name` | string | Yes | | Profile name (1 to 100 chars) |
 | `config` | object | No | `{}` | Profile configuration keys |
 | `set_active` | bool | No | `true` | Activate this profile after saving |
 
@@ -809,7 +873,7 @@ Reset configuration to defaults.
 
 | Field | Type | Default | Values |
 |-------|------|---------|--------|
-| `scope` | string | `"active"` | `"active"` -- clears session overrides only; `"all"` -- resets profiles and active profile too |
+| `scope` | string | `"active"` | `"active"` clears session overrides only; `"all"` resets profiles and the active profile too |
 
 ---
 
@@ -827,11 +891,11 @@ Import configuration from JSON. Validates nesting depth (max 5) and profile size
 
 | Field | Type | Constraints | Description |
 |-------|------|-------------|-------------|
-| `schema_version` | int | 1--100 | Config schema version |
+| `schema_version` | int | 1 to 100 | Config schema version |
 | `profiles` | list[object] | Max 50 profiles, 10KB each, depth 5 | Profile definitions |
-| `active_profile` | string | 1--100 chars | Profile to activate |
+| `active_profile` | string | 1 to 100 chars | Profile to activate |
 | `session_overrides` | object | Max 10KB, depth 5 | Session-scoped overrides |
-| `rag_enabled` | bool | -- | Enable/disable RAG |
+| `rag_enabled` | bool | | Enable/disable RAG |
 
 ---
 
@@ -839,7 +903,7 @@ Import configuration from JSON. Validates nesting depth (max 5) and profile size
 
 | # | Method | Path | Description | Response Model |
 |---|--------|------|-------------|----------------|
-| 31 | `POST` | `/api/knowledge/reindex` | Bulk reindex all session documents. | `ReindexResponse` |
+| 41 | `POST` | `/api/knowledge/reindex` | Bulk reindex all session documents. | `ReindexResponse` |
 
 ---
 
@@ -851,7 +915,7 @@ Re-index all documents in the current session with current settings. Iterates ov
 
 | Field | Type | Note |
 |-------|------|------|
-| `session_id` | string | **Deprecated.** Ignored -- session is extracted from auth headers. Will be removed in a future version. |
+| `session_id` | string | **Deprecated.** Ignored: the session comes from the identity headers. Will be removed in a future version. |
 
 **Response:** `ReindexResponse`
 
@@ -871,7 +935,7 @@ Partial failure example:
   "status": "partial",
   "documents_reindexed": 2,
   "message": null,
-  "errors": ["doc_xyz789: source file no longer on disk"]
+  "errors": ["doc_xyz789: source file no longer available in storage"]
 }
 ```
 
@@ -886,7 +950,11 @@ curl -X POST http://localhost:8000/api/knowledge/reindex \
 
 ## Authentication
 
-Session identity is resolved on every request through header/token inspection. No login endpoint is required -- identity is stateless.
+Session identity is resolved on every request from headers and tokens. No login endpoint is required: identity is stateless.
+
+With `RAG_REQUIRE_AUTH=true`, only a verified `X-Session-Token` names a session. An unsigned `X-Session-ID` header or `session_id` query parameter is refused with 401, and so is the `default` fallback unless `RAG_ALLOW_ANONYMOUS_SESSION=true`. Tokens come from `POST /api/v1/sessions`, which then needs an `X-API-Key` from `RAG_API_KEYS`. The health probes stay open. With auth off, the server refuses to start on a non-loopback address unless `RAG_BIND_IS_PROTECTED=true` says something outside the process restricts access.
+
+These security variables are read under their `RAG_` names only; the `LASAGNA_` aliases apply to settings and data paths.
 
 ### Session Identity Resolution
 
@@ -899,7 +967,7 @@ Resolved in priority order (first match wins):
 | 3 | `session_id` query parameter | Direct value |
 | 4 | (fallback) | `"default"` |
 
-Session IDs are capped at 128 characters. Exceeding this returns 400.
+Session IDs are capped at 128 characters. Exceeding this returns 400. An `X-Session-Token` that is present but invalid or expired is refused with 401 rather than falling through to the next source.
 
 ### User Identity Resolution
 
@@ -920,34 +988,40 @@ Tokens created via `POST /api/v1/sessions` contain:
 | `sid` | Session ID |
 | `iat` | Issued-at timestamp |
 | `exp` | Expiry timestamp (default: 7 days, configurable via `RAG_SESSION_TOKEN_TTL_SECONDS`) |
-| `iss` | `"rag-knowledge"` |
+| `iss` | `"lasagna"` (tokens issued as `"rag-knowledge"` are still accepted) |
 | `typ` | `"session"` |
+| `prn` | The principal that minted it (an API key's digest, or `admin`); present only with `RAG_REQUIRE_AUTH` on |
 
-Tokens are signed with `RAG_JWT_SECRET` (env var). If unset, an ephemeral secret is generated per process (tokens lost on restart).
+Tokens are signed with `RAG_JWT_SECRET` (env var). If unset, an ephemeral secret is generated per process, so tokens stop working on restart. With `RAG_REQUIRE_AUTH` on, an unset or placeholder secret is a startup error.
 
 ---
 
 ## Error Responses
 
-All errors return `ErrorResponse`:
+Errors raised by the routes return `ErrorResponse`, which in practice carries only `detail` (no route sets `error_code`):
 
 ```json
-{"detail": "Description of the error", "error_code": null}
+{"detail": "Description of the error"}
 ```
+
+Request validation failures (422) use FastAPI's own shape, where `detail` is a list of `{loc, msg, type}` objects. Every response carries an `X-Request-ID` header, which the server log records.
 
 ### Status Code Reference
 
 | Code | Meaning | Common Triggers |
 |------|---------|-----------------|
-| 400 | Validation error | Invalid input, `session_id` exceeds 128 chars, malformed query |
-| 401 | Unauthorized | `X-User-ID` header sent without `RAG_ALLOW_HEADER_IDENTITY=true` |
-| 404 | Not found | Document, citation, or profile not found |
+| 400 | Validation error | Invalid input, `session_id` exceeds 128 chars, malformed query, too many files in a batch |
+| 401 | Unauthorized | Invalid or expired `X-Session-Token`; with `RAG_REQUIRE_AUTH` on, a missing credential or `X-API-Key`; `X-User-ID` sent without `RAG_ALLOW_HEADER_IDENTITY=true`; wrong `X-Admin-Token` |
+| 403 | Forbidden | `POST /api/v1/sessions` naming an identity without `X-Admin-Token` |
+| 404 | Not found | Document, citation, or profile not found; `document_id` owned by another session |
+| 409 | Conflict | Restore after the grace window; an embedding size that does not fit the session's collection |
 | 410 | Gone | Source file no longer available (reindex) |
-| 413 | Payload too large | File exceeds `max_file_size` |
+| 413 | Payload too large | File exceeds `max_file_size`, batch exceeds `RAG_MAX_BATCH_BYTES`, body over the route's limit |
 | 422 | Validation error | Pydantic model validation failure, unknown config keys |
 | 429 | Rate limited / quota exceeded | `Retry-After` header included for rate limits |
 | 500 | Internal server error | Unhandled backend exception |
-| 503 | Service unavailable | Backend not initialized (startup), dependencies down (readiness) |
+| 503 | Service unavailable | Backend not initialized (startup), dependencies down (readiness), processing pool full, admin token not configured, no LLM for agentic search |
+| 504 | Gateway timeout | Search ran past `RAG_SEARCH_TIMEOUT` |
 
 ---
 
@@ -956,21 +1030,22 @@ All errors return `ErrorResponse`:
 | Model | Key Fields |
 |-------|------------|
 | `LivenessResponse` | `status` |
-| `HealthResponse` | `status`, `checks: {name: {status, latency_ms, detail}}`, `version` |
+| `HealthResponse` | `status`, `checks: {name: {status, latency_ms, detail}}`, `failing`, `require_auth`, `version` |
 | `StatsResponse` | `embedding_model`, `embedding_dim`, `collection_name`, `vector_backend`, `features`, `cache` |
 | `SessionResponse` | `token`, `session_id`, `user_id`, `expires_at` |
 | `UploadResponse` | `document_id`, `filename`, `file_type`, `file_size`, `status`, `chunks_count` |
+| `BatchUploadResponse` | `total`, `succeeded`, `failed`, `results: [{document_id, filename, status, file_type, file_size, chunks_count, error}]` |
 | `DocumentResponse` | `document_id`, `session_id`, `filename`, `file_type`, `file_size`, `status`, `chunks_count`, `upload_date`, `error_message` |
 | `DocumentListResponse` | `documents: [DocumentResponse]`, `total` |
 | `DeleteResponse` | `success`, `document_id`, `message` |
 | `DocumentStatusResponse` | `document_id`, `status`, `chunks_count`, `error_message` |
 | `ChunkResponse` | `chunk_id`, `content`, `document_id`, `chunk_index`, `page_number`, `metadata` |
-| `SearchResponse` | `results: [SearchResultResponse]`, `query`, `total_results`, `routing?` |
+| `SearchResponse` | `results: [SearchResultResponse]`, `query`, `total_results`, `routing?`, `degraded_stages` |
 | `SearchResultResponse` | `chunk: ChunkResponse`, `score`, `document_id`, `filename` |
-| `SearchWithCitationsResponse` | `results`, `citations: [CitationResponse]`, `context`, `query`, `total_results`, `routing?` |
-| `CitationResponse` | `citation_id`, `document_id`, `document_name`, `chunk_id`, `chunk_index`, `page_number`, `score`, `content`, `highlight` |
+| `SearchWithCitationsResponse` | `results`, `citations: [CitationResponse]`, `context`, `query`, `total_results`, `routing?`, `degraded_stages` |
+| `CitationResponse` | `citation_id`, `document_id`, `document_name`, `chunk_id`, `chunk_index`, `page_number`, `score`, `content`, `highlight`, `highlights`, `highlight_ranges` |
 | `CitationListResponse` | `citations: [CitationResponse]`, `session_id`, `total` |
-| `ConfigResponse` | 22 config fields (see PATCH /api/v1/config for full list) |
+| `ConfigResponse` | 60 fields: the 57 keys `PATCH /api/v1/config` accepts, plus `embedding_model`, `embedding_dim`, `warnings` |
 | `ProfileListResponse` | `profiles: [{name, description}]`, `active` |
 | `KnowledgeConfigFullResponse` | `schema_version`, `defaults_source`, `profiles`, `active_profile`, `session_overrides`, `rag_enabled` |
 | `ReindexResponse` | `status`, `documents_reindexed`, `message`, `errors` |

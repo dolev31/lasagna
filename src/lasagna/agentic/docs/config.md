@@ -13,16 +13,16 @@ Set via `settings.lasagna.toml`, environment variables, or the session config AP
 | `agentic_pipeline` | str | `"legacy_react"` | Pipeline selection: `"legacy_react"`, `"default"` (structured graph), a published loop (`"self_ask"`, `"ircot"`, `"flare"`, `"adaptive"`, `"self_rag"`), or any registered `BaseAgenticPipeline` name |
 | `agentic_models` | dict | `{}` | Model pins keyed by graph node name or by published loop name; empty uses the pipeline's model |
 | `agentic_prompts` | dict | `{}` | Prompt overrides keyed by graph node name (the published loops keep their papers' prompts) |
-| `use_structured_graph` | bool | `false` | *Legacy alias* -- `true` maps to `agentic_pipeline="default"`, `false` maps to `"legacy_react"` |
+| `use_structured_graph` | bool | `false` | *Legacy alias*: `true` maps to `agentic_pipeline="default"`, `false` maps to `"legacy_react"` |
 | `agentic_hyde_strategy` | str | `"adaptive"` | HyDE strategy: `off`, `always`, `first_hop`, `adaptive` |
 | `chunk_refinement_method` | str | `"auto"` | Refinement mode: `vanilla`, `refined`, `auto` |
-| `refinement_model` | str | `"gpt-6-luna"` | LLM model for chunk refinement |
+| `refinement_model` | str | `MODEL_NAME`, else `"gpt-6-luna"` | LLM model for chunk refinement |
 | `agent_temperature` | float | `0.1` | Temperature for agent LLM calls |
 | `max_query_length` | int | `12` | Token threshold for HyDE adaptive mode |
 | `enable_crag` | bool | `false` | Enable Corrective RAG document grading |
 | `crag_web_search_fallback` | bool | `false` | Allow web search fallback on poor CRAG grade |
 | `enable_query_decomposition` | bool | `false` | LLM-based sub-query decomposition for complex questions |
-| `use_final_search` | bool | `false` | Perform final comprehensive search on original question |
+| `use_final_search` | bool | `false` | Run one more search on the original question after the hops |
 | `final_search_mode` | str | `"merge"` | How final search results merge: `merge` or `replace` |
 | `enable_hallucination_check` | bool | `false` | Self-RAG ISSUP grounding check (structured graph only) |
 | `enable_answer_quality_check` | bool | `false` | Self-RAG ISUSE relevance check (structured graph only) |
@@ -33,9 +33,9 @@ Set via `settings.lasagna.toml`, environment variables, or the session config AP
 
 The effective pipeline is resolved in the following order:
 
-1. **Explicit `agentic_pipeline` value** -- set via TOML (`agentic_pipeline = "default"`), SDK config (`KnowledgeConfig(agentic_pipeline="default")`), REST API (`PATCH /api/v1/config`), config bridge, or session profile override.
-2. **`use_structured_graph` boolean** -- if `agentic_pipeline` is not explicitly set, `use_structured_graph = true` maps to `"default"` and `false` maps to `"legacy_react"`.
-3. **Default** -- if neither key is set, the system defaults to `"legacy_react"`.
+1. **Explicit `agentic_pipeline` value**: set via TOML (`agentic_pipeline = "default"`), SDK config (`KnowledgeConfig(agentic_pipeline="default")`), REST API (`PATCH /api/v1/config`), config bridge, or session profile override.
+2. **`use_structured_graph` boolean**: if `agentic_pipeline` is not explicitly set, `use_structured_graph = true` maps to `"default"` and `false` maps to `"legacy_react"`.
+3. **Default**: if neither key is set, the system defaults to `"legacy_react"`.
 
 When both `agentic_pipeline` and `use_structured_graph` are explicitly set, `agentic_pipeline` wins and `use_structured_graph` is ignored.
 
@@ -64,7 +64,7 @@ Each published loop reads its own settings, with its paper's defaults, instead o
 | `self_rag_weight_use` | float | `0.5` | `self_rag` | Weight of the usefulness critique (ISUSE) |
 | `self_rag_retrieval` | str | `"adaptive"` | `self_rag` | `adaptive` asks the model whether to retrieve; `always` always retrieves |
 
-`adaptive` and `self_rag` are prompted variants: their papers train a classifier and a critic model, and these prompt a general LLM instead. See [Published Loops](../README.md#published-loops) for what that leaves out.
+`adaptive` and `self_rag` are prompted variants: their papers train a classifier and a critic model, and these prompt a general LLM instead. See [the agentic README](../README.md#design-notes) for what that leaves out.
 
 #### Auto-Refinement Thresholds
 
@@ -90,22 +90,26 @@ Used when `chunk_refinement_method = "auto"`:
 
 ### SDK-Available Keys
 
-These keys are fields on the SDK's `KnowledgeConfig` dataclass and can be set when creating a `KnowledgeClient` or via `client.set_config()`:
+These keys are fields on the SDK's `KnowledgeConfig` dataclass and can be set when creating a `KnowledgeClient` or via `await client.set_config(...)`:
 
 | SDK Field | Backend Equivalent | SDK Default |
 | --------- | ------------------ | ----------- |
 | `use_agentic_rag` | `use_agentic_rag` | `True` |
-| `agentic_pipeline` | `agentic_pipeline` | `"legacy_react"` |
+| `agentic_pipeline` | `agentic_pipeline` | `None` (resolved from `use_structured_graph`, so `"legacy_react"`) |
+| `use_structured_graph` | `use_structured_graph` | `False` |
 | `max_agent_iterations` | `max_agent_iterations` | `3` |
 | `chunk_refinement_method` | `chunk_refinement_method` | `"auto"` |
-| `refinement_model` | `refinement_model` | `"gpt-6-luna"` |
+| `refinement_model` | `refinement_model` | `MODEL_NAME`, else `"gpt-6-luna"` |
 | `agent_temperature` | `agent_temperature` | `0.1` |
 | `enable_crag` | `enable_crag` | `False` |
 | `crag_web_search_fallback` | `crag_web_search_fallback` | `False` |
 | `enable_query_decomposition` | `enable_query_decomposition` | `False` |
 | `hyde_strategy` | `agentic_hyde_strategy` | `HyDEStrategy.ADAPTIVE` |
+| `enable_hallucination_check` | `enable_hallucination_check` | `False` |
+| `enable_answer_quality_check` | `enable_answer_quality_check` | `False` |
+| `coverage_scorer_mode` | `coverage_scorer_mode` | `"keyword"` |
 
-**Backend-only keys:** `enable_hallucination_check`, `enable_answer_quality_check`, `max_quality_check_attempts`, `coverage_scorer_mode`, `final_search_mode`, and `use_final_search` are also configurable via `settings.lasagna.toml`, environment variables, or the session config REST API. The legacy `use_structured_graph` boolean is superseded by the SDK-available `agentic_pipeline` field.
+**Backend-only keys:** `max_quality_check_attempts`, `final_search_mode`, and `use_final_search` have no `KnowledgeConfig` field. Set them in `settings.lasagna.toml`, as environment variables (`RAG_<KEY>` or `LASAGNA_<KEY>`), or through the session config REST API. `agentic_pipeline` supersedes the legacy `use_structured_graph` boolean.
 
 ---
 
@@ -152,16 +156,16 @@ After all hops complete, `select_chunks_node` filters accumulated citations:
 
 ---
 
-## Metrics -- AgenticRAGMetrics
+## Metrics: AgenticRAGMetrics
 
-Comprehensive metrics object computed by `format_output_node`. All timing values are in milliseconds.
+Metrics object computed by `format_output_node`. All timing values are in milliseconds.
 
 ### Iteration Tracking
 
 | Field | Description |
 | ----- | ----------- |
 | `agentic_enabled` | Whether agentic mode was active |
-| `final_search_used` | Whether final comprehensive search was performed |
+| `final_search_used` | Whether the final search on the original question ran |
 | `agent_iterations_used` | Number of agent iterations (ReAct mode) |
 | `hop_count` | Number of retrieval hops (graph mode) |
 | `max_iterations_configured` | Configured iteration budget |
@@ -175,7 +179,7 @@ Comprehensive metrics object computed by `format_output_node`. All timing values
 | `hop_refinement_latencies_ms` | Per-hop refinement timing list |
 | `agent_orchestration_ms` | LangGraph routing and tool dispatch |
 | `agent_llm_calls_ms` | LLM call time (planning, synthesis) |
-| `final_search_ms` | Final comprehensive search time |
+| `final_search_ms` | Final search time |
 | `context_formatting_ms` | Context formatting time |
 | `accounted_latency_ms` | Sum of all measured components |
 | `unaccounted_latency_ms` | `total - accounted` (should be small) |
@@ -210,7 +214,7 @@ Comprehensive metrics object computed by `format_output_node`. All timing values
 | `citation_missing_page_rate` | Fraction of citations without page numbers |
 | `stop_reason` | Terminal condition: `"max_iterations"`, `"query_stabilized"`, `"graph_complete"`, etc. |
 
-### Quality Boosters
+### Retrieval Features
 
 | Field | Description |
 | ----- | ----------- |
@@ -249,7 +253,7 @@ Returned by `AgenticRAG.retrieve()` and `RAGBackend.async_agentic_search()`.
 | `reduction_percentage` | `float` | Token reduction percentage |
 | `chunks_filtered` | `int` | Chunks removed as irrelevant |
 | `hops` | `List[HopData]` | Full multi-hop tracking data |
-| `metrics` | `AgenticRAGMetrics` | Comprehensive metrics (see above) |
+| `metrics` | `AgenticRAGMetrics` | All metrics (see above) |
 
 ### HopData
 

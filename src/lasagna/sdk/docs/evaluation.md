@@ -66,7 +66,7 @@ evaluator = KnowledgeEvaluator(client, config=config)
 
 ## Evaluation and Benchmarking
 
-The SDK includes a built-in evaluation framework for measuring RAG retrieval quality using LLM-as-a-judge scoring, RAGAS-compatible metrics, and ablation study support.
+The SDK includes an evaluation framework that scores answers from your documents with an LLM judge. RAGAS metrics and component sweeps are in [Extending](extending.md#ragas-evaluation).
 
 ### KnowledgeEvaluator
 
@@ -140,44 +140,12 @@ metrics = evaluator.metrics
 print(metrics.summary())
 ```
 
-### Ablation Studies
+### Comparing Configurations
 
-Compare different configurations to understand the impact of each feature:
+This evaluator builds its own `KnowledgeClient` with the default configuration (the settings file and the environment). It does not take a `KnowledgeConfig` or a profile, and it does not read the `top_k`, `use_reranking` or `use_hyde` fields of its `EvalConfig`. To compare presets or components, use one of these instead:
 
-```python
-from lasagna.sdk import (
-    KnowledgeClient,
-    config_for_speed,
-    config_for_standard,
-    config_for_balanced,
-    config_for_max_quality,
-)
-from lasagna.knowledge_evaluation_sdk import KnowledgeEvaluator, EvalConfig
-
-configs = {
-    "speed": config_for_speed(),
-    "standard": config_for_standard(),
-    "balanced": config_for_balanced(),
-    "max_quality": config_for_max_quality(),
-}
-
-results = {}
-for name, config in configs.items():
-    eval_config = EvalConfig(
-        document_path="./report.pdf",
-        ground_truth_path="./ground_truth.jsonl",
-        output_dir=f"./eval_results/{name}",
-    )
-    evaluator = KnowledgeEvaluator(eval_config)
-    metrics = await evaluator.run()
-    results[name] = metrics
-    await evaluator.cleanup()
-
-# Compare results
-for name, metrics in results.items():
-    print(f"{name:15s} | Score: {metrics.avg_score:.2f} | "
-          f"Pass: {metrics.pass_rate:.0%} | Latency: {metrics.avg_latency_ms:.0f}ms")
-```
+- `KnowledgePipeline.from_profile(...)` with `evaluate()`, or `sweep()` over one component: see [Using Profiles as Research Baselines](extending.md#using-profiles-as-research-baselines) and [Ablation Studies](extending.md#ablation-studies).
+- `lasagna benchmark run <benchmark> --profile speed` (each run starts from the profile you name; `standard` when you name none).
 
 ### Pipeline Serialization
 

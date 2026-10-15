@@ -1,4 +1,4 @@
-# Lasagna — UI Integration Guide
+# Lasagna UI Integration Guide
 
 A contract-safe reference for integrating Lasagna features into any frontend or system. Organized by priority tier with SDK (Python) and REST (HTTP) examples for each feature.
 
@@ -9,17 +9,17 @@ A contract-safe reference for integrating Lasagna features into any frontend or 
 - [How to Use This Guide](#how-to-use-this-guide)
 - [Quick Start: RAG Chat in 15 Minutes](#quick-start-rag-chat-in-15-minutes)
 - [Integration Patterns](#integration-patterns)
-- **Tier 1 — Core**
+- **Tier 1: Core**
   - [1. Document Upload & Management](#1-document-upload--management)
   - [2. Search & Context Retrieval](#2-search--context-retrieval)
   - [3. Session Management](#3-session-management)
-- **Tier 2 — Enhanced**
+- **Tier 2: Enhanced**
   - [4. Citation Sidebar & Inline Sources](#4-citation-sidebar--inline-sources)
   - [5. Document Focus ("/" Picker)](#5-document-focus--picker)
   - [6. Document Awareness Panel](#6-document-awareness-panel)
   - [7. RAG Profile Switcher](#7-rag-profile-switcher)
   - [8. Configuration Patching](#8-configuration-patching)
-- **Tier 3 — Advanced**
+- **Tier 3: Advanced**
   - [9. Quality Indicators & Trust Badges](#9-quality-indicators--trust-badges)
   - [10. Coverage Feedback](#10-coverage-feedback)
   - [11. Configurator UI (Schema-Driven Settings)](#11-configurator-ui-schema-driven-settings)
@@ -40,9 +40,9 @@ A contract-safe reference for integrating Lasagna features into any frontend or 
 
 | Tier | Label | When to Use |
 |------|-------|-------------|
-| **1** | Core | Every RAG UI needs these — document management, search, sessions |
-| **2** | Enhanced | Recommended for good UX — citations, document focus, profiles |
-| **3** | Advanced | Power users & admin — quality gates, configurator, agentic search |
+| **1** | Core | Every RAG UI needs these: document management, search, sessions |
+| **2** | Enhanced | Recommended for a good UX: citations, document focus, profiles |
+| **3** | Advanced | Power users and admins: quality gates, configurator, agentic search |
 
 Start with Tier 1. Add Tier 2 when you want a polished experience. Tier 3 is for specialized use cases.
 
@@ -65,20 +65,19 @@ For copy-paste React components, TypeScript types, and hooks for every feature i
 Each feature section includes a capability matrix showing availability per surface:
 - ✅ = fully supported
 - ⚠️ = partial (see notes)
-- ❌ = not available
+- ❌ = not available on that surface
 
 ---
 
 ## Quick Start: RAG Chat in 15 Minutes
 
-> **Import path:** All Python examples below use `knowledge.sdk` as the import base.
-> Replace with your actual installed package path depending on how you've integrated
-> the package (e.g., `your_app.knowledge.sdk`).
+> **Import path:** all Python examples below import from `lasagna.sdk`, the package
+> `pip install lasagna-rag` installs.
 
 ### SDK (Python)
 
 ```python
-from knowledge.sdk import KnowledgeClient
+from lasagna.sdk import KnowledgeClient
 
 async def main():
     client = KnowledgeClient()
@@ -152,24 +151,24 @@ const { results, citations, context } = await search.json();
 
 | Feature | Local SDK | Remote SDK | REST `/api/v1/` | REST `/api/config/knowledge` | MCP |
 |---------|-----------|------------|------------------|------------------------------|-----|
-| Upload documents | ✅ | ✅ | ✅ | — | ✅ |
-| List/delete documents | ✅ | ✅ | ✅ | — | ✅ |
-| Get document chunks | ✅ | ❌ (returns []) | ✅ | — | ✅ |
-| Search | ✅ | ✅ | ✅ | — | ✅ |
-| Search with citations | ✅ | ✅ | ✅ | — | ✅ |
-| Agentic search (full) | ✅ (hop data) | ❌ (local deps required) | ⚠️ (no hop data) | — | ⚠️ (no hop data) |
-| Get context for LLM | ✅ | ✅ | ✅ | — | ✅ |
-| Document focus | ✅ | — | ⚠️ (via `document_ids`) | — | ✅ |
-| Create session | ✅ | ✅ | ✅ | — | — (uses `session_id` param) |
-| Delete session | ✅ | — | ❌ | — | ⚠️ (`clear_session` deletes docs only) |
-| Get config | ✅ | — | ✅ | ✅ | ✅ (`get_rag_config`) |
-| Patch config | ✅ | — | ✅ | — | ✅ (`patch_rag_config`) |
-| Apply preset profile | ✅ | — | ✅ | ✅ | ✅ (`set_active_profile`) |
-| Profile CRUD | — | — | — | ✅ | ✅ (save/delete/reset) |
-| Import/export config | — | — | — | ✅ | — |
-| List/get citations | ✅ | — | ✅ | — | — |
-| Health check | — | — | ✅ | — | — |
-| Configurator schema | — | — | — | — | — |
+| Upload documents | ✅ | ✅ | ✅ | ❌ | ✅ |
+| List/delete documents | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Get document chunks | ✅ | ❌ (returns []) | ✅ | ❌ | ✅ |
+| Search | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Search with citations | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Agentic search (full) | ✅ (hop data) | ❌ (local deps required) | ⚠️ (no hop data) | ❌ | ⚠️ (no hop data) |
+| Get context for LLM | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Document focus | ✅ | ❌ | ⚠️ (via `document_ids`) | ❌ | ✅ |
+| Create session | ✅ | ✅ | ✅ | ❌ | ❌ (each tool takes `session_id`) |
+| Delete session | ✅ | ❌ | ❌ | ❌ | ⚠️ (`clear_session` deletes docs only) |
+| Get config | ✅ | ❌ | ✅ | ✅ | ✅ (`get_rag_config`) |
+| Patch config | ✅ | ❌ | ✅ | ❌ | ✅ (`patch_rag_config`) |
+| Apply preset profile | ✅ | ❌ | ✅ | ✅ | ✅ (`set_active_profile`) |
+| Profile CRUD | ❌ | ❌ | ❌ | ✅ | ✅ (save/delete/reset) |
+| Import/export config | ❌ | ❌ | ❌ | ✅ | ❌ |
+| List/get citations | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Health check | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Configurator schema | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 > **Configurator schema** is served at `/configurator/api/*` (not under `/api/v1/` or `/api/config/knowledge`). Requires `RAG_CONFIGURATOR=true` env var. See [§11](#11-configurator-ui-schema-driven-settings).
 
@@ -178,7 +177,7 @@ const { results, citations, context } = await search.json();
 **REST sessions** are created via `POST /api/v1/sessions` and return a JWT token:
 
 ```javascript
-// Create session (both fields optional — auto-generated if omitted)
+// Create session (both fields optional; generated if omitted)
 const res = await fetch("/api/v1/sessions", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
@@ -200,7 +199,7 @@ client = KnowledgeClient(session_id="user_123")
 client.session_id = "user_456"
 ```
 
-**Important:** REST only supports session creation — there is no REST endpoint to delete or switch sessions. Use the SDK's `delete_session()` for cleanup.
+**Important:** REST only supports session creation: there is no REST endpoint to delete or switch sessions. Use the SDK's `delete_session()` for cleanup.
 
 ### Error Handling
 
@@ -208,13 +207,13 @@ client.session_id = "user_456"
 |-------------|---------------|---------|
 | 400 | `QueryError`, `ValueError` | Invalid query or parameters |
 | 404 | `DocumentNotFoundError`, `CitationNotFoundError` | Resource not found |
-| 413 | — | File too large |
+| 413 | (none) | File too large |
 | 422 | `ConfigurationError` | Validation error (config patch, profile) |
 | 429 | `KnowledgeError` | Rate/quota limit exceeded (internal `QuotaExceededError` not exported in SDK exceptions) |
 | 500 | `BackendError` | Internal server error |
 
 ```python
-from knowledge.sdk.exceptions import (
+from lasagna.sdk.exceptions import (
     KnowledgeError, DocumentNotFoundError, SearchError, BackendError,
 )
 
@@ -223,7 +222,7 @@ try:
 except DocumentNotFoundError as e:
     show_error(f"Document not found: {e.document_id}")
 except SearchError:
-    show_error("Search failed — please try again")
+    show_error("Search failed, please try again")
 except KnowledgeError as e:
     show_error(f"Knowledge error: {e}")
 ```
@@ -234,7 +233,7 @@ except KnowledgeError as e:
 
 ### 1. Document Upload & Management
 
-**What:** Full document lifecycle — upload, list, get details, check status, view chunks, delete, reindex.
+**What:** The whole document lifecycle: upload, list, get details, check status, view chunks, delete, reindex.
 
 **Capability Matrix:**
 
@@ -245,8 +244,8 @@ except KnowledgeError as e:
 | REST | ✅ | Full features |
 | MCP | ✅ | Full features |
 
-**Supported Formats (runtime-verified):**
-`.txt`, `.md`, `.csv`, `.json`, `.xml`, `.html`, `.htm`, `.pdf`, `.docx`
+**Supported formats** (the `supported_extensions` setting, by default):
+`.pdf`, `.docx`, `.txt`, `.md`, `.csv`, `.json`, `.html`, `.xml`
 
 OCR for scanned PDFs: set `enable_ocr=True`, engines: `easyocr` (default), `tesseract`, `paddleocr`.
 
@@ -281,13 +280,13 @@ count = await client.documents.delete_all(confirm=True)
 #### REST Examples
 
 ```
-POST   /api/v1/documents                    — upload (multipart/form-data)
-GET    /api/v1/documents                    — list all documents
-GET    /api/v1/documents/{id}               — get document details
-GET    /api/v1/documents/{id}/status        — poll processing status
-GET    /api/v1/documents/{id}/chunks        — get chunks (paginated: ?offset=0&limit=50)
-DELETE /api/v1/documents/{id}               — delete document
-POST   /api/v1/documents/{id}/reindex       — re-index with current settings
+POST   /api/v1/documents                    # upload (multipart/form-data)
+GET    /api/v1/documents                    # list all documents
+GET    /api/v1/documents/{id}               # get document details
+GET    /api/v1/documents/{id}/status        # poll processing status
+GET    /api/v1/documents/{id}/chunks        # get chunks (paginated: ?offset=0&limit=50)
+DELETE /api/v1/documents/{id}               # delete document
+POST   /api/v1/documents/{id}/reindex       # re-index with current settings
 ```
 
 **Upload response:**
@@ -320,12 +319,12 @@ Status values: `pending` → `processing` → `indexing` → `ready` (or `failed
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `chunking_strategy` | enum | `semantic` | `fixed`, `semantic`, `recursive`, `sentence_window` |
+| `chunking_strategy` | enum | `semantic` | `fixed`, `semantic`, `recursive`, `sentence_window`, `structure_aware`, `hierarchical` |
 | `chunk_size` | int | 800 | Target chunk size in characters |
 | `chunk_overlap` | int | 0 | Overlap between chunks |
 | `enable_ocr` | bool | false | Enable OCR for scanned documents |
 | `ocr_engine` | enum | `easyocr` | `easyocr`, `tesseract`, `paddleocr` |
-| `docling_enabled` | bool | false | Enable Docling advanced parsing |
+| `docling_enabled` | bool | true | Convert with Docling (layout and tables) when it is installed (`pip install "lasagna-rag[docling]"`) |
 | `enable_hierarchical` | bool | true | Parent-child chunk structure |
 
 **UI Suggestion:** Document list panel with status badges (green=ready, yellow=processing, red=failed). Drag-and-drop upload area. Status polling with spinner until `ready`.
@@ -336,7 +335,7 @@ Status values: `pending` → `processing` → `indexing` → `ready` (or `failed
 
 ### 2. Search & Context Retrieval
 
-**What:** Three search modes — raw search, LLM context string, and search with full citation tracking.
+**What:** Three search modes: raw search, an LLM context string, and search with full citation tracking.
 
 **Capability Matrix:**
 
@@ -345,7 +344,7 @@ Status values: `pending` → `processing` → `indexing` → `ready` (or `failed
 | Local SDK | ✅ | Full features including `AgenticSearchResults` with hop data |
 | Remote SDK | ✅ | Standard search |
 | REST | ✅ | Agentic endpoint returns context + citations only (no hop data) |
-| MCP | ✅ | `search_knowledge` + `search_with_context` (returns formatted text, not SDK objects) |
+| MCP | ✅ | `search` (returns formatted text, not SDK objects; `search_knowledge` and `search_with_context` are deprecated aliases) |
 
 #### SDK Examples
 
@@ -377,10 +376,10 @@ source_docs = results.get_documents()
 #### REST Examples
 
 ```
-POST /api/v1/search              — standard search
-POST /api/v1/search/citations    — search with citation tracking + context
-POST /api/v1/search/multi-query  — multi-query expansion search
-POST /api/v1/search/agentic      — agentic multi-hop search
+POST /api/v1/search              # standard search
+POST /api/v1/search/citations    # search with citation tracking + context
+POST /api/v1/search/multi-query  # multi-query expansion search
+POST /api/v1/search/agentic      # agentic multi-hop search
 ```
 
 **Search request body:**
@@ -485,7 +484,7 @@ POST /api/v1/search/agentic      — agentic multi-hop search
 |---------|-----------|-------|
 | Local SDK | ✅ | Create, switch, delete |
 | Remote SDK | ✅ | Create, switch |
-| REST | ⚠️ | Create only (`POST /api/v1/sessions`) — no delete/switch |
+| REST | ⚠️ | Create only (`POST /api/v1/sessions`), no delete or switch |
 | MCP | ⚠️ | Each tool requires explicit `session_id`; `clear_session` deletes docs (not full session cleanup) |
 
 #### SDK Examples
@@ -497,7 +496,7 @@ client = KnowledgeClient(session_id="user_123")
 # Switch session (clears focused documents)
 client.session_id = "user_456"
 
-# Delete session (irreversible — removes all documents, citations, cache)
+# Delete session (irreversible: removes all documents, citations, cache)
 result = await client.delete_session(confirm=True)
 # result = {"documents_deleted": 5, "citations_deleted": 42, "cache_invalidated": True, "session_cleared": True}
 
@@ -511,7 +510,7 @@ async with KnowledgeClient(session_id="temp") as client:
 #### REST Examples
 
 ```
-POST /api/v1/sessions    — create session token
+POST /api/v1/sessions    # create session token
 ```
 
 ```json
@@ -585,8 +584,8 @@ count = await client.citations.clear(confirm=True)
 #### REST Examples
 
 ```
-GET /api/v1/citations            — list session citations
-GET /api/v1/citations/{id}       — get citation by ID
+GET /api/v1/citations            # list session citations
+GET /api/v1/citations/{id}       # get citation by ID
 ```
 
 **Citation strategies** (configured via `chunk_retrieval_strategy`):
@@ -670,7 +669,7 @@ Pass `document_ids` in the search request body:
 | Surface | Available | Notes |
 |---------|-----------|-------|
 | Local SDK | ✅ | Via agentic pipeline + document list |
-| REST | ⚠️ | Indirect — `GET /api/v1/documents` returns listing (no `preview_text`; use chunk endpoints for content) |
+| REST | ⚠️ | Indirect: `GET /api/v1/documents` returns the listing (no `preview_text`; use the chunk endpoints for content) |
 
 #### SDK Examples
 
@@ -688,7 +687,7 @@ if chunks:
 ```
 
 > **Note:** The SDK `Document` dataclass has a `preview_text` field, but it is populated
-> only by the agentic pipeline's document awareness enrichment — not by `list_documents()`.
+> only by the agentic pipeline's document awareness enrichment, not by `list_documents()`.
 > The REST `DocumentResponse` does **not** include `preview_text` at all. To show
 > document previews in a UI, fetch the first chunk via `GET /api/v1/documents/{id}/chunks?limit=1`.
 
@@ -745,24 +744,24 @@ client.use_preset("balanced")
 # "speed", "standard", "balanced", "max_quality" (also "quality" as alias)
 ```
 
-#### REST Examples — `/api/v1/config` surface
+#### REST Examples: the `/api/v1/config` surface
 
 ```
-GET  /api/v1/config/profiles           — list profiles (name + description)
-PUT  /api/v1/config/profiles/{name}    — apply preset (returns updated config)
+GET  /api/v1/config/profiles           # list profiles (name + description)
+PUT  /api/v1/config/profiles/{name}    # apply preset (returns updated config)
 ```
 
-#### REST Examples — `/api/config/knowledge` surface
+#### REST Examples: the `/api/config/knowledge` surface
 
 ```
-GET    /api/config/knowledge               — full config state (profiles, overrides, rag_enabled)
-PUT    /api/config/knowledge/active        — set active profile + optional overrides
-POST   /api/config/knowledge/profile       — save custom profile
-POST   /api/config/knowledge/profile/delete — delete custom profile
-POST   /api/config/knowledge/profile/rename — rename custom profile
-POST   /api/config/knowledge/reset         — reset to defaults (scope: "active" | "all")
-GET    /api/config/knowledge/export        — export full config as JSON
-POST   /api/config/knowledge/import        — import config from JSON
+GET    /api/config/knowledge                # full config state (profiles, overrides, rag_enabled)
+PUT    /api/config/knowledge/active         # set active profile + optional overrides
+POST   /api/config/knowledge/profile        # save custom profile
+POST   /api/config/knowledge/profile/delete # delete custom profile
+POST   /api/config/knowledge/profile/rename # rename custom profile
+POST   /api/config/knowledge/reset          # reset to defaults (scope: "active" | "all")
+GET    /api/config/knowledge/export         # export full config as JSON
+POST   /api/config/knowledge/import         # import config from JSON
 ```
 
 **Full config state response:**
@@ -792,6 +791,8 @@ POST   /api/config/knowledge/import        — import config from JSON
 
 **What:** Update individual RAG settings per session without changing the active profile.
 
+A patch is a session override. It wins over `LASAGNA_<NAME>` / `RAG_<NAME>` environment variables, the settings file and the built-in defaults, and loses only to per-query overrides (see [Where a setting comes from](../../../../../docs/configuration.md#where-a-setting-comes-from)).
+
 **Capability Matrix:**
 
 | Surface | Available | Notes |
@@ -818,8 +819,8 @@ print(config["enable_hyde"])  # True
 #### REST Examples
 
 ```
-PATCH /api/v1/config    — partial config update (returns full ConfigResponse)
-GET   /api/v1/config    — get current config
+PATCH /api/v1/config    # partial config update (returns full ConfigResponse)
+GET   /api/v1/config    # get current config
 ```
 
 ```json
@@ -856,7 +857,7 @@ Enums: `routing_strategy` (`rule_based`|`adaptive`), `routing_default_tier` (`fa
 | Surface | Available | Notes |
 |---------|-----------|-------|
 | Local SDK | ✅ | Via structured graph pipeline internals |
-| REST | ⚠️ | Partial — quality info influences the agentic response but is not directly exposed in the response schema |
+| REST | ⚠️ | Partial: quality grades shape the agentic response but are not in the response schema |
 
 **Quality Checks:**
 
@@ -877,7 +878,7 @@ await client.set_config(
 )
 ```
 
-**UI Suggestion:** Quality badge on each response: green checkmark (supported), yellow warning (partially), red flag (not supported). These are internal pipeline decisions that influence the final output quality — the pipeline auto-retries on poor grades.
+**UI Suggestion:** Quality badge on each response: green checkmark (supported), yellow warning (partially), red flag (not supported). They are decisions inside the pipeline that shape the final answer: on a poor grade, the pipeline retries.
 
 ---
 
@@ -920,8 +921,8 @@ for hop in results.hops:
 #### REST Endpoints
 
 ```
-GET  /configurator/api/schema     — get all 98 parameter definitions
-POST /configurator/api/validate   — validate config + detect reindex needs
+GET  /configurator/api/schema     # get every parameter definition
+POST /configurator/api/validate   # validate config + detect reindex needs
 ```
 
 **Schema response** (each parameter):
@@ -970,9 +971,9 @@ Returns errors, warnings, and which changes require reindex.
 | Local SDK | ✅ | Full `AgenticSearchResults` with per-hop data |
 | Remote SDK | ❌ | `agentic_search()` requires local dependencies (`AgenticRAGWrapper`); not delegated to REST |
 | REST | ⚠️ | Returns `SearchWithCitationsResponse` (context + citations, no hop data) |
-| MCP | ⚠️ | `search_with_context` returns formatted context + citations, no `AgenticSearchResults` hop-level data |
+| MCP | ⚠️ | `search` returns formatted context + citations, no `AgenticSearchResults` hop-level data |
 
-> **Note:** `agentic_search()` always instantiates a local `AgenticRAGWrapper` — it does not delegate to the remote backend. Remote SDK users should use `POST /api/v1/search/agentic` directly via HTTP for agentic capabilities.
+> **Note:** `agentic_search()` always creates a local `AgenticRAGWrapper`; it does not delegate to the remote backend. Remote SDK users should use `POST /api/v1/search/agentic` directly via HTTP for agentic capabilities.
 
 #### SDK Examples
 
@@ -1006,7 +1007,7 @@ if results.refined_answer:
 POST /api/v1/search/agentic
 ```
 
-Returns `SearchWithCitationsResponse` with `context`, `citations`, and `total_results`. The `results` array is empty (agentic search returns pre-formatted context). `routing_tier` in the request body is ignored — the agentic endpoint is the comprehensive tier by definition.
+Returns `SearchWithCitationsResponse` with `context`, `citations`, and `total_results`. The `results` array is empty (agentic search returns pre-formatted context). `routing_tier` in the request body is ignored: the agentic endpoint is the comprehensive tier by definition.
 
 **Configuration:**
 
@@ -1023,38 +1024,42 @@ Returns `SearchWithCitationsResponse` with `context`, `citations`, and `total_re
 
 ### 13. MCP Integration
 
-**What:** First-class integration surface for tool-calling agents and AI IDEs.
+**What:** The integration surface for tool-calling agents and AI IDEs.
 
 **Capability Matrix:**
 
 | Surface | Available | Notes |
 |---------|-----------|-------|
-| MCP Server | ✅ | Expose 29 RAG tools — embedded (`/mcp/sse`) or standalone (port 8005) |
+| MCP Server | ✅ | 31 RAG tools, 25 of them in the default `safe` set; embedded (`/mcp/sse`) or standalone (stdio, or SSE on port 8005) |
 | MCP Client | ✅ | Consume remote MCP servers |
 
-**Server mode** — two deployment options:
+**Server mode** has two deployment options:
 
 1. **Embedded** in the REST API app: Set `RAG_EMBED_MCP=true` env var. MCP SSE endpoint mounted at `/mcp/sse`.
-2. **Standalone**: Run `python -m lasagna.mcp --transport sse --host 0.0.0.0 --port 8005`. Provides `/sse` (MCP transport), `/docs` (interactive API docs), `/health`.
+2. **Standalone**: run `lasagna-mcp` (stdio, the default, for a client that launches it), or `lasagna-mcp --transport sse --host 127.0.0.1 --port 8005` to serve it on a port. Over SSE it provides `/sse` (MCP transport), `/docs` (interactive API docs) and `/health`.
 
-**All 29 MCP tools:**
+By default the server serves the `safe` tool set, which leaves out the six tools marked *(all only)* below; `--tools all` or `LASAGNA_MCP_TOOLS=all` adds them.
+
+**All 31 MCP tools:**
 
 | Category | Tools |
 |----------|-------|
 | **Search** | `search`, `search_knowledge` *(deprecated)*, `search_with_context` *(deprecated)*, `get_document_context` |
-| **Documents** | `upload_document`, `list_documents`, `delete_document`, `get_document_info`, `get_document_chunks`, `get_document_status`, `reindex_document` |
-| **Lifecycle** | `archive_document`, `restore_document`, `bulk_delete_session`, `get_gc_status` |
-| **Sessions** | `clear_session`, `get_system_status`, `rebuild_collection` |
+| **Documents** | `upload_document`, `list_documents`, `delete_document` *(all only)*, `get_document_info`, `get_document_chunks`, `get_document_status`, `reindex_document` |
+| **Lifecycle** | `archive_document`, `restore_document`, `bulk_delete_session` *(all only)*, `get_gc_status`, `get_lifecycle_policy`, `set_lifecycle_policy` |
+| **Sessions** | `clear_session` *(all only)*, `get_system_status`, `rebuild_collection` *(all only)* |
 | **Focus** | `set_focused_documents`, `get_focused_documents` |
 | **Config** | `get_rag_config`, `patch_rag_config` |
-| **Profiles** | `list_profiles`, `set_active_profile`, `get_active_profile`, `get_profile_stats`, `save_rag_profile`, `delete_rag_profile`, `reset_rag_config` |
+| **Profiles** | `list_profiles`, `set_active_profile`, `get_active_profile`, `get_profile_stats`, `save_rag_profile`, `delete_rag_profile` *(all only)*, `reset_rag_config` *(all only)* |
+
+Under `safe`, the two deprecated search aliases still answer but are not listed.
 
 > Each tool requires a `session_id` parameter for tenant isolation (except `get_system_status`).
 
-**Client mode** — consume remote MCP servers from Python:
+**Client mode**: call an MCP server from Python (over SSE):
 
 ```python
-from knowledge.sdk import MCPKnowledgeClient
+from lasagna.sdk import MCPKnowledgeClient
 
 # Connect to a remote MCP server
 mcp_client = MCPKnowledgeClient(url="http://localhost:8005/sse")
@@ -1066,7 +1071,7 @@ mcp_client = MCPKnowledgeClient(url="http://localhost:8005/sse")
 
 ### 14. Pipeline Metrics (Architecture Notes)
 
-**Internal pipeline data — not directly exposed as integration contracts.**
+**Internal pipeline data, not exposed as an integration contract.**
 
 The agentic pipeline tracks detailed metrics internally:
 - `hop_count`, `latency_ms`, `token_reduction_pct`
@@ -1079,7 +1084,7 @@ Only `HopData.coverage_score` is surfaced in the SDK types. For infrastructure m
 
 ### 15. Web Search Fallback (Architecture Notes)
 
-**Internal pipeline behavior — not directly exposed as integration contracts.**
+**Internal pipeline behavior, not exposed as an integration contract.**
 
 When CRAG grades retrieval results as "incorrect" (low quality), the pipeline automatically falls back to DuckDuckGo web search. Web results appear as citations alongside knowledge base results.
 
@@ -1153,7 +1158,7 @@ When CRAG grades retrieval results as "incorrect" (low quality), the pipeline au
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
-| `__init__` | `(config?, session_id?)` | — | Create client |
+| `__init__` | `(config?, session_id?)` | `None` | Create client |
 | `from_url` | `(url, api_key?, session_id?)` | `KnowledgeClient` | Connect to remote API |
 | `upload` | `(file_path, filename?, metadata?, document_id?)` | `UploadResult` | Upload document |
 | `search_documents` | `(query, top_k=5, min_score=0.0, document_ids?, routing_tier?)` | `SearchResults` | Search chunks |
@@ -1184,7 +1189,7 @@ When CRAG grades retrieval results as "incorrect" (low quality), the pipeline au
 
 ## Appendix C: Configuration Parameters
 
-All fields from `KnowledgeConfig`. Grouped by category.
+The main `KnowledgeConfig` fields, grouped by category. Every setting, with its environment variable, is in the [settings reference](../../../../../docs/reference/settings.md).
 
 ### Feature Toggles
 
@@ -1240,7 +1245,7 @@ All fields from `KnowledgeConfig`. Grouped by category.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `chunking_strategy` | enum | `semantic` | `fixed`, `semantic`, `recursive`, `sentence_window` |
+| `chunking_strategy` | enum | `semantic` | `fixed`, `semantic`, `recursive`, `sentence_window`, `structure_aware`, `hierarchical` |
 | `chunk_size` | int | 800 | Target chunk size (chars) |
 | `chunk_overlap` | int | 0 | Overlap between chunks |
 | `semantic_threshold` | float | 0.75 | Semantic chunking threshold |

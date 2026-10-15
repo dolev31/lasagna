@@ -1,4 +1,4 @@
-# Architecture -- Infrastructure Layer
+# Architecture: Infrastructure Layer
 
 ## Dependency Graph
 
@@ -24,7 +24,7 @@
         │  ┌──────────────┐                    │  llm_manager.py  │ │
         │  │   tasks/     │                    │  (explicit       │ │
         │  │  celery_app  │                    │   import only)   │ │
-        │  │  document_   │                    │  8 LLM platforms │ │
+        │  │  document_   │                    │ 10 LLM platforms │ │
         │  │  tasks       │                    └──────────────────┘ │
         │  └──────────────┘                                         │
         └─────────────────────────────┬─────────────────────────────┘
@@ -90,7 +90,7 @@ The old manager is NOT explicitly destroyed. In-flight requests holding a refere
 
 | Singleton | Behavior | Details |
 | --------- | -------- | ------- |
-| EmbeddingManager | Drift-reload | Compares 9-field signature; reloads model under lock |
+| EmbeddingManager | Drift-reload | Compares a 10-field signature (`_config_signature`); reloads model under lock |
 | SearchCache | First-config-wins | Logs warning if different config passed after init |
 | CacheBackend | Fixed-after-init | Uses `configure_cache_backend()` for explicit replacement |
 | SessionStore | Fixed-after-init | Uses `configure_session_store()` for explicit replacement |
@@ -103,14 +103,15 @@ The old manager is NOT explicitly destroyed. In-flight requests holding a refere
 | Component | Failure | Behavior |
 | --------- | ------- | -------- |
 | Redis cache | Connection refused | `RedisCacheBackend` logs warning, returns `None` on get / no-op on set. Service continues without caching. |
-| Redis session store | Connection refused | `get_session_store()` falls back to `InMemorySessionStore`. Warning logged. |
+| Redis session store | Connection refused | The Redis store is kept and fails open: a warning at startup, and `None`/`False`/`[]` from each operation until Redis answers. Only an exception at construction (no `redis` package, an unparsable URL) makes `get_session_store()` fall back to `InMemorySessionStore`. |
 | GPU (CUDA) | Not available | Falls back to MPS (Apple Silicon) or CPU. Warning logged. |
 | FlagEmbedding library | Not installed | Falls back to sentence-transformers. Warning logged. |
 | Primary embedding model | Download fails | Falls back to `embedding_model_fallback`. If both fail: `RuntimeError`. |
 | Celery broker | Not available | `dispatch_processing()` returns `False`. Caller processes synchronously. |
 | Celery not installed | Import fails | `process_document_task = None`. Dispatch always returns `False`. |
-| LLM platform env vars | Missing | `ValueError` with descriptive message (WatsonX, OpenRouter). |
-| langchain_openai/ibm | Not installed | Only affects `llm_manager.py` (not imported from `__init__.py`). |
+| LLM platform env vars | Missing | `ValueError` with descriptive message (WatsonX, OpenRouter, llama.cpp model path). |
+| langchain_openai | Not installed | Only affects `llm_manager.py` (not imported from `__init__.py`). |
+| langchain_ibm, langchain_groq, langchain_google_genai | Not installed | The module still imports; creating a model on that platform fails. |
 
 ---
 
@@ -130,4 +131,4 @@ The old manager is NOT explicitly destroyed. In-flight requests holding a refere
 | `LLMManager.get_model()` | `threading.Lock` (instance `_cache_lock`) | Pre-instantiated check + model cache lookup + creation + LRU eviction |
 | `LLMManager.set_llm()` / `clear_pre_instantiated_model()` | `threading.Lock` (instance `_cache_lock`) | Model source switching (pre-instantiated vs cache) |
 
-**Note:** `_update_model_parameters()` mutates models in-place. For cached models, this is done under `_cache_lock`. For the pre-instantiated model (`set_llm()` path), a per-call clone is created via `model_copy(deep=True)` (Pydantic v2) or `copy.deepcopy()`, so parameter mutation does not leak across threads. The model cache capacity (`_max_models`) is configurable via `RAG_LLM_CACHE_MAX_SIZE` env var with validation — invalid or non-positive values fall back to the default (50) with a warning logged.
+**Note:** `_update_model_parameters()` mutates models in-place. For cached models, this is done under `_cache_lock`. For the pre-instantiated model (`set_llm()` path), a per-call clone is created via `model_copy(deep=True)` (Pydantic v2) or `copy.deepcopy()`, so parameter mutation does not leak across threads. The model cache capacity (`_max_models`) is configurable via the `RAG_LLM_CACHE_MAX_SIZE` env var with validation: invalid or non-positive values fall back to the default (50) with a warning logged.

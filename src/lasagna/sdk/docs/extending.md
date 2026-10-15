@@ -76,7 +76,7 @@ These four categories have `register_*` shortcuts. Every stage, including retrie
 | Chunkers | `register_chunker(name, cls)` | `chunk(text) -> List[str]` |
 | Enhancers | `register_enhancer(name, cls)` | `enhance(query)` |
 
-Built-in components are auto-registered. The factory handles constructor signature mismatches gracefully — unknown kwargs are filtered automatically.
+Built-in components are registered when the registry loads. The factory passes a constructor only the keyword arguments it accepts, so a class with a narrower `__init__` still builds.
 
 ### Vector Backend Registry
 
@@ -197,7 +197,7 @@ print(f"Discovered {count} backend plugins")
 
 ---
 
-The sections below cover the research workflow: registering, discovering, and swapping pipeline components without modifying framework internals. Every component type has a unique namespace, and your custom implementations are first-class citizens alongside built-in defaults.
+The sections below cover the research workflow: registering, discovering, and swapping pipeline components without editing Lasagna's source. Every component type has its own namespace, and a component you register is listed, selected and swept the same way as a built-in one.
 
 ### Registering a Custom Component
 
@@ -218,7 +218,8 @@ class MyNovelReranker(BaseReranker):
 # See all components in a namespace
 registry.list("reranker")
 # {'reranker': ['cross_encoder', 'combined', 'ensemble', 'mmr', 'colbert', 'llm_listwise',
-#               'monot5', 'llm_pointwise', 'flashrank', 'cohere', 'my_novel_reranker']}
+#               'monot5', 'llm_pointwise', 'flashrank', 'cohere', 'template_length',
+#               'my_novel_reranker']}
 
 # Get an instantiated component
 instance = registry.get("reranker", "my_novel_reranker")
@@ -295,15 +296,15 @@ class MyChunker(BaseChunker):
         """Split text into Chunk objects.
 
         Returns a list of Chunk dataclass instances, each with:
-        - content: str — the chunk text
-        - chunk_index: int — position in document (0-based)
-        - metadata: dict — chunk-level metadata
+        - content: str, the chunk text
+        - chunk_index: int, position in document (0-based)
+        - metadata: dict, chunk-level metadata
         - page_number: Optional[int]
-        - start_char: int — start character offset
-        - end_char: int — end character offset
-        - section_header: Optional[str] — section heading
-        - parent_chunk_id: Optional[str] — parent chunk reference
-        - chunk_type: str — 'text', 'table', 'code', 'header'
+        - start_char: int, start character offset
+        - end_char: int, end character offset
+        - section_header: Optional[str], section heading
+        - parent_chunk_id: Optional[str], parent chunk reference
+        - chunk_type: str, one of 'text', 'table', 'code', 'header'
         """
         ...
 ```
@@ -332,7 +333,7 @@ class MyReranker(BaseReranker):
 
 ### 4. BaseRetriever
 
-Performs the core retrieval step — dense, sparse, or hybrid search over the vector store.
+Performs the first-stage retrieval: dense, sparse, or hybrid search over the vector store.
 
 ```python
 from lasagna.sdk import BaseRetriever, ScoredDocument
@@ -364,10 +365,10 @@ class MyDocumentProcessor(BaseDocumentProcessor):
 
         Returns:
             ProcessedDocument dataclass with:
-            - text: str — extracted text
-            - metadata: dict — file metadata
-            - pages: Optional[List[str]] — per-page text
-            - tables: Optional[List[str]] — extracted tables
+            - text: str, extracted text
+            - metadata: dict, file metadata
+            - pages: Optional[List[str]], per-page text
+            - tables: Optional[List[str]], extracted tables
         """
         ...
 ```
@@ -405,7 +406,7 @@ class MyGenerator(BaseGenerator):
         return reply.content if hasattr(reply, "content") else str(reply)
 ```
 
-A plain function `f(query, contexts) -> str` becomes a generator with `@lasagna.generator("name")`. The built-ins are `concise`, `cited`, `chain_of_thought` and `chain_of_note`; `KnowledgePipeline.generate()` answers with the pipeline's generator.
+A plain function `f(query, contexts) -> str` becomes a generator with `@lasagna.generator("name")`. The built-ins are `concise`, `closed_book`, `long_context`, `cited`, `chain_of_thought` and `chain_of_note`; `KnowledgePipeline.generate()` answers with the pipeline's generator.
 
 ---
 
@@ -448,9 +449,9 @@ pipeline.set_node_override("retrieve", "my_retrieve")  # pass registered name
 Use built-in profiles as standardized baselines:
 
 ```python
-# Create a pipeline pre-configured from a built-in profile
+# Create a pipeline configured from a built-in profile
 pipeline = KnowledgePipeline.from_profile("balanced")
-# Stores BGE-M3, mxbai-rerank-large, hierarchical chunking, etc.
+# Carries the profile's settings: BGE-M3, mxbai-rerank-large-v1, hierarchical chunking, ...
 ```
 
 ### Ingesting Documents
@@ -466,7 +467,7 @@ pipeline.ingest("./corpus/")
 ### Querying
 
 ```python
-# Run the full SOTA search pipeline (HyDE, hybrid, reranking, adaptive-K)
+# Search with the pipeline's components and settings
 results = pipeline.query("What mechanisms drive attention head specialization?", top_k=10)
 for r in results:
     print(f"[{r.score:.3f}] {r.chunk.content[:120]}...")
@@ -496,7 +497,7 @@ for name, pipe in [("baseline", baseline), ("experimental", experimental)]:
 
 ## RAGAS Evaluation
 
-Lasagna ships with a RAGAS-compatible evaluator for standardized RAG quality assessment. It supports the core RAGAS metrics — faithfulness, answer relevancy, context precision, and context recall — with a single-call API.
+`RAGASEvaluator` scores answers with the RAGAS metrics faithfulness, answer relevancy, context precision and context recall, in one call. It needs `pip install "lasagna-rag[eval]"`.
 
 ### Basic Usage
 
@@ -601,7 +602,7 @@ test = results.significance_test(
     scores_b=per_case_scores_b,
 )
 print(f"p={test['p_value']:.4f}, significant={test['significant']}")
-print(f"Effect size (Cohen's d): {test['effect_size']:.3f}")
+print(f"Effect size (Cohen's d_z, paired): {test['effect_size']:.3f}")
 print(f"95% CI: {test['confidence_interval_95']}")
 ```
 
@@ -650,7 +651,7 @@ grid_results.to_dataframe()
 
 ## Agentic Pipeline Extensibility
 
-The `agentic_pipeline` component slot and `graph_node` callable registry enable systematic experimentation with retrieval strategies. The five published loops (`self_ask`, `ircot`, `flare`, `adaptive`, `self_rag`) are registered names like `default`, so any of them can be a variant below; see the [agentic README](../../agentic/README.md#published-loops).
+The `agentic_pipeline` component slot and `graph_node` callable registry enable systematic experimentation with retrieval strategies. The five published loops (`self_ask`, `ircot`, `flare`, `adaptive`, `self_rag`) are registered names like `default`, so any of them can be a variant below; see the [agentic README](../../agentic/README.md#which-pipeline-runs).
 
 ### Sweeping Pipelines
 
@@ -694,9 +695,9 @@ results.to_dataframe()
 # For the built-in node, evaluate base_pipeline without an override
 ```
 
-### Pipeline and Node Identity in Metrics
+### Recording Which Pipeline Ran
 
-Search metrics (`AgenticRAGMetrics`) now include `pipeline_name` and `node_overrides` fields, so evaluation results are always traceable back to the exact pipeline configuration that produced them.
+`pipeline.to_yaml()` ([below](#pipeline-serialization)) writes the `agentic_pipeline` component and any `node_overrides` with the rest of the pipeline, so keep that file next to the results it produced.
 
 > For end-to-end custom pipeline setup (writing, registering, deploying), see the [BYOA Guide](custom_pipelines.md).
 
@@ -752,7 +753,7 @@ pipeline.to_yaml("shared_experiment.yaml")
 
 # Import on a different machine
 pipeline = KnowledgePipeline.from_yaml("shared_experiment.yaml")
-# Missing components will raise a clear error with installation instructions
+# Every component the file names must be registered there too (installed, or its module imported)
 ```
 
 ---
@@ -763,12 +764,12 @@ Lasagna ships with **built-in configuration profiles** that serve as standardize
 
 ### Built-in Profiles
 
-| Profile | Embedding Model | Reranking | Hybrid | HyDE | Hierarchical | Typical Latency |
-|---------|----------------|-----------|--------|------|-------------|-----------------|
-| `speed` | MiniLM-L6 (384d) | No | No | No | No | ~50-100ms |
-| `standard` | BGE-M3 (1024d) | mxbai-rerank-large | Yes | No | No | ~200-400ms |
-| `balanced` | BGE-M3 (1024d) | mxbai-rerank-large | Yes | No | Yes | ~300-600ms |
-| `max_quality` | BGE-M3 (1024d) | mxbai-rerank-large | Yes | Yes | Yes | ~1-3s |
+| Profile | Embedding Model | Reranking | Hybrid | HyDE | Hierarchical | Agentic |
+|---------|----------------|-----------|--------|------|-------------|---------|
+| `speed` | all-MiniLM-L6-v2 (384d) | No | No | No | No | No |
+| `standard` | BGE-M3 (1024d) | mxbai-rerank-large-v1 | Yes | No | No | Yes |
+| `balanced` | BGE-M3 (1024d) | mxbai-rerank-large-v1 | Yes | No | Yes | Yes |
+| `max_quality` | BGE-M3 (1024d) | mxbai-rerank-large-v1 | Yes | Yes | Yes | Yes (always) |
 
 ### Using Profiles as Baselines
 
@@ -826,20 +827,20 @@ await config_manager.set_profile("my_research_baseline")
 
 ## Contributing Components
 
-We welcome contributions of new components, especially those backed by published research or reproducible benchmarks.
+Contributions of new components are welcome, especially ones backed by published research or reproducible benchmarks. The full path, from writing a component to publishing it as a package, is in [Contributing a component](../../../../docs/contributing-components.md).
 
 ### Contribution Workflow
 
 1. **Implement** your component by subclassing the appropriate base class.
 2. **Register** it with the component registry using `@registry.register`.
-3. **Test** it against at least one standard benchmark dataset.
-4. **Document** the expected performance characteristics.
+3. **Check** it with `lasagna component validate my_pkg.rerankers:MyResearchReranker`, which tests the stage contract.
+4. **Test** it against at least one standard benchmark dataset.
 5. **Submit** a pull request with your implementation, tests, and a brief write-up.
 
 ### Example: Contributing a New Reranker
 
 ```python
-# File: src/lasagna/retrieval/search/rerankers/my_reranker.py
+# File: my_pkg/rerankers.py
 
 from lasagna.sdk import registry
 from lasagna.sdk import BaseReranker, ScoredDocument
@@ -876,7 +877,7 @@ class MyResearchReranker(BaseReranker):
 ### Adding Tests
 
 ```python
-# File: tests/unit/knowledge/test_my_reranker.py
+# File: tests/test_my_reranker.py
 
 import pytest
 from lasagna.sdk import registry
@@ -902,23 +903,14 @@ def test_reranker_basic():
 
 - [ ] Component subclasses the correct base class
 - [ ] Registered with `@registry.register` in the appropriate namespace
-- [ ] Unit tests pass (`python -m pytest tests/unit/knowledge/ -v`)
+- [ ] `lasagna component validate` passes, and so do your tests (`python -m pytest tests/test_my_reranker.py -v`)
 - [ ] Docstring includes paper reference (if applicable)
 - [ ] No new hard dependencies added to the core package (use lazy imports)
 - [ ] Benchmark results included in the PR description (dataset, metrics, comparison to baseline)
 
 ### Citing Lasagna
 
-If you use Lasagna in your research, please cite:
-
-```bibtex
-@software{lasagna_knowledge,
-  title  = {Lasagna: A Modular RAG Framework for Research and Production},
-  author = {The Lasagna Authors},
-  url    = {https://github.com/dolev31/lasagna},
-  year   = {2025}
-}
-```
+If you use Lasagna in published work, cite it as [`CITATION.cff`](../../../../CITATION.cff) at the repository root says (GitHub's "Cite this repository" button reads the same file).
 
 ---
 

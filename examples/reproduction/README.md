@@ -132,17 +132,17 @@ cite the results repository.
 
 ## What building this caught
 
-Building this sweep found two problems in the harness. Both are fixed, with
-regression tests, in the code that produced the numbers above. First, the
-evaluation ingest cut every chunk to `max_content_length` (4,000 characters by
-default) before embedding and indexing it, and the setting was filed as
-operational, so a sweep could not raise it and nothing logged the cut. Asked for
-whole documents, the harness indexed only the first 4,000 characters of the 20
-SciFact and 12 NFCorpus documents that are longer. The setting is now an
-ingestion setting that an arm can change, and a cut is logged. Second, the
-warning about short NFCorpus lists advised raising `retrieval_chunk_overfetch`,
-which cannot help when BM25 has run out of matching documents; it now names the
-cause.
+Building this sweep found two problems in the harness. Both were fixed, with
+regression tests, before the numbers above were produced. First, the evaluation
+ingest cut every chunk to `max_content_length` (4,000 characters by default)
+before embedding and indexing it, the setting was filed as operational so a
+sweep could not raise it, and nothing logged the cut. Asked for whole documents,
+the harness indexed only the first 4,000 characters of the 20 SciFact and 12
+NFCorpus documents that are longer. In the released code `max_content_length` is
+an ingestion (chunker) setting that an arm can change, and a cut is logged.
+Second, the warning about short NFCorpus lists advised raising
+`retrieval_chunk_overfetch`, which cannot help when BM25 has run out of matching
+documents; the warning names that cause instead.
 
 ## Sources
 

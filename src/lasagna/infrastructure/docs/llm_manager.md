@@ -1,8 +1,8 @@
-# LLM Manager -- Deep Dive
+# LLM Manager: Deep Dive
 
 ## Overview
 
-`LLMManager` is a singleton that creates and caches LangChain `BaseChatModel` instances across 8 platforms. It is a **self-contained copy** for standalone deployment of the knowledge package — no dependencies on any host application.
+`LLMManager` is a singleton that creates and caches LangChain `BaseChatModel` instances across 10 platforms. It is a **self-contained copy** for standalone deployment of the knowledge package, with no dependencies on any host application.
 
 `LLMProvider` (`providers/llm_provider.py`) abstracts over it, so a host application can supply its own LLM plumbing instead.
 
@@ -14,12 +14,12 @@
 
 ```python
 from langchain_openai import ChatOpenAI, AzureChatOpenAI   # Required
-from langchain_ibm import ChatWatsonx                       # Required
+from langchain_ibm import ChatWatsonx                       # Optional (try/except)
 from langchain_groq import ChatGroq                          # Optional (try/except)
 from langchain_google_genai import ChatGoogleGenerativeAI    # Optional (try/except)
 ```
 
-`langchain_openai` and `langchain_ibm` are **required** — importing the module fails without them. This is why `LLMManager` is NOT exported from `infrastructure/__init__.py`.
+`langchain_openai` is **required**: importing the module fails without it. This is why `LLMManager` is NOT exported from `infrastructure/__init__.py`. The Ollama, HuggingFace and llama.cpp classes are imported only when a model for that platform is created.
 
 ---
 
@@ -33,10 +33,14 @@ from langchain_google_genai import ChatGoogleGenerativeAI    # Optional (try/exc
 | `watsonx` | `ChatWatsonx` | `WATSONX_PROJECT_ID`, `WATSONX_APIKEY` (implicit) | `MODEL_NAME` | `meta-llama/llama-4-maverick-17b-128e-instruct-fp8` |
 | `google-genai` | `ChatGoogleGenerativeAI` | `GOOGLE_API_KEY` | `MODEL_NAME` | `gemini-2.5-pro` |
 | `openrouter` | `ChatOpenAI` (wrapper) | `OPENROUTER_API_KEY` | `MODEL_NAME`, `OPENROUTER_BASE_URL`, `OPENROUTER_SITE_URL`, `OPENROUTER_APP_NAME` | `anthropic/claude-sonnet-5.5` |
+| `ollama` | `ChatOllama` (`langchain-ollama`), else `ChatOpenAI` on the `/v1` endpoint | none | `MODEL_NAME`, `OLLAMA_BASE_URL` (default `http://localhost:11434`) | `llama3.2` |
+| `huggingface` | `ChatHuggingFace` over a local `HuggingFacePipeline` (`langchain-huggingface`) | none | `HF_MODEL_ID`, `MODEL_NAME` | `microsoft/Phi-3-mini-4k-instruct` |
+| `llamacpp` | `ChatLlamaCpp` (`langchain-community`, `llama-cpp-python`) | `model_path` in settings or `LLAMACPP_MODEL_PATH` | none | none (the model file is the model) |
+| `vllm` | `ChatOpenAI` on the server's `/v1` endpoint | none | `MODEL_NAME`, `VLLM_BASE_URL` (default `http://localhost:8000/v1`), `VLLM_API_KEY` | `default` |
 
 ### Model Name Resolution
 
-Priority: `MODEL_NAME` env var > TOML `model_name` > platform default. The openai, azure and openrouter defaults are `SimpleLLMProvider.SUPPORTED_PLATFORMS`, where the source of each is cited.
+Priority: `MODEL_NAME` env var > TOML `model_name` > platform default (`HF_MODEL_ID` comes before `MODEL_NAME` for `huggingface`). The openai, azure and openrouter defaults are read from `SimpleLLMProvider.SUPPORTED_PLATFORMS` in `providers/llm_provider.py`, where the source of each is cited; the groq and google-genai defaults here differ from the `SimpleLLMProvider` ones (`openai/gpt-oss-120b`, `gemini-3.6-flash`).
 
 ---
 
@@ -129,6 +133,9 @@ Each cached model is a LangChain `BaseChatModel` instance (~1-10 KB depending on
 | -------- | -------- |
 | `max_tokens` not in settings | `ValueError` (explicit, not assert) |
 | `WATSONX_PROJECT_ID` missing | `ValueError` with descriptive message |
+| `langchain-ibm` not installed | `ImportError` naming the package, when a watsonx model is created |
+| `langchain-huggingface` or `llama-cpp-python` not installed | `ValueError` with the install command |
+| llama.cpp with no model path | `ValueError` |
 | `OPENROUTER_API_KEY` missing | `ValueError` with descriptive message |
 | Unknown platform | `ValueError(f"Unsupported platform: {platform}")` |
 | Model creation fails | Exception propagates to caller (no retry) |

@@ -2,7 +2,7 @@
 
 Lasagna ships **no model weights**. Every embedding, reranking and sparse-encoding
 model is downloaded from its upstream host (usually the Hugging Face Hub) the first
-time you use it, and each carries its own license — independent of Lasagna's
+time you use it, and each carries its own license, independent of Lasagna's
 Apache 2.0.
 
 Most are permissive. Three are **not**, and they are selectable on purpose:
@@ -11,9 +11,9 @@ undercut that. What matters is that you know which one you picked.
 
 > **Short version:** for research, evaluation and benchmarking, everything below
 > is fine. Before putting a configuration into a commercial product, check this
-> page — three models forbid that use.
+> page: three models forbid that use.
 
-## Restricted — research and evaluation only
+## Restricted: research and evaluation only
 
 | Model | License | Where it appears | Notes |
 | --- | --- | --- | --- |
@@ -22,10 +22,10 @@ undercut that. What matters is that you know which one you picked.
 | `BAAI/bge-reranker-v2-gemma` | Gemma Terms of Use | Reranker option | Built on Gemma; inherits use restrictions. Not an OSI-approved open source license. |
 
 Selecting any of these logs a `WARNING` the first time the model loads, naming
-the license and linking the model card. The warning is advisory — Lasagna will
+the license and linking the model card. The warning is advisory. Lasagna will
 not stop you, because for research use there is nothing to stop.
 
-## Permissive — commercial use allowed
+## Permissive: commercial use allowed
 
 | Model | License |
 | --- | --- |
@@ -63,8 +63,10 @@ sorted(restricted_models())                       # every non-commercial model
 Useful in a pre-deploy check:
 
 ```python
+from lasagna.core.config import get_rag_config
 from lasagna.core.model_licenses import is_commercial_use_restricted
 
+config = get_rag_config()
 for model in (config.embedding_model, config.reranker_model):
     if is_commercial_use_restricted(model):
         raise SystemExit(f"{model} is not licensed for commercial use")
@@ -74,7 +76,7 @@ for model in (config.embedding_model, config.reranker_model):
 
 Lasagna does not restrict which model identifier you configure. Models absent
 from the table load normally and log a `DEBUG` note that their license was not
-checked — absence means *uncatalogued*, not *unrestricted*.
+checked. Absence means *uncataloged*, not *unrestricted*.
 
 If you add a model to the configurator, add it to
 [`src/lasagna/core/model_licenses.py`](../src/lasagna/core/model_licenses.py)
@@ -84,7 +86,7 @@ the table does not cover, which is what keeps this page honest.
 ## Caveats
 
 This table is a convenience, not legal advice, and licenses change. The model
-card linked from each entry is authoritative — confirm there before relying on
+card linked from each entry is authoritative; confirm there before relying on
 anything here.
 
 Lasagna also redistributes no benchmark corpora; evaluation datasets are fetched

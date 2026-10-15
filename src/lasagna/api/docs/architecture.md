@@ -1,17 +1,17 @@
-# Architecture -- API Layer for Lasagna
+# Architecture: API Layer for Lasagna
 
 ---
 
 ## Package Overview
 
-The `api/` package is the primary interface layer for Lasagna. It exposes a thread-safe singleton facade (`RAGBackend`) that delegates to four specialized managers, and a full FastAPI REST API with 38 endpoints, a middleware chain, and stateless session tokens.
+The `api/` package is the interface layer the SDK, the CLI, the MCP server and the REST server share. It exposes a thread-safe singleton facade (`RAGBackend`) that delegates to four specialized managers, and a FastAPI REST API with 41 endpoints, a middleware chain, and stateless session tokens.
 
 Components:
 
-- **RAGBackend** -- Thread-safe singleton facade with double-check locking, delegating to 4 managers
-- **4 specialized managers** -- `CollectionManager`, `DocumentPipeline`, `SearchOrchestrator`, `AutoMerger`
-- **FastAPI REST API** -- 38 endpoints across 9 route modules, 3 middleware layers, JWT session tokens
-- **Document lifecycle** -- Soft-delete (`archive`), restore, bulk session delete, APScheduler-driven GC
+- **RAGBackend**: thread-safe singleton facade with double-check locking, delegating to 4 managers
+- **4 specialized managers**: `CollectionManager`, `DocumentPipeline`, `SearchOrchestrator`, `AutoMerger`
+- **FastAPI REST API**: 41 endpoints across 10 route modules, 4 custom middleware layers plus CORS, JWT session tokens
+- **Document lifecycle**: soft-delete (`archive`), restore, bulk session delete, APScheduler-driven GC
 
 ---
 
@@ -22,20 +22,23 @@ Client
   |
   |  HTTPS
   v
-CORSMiddleware         (allow_origins, credentials, methods, headers)
+Request-ID MW          Attach X-Request-ID (generated, or echoed when well-formed)
   |
   v
-Request-ID MW          Attach X-Request-ID (UUID or forwarded)
+Body-Size-Limit MW     413 before a body over the route's limit is read
   |
   v
 Rate-Limit MW          Per-tenant adaptive token bucket
-  |                    Exempt: /health, /api/v1/health, /docs,
-  |                            /openapi.json, /redoc, /mcp, /configurator
+  |                    Exempt: /, /metrics, and paths under /health,
+  |                            /api/v1/health, /docs, /openapi.json, /redoc
   |                    429 + Retry-After on rejection
   v
 Timing MW              X-Response-Time header
   |                    Prometheus histogram + load estimator
   |                    Same exempt paths
+  v
+CORSMiddleware         (allow_origins from RAG_CORS_ORIGINS; none by default)
+  |
   v
 FastAPI Route Handler
   |
@@ -79,14 +82,17 @@ api/rest/
  ├── models.py         (Pydantic request/response models)
  ├── session_token.py  (JWT create/decode, extract_session_id)
  └── routes/
-      ├── __init__.py        APIRouter prefix=/api/v1, includes 6 modules
+      ├── __init__.py        APIRouter prefix=/api/v1, includes 8 modules
       ├── health.py          4 endpoints: liveness, readiness, full health, stats
-      ├── documents.py       7 endpoints: upload, list, get, delete, chunks,
-      │                                   status, reindex
+      ├── documents.py      10 endpoints: upload, batch upload, list, get,
+      │                                   delete, chunks, status, reindex,
+      │                                   archive, restore
       ├── search.py          4 endpoints: search, citations, multi-query, agentic
       ├── citations.py       2 endpoints: list, get by ID
       ├── config.py          4 endpoints: get, list profiles, patch, apply profile
       ├── sessions.py        1 endpoint:  POST /sessions (identity handshake)
+      ├── pipelines.py       1 endpoint:  GET /pipelines
+      ├── gc_admin.py        6 endpoints at /api/v1/admin/ (X-Admin-Token)
       ├── knowledge_config.py  8 endpoints at /api/config/knowledge/
       └── reindex.py           1 endpoint  at /api/knowledge/reindex
 ```
@@ -95,7 +101,7 @@ api/rest/
 
 ## Search Pipeline Flow
 
-The `SearchOrchestrator` implements the full SOTA retrieval pipeline. The routing tier determines depth of processing.
+The `SearchOrchestrator` runs the retrieval pipeline, with each stage on or off as the session config sets it. The routing tier determines depth of processing.
 
 ```
 Query
@@ -108,13 +114,13 @@ Cache Check              Fingerprint-isolated per session
   |--- hit -------> Return cached results
   |--- miss
   v
-HyDE Expansion           Strategy: off / always / first_hop / adaptive
+HyDE Expansion           When enable_hyde is on
   |
   v
 Embed Query              The configured embedder, with its model card's query prefix
   |
   v
-Dense Vector Search      Top-K nearest neighbours from vector backend
+Dense Vector Search      Top-K nearest neighbors from vector backend
   |                      (a retriever component, when one is named,
   |                      replaces this step and the fusion below)
   v
@@ -139,35 +145,37 @@ Cache Put                Store results for future queries
 Return Results
 ```
 
-For the **COMPREHENSIVE** tier, `SearchOrchestrator` delegates to `AgenticRAG` for multi-hop retrieval with CRAG grading, Self-RAG quality gates, and query decomposition. See `agentic/docs/architecture.md` for the full graph pipeline.
+For the **COMPREHENSIVE** tier, `SearchOrchestrator` delegates to `AgenticRAG` for multi-hop retrieval with CRAG grading, Self-RAG quality gates, and query decomposition. In that tier, HyDE follows `agentic_hyde_strategy` (`off`, `always`, `first_hop`, `adaptive`). See [`agentic/docs/architecture.md`](../../agentic/docs/architecture.md) for the graph pipeline.
 
 ---
 
 ## Upload Pipeline Flow
 
-The `DocumentPipeline` handles the full document ingestion lifecycle.
+The `DocumentPipeline` handles document ingestion, from validation to the `ready` status. By default the steps after Store File run on a background thread pool (`async_processing`), or on a Celery worker when `celery_enabled` is on, and the upload returns with status `processing`.
 
 ```
 Validate File
-  |  Check size limits and allowed MIME types
+  |  Check size limits and the allowed file extensions
   v
 Quota Reserve
   |  TOCTOU-safe: check_and_reserve_upload (atomic)
   v
 Store File
-  |  Write to storage backend (local / S3 / GCS)
+  |  Write to storage backend (local, S3, or an fsspec filesystem such as GCS)
   v
 Extract Text
   |  Docling processor (preferred) or legacy extractor + OCR fallback
   v
-Semantic Chunking
-  |  Structure-preserving splits with overlap
+Chunking
+  |  The configured chunker (default: semantic), structure-preserving
   v
 Embed Chunks
-  |  BGE-large (1024 dim) batch embedding
+  |  The configured embedding model (default BAAI/bge-m3, 1024 dim), batched
   v
 Vector Insert
-  |  Milvus / Weaviate / PGVector backend
+  |  The configured vector backend (Milvus, Qdrant, Pinecone, Weaviate,
+  |  pgvector or OpenSearch), into the model's own collection
+  |  rag_documents_v2__<model>__<dim>
   v
 BM25 Index Update
   |  Inverted index for hybrid search
@@ -208,8 +216,8 @@ class RAGBackend:
             self._do_init()                     # heavy: GPU, vector connections
 ```
 
-- `get_rag_backend()` -- creates or returns the existing instance.
-- `close_backend()` -- releases GPU models, vector connections, and caches.
+- `get_rag_backend()`: creates or returns the existing instance.
+- `close_backend()`: releases GPU models, vector connections, and caches.
 
 ---
 
@@ -218,22 +226,26 @@ class RAGBackend:
 Registered in `create_app()`. FastAPI middleware executes outermost-first (last registered runs first):
 
 ```
-Registration order in code:        Execution order (outermost-first):
+Registration order in code:                     Execution order (outermost-first):
 
-app.middleware(_timing_middleware)       Request-ID  (1st to run)
-app.middleware(_rate_limit_middleware)     Rate-Limit  (2nd)
-app.middleware(_request_id_middleware)       Timing  (3rd)
-                                              Handler  (innermost)
+app.add_middleware(CORSMiddleware)                Request-ID       (1st to run)
+app.middleware(_timing_middleware)                Body-Size-Limit  (2nd)
+app.middleware(_rate_limit_middleware)            Rate-Limit       (3rd)
+app.add_middleware(BodySizeLimitMiddleware)       Timing           (4th)
+app.middleware(_request_id_middleware)            CORS             (5th)
+                                                  Handler          (innermost)
 ```
 
 | # | Middleware | Responsibility |
 |---|-----------|---------------|
-| 1 | **Request-ID** | Attaches `X-Request-ID` header (auto-generated UUID or echoed from client). |
-| 2 | **Rate-Limit** | Per-tenant adaptive token bucket with load-based scaling. Extracts `session_id` via shared helper. Caches decoded session token on `request.state` for zero-cost reuse by dependencies. Returns `429` + `Retry-After` when exceeded. |
-| 3 | **Timing** | Records `X-Response-Time` header, feeds Prometheus `rag.http.request_duration_ms` histogram and rate-limiter load estimator. |
-| 4 | **Handler** | FastAPI route execution. |
+| 1 | **Request-ID** | Attaches the `X-Request-ID` header (a client's value when it is well-formed, else a generated one) and puts it in every log line of the request. |
+| 2 | **Body-Size-Limit** | Refuses with `413` a declared `Content-Length` over the route's limit without reading the body, and counts a chunked body as it arrives (`api/rest/limits.py`). |
+| 3 | **Rate-Limit** | Per-tenant adaptive token bucket with load-based scaling. Extracts `session_id` via shared helper. Caches decoded session token on `request.state` for zero-cost reuse by dependencies. Returns `429` + `Retry-After` when exceeded. |
+| 4 | **Timing** | Records `X-Response-Time` header, feeds Prometheus `rag.http.request_duration_ms` histogram and rate-limiter load estimator. |
+| 5 | **CORS** | Allows the origins in `RAG_CORS_ORIGINS`; with it unset, cross-origin requests are denied. |
+| 6 | **Handler** | FastAPI route execution. |
 
-Exempt paths (rate-limit + timing): `/health`, `/api/v1/health`, `/docs`, `/openapi.json`, `/redoc`, `/mcp`, `/configurator`.
+Exempt paths (rate-limit + timing): `/` and `/metrics`, and every path under `/health`, `/api/v1/health`, `/docs`, `/openapi.json`, `/redoc`. `/api/v1/sessions` is deliberately not exempt, so token minting is rate-limited.
 
 Rate limiting runs before timing so rejected requests do not skew latency metrics.
 
@@ -251,16 +263,19 @@ Token claims:
   "typ": "session",
   "iat": <unix_timestamp>,
   "exp": <unix_timestamp>,
-  "iss": "rag-knowledge"
+  "iss": "lasagna",
+  "prn": "<principal>"        (only with RAG_REQUIRE_AUTH on)
 }
 ```
+
+Tokens with the issuer `rag-knowledge` are still accepted.
 
 | Property | Value |
 |----------|-------|
 | Algorithm | HS256 |
-| Default TTL | 604800s (7 days) |
+| Default TTL | 604800s (7 days), `RAG_SESSION_TOKEN_TTL_SECONDS` |
 | Secret source | `RAG_JWT_SECRET` env var |
-| Dev fallback | Ephemeral in-process secret (tokens lost on restart) |
+| Dev fallback | Ephemeral in-process secret (tokens stop working on restart); with `RAG_REQUIRE_AUTH` on, `create_app()` refuses to build without a real secret |
 | Max session_id length | 128 characters |
 | Revocation | Rotate `RAG_JWT_SECRET` (no per-token revocation) |
 
@@ -273,7 +288,9 @@ Identity resolution priority:
 | 3. `X-User-ID` header (opt-in) | 3. `session_id` query param |
 | 4. Auto-assign `anon_<uuid>` | 4. `"default"` |
 
-Cross-reference: see `rest/DESIGN.md` for full session flow diagrams.
+With `RAG_REQUIRE_AUTH` on, `get_session_id()` accepts only step 1: an unsigned header or query value, or the `default` fallback (unless `RAG_ALLOW_ANONYMOUS_SESSION` is set), is refused with 401.
+
+Cross-reference: see [`rest/DESIGN.md`](../rest/DESIGN.md) for session flow diagrams.
 
 ---
 
@@ -295,7 +312,7 @@ Cross-reference: see `rest/DESIGN.md` for full session flow diagrams.
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Singleton facade | `RAGBackend` with double-check locking | Single init of heavy resources (GPU models, vector connections, caches). |
-| 4 specialized managers | SRP decomposition | Each 800+ line class is focused on one domain: collections, documents, search, merging. |
+| 4 specialized managers | SRP decomposition | Each class is focused on one domain: collections, documents, search, merging. |
 | Versioned API | `/api/v1/` prefix | Forward compatibility for breaking changes. |
 | Non-versioned configurator | `/api/config/knowledge/` | Matches configurator UI path conventions (frontend hardcodes paths). |
 | Stateless sessions | JWT tokens | No session storage needed; horizontal scaling without shared state. |

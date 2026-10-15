@@ -1,4 +1,4 @@
-# knowledge_evaluation_sdk -- Architecture
+# knowledge_evaluation_sdk: Architecture
 
 This document describes the internal architecture of the
 `knowledge_evaluation_sdk` package: its two evaluation paths, module
@@ -111,11 +111,15 @@ Key task-key composition (for checkpointing and session isolation):
 ```
 task_key = "{benchmark_name}|{config_name}|{config_hash}|{sampling_hash}|{mode}|run_{i}"
              ^                ^             ^              ^               ^       ^
-             beir/nfcorpus    reranker=X    sha256(profile sha256(split,  offline  0
+             beir/nfcorpus    reranker=X    sha256(profile sha256(split,  auto     0
                                             +overrides)    n_samples,
                                             [:12]          seed,filters)
                                                            [:12]
 ```
+
+When the experiment sets a `resume_fingerprint` (from `run_provenance`), the key gains a
+`|env_{fingerprint}` suffix (a hash of the metric definitions, the package version, the judge and
+the settings), so a resumed run never restores results computed under any other of those.
 
 ---
 
@@ -125,7 +129,7 @@ task_key = "{benchmark_name}|{config_name}|{config_hash}|{sampling_hash}|{mode}|
 
 ```
 +======================================================================+
-|                     TIER 0 -- Pure Python (+ loguru)                  |
+|                     TIER 0: Pure Python (+ loguru)                   |
 |                     No external or parent-package deps               |
 |----------------------------------------------------------------------|
 |  ir_metrics.py        Standard IR metrics (NDCG, MAP, MRR, P/R/F1)  |
@@ -140,7 +144,7 @@ task_key = "{benchmark_name}|{config_name}|{config_hash}|{sampling_hash}|{mode}|
           | imports
           v
 +======================================================================+
-|              TIER 1 -- Coupled to knowledge package                  |
+|              TIER 1: Coupled to knowledge package                   |
 |----------------------------------------------------------------------|
 |  evaluator.py  --> providers.get_llm_provider                        |
 |                    providers.get_config_provider                      |
@@ -154,7 +158,7 @@ task_key = "{benchmark_name}|{config_name}|{config_hash}|{sampling_hash}|{mode}|
           | lazy / optional imports
           v
 +======================================================================+
-|              TIER 2 -- Optional external packages                    |
+|              TIER 2: Optional external packages                     |
 |----------------------------------------------------------------------|
 |  integrations/cuga_agent.py --> cuga.sdk.CugaAgent (lazy import)  |
 |  ragas_evaluator.py      --> ragas (lazy _import_ragas())             |
@@ -175,7 +179,7 @@ knowledge_evaluation_sdk/          knowledge/ (parent)
  |  judge.py     --------+--------> |   get_llm_provider   |
  |  experiment.py -------+--------> | core/pipeline.py     |
  |                       |          |   KnowledgePipeline   |
- |  integrations.cuga_agent -+- - -> | (cuga.sdk -- outside) |
+ |  integrations.cuga_agent -+- - -> | (cuga.sdk, outside)  |
  |       (lazy import)   |          +----------------------+
  +-----------------------+
 ```
@@ -328,12 +332,13 @@ BenchmarkRunner.run_tasks(tasks, eval_fn, checkpoint)
 
 The task key includes:
 
-- `benchmark_name` -- which dataset
-- `config_name` -- human-readable pipeline config label
-- `config_hash` -- SHA-256 of `{profile, overrides}` (12 hex chars)
-- `sampling_hash` -- SHA-256 of `{split, n_samples, seed, filters}` (12 hex chars)
-- `mode` -- "offline" or "live"
-- `run_index` -- run number for variance estimation
+- `benchmark_name`: which dataset
+- `config_name`: human-readable pipeline config label
+- `config_hash`: SHA-256 of `{profile, overrides}` (12 hex chars)
+- `sampling_hash`: SHA-256 of `{split, n_samples, seed, filters}` (12 hex chars)
+- `mode`: the requested mode, `"auto"`, `"live"` or `"generation_only"` (`"offline"` is an alias of the last); the mode it resolved to is recorded separately, in `resolved_mode`
+- `run_index`: run number for variance estimation
+- `env_<fingerprint>`, when set: the `resume_fingerprint` of the run's settings
 
 Changing any sampling parameter (split, n_samples, seed, filters)
 produces a different `sampling_hash`, which produces a different

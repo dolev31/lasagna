@@ -141,7 +141,7 @@ Defined in `graph_state.py`. A `TypedDict` with `total=False` so every field is 
 | `formatted_context` | `str` | `""` | `<knowledge_base>` XML context block |
 | `final_chunks` | `List[Dict[str, Any]]` | `[]` | Final chunks with full content |
 | `final_citations` | `List[Dict[str, Any]]` | `[]` | Reindexed citation metadata |
-| `final_metrics` | `AgenticRAGMetrics` | `None` | Comprehensive metrics object |
+| `final_metrics` | `AgenticRAGMetrics` | `None` | The metrics object `format_output_node` builds |
 
 ---
 

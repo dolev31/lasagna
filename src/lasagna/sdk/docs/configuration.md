@@ -14,7 +14,7 @@
 ### KnowledgeConfig Overview
 
 ```python
-from lasagna.sdk import KnowledgeConfig, ChunkingStrategy
+from lasagna.sdk import ChunkingStrategy, KnowledgeClient, KnowledgeConfig
 
 config = KnowledgeConfig(
     # Feature Toggles
@@ -27,16 +27,16 @@ config = KnowledgeConfig(
     # Chunking
     chunking_strategy=ChunkingStrategy.SEMANTIC,
     chunk_size=800,
-    chunk_overlap=150,
+    chunk_overlap=0,
 
     # Search
-    default_top_k=50,
-    rerank_top_k=10,
+    default_top_k=20,
+    rerank_top_k=5,
     similarity_threshold=0.3,
     hybrid_alpha=0.7,
 
     # Embedding
-    embedding_model="BAAI/bge-large-en-v1.5",
+    embedding_model="BAAI/bge-m3",
     embedding_dim=1024,
 
     # Agentic RAG
@@ -51,6 +51,7 @@ client = KnowledgeClient(config=config)
 
 ```python
 from lasagna.sdk import (
+    KnowledgeClient,
     config_for_speed,
     config_for_standard,
     config_for_balanced,
@@ -58,33 +59,30 @@ from lasagna.sdk import (
     config_for_standalone,
 )
 
-# Speed - Pure vector search, no expensive processing
+# Speed: dense vector search only
 client = KnowledgeClient(config=config_for_speed())
-# - Disables reranking, HyDE, MMR, agentic RAG
-# - Uses MiniLM-L6-v2 (384d, 80MB)
-# - Fixed chunking, ~50-100ms latency
+# - No reranking, hybrid search, MMR, HyDE or agentic RAG
+# - all-MiniLM-L6-v2 (384d)
+# - Structure-aware chunking, fixed-k chunk selection (no adaptive cutoff)
 
-# Standard (Recommended Starter) - SOTA features, lightweight model
+# Standard: hybrid search, reranking, MMR and agentic RAG
 client = KnowledgeClient(config=config_for_standard())
-# - Reranking, hybrid search, MMR, agentic RAG enabled
-# - Uses MiniLM-L6-v2 (384d, 80MB) — no large downloads needed
-# - Semantic chunking, ~200-400ms latency
+# - BGE-M3 (1024d), mxbai-rerank-large-v1
+# - Structure-aware chunking, adaptive chunk count up to 15
 
-# Balanced - SOTA features, best embedding model
+# Balanced: standard plus hierarchical chunking
 client = KnowledgeClient(config=config_for_balanced())
-# - Reranking, hybrid search, MMR, agentic RAG enabled
-# - Uses BGE-large-en-v1.5 (1024d, 1.3GB download)
-# - Hierarchical chunking + auto-merge (threshold 0.5)
-# - Semantic chunking, ~300-600ms latency
+# - BGE-M3 (1024d), mxbai-rerank-large-v1
+# - Hierarchical chunking with auto-merge (threshold 0.5)
+# - Hallucination check, adaptive query routing, adaptive chunk count up to 20
 
-# Max Quality - All features for maximum recall
+# Max quality: every retrieval feature on
 client = KnowledgeClient(config=config_for_max_quality())
-# - All features: HyDE, query expansion, reranking, MMR
-# - Uses BGE-large-en-v1.5 (1024d, 1.3GB)
-# - Hierarchical chunking + aggressive auto-merge (threshold 0.4)
-# - Larger candidate pool (100), adaptive up to 30 results, ~1-3s latency
+# - Adds HyDE, query expansion, RAG fusion, CRAG and contextual retrieval
+# - BGE-M3 (1024d), hierarchical chunking with auto-merge (threshold 0.4)
+# - Always the comprehensive (agentic) tier, 5 agent iterations, adaptive chunk count up to 30
 
-# Standalone - custom paths (default: ~/.rag_knowledge/)
+# Standalone: explicit paths (default: ./knowledge_data/ in the working directory)
 config = config_for_standalone(
     db_path="./my_data/vectors.db",
     upload_dir="./my_data/uploads",
@@ -94,12 +92,14 @@ client = KnowledgeClient(config=config)
 
 ### Preset Comparison
 
-| Preset | Embedding Model | Reranking | Hybrid | MMR | Agentic | HyDE | Hierarchical | Latency |
-|--------|----------------|-----------|--------|-----|---------|------|-------------|---------|
-| `speed` | MiniLM-L6 (384d) | No | No | No | No | No | No | ~50-100ms |
-| `standard` | MiniLM-L6 (384d) | Yes | Yes | Yes | Yes | No | No | ~200-400ms |
-| `balanced` | BGE-large (1024d) | Yes | Yes | Yes | Yes | No | Yes (0.5) | ~300-600ms |
-| `max_quality` | BGE-large (1024d) | Yes | Yes | Yes | Yes | Yes | Yes (0.4) | ~1-3s |
+| Preset | Embedding Model | Reranking | Hybrid | MMR | Agentic | HyDE | Hierarchical | CRAG | RAG Fusion |
+|--------|----------------|-----------|--------|-----|---------|------|-------------|------|------------|
+| `speed` | all-MiniLM-L6-v2 (384d) | No | No | No | No | No | No | No | No |
+| `standard` | BGE-M3 (1024d) | Yes | Yes | Yes | Yes | No | No | No | No |
+| `balanced` | BGE-M3 (1024d) | Yes | Yes | Yes | Yes | No | Yes (0.5) | No | No |
+| `max_quality` | BGE-M3 (1024d) | Yes | Yes | Yes | Yes | Yes | Yes (0.4) | Yes | Yes |
+
+Every preset except `speed` can call an LLM during search: `standard` and `balanced` send a query the router judges complex to agentic retrieval, and `max_quality` sends every query there. They need an API key; see [Configuration](../../../../docs/configuration.md#profiles).
 
 ### Dynamic Configuration
 
@@ -111,24 +111,26 @@ await client.set_config(
 )
 
 # Use preset
-client.use_preset("standard")     # SOTA + lightweight model
-client.use_preset("balanced")      # SOTA + best model
-client.use_preset("max_quality")   # All features enabled
+client.use_preset("standard")      # hybrid search, reranking, MMR, agentic RAG
+client.use_preset("balanced")      # standard plus hierarchical chunking
+client.use_preset("max_quality")   # every retrieval feature on
 
 # Get current config
 config_dict = client.get_config_dict()
 print(config_dict)
 ```
 
-### Config Bridge Architecture
+### How SDK Settings Reach the Backend
 
-SDK configuration is automatically bridged to the backend via a two-tier system:
+A setting is looked up in this order, and the first place that has it wins: per-query overrides, then session overrides, then `LASAGNA_<NAME>` or `RAG_<NAME>` environment variables, then the settings TOML (`settings.lasagna.toml`, or the file `LASAGNA_SETTINGS_FILE` names), then built-in defaults. The full table is in [Where a setting comes from](../../../../docs/configuration.md#where-a-setting-comes-from).
 
-**Init-time fields** (e.g., `vector_backend`, `database_backend`, `cache_backend`, `celery_enabled`) are applied to the global backend config **before** the backend singleton is created. These must be set at `KnowledgeClient` creation time — changing them after initialization logs a warning.
+`KnowledgeConfig` fields enter that order in one of two places (`sdk/_config_bridge.py`):
 
-**Runtime fields** (e.g., `enable_hyde`, `enable_reranking`, `chunk_size`, `embedding_model`) are applied per-session via the session config provider. They can be changed via `set_config()` or `use_preset()` and take effect on the next operation. If called before the backend is initialized, overrides are applied automatically when the backend is first created.
+**Init-time fields** (for example `vector_backend`, `database_backend`, `cache_backend`, `celery_enabled`, `storage_backend`, and the embedding fields `embedding_model`, `embedding_dim` and `embedding_provider`) are written where environment variables go, before the backend is created, so they apply to the whole process. Set them when you create the `KnowledgeClient`; changing them afterward logs a warning and has no effect until a new client creates the backend.
 
-**Dirty-field tracking**: Only fields whose value differs from the SDK dataclass default are forwarded. A default `KnowledgeConfig()` writes zero overrides, so profile/TOML settings take full effect.
+**Runtime fields** (for example `enable_hyde`, `enable_reranking`, `chunk_size`) are written as session overrides for the client's session. `set_config()` and `use_preset()` change them, and the next operation uses the new values. If you call them before the backend exists, the overrides are written when it is created.
+
+**Only chosen fields are sent.** A field is forwarded when you set it (by keyword or by assignment) or when its value differs from the dataclass default. A plain `KnowledgeConfig()` writes no overrides, so the profile, environment and settings file decide.
 
 ```python
 # Init-time fields must be set at creation
@@ -138,17 +140,17 @@ client = KnowledgeClient(
 
 # Runtime fields can change anytime
 await client.set_config(enable_hyde=True)   # Applied immediately
-await client.set_config(enable_hyde=False)  # Reverts (removes override)
+await client.set_config(enable_hyde=False)  # Still a session override, set to False
 
 # Switching sessions re-applies overrides
 client.session_id = "new_session"  # New session gets current config
 ```
 
-**Remote mode** (`from_url()`): The config bridge only affects local SDK behavior (citation format, presets). Search pipeline config is managed by the remote server — `set_config()` logs a warning in this mode.
+**Remote mode** (`from_url()`): the config bridge only affects local SDK behavior (citation format, presets). The remote server owns the search pipeline configuration, and `set_config()` logs a warning in this mode.
 
 ### Profile Management
 
-Profiles persist across sessions. Save custom configurations and switch between them. Profile operations live on `client.config_manager`.
+Saved profiles are shared by every session and stored in the metadata database, so they outlive the process. Save custom configurations and switch between them. Profile operations live on `client.config_manager`.
 
 ```python
 config_manager = client.config_manager
@@ -159,10 +161,10 @@ for p in profiles:
     print(f"{p['name']}: {p['description']}")
 # Output:
 #   default: Default configuration from settings.lasagna.toml
-#   speed: Fast, pure vector search - no reranking/MMR/HyDE
-#   standard: SOTA features with BGE-M3 embedding model (recommended starter)
-#   balanced: SOTA features with BGE-M3, hierarchical chunking, structured graph
-#   max_quality: All features enabled - HyDE, query expansion, max recall
+#   speed: Vector search only, with all-MiniLM-L6-v2: no reranking, MMR or HyDE
+#   standard: Hybrid search, reranking and agentic retrieval with BGE-M3 (recommended start)
+#   balanced: Standard plus hierarchical chunking and the structured agentic graph, with BGE-M3
+#   max_quality: Every retrieval feature on: HyDE, query expansion, RAG fusion and CRAG
 
 # Get active profile
 active = await config_manager.get_active_profile()
@@ -189,11 +191,13 @@ await config_manager.set_profile("balanced")
 await config_manager.delete_profile("deep_analysis")
 
 # Reset the client's config to the standard preset. The scope argument
-# ("session" or "all") is accepted, but both currently do the same thing.
+# ("session" or "all") is accepted, and both do the same thing.
 await config_manager.reset()
 ```
 
-### All Configuration Options
+### Common Configuration Options
+
+These are the `KnowledgeConfig` defaults (`sdk/config.py`). Every backend setting, with its type, default and environment variable, is in the [settings reference](../../../../docs/reference/settings.md).
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -209,15 +213,15 @@ await config_manager.reset()
 | **Chunking** | | | |
 | `chunking_strategy` | enum | SEMANTIC | Chunking strategy |
 | `chunk_size` | int | 800 | Target chunk size |
-| `chunk_overlap` | int | 150 | Overlap between chunks |
+| `chunk_overlap` | int | 0 | Overlap between chunks |
 | `semantic_threshold` | float | 0.75 | Semantic similarity threshold |
 | `enable_hierarchical` | bool | True | Enable parent-child chunking with auto-merge |
 | `parent_chunk_size` | int | 2000 | Characters per parent chunk |
 | `child_chunk_size` | int | 500 | Characters per child chunk |
 | `auto_merge_threshold` | float | 0.5 | Ratio of retrieved children / total siblings to trigger merge |
 | **Search** | | | |
-| `default_top_k` | int | 50 | Candidates to retrieve before reranking |
-| `rerank_top_k` | int | 10 | Max results after reranking (ceiling for adaptive mode) |
+| `default_top_k` | int | 20 | Candidates to retrieve before reranking |
+| `rerank_top_k` | int | 5 | Max results after reranking (ceiling for adaptive mode) |
 | `similarity_threshold` | float | 0.3 | Minimum score threshold |
 | `hybrid_alpha` | float | 0.7 | Vector vs keyword weight (0=keyword, 1=vector) |
 | `mmr_lambda` | float | 0.5 | MMR relevance vs diversity (0=diverse, 1=relevant) |
@@ -229,15 +233,15 @@ await config_manager.reset()
 | `score_gap_buffer` | int | 2 | Extra chunks past the score gap as safety margin |
 | `min_gap_ratio` | float | 0.15 | Minimum relative gap to trigger cutoff |
 | **Embedding** | | | |
-| `embedding_model` | str | BAAI/bge-large-en-v1.5 | Embedding model name |
+| `embedding_model` | str | BAAI/bge-m3 | Embedding model name |
 | `embedding_dim` | int | 1024 | Vector dimension (must match model) |
 | `use_gpu` | bool | True | Use GPU if available |
 | **Agentic RAG** | | | |
 | `use_agentic_rag` | bool | True | Enable agentic multi-hop search |
-| `agentic_pipeline` | str | legacy_react | Pipeline selection: `legacy_react`, `default` (structured graph), or any registered name |
+| `agentic_pipeline` | str | unset | Pipeline selection: `legacy_react`, `default` (structured graph), or any registered name. Unset, it is `default` when `use_structured_graph` is true and `legacy_react` otherwise |
 | `max_agent_iterations` | int | 3 | Max search hops |
 | `chunk_refinement_method` | str | auto | Chunk refinement (vanilla, refined, auto) |
-| `refinement_model` | str | gpt-6-luna | Model for chunk refinement |
+| `refinement_model` | str | `MODEL_NAME`, else gpt-6-luna | Model for chunk refinement |
 | `agent_temperature` | float | 0.1 | Temperature for agent LLM calls |
 | `enable_crag` | bool | False | Enable Corrective RAG quality grading |
 | `crag_web_search_fallback` | bool | False | Allow web search fallback on poor CRAG grade |
@@ -404,20 +408,20 @@ print(stats["hits"], stats["misses"], stats["hit_rate"])
 
 ## Configuration Profiles
 
-The SDK ships with four built-in profiles that combine SOTA features into pre-tuned configurations. Use them as starting points and customize from there.
+The SDK has four presets, `config_for_speed()`, `config_for_standard()`, `config_for_balanced()` and `config_for_max_quality()`, which set the same features as the backend profiles of the same names (`core/session_config/_profiles.py`). Use them as starting points and change single fields from there. [Profiles](../../../../docs/configuration.md#profiles) lists what each one downloads and whether it needs an LLM key.
 
 ### Profile Overview
 
-| Profile | Embedding | Reranking | Hybrid | HyDE | MMR | Agentic | Hierarchical | CRAG | RAG Fusion | Latency |
-|---------|-----------|-----------|--------|------|-----|---------|--------------|------|------------|---------|
-| `speed` | MiniLM-L6 (384d) | No | No | No | No | No | No | No | No | ~50-100ms |
-| `standard` | MiniLM-L6 (384d) | Yes | Yes | No | Yes | Yes | No | No | No | ~200-400ms |
-| `balanced` | BGE-large (1024d) | Yes | Yes | No | Yes | Yes | Yes (0.5) | No | No | ~300-600ms |
-| `max_quality` | BGE-large (1024d) | Yes | Yes | Yes | Yes | Yes | Yes (0.4) | No | No | ~1-3s |
+| Profile | Embedding | Reranking | Hybrid | HyDE | MMR | Agentic | Hierarchical | CRAG | RAG Fusion |
+|---------|-----------|-----------|--------|------|-----|---------|--------------|------|------------|
+| `speed` | all-MiniLM-L6-v2 (384d) | No | No | No | No | No | No | No | No |
+| `standard` | BGE-M3 (1024d) | Yes | Yes | No | Yes | Yes | No | No | No |
+| `balanced` | BGE-M3 (1024d) | Yes | Yes | No | Yes | Yes | Yes (0.5) | No | No |
+| `max_quality` | BGE-M3 (1024d) | Yes | Yes | Yes | Yes | Yes | Yes (0.4) | Yes | Yes |
 
 ### Speed Profile
 
-Optimized for minimum latency. Pure vector search with no expensive processing. Ideal for real-time autocomplete, chatbot suggestions, or high-throughput pipelines.
+Dense vector search with nothing else: no reranking, hybrid search, MMR, HyDE, query routing or agentic loop, and no LLM call during search. It is the only preset that runs without an API key.
 
 ```python
 from lasagna.sdk import config_for_speed, KnowledgeClient
@@ -426,15 +430,15 @@ config = config_for_speed()
 client = KnowledgeClient(config=config)
 
 # Features:
-# - MiniLM-L6-v2 embedding (384d, 80MB, fast)
-# - Fixed chunking (no semantic splitting)
-# - No reranking, HyDE, MMR, or agentic RAG
-# - ~50-100ms search latency
+# - all-MiniLM-L6-v2 embedding (384d)
+# - Structure-aware chunking, no hierarchical chunks
+# - Fixed-k chunk selection
+# - Docling off, context reordering off
 ```
 
 ### Standard Profile
 
-**Recommended starter profile.** Enables SOTA retrieval features with a lightweight embedding model. Good balance between quality and resource usage -- no large model downloads required.
+The recommended starting point: hybrid search, cross-encoder reranking, MMR and agentic retrieval, with BGE-M3.
 
 ```python
 from lasagna.sdk import config_for_standard, KnowledgeClient
@@ -443,18 +447,18 @@ config = config_for_standard()
 client = KnowledgeClient(config=config)
 
 # Features:
-# - MiniLM-L6-v2 embedding (384d, 80MB)
-# - Semantic chunking
+# - BGE-M3 embedding (1024d)
+# - Structure-aware chunking
 # - Cross-encoder reranking (mxbai-rerank-large-v1)
-# - Hybrid search (vector + BM25)
-# - MMR diversity
-# - Agentic multi-hop RAG
-# - ~200-400ms search latency
+# - Hybrid search (vector + BM25), hybrid_alpha 0.7
+# - MMR diversity, context reordering, Docling parsing
+# - Agentic multi-hop RAG (agentic_pipeline "default", 3 iterations)
+# - Rule-based query routing
 ```
 
 ### Balanced Profile
 
-SOTA features with the best embedding model. Enables hierarchical chunking with auto-merge for richer context. Recommended for production workloads with moderate latency tolerance.
+Standard plus hierarchical chunking with auto-merge: when a search returns enough of one parent chunk's children (half of them, at threshold 0.5), it returns the parent in their place. It also turns on the hallucination check and the adaptive routing strategy.
 
 ```python
 from lasagna.sdk import config_for_balanced, KnowledgeClient
@@ -463,17 +467,16 @@ config = config_for_balanced()
 client = KnowledgeClient(config=config)
 
 # Features:
-# - BGE-large-en-v1.5 embedding (1024d, 1.3GB download)
-# - Semantic chunking + hierarchical parent-child auto-merge
-# - Cross-encoder reranking
-# - Hybrid search + MMR + Agentic RAG
-# - Auto-merge threshold: 0.5
-# - ~300-600ms search latency
+# - BGE-M3 embedding (1024d)
+# - Hierarchical parent-child chunking, auto-merge threshold 0.5
+# - Cross-encoder reranking, hybrid search, MMR
+# - Agentic RAG with the structured graph and the hallucination check
+# - Adaptive query routing
 ```
 
 ### Max Quality Profile
 
-All features enabled for maximum recall and answer quality. Use when accuracy is paramount and latency of 1-3 seconds per query is acceptable.
+Every retrieval feature on, and every query sent to the comprehensive (agentic) tier. It makes the most LLM calls per query of the four.
 
 ```python
 from lasagna.sdk import config_for_max_quality, KnowledgeClient
@@ -482,30 +485,32 @@ config = config_for_max_quality()
 client = KnowledgeClient(config=config)
 
 # Features:
-# - BGE-large-en-v1.5 embedding (1024d, 1.3GB)
-# - All SOTA features: HyDE, query expansion, reranking, MMR
-# - Hierarchical chunking with aggressive auto-merge (threshold 0.4)
-# - Larger candidate pool (100), adaptive up to 30 results
-# - ~1-3s search latency
+# - BGE-M3 embedding (1024d)
+# - HyDE (adaptive), query expansion, RAG fusion, CRAG, contextual retrieval
+# - Reranking, hybrid search, MMR
+# - Hierarchical chunking with auto-merge threshold 0.4
+# - Hallucination and answer quality checks, 5 agent iterations
+# - similarity_threshold 0.2, adaptive chunk count up to 30
 ```
 
-### Extending Profiles with SOTA Toggles
+### Adding Features to a Profile
 
-You can start from any profile and layer on additional SOTA features:
+You can start from any profile and turn on more features:
 
 ```python
 from lasagna.sdk import config_for_balanced, KnowledgeClient
 
 config = config_for_balanced()
 
-# Add Contextual Retrieval for higher recall (adds index-time cost)
+# Contextual retrieval: an LLM call per chunk at index time
 config.enable_contextual_retrieval = True
 
-# Add RAG Fusion for improved comprehensiveness
+# RAG fusion: several LLM-written query variants, merged with RRF
 config.enable_rag_fusion = True
 config.rag_fusion_n_queries = 3
 
-# Add Corrective RAG for quality grading + web fallback
+# Corrective RAG: grade the retrieved chunks, with web search as a fallback
+# (the fallback needs pip install "lasagna-rag[web]")
 config.enable_crag = True
 config.crag_web_search_fallback = True
 
@@ -519,7 +524,7 @@ config_manager = client.config_manager
 
 # Save your custom configuration as a reusable profile
 await config_manager.save_profile(
-    "my_production_profile",
+    "my_profile",
     config={
         "enable_reranking": True,
         "enable_rag_fusion": True,
@@ -531,7 +536,7 @@ await config_manager.save_profile(
 )
 
 # Switch between profiles
-await config_manager.set_profile("my_production_profile")
+await config_manager.set_profile("my_profile")
 await config_manager.set_profile("speed")  # Switch back
 
 # List all available profiles
