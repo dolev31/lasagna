@@ -1,14 +1,21 @@
-# Backend: Milvus Standalone (x86/Linux/CI)
+# Backend: Milvus Standalone (x86_64 and ARM64)
 #
-# Adds a standalone Milvus container and configures the RAG service to use it.
-# Requires x86_64 architecture — Milvus has no ARM64 Docker image.
+# Adds a standalone Milvus container (embedded etcd, local storage) and
+# configures the RAG services to use it. The service definition follows
+# Milvus's own scripts/standalone_embed.sh: the `milvus run standalone`
+# command, seccomp unconfined, and the embedded etcd config file.
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f backends/milvus.yml up -d
 
 services:
   milvus:
-    image: milvusdb/milvus:v2.4-latest
+    # A released tag, published for amd64 and arm64. `v2.4-latest`, used here
+    # before, is not a tag on Docker Hub, so the pull failed.
+    image: milvusdb/milvus:v2.4.24
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
     ports:
       - "127.0.0.1:19530:19530"
       - "127.0.0.1:9091:9091"
@@ -19,12 +26,13 @@ services:
       COMMON_STORAGETYPE: local
     volumes:
       - milvus-data:/var/lib/milvus
+      - ./backends/milvus-embed-etcd.yaml:/milvus/configs/embedEtcd.yaml:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 30s
+      start_period: 90s
     restart: unless-stopped
 
   api:
@@ -43,6 +51,13 @@ services:
     depends_on:
       milvus:
         condition: service_healthy
+
+  # Beat only schedules tasks, but it imports the same config, so it gets
+  # the same backend settings as every other service.
+  celery-beat:
+    environment:
+      RAG_VECTOR_BACKEND: milvus
+      RAG_VECTOR_BACKEND_CONFIG: '{"uri": "http://milvus:19530"}'
 
   mcp:
     environment:

@@ -38,6 +38,13 @@ services:
       qdrant:
         condition: service_healthy
 
+  # Beat only schedules tasks, but it imports the same config, so it gets
+  # the same backend settings as every other service.
+  celery-beat:
+    environment:
+      RAG_VECTOR_BACKEND: qdrant
+      QDRANT_URL: http://qdrant:6333
+
   mcp:
     environment:
       RAG_VECTOR_BACKEND: qdrant

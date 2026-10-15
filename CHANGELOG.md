@@ -88,6 +88,11 @@ Sweeps, validation and metrics:
   cross-encoder within 0.004 of the BEIR paper, BM25 within 0.008.
 - A terminal demo, `docs/assets/demo.gif`, regenerated from a real run by
   `docs/assets/demo/record.sh`.
+- CI builds the image and runs the compose stack (Postgres, Redis, Qdrant,
+  Celery worker and beat, MCP) with MiniLM embeddings, then runs
+  `tests/live/test_deployment.py` against it. It also runs `pip-audit` on the
+  core dependencies, `mypy` on the SDK, `components.py` and
+  `core/base_components.py`, and prints the reason for every skipped test.
 
 ### Changed
 
@@ -134,6 +139,14 @@ Servers and deployment:
   `search_knowledge` and `search_with_context` still answer but are listed only
   under `all`. Tool names, descriptions and input schemas are recorded in
   `tests/snapshots/mcp_tools.json`.
+- **The compose stack defaults to a Milvus server.** `.env.example` sets
+  `VECTOR_BACKEND=milvus`, which works with the default `celery,mcp` profiles;
+  `make validate` refuses `milvus-lite` with either profile and requires
+  `POSTGRES_PASSWORD`. Every long-running service has its own healthcheck, so
+  `docker compose ... up --wait` returns when the stack can serve. The api runs
+  gunicorn with `--preload` and honors `FORWARDED_ALLOW_IPS` (or
+  `RAG_FORWARDED_ALLOW_IPS`). The models baked into the image are build
+  arguments (`EMBEDDING_MODELS`, `RERANKER_MODELS`, `OPTIONAL_MODELS`).
 
 ### Fixed
 
@@ -194,6 +207,26 @@ Numbers that were wrong:
   `retrieval_chunk_overfetch` even when BM25 had simply run out of documents
   matching a one- or two-word query; it now names the cause.
 - `results significance` and the isolation summary said "1 pairs".
+
+Servers and deployment:
+
+- **Uploads processed by the Celery worker failed.** The api stored a file
+  inside its own container and passed the path to the worker, which had no such
+  file. The api, worker and mcp now share an `uploads-data` volume at
+  `RAG_UPLOAD_DIR=/data/uploads`.
+- The worker and mcp containers inherited the image's healthcheck on port
+  8000, which they do not serve, so they always reported unhealthy.
+- `backends/milvus.yml` could not start: its image tag `v2.4-latest` does not
+  exist, and it lacked the `milvus run standalone` command and the embedded
+  etcd config. It now follows Milvus's own standalone script, on `v2.4.24`.
+- Values in `.env` other than those the compose file names (LLM API keys,
+  `PINECONE_API_KEY`, `RAG_SETTINGS_FILE`, any `RAG_*` override) never reached
+  the containers. They are now passed in.
+- The backend files configured the api, worker and mcp but not `celery-beat`;
+  `milvus-lite.yml` configured only the api, so a worker started with it could
+  not reach the store. Its worker, beat and mcp now exit at once with the reason.
+- The Dockerfile's unquoted `sentence-transformers>=5.1.2` was a shell
+  redirection, so the version floors were never applied.
 
 ## 0.1.0a1 — 2026-08-18
 

@@ -26,19 +26,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libc6-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir sentence-transformers>=5.1.2 FlagEmbedding>=1.3.0
+# Quoted: unquoted, the shell reads `>=5.1.2` as a redirect to a file named
+# "=5.1.2", so pip installed whatever version it liked.
+RUN pip install --no-cache-dir "sentence-transformers>=5.1.2" "FlagEmbedding>=1.3.0"
 
-# Pre-download default models — hard-fail to catch network issues at build time
+# Models baked into the image, space-separated. The defaults match the default
+# config; a lighter image (the CI stack uses MiniLM) passes, for example,
+#   --build-arg EMBEDDING_MODELS=sentence-transformers/all-MiniLM-L6-v2 \
+#   --build-arg RERANKER_MODELS=cross-encoder/ms-marco-MiniLM-L-6-v2 \
+#   --build-arg OPTIONAL_MODELS=
+ARG EMBEDDING_MODELS="BAAI/bge-m3"
+ARG RERANKER_MODELS="mixedbread-ai/mxbai-rerank-large-v1 cross-encoder/ms-marco-MiniLM-L-6-v2"
+ARG OPTIONAL_MODELS="BAAI/bge-large-en-v1.5 sentence-transformers/all-MiniLM-L6-v2"
+
+# Required models fail the build, so a network problem shows up here rather
+# than as a download on the first request.
 RUN python -c "\
+import sys; \
 from sentence_transformers import SentenceTransformer, CrossEncoder; \
-SentenceTransformer('BAAI/bge-m3'); \
-SentenceTransformer('mixedbread-ai/mxbai-rerank-large-v1'); \
-CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
+[SentenceTransformer(m) for m in sys.argv[1].split()]; \
+[CrossEncoder(m) for m in sys.argv[2].split()]" "$EMBEDDING_MODELS" "$RERANKER_MODELS"
 
-# Pre-download fallback embedding models (soft-fail — not required for default config)
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-large-en-v1.5')" || true
-# Lightweight model for stress tests (22M params, 384 dim, ~80MB — very fast on CPU)
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" || true
+# Fallback models, not needed by the default config.
+RUN for m in $OPTIONAL_MODELS; do \
+      python -c "import sys; from sentence_transformers import SentenceTransformer; SentenceTransformer(sys.argv[1])" "$m" || true; \
+    done
 
 # ---------------------------------------------------------------------------
 # Stage 2: Production image
@@ -46,7 +58,7 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 FROM python:3.12-slim AS production
 
 LABEL maintainer="Lasagna contributors"
-LABEL description="Lasagna — SOTA retrieval with multi-tenant support"
+LABEL description="Lasagna REST API, Celery worker and MCP server"
 
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -97,8 +109,10 @@ ENV RAG_EMBEDDING_MODEL="BAAI/bge-m3" \
     RAG_ENABLE_CONTEXTUAL_RETRIEVAL="false" \
     RAG_DOCLING_ENABLED="false"
 
-# Create data directories writable by rag user (for volume mounts)
-RUN mkdir -p /data/milvus && chown -R rag:rag /data
+# Data directories writable by the rag user. A new named volume copies the
+# ownership of the directory it is mounted on, so /data/uploads must exist here
+# or the shared uploads volume would be root-owned and unwritable.
+RUN mkdir -p /data/milvus /data/uploads && chown -R rag:rag /data
 
 # Prometheus multiprocess directory (for multi-worker gunicorn)
 RUN mkdir -p /tmp/prometheus_multiproc && chown rag:rag /tmp/prometheus_multiproc
@@ -116,12 +130,24 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 # Default: run API server with gunicorn + uvicorn workers
 # WEB_CONCURRENCY controls worker count (default 4; set to 1 for Milvus Lite)
 # Clear PROMETHEUS_MULTIPROC_DIR on startup to prevent stale metrics from prior runs
+#
+# --preload imports the app once in the master and forks the workers from it,
+# so torch and the package are loaded once and shared, and an import error stops
+# the master instead of crash-looping every worker. It is safe because creating
+# the app starts no thread and opens no connection; the backend is loaded per
+# worker, in the app's lifespan, after the fork.
+#
+# --forwarded-allow-ips: the proxy addresses whose X-Forwarded-For is trusted.
+# FORWARDED_ALLOW_IPS is gunicorn's own name, RAG_FORWARDED_ALLOW_IPS the one
+# `lasagna serve` reads; unset trusts only loopback.
 CMD rm -rf /tmp/prometheus_multiproc/* && \
     gunicorn \
     "lasagna.api.rest:create_app()" \
+    --preload \
     --bind 0.0.0.0:8000 \
     --workers "${WEB_CONCURRENCY:-4}" \
     --worker-class uvicorn.workers.UvicornWorker \
+    --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-${RAG_FORWARDED_ALLOW_IPS:-127.0.0.1}}" \
     --timeout 120 \
     --graceful-timeout 30 \
     --access-logfile -

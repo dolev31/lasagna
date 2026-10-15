@@ -1,6 +1,6 @@
 # Lasagna — Deployment Guide
 
-Deploy Lasagna as a standalone SOTA retrieval system with document ingestion, hybrid search, reranking, and multi-tenant support. One command to start, swap vector backends without duplicating config.
+Deploy Lasagna as a retrieval service with document ingestion, hybrid search, reranking, and multi-tenant support. One command to start; swap vector backends without duplicating config.
 
 ## Architecture
 
@@ -39,10 +39,11 @@ cd src/lasagna/deploy
 # 1. Create your .env
 cp .env.example .env
 
-# 2. Generate and set the JWT secret (required)
-sed -i '' "s/^RAG_JWT_SECRET=$/RAG_JWT_SECRET=$(openssl rand -hex 32)/" .env
+# 2. Generate and set the two required secrets
+sed -i.bak "s/^RAG_JWT_SECRET=$/RAG_JWT_SECRET=$(openssl rand -hex 32)/" .env
+sed -i.bak "s/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=$(openssl rand -hex 16)/" .env
 
-# 3. Start the stack (default backend: milvus-lite, works on Apple Silicon)
+# 3. Start the stack (default: Milvus server, Celery worker and beat, MCP)
 make up
 
 # 4. Verify
@@ -50,20 +51,26 @@ make health
 ```
 
 To use a different vector backend, edit `VECTOR_BACKEND` in `.env` before `make up`.
+`make validate` (run by `make up`) checks the backend, both secrets, and that
+`milvus-lite` is not combined with the `celery` or `mcp` profiles: Milvus Lite
+is embedded in the api process, so no other container can open it.
+
+Every line of `.env` is also passed into the api, worker, beat and mcp
+containers, so LLM API keys and `RAG_*` overrides set there take effect.
 
 **Common backends:**
 
-| Quickest start | Production self-hosted | Simplest infra |
-| --- | --- | --- |
-| `VECTOR_BACKEND=milvus-lite` | `VECTOR_BACKEND=qdrant` | `VECTOR_BACKEND=pgvector` |
-| No extra container | Dedicated vector DB | Reuses existing Postgres |
+| Default | Self-hosted alternative | Simplest infra | API only, one process |
+| --- | --- | --- | --- |
+| `VECTOR_BACKEND=milvus` | `VECTOR_BACKEND=qdrant` | `VECTOR_BACKEND=pgvector` | `VECTOR_BACKEND=milvus-lite` with `COMPOSE_PROFILES=` |
+| Milvus server container | Dedicated vector DB | Reuses existing Postgres | No extra container, no Celery |
 
 ## Vector Backend Selection
 
 | Backend | Best For | ARM64 | Extra Container | Cloud Option |
 | --- | --- | --- | --- | --- |
-| **milvus-lite** | Dev, Apple Silicon, single-node | Yes | No (embedded) | — |
-| **milvus** | Production self-hosted (x86) | No | Yes | Zilliz Cloud |
+| **milvus-lite** | API only, single process (no `celery` or `mcp` profile) | Yes | No (embedded) | — |
+| **milvus** | Default, self-hosted | Yes | Yes | Zilliz Cloud |
 | **pgvector** | Simple deployments, existing Postgres | Yes | No (reuses Postgres) | Any managed PG |
 | **qdrant** | Production, high-performance search | Yes | Yes | Qdrant Cloud |
 | **weaviate** | Multi-modal, graph-like queries | Yes | Yes | Weaviate Cloud |
@@ -83,7 +90,7 @@ Controlled by `COMPOSE_PROFILES` in `.env` (default: `celery,mcp`):
 
 | Profile | Service | Purpose | Enabled by default? |
 | --- | --- | --- | --- |
-| `celery` | celery-worker | Background document processing | Yes |
+| `celery` | celery-worker, celery-beat | Background document processing; periodic GC | Yes |
 | `mcp` | mcp | Standalone MCP server (port 8005) | Yes |
 | `tracing` | jaeger | Distributed tracing UI (port 16686) | No |
 
@@ -101,7 +108,36 @@ VECTOR_BACKEND=pgvector make up
 docker compose -f docker-compose.yml -f backends/pgvector.yml up -d
 ```
 
-Each `backends/*.yml` file adds the vector DB service (if needed) and injects `RAG_VECTOR_BACKEND` + connection config into the API, Celery, and MCP services.
+Each `backends/*.yml` file adds the vector DB service (if needed) and injects `RAG_VECTOR_BACKEND` + connection config into the api, celery-worker, celery-beat and mcp services.
+
+### Shared uploads
+
+The api stores each upload at `/data/uploads/<document_id>/<file>` and hands
+that path to the Celery worker, which opens it. The `uploads-data` volume is
+mounted at `/data/uploads` on the api, celery-worker and mcp services, and
+`RAG_UPLOAD_DIR=/data/uploads` is set for all of them, so the path resolves in
+every container. Metadata and session configuration are in Postgres.
+
+### Health checks
+
+Every long-running service has one, so `docker compose ... up -d --wait`
+returns when the stack can serve or names the service that cannot:
+
+| Service | Check |
+| --- | --- |
+| api | `GET /api/v1/health/ready` (vector store, Redis and Postgres answer) |
+| celery-worker | `celery inspect ping` against this worker |
+| celery-beat | the beat schedule file exists |
+| mcp | `GET /health` on port 8005 |
+
+### MCP tools
+
+The mcp service serves the `safe` tool set, which leaves out the six tools that
+delete data or reset configuration. Set `LASAGNA_MCP_TOOLS=all` in `.env` to
+serve them. `upload_document` over MCP reads server-side paths only inside
+`RAG_MCP_UPLOAD_ROOT`, which is unset here; upload through the REST API instead.
+Pointing it at `/data/uploads` would let any MCP client ingest another
+session's stored files.
 
 ## Kubernetes
 
@@ -175,7 +211,8 @@ Session overrides  →  RAG_* env vars  →  TOML file  →  Code defaults
 | **Features** | `RAG_ENABLE_RERANKING` | `true` | |
 | **Observe** | `RAG_ENABLE_PROMETHEUS` | `false` | `true` in compose/k8s |
 | **Observe** | `RAG_ENABLE_TRACING` | `false` | Enable with Jaeger profile |
-| **Network** | `RAG_FORWARDED_ALLOW_IPS` | (none) | Proxy addresses whose `X-Forwarded-For` `lasagna serve` trusts. Unset trusts none |
+| **Network** | `RAG_FORWARDED_ALLOW_IPS` | (none) | Proxy addresses whose `X-Forwarded-For` `lasagna serve` and the image's gunicorn trust. Unset trusts none (the image: loopback only) |
+| **Network** | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | gunicorn's own name for the same setting; wins over `RAG_FORWARDED_ALLOW_IPS` in the image |
 | **Network** | `RAG_ALLOWED_HOSTS` | (none) | Extra `Host` values the embedded `/mcp` accepts, e.g. a service name |
 
 See [.env.example](.env.example) for the complete reference.
@@ -207,7 +244,7 @@ This enables: larger connection pools, adaptive rate limiting, production embedd
 | `make logs` | Follow logs (`SVC=celery-worker` to filter) |
 | `make ps` | Show running containers |
 | `make health` | Check API health endpoint |
-| `make validate` | Validate VECTOR_BACKEND and JWT secret |
+| `make validate` | Check VECTOR_BACKEND, RAG_JWT_SECRET, POSTGRES_PASSWORD, and refuse milvus-lite with the celery or mcp profile |
 | `make shell` | Open bash in the API container |
 | `make test` | Run deployment tests (offline) |
 | `make stress-test` | Stress test current backend (~6 min) |
@@ -239,7 +276,7 @@ This enables: larger connection pools, adaptive rate limiting, production embedd
 ## Security Checklist
 
 - [ ] Set `RAG_JWT_SECRET` to a random 32-byte hex value
-- [ ] Change `POSTGRES_PASSWORD` from the default `rag`
+- [ ] Set `POSTGRES_PASSWORD` to a random value (required; there is no default)
 - [ ] Set `WEAVIATE_ANONYMOUS_ACCESS=false` for production Weaviate deployments
 - [ ] Use sealed-secrets or external-secrets-operator for k8s instead of plaintext `secrets.yaml`
 - [ ] All vector DB ports are bound to `127.0.0.1` (default) — change only if external access is needed

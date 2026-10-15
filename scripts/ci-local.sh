@@ -57,6 +57,7 @@ SEED="${RANDOMLY_SEED:-$RANDOM}"
 step "lint"
 run "ruff check" uvx --quiet ruff@0.14.7 check .
 run "ruff format" uvx --quiet ruff@0.14.7 format --check .
+run "mypy" uvx --quiet mypy@1.18.2 src/lasagna/sdk src/lasagna/components.py src/lasagna/core/base_components.py
 
 step "secret scans"
 if command -v gitleaks >/dev/null; then
@@ -75,7 +76,7 @@ run "detect-secrets" sh -c 'git ls-files -z | xargs -0 uvx --quiet --from detect
 
 step "tests with coverage floor (test order seed: $SEED)"
 run "pytest" env HOME="$HOME_CI" "$PY" -m pytest tests/ --ignore=tests/live --ignore=tests/stress \
-  -q -p no:cacheprovider "${NO_NETWORK[@]}" --randomly-seed="$SEED" --cov --cov-report=term:skip-covered
+  -q -rs -p no:cacheprovider "${NO_NETWORK[@]}" --randomly-seed="$SEED" --cov --cov-report=term:skip-covered
 
 step "vector backend conformance"
 run "conformance" env HOME="$(mktemp -d)" \
@@ -92,6 +93,15 @@ uv pip install -q --python "$VENV_EXTRAS/bin/python" -e ".[eval,opensearch,pgvec
 run "optional backends" env HOME="$(mktemp -d)" "$VENV_EXTRAS/bin/python" -m pytest \
   tests/test_opensearch_backend.py tests/test_pgvector_backend.py tests/test_docling_processor.py \
   tests/test_mock_targets_resolve.py -q -p no:cacheprovider
+
+step "dependency audit"
+# The core closure, as CI's compliance job audits it. This venv also has [eval],
+# so the closure is resolved from pyproject.toml instead of read from the venv.
+# The ignored advisory and its reason are in .github/workflows/tests.yml.
+CORE_REQS="$(mktemp -d)/core.txt"
+uv pip compile pyproject.toml --quiet --python "$PY" -o "$CORE_REQS"
+run "pip-audit" uvx --quiet pip-audit -r "$CORE_REQS" --no-deps --disable-pip \
+  --progress-spinner off --ignore-vuln PYSEC-2026-3740
 
 step "plugin template"
 uv pip install -q --python "$PY" --no-deps ./examples/lasagna-plugin-template

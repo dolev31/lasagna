@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import time
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -442,20 +443,178 @@ class TestMakefileValidation:
 
     @pytest.mark.parametrize("backend", BACKENDS)
     def test_validate_accepts_valid_backends(self, backend):
-        """make validate VECTOR_BACKEND={backend} must succeed."""
-        result = subprocess.run(
-            [
-                "make",
-                "-C",
-                str(DEPLOY_DIR),
-                "validate",
-                f"VECTOR_BACKEND={backend}",
-                f"RAG_JWT_SECRET={_VALIDATION_JWT_SECRET}",
-            ],
-            capture_output=True,
-            text=True,
+        """make validate VECTOR_BACKEND={backend} must succeed (API-only profiles)."""
+        result = _make_validate(f"VECTOR_BACKEND={backend}", "COMPOSE_PROFILES=")
+        assert result.returncode == 0, f"make validate failed for {backend}: {result.stdout}"
+
+
+def _make_validate(*overrides: str) -> subprocess.CompletedProcess:
+    """`make validate` with throwaway secrets; ``overrides`` win over them."""
+    return subprocess.run(
+        [
+            "make",
+            "-C",
+            str(DEPLOY_DIR),
+            "validate",
+            f"RAG_JWT_SECRET={_VALIDATION_JWT_SECRET}",
+            f"POSTGRES_PASSWORD={_REQUIRED_COMPOSE_SECRETS['POSTGRES_PASSWORD']}",
+            *overrides,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
+def _full_stack(backend: str) -> dict:
+    """The merged config with the celery and mcp profiles active, as `make up` runs it."""
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "-f",
+            "docker-compose.yml",
+            "-f",
+            f"backends/{backend}.yml",
+            "--profile",
+            "celery",
+            "--profile",
+            "mcp",
+            "config",
+        ],
+        cwd=str(DEPLOY_DIR),
+        capture_output=True,
+        text=True,
+        env=_compose_env(),
+    )
+    assert result.returncode == 0, f"Compose config merge failed for {backend}:\n{result.stderr}"
+    return yaml.safe_load(result.stdout)
+
+
+#: Backends whose worker, beat and mcp can share the vector store with the api.
+SERVER_BACKENDS = [b for b in BACKENDS if b != "milvus-lite"]
+LONG_RUNNING = ("api", "celery-worker", "celery-beat", "mcp")
+
+
+class TestTheFullStackRuns:
+    """The compose stack with Celery and MCP has to work as one system.
+
+    Before: the api stored an upload at a path inside its own container and
+    handed it to the worker, which had no such file; the worker and mcp
+    containers inherited the image's healthcheck on :8000, which they do not
+    serve, so `up --wait` could never succeed; `.env.example` defaulted to
+    milvus-lite with the celery and mcp profiles on, a combination that cannot
+    work; the Milvus image tag did not exist; and the Dockerfile's unquoted
+    `>=` silently dropped the version floors it named.
+    """
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_uploads_are_on_one_volume_at_the_upload_dir(self, backend):
+        services = _full_stack(backend)["services"]
+        for name in ("api", "celery-worker", "mcp"):
+            if backend == "milvus-lite" and name != "api":
+                continue
+            svc = services[name]
+            mounts = {
+                v["target"]: v.get("source")
+                for v in svc.get("volumes", [])
+                if v["type"] == "volume"
+            }
+            upload_dir = svc["environment"]["RAG_UPLOAD_DIR"]
+            assert mounts.get(upload_dir) == "uploads-data", (
+                f"{backend}/{name}: RAG_UPLOAD_DIR={upload_dir} but the uploads volume is "
+                f"mounted at {mounts}"
+            )
+
+    @pytest.mark.parametrize("backend", SERVER_BACKENDS)
+    def test_every_long_running_service_has_its_own_healthcheck(self, backend):
+        services = _full_stack(backend)["services"]
+        for name in LONG_RUNNING:
+            check = services[name].get("healthcheck", {})
+            assert check.get("test") and not check.get("disable"), f"{backend}/{name}: no check"
+        for name in ("celery-worker", "celery-beat"):
+            probe = " ".join(services[name]["healthcheck"]["test"])
+            assert ":8000" not in probe, f"{name} does not serve :8000: {probe}"
+        assert "/health" in " ".join(services["mcp"]["healthcheck"]["test"])
+        assert "inspect ping" in " ".join(services["celery-worker"]["healthcheck"]["test"])
+
+    @pytest.mark.parametrize("backend", SERVER_BACKENDS)
+    def test_every_service_gets_the_same_vector_backend(self, backend):
+        services = _full_stack(backend)["services"]
+        seen = {
+            name: services[name]["environment"].get("RAG_VECTOR_BACKEND") for name in LONG_RUNNING
+        }
+        assert len(set(seen.values())) == 1 and None not in seen.values(), seen
+
+    def test_milvus_lite_refuses_to_run_the_worker_and_mcp(self):
+        services = _full_stack("milvus-lite")["services"]
+        for name in ("celery-worker", "celery-beat", "mcp"):
+            command = " ".join(services[name]["command"])
+            assert "exit 1" in command and "COMPOSE_PROFILES" in command, name
+
+    @pytest.mark.parametrize("profiles", ["celery,mcp", "celery", "mcp", " celery , mcp "])
+    def test_validate_refuses_milvus_lite_with_celery_or_mcp(self, profiles):
+        result = _make_validate("VECTOR_BACKEND=milvus-lite", f"COMPOSE_PROFILES={profiles}")
+        assert result.returncode != 0
+        out = result.stdout + result.stderr
+        assert "milvus-lite runs inside the api process" in out
+        assert "COMPOSE_PROFILES=" in out
+
+    @pytest.mark.parametrize("profiles", ["", "tracing"])
+    def test_validate_allows_milvus_lite_without_them(self, profiles):
+        result = _make_validate("VECTOR_BACKEND=milvus-lite", f"COMPOSE_PROFILES={profiles}")
+        assert result.returncode == 0, result.stdout
+
+    def test_validate_requires_the_postgres_password(self):
+        result = _make_validate("VECTOR_BACKEND=qdrant", "POSTGRES_PASSWORD=")
+        assert result.returncode != 0
+        assert "POSTGRES_PASSWORD" in result.stdout + result.stderr
+
+    def test_the_example_env_passes_validation(self):
+        """Copying .env.example and filling in the secrets must give a valid stack."""
+        values = dict(
+            line.split("=", 1)
+            for line in (DEPLOY_DIR / ".env.example").read_text().splitlines()
+            if line and not line.startswith("#") and "=" in line
         )
-        assert result.returncode == 0, f"make validate failed for {backend}: {result.stderr}"
+        assert values["VECTOR_BACKEND"] != "milvus-lite"
+        result = _make_validate(
+            f"VECTOR_BACKEND={values['VECTOR_BACKEND']}",
+            f"COMPOSE_PROFILES={values['COMPOSE_PROFILES']}",
+        )
+        assert result.returncode == 0, result.stdout
+
+    def test_containers_read_the_env_file(self):
+        """Compose reads .env only for ${...}; LLM keys there never reached a container."""
+        base = yaml.safe_load((DEPLOY_DIR / "docker-compose.yml").read_text())
+        for name in LONG_RUNNING:
+            env_file = base["services"][name].get("env_file")
+            assert env_file and env_file[0]["path"] == ".env", name
+            assert env_file[0]["required"] is False, name
+
+    def test_the_milvus_service_can_start(self):
+        milvus = _full_stack("milvus")["services"]["milvus"]
+        assert not milvus["image"].endswith("-latest"), milvus["image"]
+        assert milvus["command"] == ["milvus", "run", "standalone"]
+        etcd = next(v for v in milvus["volumes"] if v["target"] == "/milvus/configs/embedEtcd.yaml")
+        assert Path(etcd["source"]).is_file(), etcd
+
+    def test_pip_version_specs_are_quoted(self):
+        """`pip install pkg>=1.0` in a shell is `pip install pkg` with stdout to "=1.0"."""
+        import re
+
+        text = (DEPLOY_DIR / "Dockerfile").read_text().replace("\\\n", " ")
+        pip_lines = [line for line in text.splitlines() if "pip install" in line]
+        assert pip_lines
+        for line in pip_lines:
+            # The shell treats a > or < outside quotes as a redirection.
+            unquoted = re.sub(r'"[^"]*"', "", line)
+            assert not re.search(r"[<>]", unquoted), f"unquoted version spec: {line.strip()}"
+
+    def test_gunicorn_preloads_and_passes_the_trusted_proxies(self):
+        text = (DEPLOY_DIR / "Dockerfile").read_text()
+        assert "--preload" in text
+        assert "--forwarded-allow-ips" in text and "FORWARDED_ALLOW_IPS" in text
+        assert "/data/uploads" in text, "the uploads volume would be root-owned"
 
 
 # ============================================================================
