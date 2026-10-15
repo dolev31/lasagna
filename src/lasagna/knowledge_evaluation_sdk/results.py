@@ -310,6 +310,10 @@ def _mean_by_sample(tasks: List[TaskResult], metric: str) -> Dict[Any, float]:
 #: Metrics where the smaller value is the better result: costs, failure counts,
 #: and RAGAS noise sensitivity (the share of claims the retrieved noise led the
 #: generator to get wrong). Every other metric ranks higher-is-better.
+#:
+#: ``llm_cache_hits`` and ``llm_cache_misses`` are deliberately absent: they
+#: say what an earlier run left in the cache, not how good or costly the arm
+#: is, so neither direction ranks anything.
 LOWER_IS_BETTER = frozenset(
     {
         "noise_sensitivity",
@@ -324,6 +328,7 @@ LOWER_IS_BETTER = frozenset(
         "short_lists",
         "agentic_fallback_count",
         "agentic_fallback_rate",
+        "cost_usd_estimate",
     }
 )
 

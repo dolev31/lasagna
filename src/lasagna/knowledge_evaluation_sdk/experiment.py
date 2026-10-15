@@ -48,6 +48,7 @@ from .checkpoint import CheckpointManager
 from .results import BenchmarkResults
 from .runner import HARNESS_KEYS, BenchmarkRunner, BenchmarkTask, TaskResult
 from ..utils.llm_cache import CacheStats, LLMCacheSettings, llm_cache_scope
+from .cost import PriceTable
 
 #: The unoverridden ``load_corpus``. An adapter still pointing at it ships no
 #: corpus of its own, whatever else it can do.
@@ -152,7 +153,9 @@ from lasagna.utils.token_usage import EVAL, SYSTEM, TokenUsage, UsageMeter  # no
 # the work. Prices are also not a property of a run: they change, they differ by
 # tier and commitment, and a rate frozen into a published bundle is
 # indistinguishable from a measurement to anyone reading it later. Tokens are
-# reported; multiply by what you actually pay.
+# reported; multiply by what you actually pay. A sweep that asks for a dollar
+# figure (`prices:`) gets `cost_usd_estimate` from `cost.py`, labelled as an
+# estimate, with the table and rates recorded beside it.
 
 
 def _is_abstention_answer(text: str) -> bool:
@@ -585,6 +588,10 @@ class ExperimentConfig:
     #: passes ``--no-cache`` or ``LASAGNA_LLM_CACHE=0``. Replays deterministic
     #: calls only; see :mod:`lasagna.utils.llm_cache`.
     llm_cache: LLMCacheSettings = field(default_factory=LLMCacheSettings)
+    #: Rates for a dollar estimate (``prices:``, opt-in): ``builtin`` or a
+    #: mapping of model to rates over the built-in table. None, the default,
+    #: reports tokens only. See :mod:`lasagna.knowledge_evaluation_sdk.cost`.
+    prices: Optional[PriceTable] = None
     #: Folder of the sweep file, where `module:function` components are found.
     #: Set by `Experiment.from_file`; not a YAML key.
     base_dir: str = ""
@@ -1047,6 +1054,7 @@ _TOP_LEVEL_KEYS = frozenset(
         "max_corpus_docs",
         "tracks",
         "llm_cache",
+        "prices",
     }
 )
 _PIPELINE_KEYS = frozenset(
@@ -1218,6 +1226,7 @@ def _parse_config(data: Dict[str, Any]) -> ExperimentConfig:
         max_corpus_docs=data.get("max_corpus_docs", 0),
         tracks=_parse_tracks(data.get("tracks")),
         llm_cache=LLMCacheSettings.parse(data.get("llm_cache")),
+        prices=PriceTable.parse(data.get("prices")),
     )
 
 
@@ -1508,6 +1517,11 @@ class Experiment:
         cache_settings = LLMCacheSettings.parse(cfg.llm_cache).resolved()
         cache_totals = CacheStats()
         eval_fn = _with_llm_cache(eval_fn, cache_settings, cache_totals)
+        prices = PriceTable.parse(cfg.prices)
+        if prices is not None:
+            from .cost import with_cost_estimate
+
+            eval_fn = with_cost_estimate(eval_fn, prices)
 
         # Agentic search reads part of its settings from the corpus session,
         # which the arms of a sweep share, so two agentic arms running at once
@@ -1542,6 +1556,13 @@ class Experiment:
         )
         # How much of this run was replayed, so a fast run can be read as one.
         results.experiment_config["llm_cache"] = cache_settings.record(cache_totals)
+        if prices is not None:
+            # The table and the rates behind every cost_usd_estimate.
+            from .cost import generator_model_name, judge_model_name
+
+            results.experiment_config["cost_estimate"] = prices.record(
+                [generator_model_name(), judge_model_name()]
+            )
 
         # Save outputs
         _save_outputs(results, output_dir, cfg.output_formats)

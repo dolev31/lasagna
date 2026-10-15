@@ -90,6 +90,16 @@ Sweeps, validation and metrics:
   `llm_cache: {deterministic_only: false}`. Off with `llm_cache: false`,
   `--no-cache` or `LASAGNA_LLM_CACHE=0`. Nothing is cached outside an
   experiment, so `lasagna serve` writes no prompt to disk.
+- **`lasagna benchmark experiment --dry-run`** prints the arms, the tasks, the
+  models the run loads and whether each is downloaded, a static token estimate
+  and, unless `--no-probe`, a 3-sample probe per benchmark extrapolated to the
+  whole run in tokens, seconds and (from a price table) dollars. Every number
+  is labelled an estimate, and nothing is written under the results folder.
+- **A dollar estimate, if asked for.** `prices: builtin` (a table dated
+  `builtin-2026-10`) or `prices: {model: {input_per_1m: ..., output_per_1m: ...}}`
+  adds `cost_usd_estimate` to each task whose tokens all have a rate; the run
+  metadata records the table and rates. Without `prices:` a run reports tokens
+  only, as before.
 - `lasagna --version` prints the installed version.
 - **`lasagna results significance` ends in a verdict.** A green box names each
   pair that survives Holm correction, which side won (lower-is-better metrics

@@ -1073,6 +1073,15 @@ def benchmark_experiment(
         help="Call the LLM for every request instead of replaying responses cached by "
         "an earlier run (same as llm_cache: false)",
     ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the arms, tasks and models, and estimate tokens, time and cost from "
+        "a 3-sample probe per benchmark, without running the sweep or writing results",
+    ),
+    no_probe: bool = typer.Option(
+        False, "--no-probe", help="With --dry-run, skip the probe, so nothing runs at all"
+    ),
 ):
     """Run a multi-benchmark experiment from a config file."""
     from .knowledge_evaluation_sdk.experiment import Experiment, runs_were_identical
@@ -1092,6 +1101,20 @@ def benchmark_experiment(
         from dataclasses import replace
 
         exp.config.llm_cache = replace(exp.config.llm_cache, enabled=False)
+    if no_probe and not dry_run:
+        _error("--no-probe only applies to a dry run. Add --dry-run, or drop --no-probe.")
+    if dry_run:
+        # Before anything below can clear checkpoints or make a folder.
+        from .knowledge_evaluation_sdk.cost import dry_run_lines
+
+        try:
+            lines = dry_run_lines(exp, probe=not no_probe)
+        except (ValueError, TypeError, KeyError, ImportError) as exc:
+            _error(str(exc))
+        for line in lines:
+            console.print(escape(line), soft_wrap=True)
+        _release_backend()
+        return
 
     if resume and not (exp.config.output_dir or exp.config.checkpoint_dir):
         # Without output_dir each run gets a new timestamped folder; resume

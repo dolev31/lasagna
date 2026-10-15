@@ -389,14 +389,17 @@ them, the task fails, as for a RAGAS metric. Function:
 | `system_*`, `eval_*` tokens and calls | task | Totals, with the judge's spend (`eval_*`) kept apart from the system's |
 | `generations_failed`, `short_lists` | task metrics | Answers that could not be generated; ranked lists shorter than k |
 | `llm_cache_hits`, `llm_cache_misses` | task metrics | LLM calls served from the response cache, and calls it looked up and did not have. Present only on a task that looked something up. They describe the run, not the system: a replayed call is counted in the token totals at its cold-run usage, so tokens and calls read the same cold or warm. The run's hit rate is `experiment_config.llm_cache` |
+| `cost_usd_estimate` | task metrics | Only when the sweep sets `prices:`. System tokens at the generator model's rate plus judge tokens at the judge's, in USD; absent when any of them has no rate. `experiment_config.cost_estimate` names the table (`builtin-2026-10` or the sweep's own rates) and the rates used |
 
 `llm_calls == 0` means no call was seen, which for a retrieval-only arm is the
 truth and for an uninstrumented client an undercount. Tokens are reported, not
-dollars: a price is not a measurement.
+dollars: a price is not a measurement. `cost_usd_estimate` is opt-in and an
+estimate, from rates that change.
 
 Lower is better for these (and for `noise_sensitivity`);
 `results.lower_is_better(metric)` says so, and the text leaderboard ranks them
-ascending.
+ascending. The cache counts are the exception: they describe what an earlier
+run left in the cache, so they rank nothing.
 
 ---
 
