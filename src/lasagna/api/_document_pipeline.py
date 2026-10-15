@@ -765,14 +765,15 @@ class DocumentPipeline:
                         if _is_dim_mismatch_error(exc)
                         else "COLLECTION SCHEMA"
                     )
+                    session = document.session_id
                     error_msg = (
-                        f"{mismatch} MISMATCH during insert:\n"
-                        "Cannot insert document - it does not match the collection's schema.\n"
-                        "Collection contains existing documents that would be lost.\n\n"
-                        "To resolve:\n"
-                        "  1. Use the same embedding model as existing documents\n"
-                        "  2. Call backend.force_rebuild_collection(confirm=True) to clear all data\n"
-                        "  3. Re-upload all documents after rebuild"
+                        f"{mismatch} MISMATCH during insert: collection "
+                        f"{config.collection_name!r} holds documents embedded another way, "
+                        f"so this document was not added and nothing was deleted. To keep "
+                        f"those documents, switch the session back to the profile they were "
+                        f"embedded with (lasagna configure --profile <profile> -s {session}). "
+                        f"To use this embedding model, upload into a new session "
+                        f"(lasagna upload <file> -s <new-session>)."
                     )
                     logger.error(error_msg)
                     raise ValueError(error_msg) from exc

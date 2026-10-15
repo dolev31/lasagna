@@ -1,6 +1,6 @@
 """What the MCP surface is allowed to do, decided by how it is reached.
 
-The 33 tools in ``server.py`` had no authentication of any kind, and five of
+The tools in ``server.py`` had no authentication of any kind, and five of
 them are operations the REST API refuses without ``X-Admin-Token``:
 
 ===========================  ==========================================
@@ -18,11 +18,12 @@ serves those routes, so the admin gate on the REST side was decorative: the
 identical operation was one unauthenticated MCP call away.
 
 ``rebuild_collection`` is the worst of the five and has no REST equivalent at
-all. It reads ``config.collection_name``, which resolves to the single global
-``rag_documents_v2`` — sessions are a metadata filter *within* that collection,
-not separate collections — and calls ``recreate_collection_for_config``. One
-call from any session drops every session's documents. It has no ``confirm``
-flag, where the strictly less destructive ``bulk_delete_session`` does.
+all. It reads ``config.collection_name``, which resolves to the collection of
+the session's embedding model, shared by every session on that model (sessions
+are a metadata filter *within* it, not separate collections), and calls
+``recreate_collection_for_config``. One call from any session drops every
+session's documents on that model. It had no ``confirm`` flag, where the
+strictly less destructive ``bulk_delete_session`` does; it has one now.
 
 **The rule.** Enforcement turns on when the surface is both networked and
 running with ``RAG_REQUIRE_AUTH``:

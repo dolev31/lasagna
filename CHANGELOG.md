@@ -310,7 +310,7 @@ Servers and deployment:
 - **Uploads processed by the Celery worker failed.** The api stored a file
   inside its own container and passed the path to the worker, which had no such
   file. The api, worker and mcp now share an `uploads-data` volume at
-  `RAG_UPLOAD_DIR=/data/uploads`.
+  `LASAGNA_UPLOAD_DIR=/data/uploads`.
 - The worker and mcp containers inherited the image's healthcheck on port
   8000, which they do not serve, so they always reported unhealthy.
 - `backends/milvus.yml` could not start: its image tag `v2.4-latest` does not

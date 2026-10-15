@@ -124,3 +124,14 @@ class TestTheCommandLine:
         result = _run(tmp_path=tmp_path, LASAGNA_MCP_TOOLS="everything")
         assert result.returncode == 2
         assert "--tools all" in result.stderr
+
+
+def test_the_path_flags_win_over_the_environment(monkeypatch, tmp_path):
+    """LASAGNA_DB_DIR outranks RAG_DB_DIR, and the flag used to set only the latter."""
+    from lasagna.core import paths
+
+    for name in ("LASAGNA_DB_DIR", "RAG_DB_DIR", "LASAGNA_UPLOAD_DIR", "RAG_UPLOAD_DIR"):
+        monkeypatch.setenv(name, str(tmp_path / "ambient"))
+    assert mcp_server._apply_path_flags(str(tmp_path / "db"), str(tmp_path / "up")) is True
+    assert paths.db_dir() == tmp_path / "db"
+    assert paths.upload_dir() == tmp_path / "up"

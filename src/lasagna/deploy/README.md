@@ -115,8 +115,8 @@ Each `backends/*.yml` file adds the vector DB service (if needed) and injects `R
 The api stores each upload at `/data/uploads/<document_id>/<file>` and hands
 that path to the Celery worker, which opens it. The `uploads-data` volume is
 mounted at `/data/uploads` on the api, celery-worker and mcp services, and
-`RAG_UPLOAD_DIR=/data/uploads` is set for all of them, so the path resolves in
-every container. Metadata and session configuration are in Postgres.
+`LASAGNA_UPLOAD_DIR=/data/uploads` is set for all of them, so the path resolves
+in every container. Metadata and session configuration are in Postgres.
 
 ### Health checks
 

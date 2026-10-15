@@ -519,9 +519,9 @@ class TestTheFullStackRuns:
                 for v in svc.get("volumes", [])
                 if v["type"] == "volume"
             }
-            upload_dir = svc["environment"]["RAG_UPLOAD_DIR"]
+            upload_dir = svc["environment"]["LASAGNA_UPLOAD_DIR"]
             assert mounts.get(upload_dir) == "uploads-data", (
-                f"{backend}/{name}: RAG_UPLOAD_DIR={upload_dir} but the uploads volume is "
+                f"{backend}/{name}: LASAGNA_UPLOAD_DIR={upload_dir} but the uploads volume is "
                 f"mounted at {mounts}"
             )
 

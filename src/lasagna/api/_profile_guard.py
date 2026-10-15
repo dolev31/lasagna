@@ -1,9 +1,12 @@
 """Refuse a config change that would leave stored documents unsearchable.
 
-Every session shares one collection, embedded at one size. Switching a session
-to a profile with another embedding size was accepted on every surface (CLI,
-REST, MCP), and every later upload and search in it failed with an error whose
-remedies exist only in Python.
+Each embedding model has its own collection, which every session on that
+model shares, and a collection holds vectors of one size. Switching a session to
+a profile with another embedding size, onto a collection already holding
+vectors of a different size (an explicit ``collection_name``, or another model
+at the same name), was accepted on every surface (CLI, REST, MCP), and every
+later upload and search in it failed with an error whose remedies exist only in
+Python.
 
 `KnowledgeConfigManager` calls `refuse_embedding_change` before it applies any
 write that changes the session's embedding size (a profile switch, a patch, a

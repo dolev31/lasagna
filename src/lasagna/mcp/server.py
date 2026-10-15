@@ -1913,19 +1913,19 @@ def rebuild_collection(
     admin_token: Optional[str] = None,
     confirm: bool = False,
 ) -> str:
-    """Drop and recreate the Milvus collection for the current config.
+    """Drop and recreate the vector collection for the session's embedding model.
 
     Use when embedding dimensions or index settings change and there are
     no documents to reindex.
 
-    **This is not scoped to your session.** ``collection_name`` resolves to a
-    single global collection — sessions are a metadata filter within it — so a
-    drop takes every session's documents with it. The dimension check below
-    means it only drops when the configured embedding dimension no longer
-    matches the collection, but a caller can produce that mismatch themselves
-    with one prior ``patch_rag_config``. Hence the admin credential and the
-    ``confirm`` flag that the strictly less destructive ``bulk_delete_session``
-    has always had.
+    **This is not scoped to your session.** Each embedding model has its own
+    collection, and every session on that model shares it (sessions are a
+    filter within it), so a drop takes every session's documents on that model
+    with it. The dimension check below means it only drops when the configured
+    embedding dimension no longer matches the collection, but a caller can
+    produce that mismatch themselves with one prior ``patch_rag_config``. Hence
+    the admin credential and the ``confirm`` flag that the strictly less
+    destructive ``bulk_delete_session`` has always had.
 
     :param admin_token: Required on a networked transport with
         ``RAG_REQUIRE_AUTH`` set.
@@ -1942,9 +1942,10 @@ def rebuild_collection(
         return json.dumps(
             {
                 "error": (
-                    "confirm must be true. This drops the shared collection, "
-                    "which removes every session's documents, not only "
-                    f"{session_id!r}."
+                    "confirm must be true. This drops the collection for this "
+                    "session's embedding model, which every session on that "
+                    "model shares, so it removes every session's documents "
+                    f"there, not only {session_id!r}'s."
                 )
             }
         )
@@ -3887,6 +3888,20 @@ def create_mcp_server(
 # ---------------------------------------------------------------------------
 
 
+def _apply_path_flags(db_dir: Optional[str], upload_dir: Optional[str]) -> bool:
+    """Make ``--db-dir`` and ``--upload-dir`` win over the environment.
+
+    Both names are written: ``LASAGNA_`` wins over ``RAG_`` when both are set,
+    so writing only the ``RAG_`` name let an ambient ``LASAGNA_DB_DIR``
+    override the flag. Returns whether anything was set.
+    """
+    if db_dir:
+        os.environ["LASAGNA_DB_DIR"] = os.environ["RAG_DB_DIR"] = db_dir
+    if upload_dir:
+        os.environ["LASAGNA_UPLOAD_DIR"] = os.environ["RAG_UPLOAD_DIR"] = upload_dir
+    return bool(db_dir or upload_dir)
+
+
 def main():
     """Run the Lasagna MCP server."""
     global mcp, _eager_init, _owns_logging
@@ -3952,12 +3967,12 @@ def main():
     parser.add_argument(
         "--db-dir",
         default=None,
-        help="Database directory (default: RAG_DB_DIR env or ~/.rag_knowledge/dbs)",
+        help="Database directory (default: LASAGNA_DB_DIR or RAG_DB_DIR, else ~/.lasagna/dbs)",
     )
     parser.add_argument(
         "--upload-dir",
         default=None,
-        help="Upload directory (default: RAG_UPLOAD_DIR env or ~/.rag_knowledge/uploads)",
+        help="Upload directory (default: LASAGNA_UPLOAD_DIR or RAG_UPLOAD_DIR, else ~/.lasagna/uploads)",
     )
     parser.add_argument(
         "--session-backend",
@@ -3990,11 +4005,7 @@ def main():
     # NOTE: Module-level imports may have already triggered auto-config with
     # default paths, so we must reset providers + config after setting env vars.
     _needs_reset = False
-    if args.db_dir:
-        os.environ["RAG_DB_DIR"] = args.db_dir
-        _needs_reset = True
-    if args.upload_dir:
-        os.environ["RAG_UPLOAD_DIR"] = args.upload_dir
+    if _apply_path_flags(args.db_dir, args.upload_dir):
         _needs_reset = True
     if args.session_backend:
         os.environ["RAG_SESSION_BACKEND"] = args.session_backend

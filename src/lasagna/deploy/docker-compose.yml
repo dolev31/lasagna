@@ -30,13 +30,14 @@ x-env: &common-env
   # POSTGRES_PASSWORD back to "rag" -- exactly what requiring it prevents.
   RAG_DATABASE_DSN: postgresql://rag:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/rag
   RAG_REDIS_URL: redis://redis:6379
-  # The api stores an upload at <RAG_UPLOAD_DIR>/<document_id>/<file> and hands
+  # The api stores an upload at <upload dir>/<document_id>/<file> and hands
   # that absolute path to the celery worker, which opens it to process the
   # document. Each container has its own filesystem, so the path only resolves
   # on the worker because every service mounts the `uploads-data` volume at
   # this same directory. Metadata and session config live in Postgres, so no
-  # SQLite directory needs sharing.
-  RAG_UPLOAD_DIR: /data/uploads
+  # SQLite directory needs sharing. The LASAGNA_ name, because it wins over a
+  # RAG_UPLOAD_DIR in .env, which would move uploads off the shared volume.
+  LASAGNA_UPLOAD_DIR: /data/uploads
   # On shutdown the api waits this long (seconds) for documents still in its
   # own processing threads, then marks them failed with the reason. It has to
   # fit inside gunicorn's --graceful-timeout (30 s in the image), which has to
