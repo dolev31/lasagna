@@ -386,12 +386,19 @@ from ._helpers import (  # noqa: E402
 
 @dataclass
 class BenchmarkSpec:
-    """Specifies a single benchmark to evaluate."""
+    """Specifies a single benchmark to evaluate.
 
-    name: str
+    ``path`` names your own data instead of a registered benchmark: a JSONL or
+    CSV file, or a BEIR folder (``docs/own-data.md``). ``generate_tasks``
+    registers it and replaces ``name`` with ``local/<stem>@<content hash>``, or
+    ``<name>@<content hash>`` when ``name`` is given.
+    """
+
+    name: str = ""
     split: str = "test"
     n_samples: Optional[int] = None
     filters: Dict[str, Any] = field(default_factory=dict)
+    path: str = ""
 
 
 @lru_cache(maxsize=1)
@@ -1073,7 +1080,7 @@ _PIPELINE_KEYS = frozenset(
 
 
 _FACTORIAL_KEYS = frozenset({"factor_a", "factor_b", "held_fixed"})
-_BENCHMARK_KEYS = frozenset({"name", "split", "n_samples", "filters"})
+_BENCHMARK_KEYS = frozenset({"name", "split", "n_samples", "filters", "path"})
 
 
 def runs_were_identical(task_results: Iterable[Any]) -> bool:
@@ -1153,15 +1160,23 @@ def _parse_config(data: Dict[str, Any]) -> ExperimentConfig:
         if isinstance(b, str):
             benchmarks.append(BenchmarkSpec(name=b))
         elif isinstance(b, dict):
-            _refuse_unknown(b, _BENCHMARK_KEYS, f"benchmark {b.get('name', '?')!r}")
-            if "name" not in b:
-                raise ValueError(f"A benchmark entry needs a `name`; got {b!r}")
+            _refuse_unknown(
+                b, _BENCHMARK_KEYS, f"benchmark {b.get('name') or b.get('path') or '?'!r}"
+            )
+            if "name" not in b and "path" not in b:
+                raise ValueError(
+                    f"A benchmark entry needs a `name` (a registered benchmark) or a "
+                    f"`path` (a JSONL or CSV file or a BEIR folder of your own); got {b!r}"
+                )
+            if "path" in b and not (isinstance(b["path"], str) and b["path"].strip()):
+                raise ValueError(f"A benchmark `path` must be a file or folder; got {b!r}")
             benchmarks.append(
                 BenchmarkSpec(
-                    name=b["name"],
+                    name=b.get("name", ""),
                     split=b.get("split", "test"),
                     n_samples=b.get("n_samples"),
                     filters=b.get("filters", {}),
+                    path=b.get("path", ""),
                 )
             )
 
@@ -1412,6 +1427,11 @@ class Experiment:
     def generate_tasks(self) -> List[BenchmarkTask]:
         """Generate all benchmark tasks (Cartesian product)."""
         cfg = self.config
+        # Entries given as a `path` are read, validated and registered under a
+        # name carrying their content hash, before any model loads.
+        from .benchmarks.adapters.local_files import prepare_local_benchmarks
+
+        prepare_local_benchmarks(cfg.benchmarks, cfg.base_dir, cfg.tracks)
         pipeline_configs = _generate_pipeline_configs(cfg.pipeline)
         tasks: List[BenchmarkTask] = []
 

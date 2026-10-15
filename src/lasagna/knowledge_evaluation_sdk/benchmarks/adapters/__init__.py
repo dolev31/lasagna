@@ -1,6 +1,10 @@
 """Built-in benchmark adapters.
 
 Called by :meth:`BenchmarkRegistry._register_builtins` on first access.
+
+Your own data files are not registered here. ``local_files.py`` registers each
+JSONL or CSV file or BEIR folder when a sweep names it by ``path`` (or
+``lasagna benchmark run`` is given one), under a name carrying its content hash.
 """
 
 from __future__ import annotations

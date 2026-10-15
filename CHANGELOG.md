@@ -156,6 +156,18 @@ Sweeps, validation and metrics:
   offline, in light and dark mode.
 - `lasagna results leaderboard --format latex` prints one booktabs table per
   comparability group, or writes one `.tex` file per benchmark with `-o`.
+- **Your own data as a benchmark, with no adapter.** A JSONL or CSV file, or a
+  BEIR folder, runs with `benchmarks: [{path: data/my.jsonl}]` in a sweep or
+  `lasagna benchmark run ./my.jsonl`. It registers as
+  `local/<file name>@<12 hex digits of its sha256>`, so an edited file never
+  resumes the old file's checkpoints or shares its leaderboard group.
+  `lasagna benchmark validate-data` names each bad row and field and says which
+  tracks the data supports. See `docs/own-data.md`.
+- **`lasagna benchmark synthesize`** writes factoid, multi-hop and unanswerable
+  questions from your documents with the configured LLM, checks each one with a
+  second call and drops those that fail. Each row records its prompt's sha256,
+  the model and the seed; `--dry-run` prints the plan and a token estimate
+  without calling the LLM. For development, not for reported results.
 
 ### Changed
 

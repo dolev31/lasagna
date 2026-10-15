@@ -198,6 +198,19 @@ python -m lasagna benchmark run beir/nfcorpus --samples 100 --mode live
 
 ---
 
+## Your Own Data, Without an Adapter
+
+A JSONL or CSV file of questions, or a folder in the BEIR layout, runs as a
+benchmark with no code: `benchmarks: [{path: data/my.jsonl}]` in a sweep, or
+`lasagna benchmark run ./my.jsonl`. `lasagna benchmark validate-data <path>`
+checks it and says which tracks it supports. The file registers as
+`local/<file name>@<12 hex digits of its sha256>`, so an edited file is a new
+benchmark with its own checkpoints, corpus and comparability key.
+`lasagna benchmark synthesize ./docs` writes a development set from your
+documents with an LLM. Formats and details: [docs/own-data.md](../../../../docs/own-data.md).
+
+---
+
 ## Adding Custom Benchmarks
 
 ### 1. Implement the adapter
