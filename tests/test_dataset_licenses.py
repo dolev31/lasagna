@@ -39,7 +39,11 @@ class TestTheListIsCurrent:
         from lasagna.knowledge_evaluation_sdk.benchmarks import benchmark_registry
 
         text = DATASETS_MD.read_text()
-        public = [n for n in benchmark_registry.names() if not n.startswith("private_eval/")]
+        public = [
+            n
+            for n in benchmark_registry.names()
+            if benchmark_registry.is_builtin(n) and not n.startswith("private_eval/")
+        ]
         missing = [n for n in public if f"`{n}`" not in text]
         assert not missing, (
             f"{len(missing)} benchmark(s) missing from DATASETS.md: {missing[:5]}. "

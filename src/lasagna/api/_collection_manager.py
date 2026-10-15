@@ -6,11 +6,17 @@ schema migration, index management, and embedding model reload.
 
 import time
 import threading
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
-from lasagna.core.config import rag_config, RAGConfig
+from lasagna.core.config import (
+    LEGACY_COLLECTION_NAME,
+    adopt_collection,
+    is_derived_collection_name,
+    rag_config,
+    RAGConfig,
+)
 from lasagna.core.schema import (
     create_abstract_rag_schema,
 )
@@ -19,6 +25,130 @@ from ..vector_backends import (
     VectorStoreAdapter,
 )
 from ..infrastructure.embedding import get_embedding_manager, EmbeddingManager
+
+
+class CollectionIdentityError(ValueError):
+    """A collection holds vectors from another embedding model or size."""
+
+
+def _stamp_store() -> Any:
+    """The metadata database that holds the collection stamps, or None."""
+    try:
+        from lasagna.core.database import get_rag_database
+
+        db = get_rag_database()
+    except Exception as exc:  # noqa: BLE001 - a missing stamp store skips the check
+        logger.debug(f"Collection stamps unavailable: {exc}")
+        return None
+    return db if hasattr(db, "get_collection_meta") else None
+
+
+def _read_stamp(backend_name: str, collection_name: str) -> Optional[Dict[str, Any]]:
+    db = _stamp_store()
+    if db is None:
+        return None
+    try:
+        return db.get_collection_meta(collection_name, vector_backend=backend_name)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Could not read the stamp of collection {collection_name!r}: {exc}")
+        return None
+
+
+def _write_stamp(
+    backend_name: str,
+    collection_name: str,
+    model: Optional[str],
+    dim: int,
+    *,
+    replace: bool = False,
+) -> None:
+    """Stamp a collection. ``replace`` is for one just created: a stamp left by
+    a collection of that name that was removed outside Lasagna is stale."""
+    db = _stamp_store()
+    if db is None:
+        return
+    try:
+        from lasagna.sdk._version import __version__
+
+        if replace:
+            db.forget_collection_meta(collection_name, vector_backend=backend_name)
+        db.stamp_collection(
+            collection_name,
+            model,
+            int(dim),
+            vector_backend=backend_name,
+            lasagna_version=__version__,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Could not record which model collection {collection_name!r} holds: {exc}")
+
+
+def _forget_stamp(backend_name: str, collection_name: str) -> None:
+    db = _stamp_store()
+    if db is None:
+        return
+    try:
+        db.forget_collection_meta(collection_name, vector_backend=backend_name)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"Could not remove the stamp of collection {collection_name!r}: {exc}")
+
+
+def _profiles_using(model: Optional[str]) -> List[str]:
+    """Built-in profiles that embed with ``model``."""
+    try:
+        from lasagna.core.session_config._profiles import ProfileMixin
+
+        specs = ProfileMixin._PROFILE_SPECS
+    except Exception:  # noqa: BLE001
+        return []
+    return [name for name, spec in specs.items() if model and spec.get("embedding_model") == model]
+
+
+def _switch_back(model: Optional[str], session_id: str) -> str:
+    """How to make a session embed with ``model`` again, as a command when one exists."""
+    profiles = _profiles_using(model)
+    if profiles:
+        return f"lasagna configure --profile {profiles[0]} -s {session_id}"
+    return f"set embedding_model to {model} for session {session_id!r}"
+
+
+def _effective_dim(config: Any) -> int:
+    dim = getattr(config, "effective_embedding_dim", None)
+    return int(dim if dim is not None else config.embedding_dim)
+
+
+def _model_mismatch_message(
+    config: Any, collection_name: str, stamped_model: str, stamped_dim: Any
+) -> str:
+    session = getattr(config, "_session_id", None) or "default"
+    model = getattr(config, "embedding_model", None)
+    return (
+        f"Collection {collection_name!r} holds documents embedded with {stamped_model} "
+        f"({stamped_dim} dimensions), but this configuration embeds with {model}. "
+        f"Vectors from two models cannot be compared, so nothing was changed. To keep "
+        f"using these documents, switch back: {_switch_back(stamped_model, session)}. "
+        f"To use {model}, upload into a new session, or set collection_name to a name "
+        f"of its own (or remove the setting, which gives each model its own collection)."
+    )
+
+
+def _dimension_mismatch_message(
+    config: Any, collection_name: str, stored_dim: int, stamped_model: Optional[str]
+) -> str:
+    session = getattr(config, "_session_id", None) or "default"
+    wanted = _effective_dim(config)
+    if stamped_model:
+        back = _switch_back(stamped_model, session)
+    else:
+        back = f"use a model that embeds at {stored_dim} dimensions in session {session!r}"
+    return (
+        f"Collection {collection_name!r} holds documents embedded at {stored_dim} "
+        f"dimensions, but this configuration embeds at {wanted}, so every search and "
+        f"upload would fail. Nothing was changed. To keep using these documents, switch "
+        f"back: {back}. To embed at {wanted}, upload into a new session, or set "
+        f"collection_name to a name of its own (or remove the setting, which gives each "
+        f"model its own collection)."
+    )
 
 
 def _dense_index_type(backend: Any, config: Any) -> str:
@@ -160,7 +290,8 @@ class CollectionManager:
     # =========================================================================
 
     def initialize_collection(self):
-        """Initialize vector collection with SOTA configuration."""
+        """Create the default configuration's collection, or adopt the legacy one."""
+        self.adopt_legacy_collection(rag_config)
         collection_name = rag_config.collection_name
         embedding_dim = self.embedding_manager.dimension
 
@@ -184,7 +315,7 @@ class CollectionManager:
     def ensure_collection_for_config(self, config: RAGConfig) -> None:
         """Ensure a collection exists for the provided config."""
         collection_name = config.collection_name
-        embedding_dim = config.embedding_dim
+        embedding_dim = _effective_dim(config)
 
         if self._default_backend.has_collection(collection_name):
             return
@@ -198,14 +329,23 @@ class CollectionManager:
     def recreate_collection_for_config(
         self, config: RAGConfig, backend: VectorStoreAdapter = None
     ) -> None:
-        """Drop and recreate the collection for the provided config."""
+        """Drop and recreate the collection for the provided config.
+
+        Rebuilding an empty collection loses nothing, so it is logged as
+        information; only a drop that removes documents is a warning.
+        """
         backend = backend or self._default_backend
         collection_name = config.collection_name
         if backend.has_collection(collection_name):
-            logger.warning(f"Dropping vector collection for rebuild: {collection_name}")
+            if collection_is_empty(backend, collection_name):
+                logger.info(f"Recreating empty vector collection: {collection_name}")
+            else:
+                logger.warning(f"Dropping vector collection for rebuild: {collection_name}")
             backend.drop_collection(collection_name)
+            _forget_stamp(backend.backend_name, collection_name)
         collection_key = (backend.backend_name, collection_name)
         self._initialized_collections.pop(collection_key, None)
+        self._checked_collections().pop(collection_key, None)
         self.ensure_backend_collection(backend, config)
 
     def ensure_backend_collection(self, backend: VectorStoreAdapter, config: RAGConfig) -> None:
@@ -262,6 +402,13 @@ class CollectionManager:
             params=config.index_params,
         )
         backend.create_collection(collection_name, abstract_schema, index_config)
+        _write_stamp(
+            backend.backend_name,
+            collection_name,
+            getattr(config, "embedding_model", None),
+            embedding_dim,
+            replace=True,
+        )
 
     def create_index_on_backend(
         self,
@@ -453,51 +600,147 @@ class CollectionManager:
         return collection_is_empty(backend or self._default_backend, collection_name)
 
     def maybe_reload_embedding_manager(self, config: RAGConfig) -> None:
-        """Reload embedding manager if the configured model changes.
+        """Make the embedder current for ``config``, after checking its collection.
 
-        WARNING: Dimension mismatch is handled safely - we DO NOT auto-delete data.
+        A collection holds the vectors of one model at one size. Opening it
+        with another model or size is refused with the ways out; nothing is
+        dropped unless it is empty. The collection is created when missing, so
+        a session's first upload under a new profile simply starts one.
         """
-        collection_dim = self.get_collection_embedding_dim(config.collection_name)
-        if collection_dim is not None and config.embedding_dim != collection_dim:
-            has_data = not self.collection_is_empty(config.collection_name)
-
-            if has_data:
-                error_msg = (
-                    f"EMBEDDING DIMENSION MISMATCH DETECTED:\n"
-                    f"  - Collection dimension: {collection_dim}\n"
-                    f"  - Configured dimension: {config.embedding_dim}\n"
-                    f"  - Collection has existing documents that would be DELETED.\n\n"
-                    f"To resolve this:\n"
-                    f"  1. Keep current model: Update config to use embedding_dim={collection_dim}\n"
-                    f"  2. Migrate to new model: Export documents, clear collection, re-upload\n"
-                    f"  3. Force rebuild (DATA LOSS): Call backend.force_rebuild_collection()\n"
-                )
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-            else:
-                logger.warning(
-                    "Embedding dimension mismatch detected on empty collection: "
-                    f"collection_dim={collection_dim}, config_dim={config.embedding_dim}. "
-                    "Rebuilding empty collection to match current config."
-                )
-                self.recreate_collection_for_config(config)
+        self.adopt_legacy_collection(config)
+        self.check_collection_identity(config)
 
         from ..infrastructure.embedding.manager import _config_signature
 
-        if getattr(self.embedding_manager, "signature", None) == _config_signature(config):
+        if getattr(self.embedding_manager, "signature", None) != _config_signature(config):
+            logger.info(
+                "Reloading embedding manager for config change: "
+                f"model={self.embedding_manager.model_name} -> {config.embedding_model}"
+            )
+            from ..infrastructure.embedding import reset_embedding_manager
+            from ..retrieval.search import reset_reranker
+
+            reset_embedding_manager()
+            self.embedding_manager = get_embedding_manager(config)
+
+            reset_reranker()
+
+        if self._uses_default_backend(config):
+            self.ensure_backend_collection(self._default_backend, config)
+
+    # =========================================================================
+    # Collection Identity
+    # =========================================================================
+
+    def _checked_collections(self) -> Dict[tuple, set]:
+        """(backend, collection) -> the (model, size) pairs already checked here."""
+        checked = getattr(self, "_identity_checked", None)
+        if checked is None:
+            checked = self._identity_checked = {}
+        return checked
+
+    def _uses_default_backend(self, config: Any) -> bool:
+        name = getattr(config, "vector_backend", None)
+        if name is None:
+            return True
+        return name == getattr(self, "_default_backend_name", name) and (
+            getattr(config, "vector_backend_config", None) or {}
+        ) == (getattr(self, "_default_backend_config", None) or {})
+
+    def check_collection_identity(self, config: Any) -> None:
+        """Refuse a collection whose vectors another model or size made.
+
+        The stamp names the model; the schema gives the size. Either differing
+        from the configuration raises :class:`CollectionIdentityError`. An
+        empty collection at the wrong size is rebuilt instead, since it holds
+        nothing to lose.
+        """
+        backend = self._default_backend
+        backend_name = getattr(backend, "backend_name", "milvus")
+        name = config.collection_name
+        model = getattr(config, "embedding_model", None)
+        wanted = _effective_dim(config)
+        key = (backend_name, name)
+        if (model, wanted) in self._checked_collections().get(key, set()):
             return
 
-        logger.info(
-            "Reloading embedding manager for config change: "
-            f"model={self.embedding_manager.model_name} -> {config.embedding_model}"
-        )
-        from ..infrastructure.embedding import reset_embedding_manager
-        from ..retrieval.search import reset_reranker
+        stamp = _read_stamp(backend_name, name)
+        stamped_model = (stamp or {}).get("embedding_model")
+        if stamped_model and model and stamped_model != model:
+            message = _model_mismatch_message(config, name, stamped_model, stamp["embedding_dim"])
+            logger.error(message)
+            raise CollectionIdentityError(message)
 
-        reset_embedding_manager()
-        self.embedding_manager = get_embedding_manager(config)
+        stored = self.get_collection_embedding_dim(name)
+        if stored is not None and stored != wanted:
+            if not self.collection_is_empty(name):
+                message = _dimension_mismatch_message(config, name, stored, stamped_model)
+                logger.error(message)
+                raise CollectionIdentityError(message)
+            logger.info(
+                f"Collection {name!r} is empty and sized {stored}; recreating it at {wanted}."
+            )
+            self.recreate_collection_for_config(config)
+        elif stored is not None and stamp is None and not self.collection_is_empty(name):
+            # Documents from before collections were stamped: the first model
+            # to open them at their size is taken to be the one that made them.
+            _write_stamp(backend_name, name, model, stored)
 
-        reset_reranker()
+        self._checked_collections().setdefault(key, set()).add((model, wanted))
+
+    def adopt_legacy_collection(self, config: Any) -> bool:
+        """Let a model keep the documents an earlier version stored for it.
+
+        Before 0.1.0 every model wrote to ``rag_documents_v2``. The first model
+        to open it at the size it holds adopts it under that name, so upgrading
+        does not hide anyone's documents. A model at another size gets its own
+        collection and the old one is left alone (see :meth:`legacy_collections`).
+        Returns whether ``config`` now uses the legacy collection.
+        """
+        name = getattr(config, "collection_name", None)
+        if not is_derived_collection_name(name):
+            return name == LEGACY_COLLECTION_NAME
+        backend = self._default_backend
+        backend_name = getattr(backend, "backend_name", "milvus")
+        model = getattr(config, "embedding_model", None)
+        dim = _effective_dim(config)
+        store = (getattr(config, "_config", None) or {}).get("db_path")
+        decided = getattr(self, "_legacy_decided", None)
+        if decided is None:
+            decided = self._legacy_decided = set()
+        if (store, model, dim) in decided:
+            return False
+        try:
+            stamp = _read_stamp(backend_name, LEGACY_COLLECTION_NAME)
+            if stamp:
+                if stamp.get("embedding_model") == model and int(stamp["embedding_dim"]) == dim:
+                    adopt_collection(LEGACY_COLLECTION_NAME, model, dim, store)
+                    return True
+                return False
+            if backend.has_collection(name) or not backend.has_collection(LEGACY_COLLECTION_NAME):
+                return False
+            if collection_is_empty(backend, LEGACY_COLLECTION_NAME):
+                return False
+            if self.get_collection_embedding_dim(LEGACY_COLLECTION_NAME) != dim:
+                return False
+            _write_stamp(backend_name, LEGACY_COLLECTION_NAME, model, dim)
+            adopt_collection(LEGACY_COLLECTION_NAME, model, dim, store)
+            logger.info(
+                f"Using the existing collection {LEGACY_COLLECTION_NAME!r} for {model}: it "
+                f"holds {dim}-dimension documents from an earlier version of Lasagna."
+            )
+            return True
+        finally:
+            decided.add((store, model, dim))
+
+    def legacy_collections(self, backend: VectorStoreAdapter = None) -> List[Dict[str, Any]]:
+        """Collections from before 0.1.0 that no configured model uses.
+
+        ``rag_documents_v2`` held every model's vectors. When no model adopted
+        it (its documents are at a size no configuration opened), it is left in
+        place for its owner to switch back to or remove; ``status`` lists it.
+        """
+        return legacy_collections(backend or self._default_backend)
 
     def force_rebuild_collection(self, confirm: bool = False, hybrid_searcher=None) -> bool:
         """Force rebuild the collection, DELETING ALL EXISTING DOCUMENTS.
@@ -576,6 +819,31 @@ class CollectionManager:
         else:
             logger.info(f"Initializing vector backend: {backend_name}")
             return get_backend(backend_name, **backend_cfg)
+
+
+def legacy_collections(backend: VectorStoreAdapter) -> List[Dict[str, Any]]:
+    """The pre-0.1.0 shared collection, when it holds documents no model adopted.
+
+    Each entry gives the name, row count and embedding size, which is what a
+    user needs to decide whether to switch back to the model that made it or
+    remove it. Empty when it does not exist, is empty, or was adopted.
+    """
+    name = LEGACY_COLLECTION_NAME
+    backend_name = getattr(backend, "backend_name", "milvus")
+    try:
+        if not backend.has_collection(name):
+            return []
+        stats = backend.get_collection_stats(name)
+        rows = stats.get("row_count") if isinstance(stats, dict) else stats.row_count
+        rows = int(rows or 0)
+    except Exception as exc:  # noqa: BLE001 - a listing must not fail a status command
+        logger.debug(f"Could not inspect {name!r}: {exc}")
+        return []
+    if rows == 0 or _read_stamp(backend_name, name):
+        return []
+    shim = type("_Shim", (), {"_default_backend": backend})()
+    dim = CollectionManager.get_collection_embedding_dim(shim, name)
+    return [{"name": name, "rows": rows, "embedding_dim": dim}]
 
 
 def collection_is_empty(backend: VectorStoreAdapter, collection_name: str) -> bool:

@@ -30,7 +30,7 @@ pip install -e ".[eval]" --group dev      # enough for the test suite
 ```
 
 The default suite is hermetic: no network, no external services, and it never
-touches your real `~/.rag_knowledge` store. `tests/live/` needs services running
+touches your real `~/.lasagna` store. `tests/live/` needs services running
 (`lasagna serve`); `tests/stress/` is long-running.
 
 ## Adding a component

@@ -221,7 +221,9 @@ class TestReadmeCountsAreReal:
         public = [
             n
             for n in benchmark_registry.names()
-            if n not in internal and not n.startswith("private_eval")
+            if n not in internal
+            and benchmark_registry.is_builtin(n)
+            and not n.startswith("private_eval")
         ]
         assert int(claimed.group(1)) == len(public), (
             f"README claims {claimed.group(1)} benchmarks; the registry exposes "

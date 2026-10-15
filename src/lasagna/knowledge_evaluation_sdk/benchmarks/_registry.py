@@ -57,6 +57,9 @@ class BenchmarkRegistry:
         self._adapters: Dict[str, BaseBenchmarkAdapter] = {}
         self._data_lock = threading.Lock()
         self._builtins_registered = False
+        # Names the package itself registers, as opposed to plugins and files
+        # registered at run time; what the docs count.
+        self._builtin_names: frozenset = frozenset()
 
     # ------------------------------------------------------------------
     # Built-in registration (lazy, thread-safe)
@@ -78,6 +81,8 @@ class BenchmarkRegistry:
             from .adapters import register_all
 
             register_all(self)
+            with self._data_lock:
+                self._builtin_names = frozenset(self._adapters)
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Failed to register built-in benchmarks: {exc}")
 
@@ -180,6 +185,11 @@ class BenchmarkRegistry:
         self._ensure_builtins()
         with self._data_lock:
             return sorted(self._adapters.keys())
+
+    def is_builtin(self, name: str) -> bool:
+        """Whether *name* ships with the package (not a plugin or a local file)."""
+        self._ensure_builtins()
+        return name in self._builtin_names
 
     def __contains__(self, name: str) -> bool:
         self._ensure_builtins()

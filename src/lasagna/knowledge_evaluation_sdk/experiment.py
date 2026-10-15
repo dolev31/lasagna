@@ -1405,6 +1405,15 @@ class Experiment:
         _check_components_exist(pipeline_configs)
         _check_components_conform(pipeline_configs)
 
+        # What a checkpoint depends on beyond its task: metric definitions,
+        # package version, judge and environment settings. In every task key,
+        # so --resume never restores a result computed under other ones.
+        from .run_provenance import resume_fingerprint
+
+        fingerprint = resume_fingerprint(
+            os.environ.get("RAG_EVAL_JUDGE_MODEL") or cfg.judge_model or None
+        )
+
         for bench_spec in cfg.benchmarks:
             for pipe_cfg in pipeline_configs:
                 for run_idx in range(cfg.n_runs):
@@ -1425,6 +1434,7 @@ class Experiment:
                         max_corpus_docs=cfg.max_corpus_docs,
                         variance_source=cfg.variance_source,
                         tracks=(tuple(cfg.tracks) if list(cfg.tracks) != list(_TRACKS) else None),
+                        resume_fingerprint=fingerprint,
                     )
                     tasks.append(task)
 
@@ -1506,7 +1516,13 @@ class Experiment:
         results = BenchmarkResults(
             task_results=task_results,
             experiment_name=cfg.name,
-            experiment_config=_run_metadata(cfg),
+            experiment_config=_run_metadata(cfg, concurrency=concurrency),
+        )
+        # The commit of each model the tasks ran, read from the local cache.
+        from .run_provenance import model_revisions, models_used
+
+        results.experiment_config["model_revisions"] = model_revisions(
+            models_used([r.to_dict() for r in task_results], results.experiment_config)
         )
 
         # Save outputs
@@ -1592,7 +1608,7 @@ def _save_outputs(
 #: ``generation_only`` when it cannot, and says which it chose and why. It is
 #: the default because the previous default silently produced numbers that did
 #: not measure what the caller asked about.
-def _run_metadata(cfg: "ExperimentConfig") -> Dict[str, Any]:
+def _run_metadata(cfg: "ExperimentConfig", concurrency: Optional[int] = None) -> Dict[str, Any]:
     """Everything needed to situate this run, beside the numbers.
 
     The previous version recorded four fields -- mode, n_runs, seed, and the
@@ -1605,6 +1621,9 @@ def _run_metadata(cfg: "ExperimentConfig") -> Dict[str, Any]:
 
     from lasagna.core.provenance import capture, redact
 
+    from .bundle import METRICS_VERSION
+    from .run_provenance import determinism_label, package_version, rag_overrides
+
     meta: Dict[str, Any] = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "experiment_name": cfg.name,
@@ -1614,7 +1633,16 @@ def _run_metadata(cfg: "ExperimentConfig") -> Dict[str, Any]:
         "n_runs": cfg.n_runs,
         "seed": cfg.seed,
         "variance_source": cfg.variance_source,
-        "determinism": "seeded",  # never "reproducible" -- see seeding.py
+        # Never "reproducible" (see seeding.py). Tasks seed the process-wide
+        # generators, so only one task at a time keeps each task's draws its own.
+        "determinism": determinism_label(
+            cfg.max_concurrency if concurrency is None else concurrency
+        ),
+        # What the numbers were computed under: the metric definitions, the
+        # package, and the settings the environment overrode (redacted).
+        "metrics_version": METRICS_VERSION,
+        "package_version": package_version(),
+        "rag_overrides": rag_overrides(),
         "max_concurrency": cfg.max_concurrency,
         "benchmarks": [
             {"name": b.name, "split": b.split, "n_samples": b.n_samples, "filters": b.filters}

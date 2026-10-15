@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from lasagna.knowledge_evaluation_sdk.bundle import METRICS_VERSION
+
 REPO = Path(__file__).resolve().parents[1]
 SCHEMA_FILE = REPO / "hub" / "run-1.0.schema.json"
 
@@ -48,6 +50,8 @@ def _fake_results(**overrides):
         ]
         experiment_config = {
             "n_runs": 3,
+            # A bundle carries the metrics version its run recorded.
+            "metrics_version": METRICS_VERSION,
             "determinism": "seeded",
             "variance_source": "run",
             "judge_model": "gpt-4o-mini-2024-07-18",

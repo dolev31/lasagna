@@ -6,7 +6,7 @@ with different configuration sources, LLM providers, and session managers.
 Default behavior (plug & play):
   - Auto-configures from environment variables on first access
   - Detects API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
-  - Sets up SimpleConfigProvider with sensible defaults (~/.rag_knowledge/)
+  - Sets up SimpleConfigProvider with sensible defaults (~/.lasagna/, see core/paths.py)
   - No configuration code required from the user
 
 Explicit configuration (optional):
@@ -114,18 +114,10 @@ def _auto_configure_from_env() -> None:
 
         # Auto-configure config provider from env vars
         if _config_provider is None:
-            db_dir = Path(
-                os.environ.get(
-                    "RAG_DB_DIR",
-                    str(Path.home() / ".rag_knowledge" / "dbs"),
-                )
-            )
-            upload_dir = Path(
-                os.environ.get(
-                    "RAG_UPLOAD_DIR",
-                    str(Path.home() / ".rag_knowledge" / "uploads"),
-                )
-            )
+            from lasagna.core import paths
+
+            db_dir = paths.db_dir()
+            upload_dir = paths.upload_dir()
             package_root = Path(__file__).parent.parent  # knowledge package root
             _config_provider = SimpleConfigProvider(
                 db_dir=db_dir,
