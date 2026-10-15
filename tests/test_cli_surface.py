@@ -178,11 +178,13 @@ def test_benchmark_compare_points_at_results_compare(monkeypatch):
 def test_benchmark_leaderboard_points_at_results_leaderboard(monkeypatch, tmp_path):
     called = {}
     monkeypatch.setattr(
-        cli, "results_leaderboard", lambda directory, metric, output: called.update(d=directory)
+        cli,
+        "results_leaderboard",
+        lambda directory, metric, output, fmt: called.update(d=directory, fmt=fmt),
     )
     result = CliRunner().invoke(cli.app, ["benchmark", "leaderboard", str(tmp_path)])
     assert result.exit_code == 0, result.output
-    assert called == {"d": str(tmp_path)}
+    assert called == {"d": str(tmp_path), "fmt": "markdown"}
     assert result.output.count("deprecated") == 1
 
 

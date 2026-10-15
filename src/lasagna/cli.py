@@ -1648,14 +1648,9 @@ def benchmark_leaderboard(
 ):
     """Old name of `lasagna results leaderboard`."""
     _deprecated_spelling("benchmark leaderboard", "results leaderboard")
-    if Path(results_path).is_dir():
-        results_leaderboard(results_path, metric=metric, output=None)
-        return
-    # One run's own table: `benchmark run` and `benchmark experiment` print it
-    # when they finish.
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
-
-    console.print(BenchmarkResults.load(results_path).leaderboard(metric))
+    # Every option by value: called directly, a typer function's defaults are
+    # its OptionInfo objects, and `fmt` arrived as one ("Unknown format").
+    results_leaderboard(results_path, metric=metric, output=None, fmt="markdown")
 
 
 @benchmark_app.command("validate-data")
@@ -2948,9 +2943,19 @@ def doctor(
 
 @results_app.command("leaderboard")
 def results_leaderboard(
-    directory: str = typer.Argument(..., help="Directory of validated bundles"),
+    directory: str = typer.Argument(
+        ...,
+        help="A directory of validated bundles, one bundle, or a run's results.json (or "
+        "its folder)",
+    ),
     metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to rank by."),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Write markdown here"),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Folder to write one page per benchmark into (.md, or .tex with --format "
+        "latex), plus index.json",
+    ),
     fmt: str = typer.Option(
         "markdown",
         "--format",
@@ -2958,28 +2963,63 @@ def results_leaderboard(
         "when no --output is given",
     ),
 ):
-    """Render bundles as leaderboards, grouped by comparability key.
+    """Render bundles, or one run's results.json, as leaderboards grouped by
+    comparability key.
 
     Rows inside a group held the same configuration fixed, so they are
     comparable by construction. Rows in different groups are not, and are never
-    put in the same table.
+    put in the same table. A results.json with no --output prints the run's own
+    leaderboard, the one `benchmark experiment` prints when it finishes.
     """
-    from .knowledge_evaluation_sdk.leaderboard import FORMATS, build, grouped_rows, render_latex
+    from .knowledge_evaluation_sdk.bundle import MetricsVersionError
+    from .knowledge_evaluation_sdk.leaderboard import (
+        FORMATS,
+        _is_bundle,
+        build,
+        grouped_rows,
+        load_bundles,
+        render_latex,
+    )
 
     if fmt not in FORMATS:
         _error(f"Unknown format {fmt!r}. Use --format markdown or --format latex.")
-    if fmt == "latex" and not output:
-        # The tables alone and unwrapped, so `> tables.tex` captures valid LaTeX.
-        console.print(
-            render_latex(grouped_rows(directory, metric), metric),
-            markup=False,
-            highlight=False,
-            soft_wrap=True,
-            end="",
-        )
-        return
+    source = Path(directory)
+    if not source.exists():
+        _error(f"No such file or folder: {directory}")
+    if source.is_dir() and (source / "results.json").is_file() and not load_bundles(source):
+        # A run's output folder, as `benchmark experiment` names it at the
+        # end: it holds results.json and no bundles, and read as a folder it
+        # printed "0 row(s) from 0 bundle(s)".
+        source = source / "results.json"
+        directory = str(source)
+    if source.is_file():
+        try:
+            data = json.loads(source.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            _error(f"{directory} is not valid JSON ({exc}). Pass a results.json or a bundle.")
+        if not _is_bundle(data) and not (
+            isinstance(data, dict) and isinstance(data.get("results"), list)
+        ):
+            _error(f"{source.name} is neither a bundle nor a results.json from a run.")
+        if fmt == "markdown" and not output and not _is_bundle(data):
+            from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    index = build(directory, metric=metric, output=output, fmt=fmt)
+            console.print(BenchmarkResults.load(directory).leaderboard(metric), markup=False)
+            return
+    try:
+        if fmt == "latex" and not output:
+            # The tables alone and unwrapped, so `> tables.tex` captures valid LaTeX.
+            console.print(
+                render_latex(grouped_rows(directory, metric), metric),
+                markup=False,
+                highlight=False,
+                soft_wrap=True,
+                end="",
+            )
+            return
+        index = build(directory, metric=metric, output=output, fmt=fmt)
+    except (MetricsVersionError, ValueError) as exc:
+        _error(str(exc))
     console.print(
         f"[green]{index['n_rows']} row(s)[/green] from {index['n_bundles']} bundle(s) "
         f"across {len(index['benchmarks'])} benchmark(s)"
