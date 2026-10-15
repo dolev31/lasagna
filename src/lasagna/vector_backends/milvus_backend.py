@@ -15,6 +15,7 @@ Features:
 - Optional hybrid search (with native BM25 on Standalone/Distributed)
 """
 
+import logging
 import sys
 import threading
 from typing import Any, Dict, List, Optional, Union
@@ -33,12 +34,14 @@ from .base import (
     IndexType,
 )
 from .filters import FilterExpression
+from ._pymilvus import from_pymilvus
 
-# Milvus imports with fallback
+# Milvus imports with fallback. Through from_pymilvus: a bare import reads the
+# nearest .env file into os.environ (see _pymilvus.py).
 try:
-    from pymilvus import MilvusClient, DataType
-    from pymilvus import CollectionSchema as MilvusCollectionSchema
-    from pymilvus import FieldSchema as MilvusFieldSchema
+    MilvusClient, DataType, MilvusCollectionSchema, MilvusFieldSchema = from_pymilvus(
+        "MilvusClient", "DataType", "CollectionSchema", "FieldSchema"
+    )
 
     MILVUS_AVAILABLE = True
 except ImportError:
@@ -48,6 +51,44 @@ except ImportError:
     MilvusCollectionSchema = None
     MilvusFieldSchema = None
     logger.warning("pymilvus not installed. MilvusBackend will not be available.")
+
+
+class DataDirLockedError(ConnectionError):
+    """Another process holds the Milvus Lite store this one tried to open.
+
+    A ConnectionError, so code written for any failure to connect still
+    catches it. The CLI recognizes it by name and prints only the fix.
+    """
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        super().__init__(
+            f"The Milvus Lite store at {db_path} is in use by another "
+            f"process (a running `lasagna serve`, MCP server or benchmark). "
+            f"Wait for it to finish or stop it, or give this run its own "
+            f"store with RAG_DB_DIR=<another directory>."
+        )
+
+
+class _HideLockedStoreTraceback(logging.Filter):
+    """Drop milvus_lite's traceback for a store another process holds.
+
+    milvus_lite logs the lock failure with a 25-line traceback and returns
+    nothing, so pymilvus raises a generic error. MilvusBackend.connect raises
+    DataDirLockedError with the fix instead, which makes the traceback noise
+    above the one line that matters.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        exc = record.exc_info[1] if record.exc_info else None
+        while exc is not None:
+            if type(exc).__name__ == "DataDirLockedError":
+                return False
+            exc = exc.__cause__ or exc.__context__
+        return True
+
+
+logging.getLogger("milvus_lite.server_manager").addFilter(_HideLockedStoreTraceback())
 
 
 def _lite_store_locked(db_path: str) -> bool:
@@ -270,12 +311,7 @@ class MilvusBackend(VectorStoreAdapter):
                 if self._db_path and _lite_store_locked(self._db_path):
                     # pymilvus reports only "Open local milvus failed"; the
                     # cause was in a traceback logged above it.
-                    raise ConnectionError(
-                        f"The Milvus Lite store at {self._db_path} is in use by another "
-                        f"process (a running `lasagna serve`, MCP server or benchmark). "
-                        f"Wait for it to finish or stop it, or give this run its own "
-                        f"store with RAG_DB_DIR=<another directory>."
-                    ) from e
+                    raise DataDirLockedError(self._db_path) from e
                 error_msg = str(e)
                 if "timeout" in error_msg.lower() or "connection" in error_msg.lower():
                     raise ConnectionError(f"Failed to connect to Milvus: {error_msg}") from e
@@ -876,7 +912,7 @@ class MilvusBackend(VectorStoreAdapter):
 
         # Native hybrid search (requires pymilvus hybrid components)
         try:
-            from pymilvus import AnnSearchRequest, RRFRanker
+            AnnSearchRequest, RRFRanker = from_pymilvus("AnnSearchRequest", "RRFRanker")
 
             client = self._ensure_connected()
             self._ensure_loaded(client, collection_name)

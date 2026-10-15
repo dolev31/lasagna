@@ -3823,6 +3823,10 @@ def main():
     global mcp, _eager_init, _owns_logging
     import argparse
 
+    from lasagna._quiet import quiet_third_party_output
+
+    quiet_third_party_output()
+
     # Enable logging ownership — we're the main process.
     logger.enable("lasagna")
     if not _owns_logging:

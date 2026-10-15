@@ -230,9 +230,12 @@ def create_rag_document_schema(embedding_dim: int = 1024, enable_native_bm25: bo
         ImportError: If pymilvus is not installed
     """
     try:
-        from pymilvus import CollectionSchema as MilvusCollectionSchema
-        from pymilvus import DataType
-        from pymilvus import FieldSchema as MilvusFieldSchema
+        # Never a bare import: pymilvus reads the nearest .env into os.environ.
+        from lasagna.vector_backends._pymilvus import from_pymilvus
+
+        MilvusCollectionSchema, DataType, MilvusFieldSchema = from_pymilvus(
+            "CollectionSchema", "DataType", "FieldSchema"
+        )
     except ImportError as exc:
         raise ImportError(
             "pymilvus is required for create_rag_document_schema(). "

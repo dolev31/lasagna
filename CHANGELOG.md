@@ -121,6 +121,9 @@ Sweeps, validation and metrics:
 - BGE-M3 no longer gets the BGE v1.5 query instruction, which it was not
   trained with. This changes BGE-M3 query vectors on the sentence-transformers
   backend.
+- `lasagna serve` logs warnings only (`-v` or `LASAGNA_LOG_LEVEL=INFO` for
+  more), prints the default session's profile, embedding model, vector store
+  and data directory, and opens a browser only with `--open`.
 
 ### Fixed
 
@@ -181,6 +184,19 @@ Numbers that were wrong:
   `retrieval_chunk_overfetch` even when BM25 had simply run out of documents
   matching a one- or two-word query; it now names the cause.
 - `results significance` and the isolation summary said "1 pairs".
+
+First run:
+
+- **Another project's credentials leaked in.** pymilvus loads the nearest
+  `.env` when imported: from a virtualenv inside a project, that project's
+  keys appeared in `os.environ` and provider auto-detection used them. Lasagna
+  now imports pymilvus with `.env` loading off and the environment restored.
+- A command run while `lasagna serve` holds the local store prints one
+  sentence with the fix, not a 25-line traceback.
+- One-shot commands no longer print gRPC fork notices, a "Loading weights" bar
+  per model, or a warning about background GC, which only `serve` and the MCP
+  server run. Progress bars that last longer than two seconds, such as a model
+  download, still show.
 
 ## 0.1.0a1 — 2026-08-18
 

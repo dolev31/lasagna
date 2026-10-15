@@ -16,7 +16,7 @@ import json
 import os
 import shlex
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import typer
 from rich.console import Console
@@ -37,8 +37,15 @@ app = typer.Typer(
 _LOG_LEVELS = frozenset({"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"})
 
 
-def _configure_cli_logging(verbose: bool = False, default: str = "WARNING") -> None:
-    """Own logging for the CLI process.
+def _configure_cli_logging(
+    verbose: bool = False,
+    default: str = "WARNING",
+    hide: Optional[Callable[[Dict[str, Any]], bool]] = None,
+) -> str:
+    """Own logging for the CLI process, and return the level it chose.
+
+    ``hide`` drops records that are noise for the command at hand (see
+    :func:`_server_only_warning`); ``--verbose`` shows them anyway.
 
     Nothing configured it before, so every command inherited loguru's default
     DEBUG sink. That is three lines on `lasagna doctor` -- not the flood it
@@ -63,15 +70,43 @@ def _configure_cli_logging(verbose: bool = False, default: str = "WARNING") -> N
     logger.remove()
     if level == "DEBUG":
         logger.add(sys.stderr, level=level)
-        return
+        return level
     threshold = logger.level(level).no
 
     def _shown(record) -> bool:
+        if hide is not None and hide(record):
+            return False
         # Progress lines (corpus ingestion) show at the warnings-only default:
         # without them a half-hour ingest looks like a hang.
         return record["level"].no >= threshold or bool(record["extra"].get("progress"))
 
     logger.add(sys.stderr, level=min(threshold, logger.level("INFO").no), filter=_shown)
+    return level
+
+
+def _server_only_warning(record: Dict[str, Any]) -> bool:
+    """A warning about background work that only a long-lived process does.
+
+    The backend schedules garbage collection when it starts, so every
+    `upload`, `search` and `status` warned that APScheduler was missing and
+    "GC will not run automatically". A one-shot command exits long before a
+    cycle would run; `serve` and the MCP server still say it.
+    """
+    return record["name"] == "lasagna.lifecycle.scheduler" and (
+        record["function"] == "_start_apscheduler"
+    )
+
+
+def _ephemeral_signing_secret_warning(record: Dict[str, Any]) -> bool:
+    """The REST app's warning that RAG_JWT_SECRET is unset.
+
+    On a loopback server with auth off, a per-process signing secret costs
+    nothing anyone relies on: it only means session tokens end with the
+    process. `serve` hides it there, and keeps it on any other address.
+    """
+    return record["name"] == "lasagna.api.rest.session_token" and (
+        "RAG_JWT_SECRET" in record["message"]
+    )
 
 
 def _print_version(value: bool) -> None:
@@ -95,6 +130,11 @@ def _cli(
         help="Print the installed version and exit.",
     ),
 ):
+    # First, before anything imports gRPC, tokenizers or tqdm.
+    from ._quiet import quiet_third_party_output
+
+    quiet_third_party_output()
+
     from loguru import logger
 
     logger.enable("lasagna")
@@ -102,7 +142,7 @@ def _cli(
     # (`configure` then `upload`, `search`, `serve`): keep sessions on disk.
     os.environ.setdefault("RAG_SESSION_BACKEND", "persistent")
     _settings_file_from_dotenv()
-    _configure_cli_logging(verbose)
+    _configure_cli_logging(verbose, hide=_server_only_warning)
 
 
 def _settings_file_from_dotenv() -> None:
@@ -199,10 +239,47 @@ def _count(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
-def _error(msg: str, exit_code: int = 1):
-    """Print error and exit."""
-    console.print(f"[red]Error: {escape(msg)}[/red]")
+def _error(msg: str, exit_code: int = 1, exc: Optional[BaseException] = None):
+    """Print error and exit.
+
+    Pass the exception behind ``msg`` as ``exc`` when there is one: a failure
+    with one known fix is then reported as that fix instead.
+    """
+    console.print(f"[red]Error: {escape(_known_failure(exc) or msg)}[/red]")
     raise typer.Exit(exit_code)
+
+
+def _home(path: str) -> str:
+    """``path`` with the home directory written as ``~``."""
+    home = str(Path.home())
+    path = str(path)
+    if path == home or path.startswith(home + os.sep):
+        return "~" + path[len(home) :]
+    return path
+
+
+def _known_failure(exc: Optional[BaseException]) -> Optional[str]:
+    """The one-sentence explanation and fix for a failure we can name.
+
+    Recognized by class name anywhere in the cause chain, so the CLI does not
+    import the vector backend to check, and a wrapper that re-raises keeps the
+    cause. A store held by `lasagna serve` was reported as "Failed to get
+    status:" plus a 300-character message wrapped across five lines.
+    """
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if type(exc).__name__ == "DataDirLockedError":
+            path = getattr(exc, "db_path", None)
+            where = f" at {_home(path)}" if path else ""
+            return (
+                f"Another process is using the local store{where} (a running "
+                f"`lasagna serve`, MCP server or benchmark). Stop it and run this "
+                f"again, or give one of them its own store with "
+                f"RAG_DB_DIR=<another directory>."
+            )
+        exc = exc.__cause__ or exc.__context__
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -442,7 +519,7 @@ def upload(
     try:
         result, doc = _run(_upload())
     except Exception as exc:
-        _error(f"Upload failed: {exc}")
+        _error(f"Upload failed: {exc}", exc=exc)
 
     from lasagna.sdk.types import DocumentStatus
 
@@ -491,7 +568,7 @@ def search(
     try:
         result = _run(_search())
     except Exception as exc:
-        _error(f"Search failed: {exc}")
+        _error(f"Search failed: {exc}", exc=exc)
 
     if context:
         # Chunk text is data, not markup: Rich deleted "[metrics](...)" and
@@ -542,7 +619,7 @@ def status(
     try:
         docs, config = _run(_status())
     except Exception as exc:
-        _error(f"Failed to get status: {exc}")
+        _error(f"Failed to get status: {exc}", exc=exc)
 
     # Documents table
     if docs:
@@ -591,9 +668,44 @@ def status(
 # ---------------------------------------------------------------------------
 
 
+#: loguru level -> uvicorn's --log-level, so one setting governs both.
+_UVICORN_LEVELS = {"TRACE": "trace", "DEBUG": "debug", "INFO": "info", "SUCCESS": "info"}
+
+
+def _session_summary(session_id: str = "default") -> List[str]:
+    """What a request on ``session_id`` runs with, for the `serve` banner.
+
+    The server's start-up log named the global default embedding model
+    (BAAI/bge-m3, 1024 dimensions) while the default session, after
+    `lasagna configure --profile speed`, searched with all-MiniLM-L6-v2 at 384.
+    """
+    try:
+        from lasagna.core.config import rag_config
+        from lasagna.core.session_config import get_knowledge_config_manager
+
+        mgr = get_knowledge_config_manager(session_id=session_id)
+        profile = mgr.get_active_profile(session_id=session_id)
+        resolved = mgr.get_resolved_config(session_id)
+        model = resolved.get("embedding_model") or rag_config.embedding_model
+        dim = resolved.get("embedding_dim") or rag_config.embedding_dim
+        backend = resolved.get("vector_backend") or rag_config.vector_backend
+        data = os.path.dirname(rag_config.db_path)
+        if os.path.dirname(os.path.abspath(rag_config.upload_dir)) == os.path.dirname(data):
+            data = os.path.dirname(data)  # dbs/ and uploads/ side by side
+    except Exception as exc:  # the banner must never stop the server
+        return [f"Session config: could not be read ({type(exc).__name__}: {exc})"]
+    return [
+        f"Profile: {profile} (session '{session_id}')",
+        f"Embedding: {model} ({dim} dimensions)",
+        f"Vector store: {backend}",
+        f"Data: {_home(data)}",
+    ]
+
+
 @app.command()
 def serve(
-    port: int = typer.Option(8000, "--port", "-p", help="API port"),
+    ctx: typer.Context,
+    port: int = typer.Option(8000, "--port", "-p", help="Port to listen on."),
     host: str = typer.Option(
         "127.0.0.1",
         "--host",
@@ -601,16 +713,31 @@ def serve(
         "on every interface, and it is UNAUTHENTICATED (see SECURITY.md).",
     ),
     configurator: bool = typer.Option(
-        True, "--configurator/--no-configurator", help="Enable configurator UI"
+        True,
+        "--configurator/--no-configurator",
+        help="Serve the configurator web page at /configurator.",
     ),
     open_browser: bool = typer.Option(
-        True, "--open/--no-open", help="Open browser to configurator"
+        False,
+        "--open/--no-open",
+        help="Open the configurator in a browser once the server starts.",
     ),
 ):
-    """Start the RAG REST API server with configurator UI."""
-    # A long-lived server should say what it resolved. The CLI default of
-    # WARNING is right for one-shot commands and wrong here.
-    _configure_cli_logging(default="INFO")
+    """Start the REST API server, with the configurator web page."""
+
+    def _hide(record) -> bool:
+        if not _ephemeral_signing_secret_warning(record):
+            return False
+        # Decided when the warning arrives, from the module that sent it:
+        # importing auth_mode any earlier builds the app, and with it the
+        # warning, before this filter exists.
+        from lasagna.api.rest.auth_mode import is_loopback, require_auth
+
+        return is_loopback(host) and not require_auth()
+
+    # Warnings only by default, as for every other command: the banner below
+    # says what the server resolved. -v or LASAGNA_LOG_LEVEL=INFO shows more.
+    level = _configure_cli_logging(bool(ctx.find_root().params.get("verbose")), hide=_hide)
     if configurator:
         os.environ["RAG_CONFIGURATOR"] = "true"
 
@@ -624,7 +751,10 @@ def serve(
             f"API: {base}/api/v1\n"
             f"Health: {base}/api/v1/health\n"
             f"Docs: {base}/docs\n"
-            + (f"Configurator: {base}/configurator\n" if configurator else ""),
+            + (f"Configurator: {base}/configurator\n" if configurator else "")
+            + "\n"
+            + "\n".join(escape(line) for line in _session_summary())
+            + "\n\n[dim]Press Ctrl+C to stop.[/dim]",
         )
     )
 
@@ -675,6 +805,7 @@ def serve(
         reload=False,
         proxy_headers=bool(trusted_proxies),
         forwarded_allow_ips=trusted_proxies or None,
+        log_level=_UVICORN_LEVELS.get(level, level.lower()),
     )
 
 
@@ -841,7 +972,7 @@ def evaluate(
     try:
         metrics = _run(_run_eval())
     except Exception as exc:
-        _error(f"Evaluation failed: {exc}")
+        _error(f"Evaluation failed: {exc}", exc=exc)
 
     console.print()
     console.print(
@@ -1038,7 +1169,7 @@ def benchmark_run(
     try:
         results = _run(_execute())
     except Exception as exc:
-        _error(f"Benchmark failed: {exc}")
+        _error(f"Benchmark failed: {exc}", exc=exc)
 
     # Summary
     metric_names = results.get_metric_names()
@@ -1129,7 +1260,7 @@ def benchmark_experiment(
     try:
         results = _run(_execute())
     except Exception as exc:
-        _error(f"Experiment failed: {exc}")
+        _error(f"Experiment failed: {exc}", exc=exc)
 
     output_dir = exp.config.effective_output_dir()
     console.print(

@@ -47,7 +47,11 @@ except ImportError:
 
 # Try importing Milvus hybrid search components
 try:
-    from pymilvus import AnnSearchRequest, RRFRanker, WeightedRanker  # noqa: F401
+    from lasagna.vector_backends._pymilvus import from_pymilvus
+
+    AnnSearchRequest, RRFRanker, WeightedRanker = from_pymilvus(
+        "AnnSearchRequest", "RRFRanker", "WeightedRanker"
+    )
 
     MILVUS_HYBRID_AVAILABLE = True
 except ImportError:
