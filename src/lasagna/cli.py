@@ -1067,6 +1067,12 @@ def benchmark_experiment(
     concurrency: Optional[int] = typer.Option(
         None, "--concurrency", "-c", help="Max parallel tasks"
     ),
+    no_cache: bool = typer.Option(
+        False,
+        "--no-cache",
+        help="Call the LLM for every request instead of replaying responses cached by "
+        "an earlier run (same as llm_cache: false)",
+    ),
 ):
     """Run a multi-benchmark experiment from a config file."""
     from .knowledge_evaluation_sdk.experiment import Experiment, runs_were_identical
@@ -1082,6 +1088,10 @@ def benchmark_experiment(
         _error(f"{config_file}: {exc}")
     if concurrency:
         exp.config.max_concurrency = concurrency
+    if no_cache:
+        from dataclasses import replace
+
+        exp.config.llm_cache = replace(exp.config.llm_cache, enabled=False)
 
     if resume and not (exp.config.output_dir or exp.config.checkpoint_dir):
         # Without output_dir each run gets a new timestamped folder; resume

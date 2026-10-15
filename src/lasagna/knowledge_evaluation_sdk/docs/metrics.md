@@ -388,6 +388,7 @@ them, the task fails, as for a RAGAS metric. Function:
 | `input_tokens_per_query`, `output_tokens_per_query`, `llm_calls_per_query` | task metrics | The same, summed over a query's rows, averaged over queries |
 | `system_*`, `eval_*` tokens and calls | task | Totals, with the judge's spend (`eval_*`) kept apart from the system's |
 | `generations_failed`, `short_lists` | task metrics | Answers that could not be generated; ranked lists shorter than k |
+| `llm_cache_hits`, `llm_cache_misses` | task metrics | LLM calls served from the response cache, and calls it looked up and did not have. Present only on a task that looked something up. They describe the run, not the system: a replayed call is counted in the token totals at its cold-run usage, so tokens and calls read the same cold or warm. The run's hit rate is `experiment_config.llm_cache` |
 
 `llm_calls == 0` means no call was seen, which for a retrieval-only arm is the
 truth and for an uninstrumented client an undercount. Tokens are reported, not

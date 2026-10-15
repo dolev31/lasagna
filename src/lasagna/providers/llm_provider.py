@@ -308,20 +308,24 @@ class SimpleLLMProvider(LLMProvider):
         undercount flatters whichever technique spends the most -- exactly the
         comparison this package exists to get right. The meter is inert unless
         a :class:`~lasagna.utils.token_usage.UsageMeter` is active.
+
+        The experiment's response cache is attached here for the same reason.
+        It serves a call only inside an experiment, and only when the model
+        decodes greedily (temperature 0; reasoning models take no temperature
+        and are not cached): see :mod:`lasagna.utils.llm_cache`.
         """
+        from lasagna.utils.llm_cache import attach_llm_cache
         from lasagna.utils.token_usage import attach_usage_meter
 
-        return attach_usage_meter(
+        platform, model_name = self._resolve_model(model_settings)
+        model = attach_usage_meter(
             self._build_chat_model(model_settings, temperature=temperature, max_tokens=max_tokens)
         )
+        deterministic = temperature == 0 and not _is_reasoning_model(model_name)
+        return attach_llm_cache(model, f"{platform}:{model_name}", deterministic)
 
-    def _build_chat_model(
-        self,
-        model_settings: Dict[str, Any],
-        temperature: float = 0.0,
-        max_tokens: Optional[int] = None,
-    ) -> "BaseChatModel":
-        """Dispatch to the per-platform constructor. See ``get_chat_model``."""
+    def _resolve_model(self, model_settings: Dict[str, Any]) -> "tuple[str, str]":
+        """The platform and model name ``model_settings`` resolves to."""
         platform = model_settings.get("platform", self._default_provider)
         # Normalize platform aliases
         if platform == "google-genai":
@@ -332,7 +336,16 @@ class SimpleLLMProvider(LLMProvider):
         default_model = get_default_model_name(
             self.SUPPORTED_PLATFORMS.get(platform, "gpt-4o-mini")
         )
-        model_name = model_settings.get("model_name", default_model)
+        return platform, model_settings.get("model_name", default_model)
+
+    def _build_chat_model(
+        self,
+        model_settings: Dict[str, Any],
+        temperature: float = 0.0,
+        max_tokens: Optional[int] = None,
+    ) -> "BaseChatModel":
+        """Dispatch to the per-platform constructor. See ``get_chat_model``."""
+        platform, model_name = self._resolve_model(model_settings)
 
         # Build common kwargs — skip temperature for reasoning models
         kwargs: Dict[str, Any] = {}

@@ -47,6 +47,7 @@ from .benchmarks._base import BaseBenchmarkAdapter as _BaseBenchmarkAdapter
 from .checkpoint import CheckpointManager
 from .results import BenchmarkResults
 from .runner import HARNESS_KEYS, BenchmarkRunner, BenchmarkTask, TaskResult
+from ..utils.llm_cache import CacheStats, LLMCacheSettings, llm_cache_scope
 
 #: The unoverridden ``load_corpus``. An adapter still pointing at it ships no
 #: corpus of its own, whatever else it can do.
@@ -580,6 +581,10 @@ class ExperimentConfig:
     #: Evaluation tracks to run: "retrieval", "generation", or both (the
     #: default). A component sweep scored on retrieval needs no LLM or RAGAS.
     tracks: List[str] = field(default_factory=lambda: ["retrieval", "generation"])
+    #: The LLM response cache (``llm_cache:``): on unless set false, the CLI
+    #: passes ``--no-cache`` or ``LASAGNA_LLM_CACHE=0``. Replays deterministic
+    #: calls only; see :mod:`lasagna.utils.llm_cache`.
+    llm_cache: LLMCacheSettings = field(default_factory=LLMCacheSettings)
     #: Folder of the sweep file, where `module:function` components are found.
     #: Set by `Experiment.from_file`; not a YAML key.
     base_dir: str = ""
@@ -1022,6 +1027,7 @@ _TOP_LEVEL_KEYS = frozenset(
         "ingestion_per_config",
         "max_corpus_docs",
         "tracks",
+        "llm_cache",
     }
 )
 _PIPELINE_KEYS = frozenset(
@@ -1192,6 +1198,7 @@ def _parse_config(data: Dict[str, Any]) -> ExperimentConfig:
         ingestion_per_config=data.get("ingestion_per_config", False),
         max_corpus_docs=data.get("max_corpus_docs", 0),
         tracks=_parse_tracks(data.get("tracks")),
+        llm_cache=LLMCacheSettings.parse(data.get("llm_cache")),
     )
 
 
@@ -1478,6 +1485,9 @@ class Experiment:
 
         # Select eval function
         eval_fn = self._eval_fn or _default_eval_fn
+        cache_settings = LLMCacheSettings.parse(cfg.llm_cache).resolved()
+        cache_totals = CacheStats()
+        eval_fn = _with_llm_cache(eval_fn, cache_settings, cache_totals)
 
         # Agentic search reads part of its settings from the corpus session,
         # which the arms of a sweep share, so two agentic arms running at once
@@ -1510,6 +1520,8 @@ class Experiment:
             experiment_name=cfg.name,
             experiment_config=_run_metadata(cfg),
         )
+        # How much of this run was replayed, so a fast run can be read as one.
+        results.experiment_config["llm_cache"] = cache_settings.record(cache_totals)
 
         # Save outputs
         _save_outputs(results, output_dir, cfg.output_formats)
@@ -1904,11 +1916,15 @@ def _build_judge_llm(model_name: Optional[str] = None):
         # LangChain provider, so without this wrapper the entire cost of
         # *measuring* -- often larger than the cost of the pipeline -- was
         # invisible, and `eval_cost_usd` had no producer at all.
+        #
+        # The cache goes on first, so the meter sees a replayed response too
+        # and counts it at its cold-run usage.
+        from lasagna.utils.llm_cache import cache_openai_client
         from lasagna.utils.token_usage import EVAL, instrument_openai_client
 
         judge = llm_factory(
             resolved_model,
-            client=instrument_openai_client(OpenAI(**client_kwargs), EVAL),
+            client=instrument_openai_client(cache_openai_client(OpenAI(**client_kwargs)), EVAL),
         )
         logger.info(f"RAGAS judge using model: {resolved_model}")
         return judge
@@ -1954,6 +1970,29 @@ async def _default_eval_fn(
 
     with strict():
         return await _eval_live(task, samples)
+
+
+def _with_llm_cache(eval_fn: Callable, settings: LLMCacheSettings, totals: CacheStats) -> Callable:
+    """Run each task in a cache scope of its own, and record what it replayed.
+
+    The scope's seed is the task's process seed (``seed + run_index``, what
+    ``seed_everything`` sets), so each run of an arm keeps its own responses.
+    The counts land beside ``generations_failed``, and only on a task that
+    looked something up: a task that made no LLM call, or ran with the cache
+    off, carries no cache field at all. They are task metrics only, never
+    per-query scores, so no significance test or comparability key sees them.
+    """
+
+    async def run(task: BenchmarkTask, samples: List[BenchmarkSample]) -> TaskResult:
+        with llm_cache_scope(settings, seed=task.seed + task.run_index) as scope:
+            result = await eval_fn(task, samples)
+        totals.add(scope)
+        if scope.lookups:
+            result.metrics["llm_cache_hits"] = float(scope.hits)
+            result.metrics["llm_cache_misses"] = float(scope.misses)
+        return result
+
+    return run
 
 
 # Component override keys that should use pipeline.replace() rather than

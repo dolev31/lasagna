@@ -73,6 +73,15 @@ Sweeps, validation and metrics:
   (`has_ans`) and unanswerable (`no_ans`) questions, and input tokens, output
   tokens and LLM calls per query. The judge is now also asked for
   `factual_correctness`.
+- **A re-run replays the LLM responses it already has.** Inside an experiment,
+  a request at temperature 0 that an earlier run made with the same seed is
+  answered from `~/.lasagna/cache/llm.sqlite`. Token counts read as in the cold
+  run; `llm_cache_hits` and `llm_cache_misses` on each task and a hit rate in
+  `results.json` and the bundle say what was replayed. Sampled calls are never
+  replayed, which includes the RAGAS judge (it asks for temperature 0.01) unless
+  `llm_cache: {deterministic_only: false}`. Off with `llm_cache: false`,
+  `--no-cache` or `LASAGNA_LLM_CACHE=0`. Nothing is cached outside an
+  experiment, so `lasagna serve` writes no prompt to disk.
 - `lasagna --version` prints the installed version.
 - **`lasagna results significance` ends in a verdict.** A green box names each
   pair that survives Holm correction, which side won (lower-is-better metrics
