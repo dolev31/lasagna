@@ -271,8 +271,9 @@ def _header(run: _Run, metric: str, benchmarks: List[str]) -> str:
     title = results.experiment_name or config.get("experiment_name") or "Lasagna results"
     submitter = meta.get("submitter") or {}
     who = ", ".join(v for v in (submitter.get("name"), submitter.get("affiliation")) if v)
+    created = config.get("created_at")
     facts = [
-        ("Date", _date(config.get("created_at"))),
+        ("Date", _date(created)),
         ("Package", meta.get("package_version") or env.get("lasagna_version")),
         ("Metrics version", meta.get("metrics_version")),
         ("Run id", meta.get("run_id")),
@@ -288,8 +289,12 @@ def _header(run: _Run, metric: str, benchmarks: List[str]) -> str:
     failed = len(results.failed_tasks)
     if failed:
         facts.append(("Failed tasks", f"{failed} of {results.total_tasks}"))
+    # The recorded timestamp, to the microsecond, on hover over the short form.
+    titles = {"Date": f' title="{_e(created)}"'} if created not in (None, "") else {}
     dl = "".join(
-        f"<div><dt>{_e(k)}</dt><dd>{_e(v)}</dd></div>" for k, v in facts if v not in (None, "")
+        f"<div><dt>{_e(k)}</dt><dd{titles.get(k, '')}>{_e(v)}</dd></div>"
+        for k, v in facts
+        if v not in (None, "")
     )
     integrity = meta.get("integrity") or {}
     flags = ""
