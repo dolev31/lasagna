@@ -401,3 +401,31 @@ src = ["src", "tests"]
 # `__all__` is not consistently declared across this tree.
 "__init__.py" = ["F401"]
 "src/lasagna/**/__init__.py" = ["F401"]
+
+# Type checking runs in CI (the lint job) on src/lasagna/sdk,
+# src/lasagna/components.py and src/lasagna/core/base_components.py.
+# Third-party packages are not installed for it, so their imports are Any.
+[tool.mypy]
+python_version = "3.10"
+mypy_path = "src"
+explicit_package_bases = true
+ignore_missing_imports = true
+follow_imports = "silent"
+
+# Modules in that target with errors at 0.1.0 (56 in total). Remove a module
+# from this list once it checks clean; a new module is checked from the start.
+[[tool.mypy.overrides]]
+module = [
+    "lasagna.components",
+    "lasagna.sdk.client",
+    "lasagna.sdk.config",
+    "lasagna.sdk.exceptions",
+    "lasagna.sdk.integrations.mcp",
+    "lasagna.sdk.integrations.mcp_client",
+    "lasagna.sdk.managers.citation_manager",
+    "lasagna.sdk.managers.search_manager",
+    "lasagna.sdk.remote_backend",
+    "lasagna.sdk.types",
+    "lasagna.sdk.utils.retry",
+]
+ignore_errors = true

@@ -23,7 +23,7 @@ from lasagna.mcp import server as mcp_server  # noqa: E402
 
 
 def test_every_registered_tool_runs_off_the_event_loop():
-    srv = mcp_server.create_mcp_server(host="127.0.0.1", port=8999)
+    srv = mcp_server.create_mcp_server(host="127.0.0.1", port=8999, tools="all")
     tools = srv._tool_manager._tools
     assert tools
     blocking = sorted(name for name, tool in tools.items() if not tool.is_async)

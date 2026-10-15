@@ -97,8 +97,13 @@ def create_session_token(
     session_id: str,
     user_id: str,
     ttl_seconds: int = _DEFAULT_TTL,
+    principal: Optional[str] = None,
 ) -> Tuple[str, float]:
     """Create a signed session token.
+
+    ``principal`` names who minted it (an API key's digest, or ``admin``).
+    Rate limits are counted per principal, so minting more sessions does not
+    buy more requests.
 
     Returns ``(token_string, expiry_unix_timestamp)``.
     """
@@ -114,15 +119,16 @@ def create_session_token(
         "iss": TOKEN_ISSUER,
         "typ": "session",
     }
+    if principal:
+        payload["prn"] = principal
     token = jwt.encode(payload, _get_secret(), algorithm="HS256")
     return token, exp
 
 
-def decode_session_token(token: str) -> Optional[Tuple[str, str]]:
-    """Decode a session token.
+def decode_session_claims(token: str) -> Optional[dict]:
+    """The verified claims of a session token (``sid``, ``sub``, maybe ``prn``).
 
-    Returns ``(session_id, user_id)`` or ``None`` if the token is
-    invalid, expired, or not a session token.
+    ``None`` if the token is invalid, expired, or not a session token.
 
     The secret is fetched outside the ``try``: the blanket ``except`` below
     exists to turn a bad *token* into ``None``, and a misconfigured *server*
@@ -142,15 +148,25 @@ def decode_session_token(token: str) -> Optional[Tuple[str, str]]:
         )
         if payload.get("typ") != "session" or payload.get("iss") not in ACCEPTED_ISSUERS:
             return None
-        session_id = payload.get("sid", "")
-        user_id = payload.get("sub", "")
-        if session_id and user_id:
-            return session_id, user_id
+        if payload.get("sid") and payload.get("sub"):
+            return payload
     except Exception:
         from loguru import logger
 
         logger.debug("Failed to decode session token")
     return None
+
+
+def decode_session_token(token: str) -> Optional[Tuple[str, str]]:
+    """Decode a session token.
+
+    Returns ``(session_id, user_id)`` or ``None`` if the token is
+    invalid, expired, or not a session token.
+    """
+    claims = decode_session_claims(token)
+    if claims is None:
+        return None
+    return claims["sid"], claims["sub"]
 
 
 _MAX_SESSION_ID_LEN = 128

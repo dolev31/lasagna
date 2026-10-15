@@ -1,14 +1,19 @@
 """End-to-end integration tests for the Lasagna Docker deployment.
 
 These tests run against a live Docker Compose stack (API + Celery + Redis +
-PostgreSQL + Milvus).  The API is expected at http://localhost:8000/api/v1/.
+PostgreSQL + a vector store + MCP). The API is expected at
+``LASAGNA_LIVE_BASE_URL`` (default http://localhost:8000/api/v1) and the MCP
+server at ``LASAGNA_LIVE_MCP_URL`` (default http://localhost:8005). CI runs them
+in the ``live-compose`` job of ``.github/workflows/tests.yml``.
+
+Prerequisites (MiniLM, 384 dimensions, which these tests assume):
+    cd src/lasagna/deploy
+    RAG_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2 RAG_EMBEDDING_DIM=384 \
+      docker compose -f docker-compose.yml -f backends/qdrant.yml \
+      --profile celery --profile mcp up -d --wait
 
 Run with:
     LASAGNA_RUN_LIVE_TESTS=1 pytest tests/live/test_deployment.py -v
-
-Prerequisites:
-    cd src/lasagna/deploy
-    VECTOR_BACKEND=milvus-lite make up   # or any backend
 
 This module used to live in ``tests/`` alongside the hermetic suite, where it
 had two failure modes and no successes:
@@ -29,6 +34,7 @@ as a test failure.
 """
 
 import io
+import os
 import time
 import uuid
 
@@ -37,7 +43,10 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-BASE_URL = "http://localhost:8000/api/v1"
+BASE_URL = os.environ.get("LASAGNA_LIVE_BASE_URL", "http://localhost:8000/api/v1").rstrip("/")
+#: Set explicitly, an unreachable MCP server is a failure rather than a skip.
+MCP_URL_ENV = "LASAGNA_LIVE_MCP_URL"
+MCP_BASE_URL = os.environ.get(MCP_URL_ENV, "http://localhost:8005").rstrip("/")
 
 
 def _make_session() -> requests.Session:
@@ -148,7 +157,7 @@ def docker_service_available():
         if resp.status_code != 200:
             pytest.skip(f"Docker service returned {resp.status_code} on liveness check")
     except requests.ConnectionError:
-        pytest.skip("Docker service not reachable at localhost:8000")
+        pytest.skip(f"Docker service not reachable at {BASE_URL}")
     except requests.Timeout:
         pytest.skip("Docker service timed out on liveness check")
 
@@ -862,3 +871,67 @@ class TestEdgeCases:
     def test_no_session_header_uses_default(self):
         resp = http.get(f"{BASE_URL}/documents", timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
+
+
+@pytest.mark.usefixtures("docker_service_available")
+class TestFullStack:
+    """The services that run beside the API: the Celery worker and the MCP server.
+
+    The api stored an upload at a path inside its own container and handed it to
+    the worker, which had no such file, so every upload processed by Celery
+    ended in "file not found". The shared uploads volume fixes that; this is
+    the end-to-end check that it holds.
+    """
+
+    def test_an_upload_is_processed_off_the_request_and_becomes_searchable(
+        self, session_headers, tmp_path_factory
+    ):
+        path = tmp_path_factory.mktemp("full_stack") / "tidal_locking.txt"
+        path.write_text(
+            "Tidal locking makes the Moon keep one face toward Earth: its rotation "
+            "period equals its orbital period, about 27.3 days.",
+            encoding="utf-8",
+        )
+        with open(path, "rb") as f:
+            resp = http.post(
+                f"{BASE_URL}/documents",
+                files={"file": (path.name, f, "text/plain")},
+                headers=session_headers,
+                timeout=UPLOAD_TIMEOUT,
+            )
+        assert resp.status_code == 201, resp.text
+        doc = resp.json()
+        try:
+            # Dispatched to a background worker, not processed in the request.
+            assert doc["status"] == "processing", doc
+            _wait_for_document_ready(doc["document_id"], session_headers)
+            found = http.post(
+                f"{BASE_URL}/search",
+                json={
+                    "query": "Why does the Moon show one face to Earth?",
+                    "top_k": 3,
+                    "use_hyde": False,
+                    "use_reranking": False,
+                },
+                headers=session_headers,
+                timeout=SEARCH_TIMEOUT,
+            )
+            assert found.status_code == 200, found.text
+            ids = {r["document_id"] for r in found.json()["results"]}
+            assert doc["document_id"] in ids, found.json()
+        finally:
+            http.delete(
+                f"{BASE_URL}/documents/{doc['document_id']}",
+                headers=session_headers,
+                timeout=DEFAULT_TIMEOUT,
+            )
+
+    def test_the_mcp_server_is_healthy(self):
+        try:
+            resp = http.get(f"{MCP_BASE_URL}/health", timeout=HEALTH_TIMEOUT)
+        except requests.ConnectionError:
+            if os.environ.get(MCP_URL_ENV):
+                raise
+            pytest.skip(f"no MCP server at {MCP_BASE_URL}; set {MCP_URL_ENV} to require one")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "healthy"

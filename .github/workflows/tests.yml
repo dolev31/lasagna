@@ -51,6 +51,12 @@ jobs:
       # which turned a clean tree into thousands of findings with no code change.
       - run: uvx ruff@0.14.7 check .
       - run: uvx ruff@0.14.7 format --check .
+      # The typed public surface: the SDK, the component decorators and the
+      # stage ABCs. Configuration is [tool.mypy] in pyproject.toml, including
+      # the modules still excluded for errors found at 0.1.0. Pinned for the
+      # same reason ruff is.
+      - name: Type check (mypy)
+        run: uvx mypy@1.18.2 src/lasagna/sdk src/lasagna/components.py src/lasagna/core/base_components.py
 
   secrets:
     name: Secret scan
@@ -158,14 +164,14 @@ jobs:
         if: matrix.python-version != '3.12'
         env:
           HF_HUB_OFFLINE: "1"
-        run: pytest tests/ --ignore=tests/live --ignore=tests/stress -q $NO_NETWORK $SHUFFLE
+        run: pytest tests/ --ignore=tests/live --ignore=tests/stress -q -rs $NO_NETWORK $SHUFFLE
 
       - name: Run tests with coverage floor
         if: matrix.python-version == '3.12'
         env:
           HF_HUB_OFFLINE: "1"
         run: |
-          pytest tests/ --ignore=tests/live --ignore=tests/stress -q $NO_NETWORK $SHUFFLE \
+          pytest tests/ --ignore=tests/live --ignore=tests/stress -q -rs $NO_NETWORK $SHUFFLE \
             --cov --cov-report=term-missing:skip-covered
 
       # The only tests allowed the network: they load the configured embedding
@@ -249,6 +255,84 @@ jobs:
           path: e2e/reports/
           if-no-files-found: warn
 
+  # The deployment as shipped: the image built from the Dockerfile, the compose
+  # stack with Postgres, Redis, Qdrant, the Celery worker and beat, and the MCP
+  # server, with MiniLM embeddings so it fits a runner. `up --wait` returns only
+  # when every service's healthcheck passes; the live tests then upload through
+  # the API, let the worker process it, search it, and check the MCP server.
+  live-compose:
+    name: Live compose stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.event.repository.private) }}
+    env:
+      COMPOSE: docker compose -f docker-compose.yml -f backends/qdrant.yml
+    defaults:
+      run:
+        working-directory: src/lasagna/deploy
+    steps:
+      # Two torch installs (the model stage and the image) overflow the
+      # runner's default free space.
+      - name: Free disk space
+        working-directory: .
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Configure the stack
+        run: |
+          {
+            echo "VECTOR_BACKEND=qdrant"
+            echo "COMPOSE_PROFILES=celery,mcp"
+            echo "RAG_JWT_SECRET=$(openssl rand -hex 32)"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "RAG_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2"
+            echo "RAG_EMBEDDING_DIM=384"
+            echo "RAG_RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2"
+            echo "WEB_CONCURRENCY=2"
+            echo "CELERY_CONCURRENCY=2"
+          } > .env
+          make validate
+
+      - name: Build the image
+        run: |
+          $COMPOSE build \
+            --build-arg EMBEDDING_MODELS=sentence-transformers/all-MiniLM-L6-v2 \
+            --build-arg RERANKER_MODELS=cross-encoder/ms-marco-MiniLM-L-6-v2 \
+            --build-arg OPTIONAL_MODELS=
+
+      - name: Start the stack and wait for every healthcheck
+        run: $COMPOSE up -d --wait --wait-timeout 600
+
+      - name: Install the test client
+        working-directory: .
+        run: uv pip install --system -e . --group dev
+
+      - name: Live deployment tests
+        working-directory: .
+        env:
+          LASAGNA_RUN_LIVE_TESTS: "1"
+          LASAGNA_LIVE_BASE_URL: http://localhost:8000/api/v1
+          LASAGNA_LIVE_MCP_URL: http://localhost:8005
+        run: pytest tests/live/test_deployment.py -q -rs
+
+      # The tests see a document reach "ready"; this shows the worker, not
+      # the api's in-process fallback, did the processing.
+      - name: The Celery worker processed the uploads
+        run: $COMPOSE logs celery-worker | grep -E "process_document.*succeeded"
+
+      - name: Service logs
+        if: failure()
+        run: $COMPOSE logs --no-color --tail 300
+
+      - name: Tear down
+        if: always()
+        run: $COMPOSE down -v
+
   compliance:
     name: Secrets and licenses
     runs-on: ubuntu-latest
@@ -316,6 +400,20 @@ jobs:
           uvx pip-licenses --python "$(which python)" \
             --partial-match --fail-on="GPL;AGPL;SSPL" \
             --ignore-packages lasagna-rag
+
+      # Known vulnerabilities in the same core closure. PIPAPI_PYTHON_LOCATION
+      # makes pip-audit read the environment installed above, not the
+      # throwaway one uvx runs it in (the trap the licence check fell into).
+      #
+      # Ignored, with the reason, and only while no fixed release exists:
+      #   PYSEC-2026-3740 (nltk): a path-sandbox bypass in TransitionParser and
+      #     other model-training APIs. Lasagna calls nltk.tokenize, nltk.stem
+      #     and nltk.data only. No fixed version as of 2026-10-15.
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          PIPAPI_PYTHON_LOCATION="$(which python)" uvx pip-audit --skip-editable \
+            --progress-spinner off \
+            --ignore-vuln PYSEC-2026-3740
 
       # Guards against an internal endpoint or a developer path being reintroduced.
       #

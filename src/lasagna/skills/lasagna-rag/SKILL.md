@@ -53,10 +53,16 @@ Tools the agent gets: 31 tools, in six groups.
 | Config | `get_rag_config`, `patch_rag_config`, `reset_rag_config`, `save_rag_profile`, `list_profiles`, `get_active_profile`, `set_active_profile`, `delete_rag_profile`, `get_profile_stats` |
 | System | `get_system_status`, `rebuild_collection`, `reindex_document` |
 
-Start with `search`. Use `search_with_context` when the agent needs surrounding
-text rather than isolated chunks, and `get_document_context` when it already
-knows which document matters. `set_focused_documents` narrows every subsequent
-search to a chosen set — cheaper and more precise than filtering afterwards.
+By default the server runs with `--tools safe`, which leaves out the six tools
+that delete data or reset configuration: `delete_document`, `clear_session`,
+`bulk_delete_session`, `rebuild_collection`, `delete_rag_profile` and
+`reset_rag_config`. Add `"--tools", "all"` to the server's arguments to serve them.
+
+Use `search` for every search. `search_knowledge` and `search_with_context` are
+deprecated aliases of it: they still answer, but are listed only under
+`--tools all`. Use `get_document_context` to learn which documents exist before
+searching. `set_focused_documents` narrows every subsequent search to a chosen
+set, which is cheaper and more precise than filtering afterwards.
 
 Prefer `archive_document` over `delete_document` when a human might want it
 back: archive is recoverable during the grace window and drops out of search

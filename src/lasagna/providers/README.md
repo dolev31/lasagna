@@ -95,7 +95,7 @@ Set `RAG_SESSION_BACKEND=persistent` to use file-backed sessions via `Persistent
 Any agent framework can use the knowledge package. Just set env vars and start the MCP server:
 
 ```bash
-RAG_DB_DIR=/my/data python -m lasagna.mcp --port 8005
+RAG_DB_DIR=/my/data python -m lasagna.mcp --transport sse --port 8005
 ```
 
 Or pass paths as CLI args:

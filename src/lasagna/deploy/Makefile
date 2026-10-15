@@ -13,7 +13,7 @@
 #   make health                     Check API health endpoint
 #   make stress-test                Run stress tests (~6 min, single backend)
 #   make stress-test-all            Run stress tests (~27 min, all backends)
-#   make validate                   Validate config
+#   make validate                   Validate config (backend, secrets, profiles)
 #   make help                       Show all commands
 # =============================================================================
 
@@ -53,13 +53,19 @@ validate:  ## Validate configuration
 	@test -n "$(VECTOR_BACKEND)" || { echo "ERROR: VECTOR_BACKEND is not set. Set it in .env or pass on command line."; exit 1; }
 	@test -f backends/$(VECTOR_BACKEND).yml || { echo "ERROR: Unknown VECTOR_BACKEND='$(VECTOR_BACKEND)'. Available:"; ls -1 backends/*.yml | sed 's|backends/||;s|\.yml||' | sed 's/^/  /'; exit 1; }
 	@test -n "$(RAG_JWT_SECRET)" || { echo "ERROR: RAG_JWT_SECRET is not set. Generate one with: openssl rand -hex 32"; exit 1; }
-	@echo "Config OK: VECTOR_BACKEND=$(VECTOR_BACKEND)"
+	@test -n "$(POSTGRES_PASSWORD)" || { echo "ERROR: POSTGRES_PASSWORD is not set. Generate one with: openssl rand -hex 16"; exit 1; }
+	@if [ "$(VECTOR_BACKEND)" = "milvus-lite" ]; then \
+		case ",$$(printf '%s' '$(COMPOSE_PROFILES)' | tr -d ' ')," in \
+		*,celery,*|*,mcp,*) echo "ERROR: VECTOR_BACKEND=milvus-lite runs inside the api process, so the celery and mcp profiles cannot reach it (COMPOSE_PROFILES=$(COMPOSE_PROFILES)). Set COMPOSE_PROFILES= (MCP is then served by the api at /mcp/sse), or use a server backend such as VECTOR_BACKEND=milvus."; exit 1;; \
+		esac; \
+	fi
+	@echo "Config OK: VECTOR_BACKEND=$(VECTOR_BACKEND) COMPOSE_PROFILES=$(COMPOSE_PROFILES)"
 
 shell:  ## Open a shell in the API container
 	docker compose $(FILES) exec api bash
 
 test:  ## Run static deployment tests
-	cd .. && python -m pytest tests/test_unified_deployment.py -v -k "not Live"
+	cd ../../.. && python -m pytest tests/test_unified_deployment.py -v -k "not Live"
 
 # Stress test env — lightweight models for fast CPU execution
 STRESS_ENV := RAG_EMBEDDING_MODEL=all-MiniLM-L6-v2 \

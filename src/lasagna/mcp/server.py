@@ -1,13 +1,21 @@
 """Lasagna MCP Server.
 
 Exposes the RAG knowledge base as MCP tools so any agent can upload documents,
-search them semantically, list documents, and delete them.
+search them, list documents, and manage configuration.
 
-Run standalone::
+Run it the way an MCP client launches it (stdio, the default)::
 
-    python -m lasagna.mcp --host 0.0.0.0 --port 8005
+    lasagna-mcp
 
-Transport: SSE (default, port 8005) or stdio (``--transport stdio``).
+or as a network server::
+
+    lasagna-mcp --transport sse --host 127.0.0.1 --port 8005
+
+Tool sets (``--tools`` or ``LASAGNA_MCP_TOOLS``):
+
+- ``safe`` (default): every tool except the six that delete data or reset
+  configuration (see ``DESTRUCTIVE_TOOLS``).
+- ``all``: every tool.
 
 Endpoints (SSE mode):
 - /        : Welcome page with server info and links
@@ -15,18 +23,7 @@ Endpoints (SSE mode):
 - /sse     : MCP SSE transport endpoint (for MCP clients)
 - /health  : Health check endpoint
 
-Tools exposed:
-- search_knowledge: Semantic search across documents
-- get_document_context: Document awareness context for agent prompts
-- list_documents: List all documents in a session
-- upload_document: Upload and index a document
-- delete_document: Delete a document and its chunks
-- get_document_status: Poll processing status of a document (O(1))
-- get_document_info: Get detailed info about a specific document
-- get_document_chunks: Get all chunks from a document
-- get_system_status: Get RAG system health and statistics
-- reindex_document: Reindex an existing document
-- clear_session: Delete all documents in a session
+The tool catalogue is in ``README.md`` next to this file.
 """
 
 import os
@@ -69,6 +66,11 @@ _owns_logging = False
 def _configure_rag_logging(level: str) -> None:
     if not _owns_logging:
         return
+    from lasagna.api.rest.limits import apply_log_format
+
+    # LASAGNA_LOG_FORMAT=json: one JSON object per line, as the REST API does.
+    if apply_log_format(level):
+        return
     logger.remove()
     logger.add(sys.stderr, format=LOG_FORMAT, level=level, colorize=True)
 
@@ -90,6 +92,52 @@ _root_state = (list(_root_logger.handlers), _root_logger.level)
 mcp = FastMCP("lasagna", host=_server_host, port=_server_port)
 _root_logger.handlers[:] = _root_state[0]
 _root_logger.setLevel(_root_state[1])
+
+#: Tools that delete documents, profiles or collections, or throw away a
+#: session's configuration. The default ``safe`` set does not register them:
+#: an agent handed every tool will, sooner or later, call one of these to
+#: "clean up", and nothing it can do with the rest is irreversible.
+DESTRUCTIVE_TOOLS = frozenset(
+    {
+        "clear_session",
+        "bulk_delete_session",
+        "rebuild_collection",
+        "delete_document",
+        "delete_rag_profile",
+        "reset_rag_config",
+    }
+)
+
+#: Deprecated aliases of ``search``. Under ``safe`` they stay callable, so a
+#: client written against them keeps working, but are not listed: an agent
+#: shown three search tools spends a turn choosing between them.
+UNLISTED_UNDER_SAFE = frozenset({"search_knowledge", "search_with_context"})
+
+#: Accepted values of ``--tools`` / ``LASAGNA_MCP_TOOLS``.
+TOOL_SETS = ("safe", "all")
+TOOLS_ENV = "LASAGNA_MCP_TOOLS"
+
+
+def resolve_tool_set(value: Optional[str] = None) -> str:
+    """The tool set to serve: ``value``, else ``LASAGNA_MCP_TOOLS``, else ``safe``."""
+    raw = os.environ.get(TOOLS_ENV, "") if value is None else value
+    name = (raw or "").strip().lower() or "safe"
+    if name not in TOOL_SETS:
+        raise ValueError(
+            f"Unknown MCP tool set {raw!r}. Use --tools safe (the default, no tools "
+            f"that delete data) or --tools all, or set {TOOLS_ENV} to one of them."
+        )
+    return name
+
+
+class _LasagnaMCP(FastMCP):
+    """FastMCP that can keep a registered tool callable without listing it."""
+
+    unlisted: frozenset = frozenset()
+
+    async def list_tools(self):
+        return [tool for tool in await super().list_tools() if tool.name not in self.unlisted]
+
 
 #: Keys a tool's JSON error reply may carry; any other key makes it a report.
 _ERROR_ONLY_KEYS = frozenset({"error", "hint", "detail"})
@@ -962,7 +1010,10 @@ async def search(
     trace_id: Optional[str] = None,
     session_token: Optional[str] = None,
 ) -> str:
-    """Search the knowledge base using SOTA semantic retrieval.
+    """Search the knowledge base with the session's retrieval pipeline.
+
+    Use this tool for every search; ``search_knowledge`` and
+    ``search_with_context`` are deprecated aliases of it.
 
     Returns formatted context with citations ready for LLM injection,
     plus a trailing ``<search_metadata>`` JSON block with structured
@@ -1774,7 +1825,7 @@ def get_system_status() -> str:
         stats = {
             "status": "healthy",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "backend_version": "V2 (SOTA)" if is_v2 else "V1 (Standard)",
+            "backend_version": "V2" if is_v2 else "V1",
             "components": {
                 "milvus": {
                     "connected": True,
@@ -1862,19 +1913,19 @@ def rebuild_collection(
     admin_token: Optional[str] = None,
     confirm: bool = False,
 ) -> str:
-    """Drop and recreate the Milvus collection for the current config.
+    """Drop and recreate the vector collection for the session's embedding model.
 
     Use when embedding dimensions or index settings change and there are
     no documents to reindex.
 
-    **This is not scoped to your session.** ``collection_name`` resolves to a
-    single global collection — sessions are a metadata filter within it — so a
-    drop takes every session's documents with it. The dimension check below
-    means it only drops when the configured embedding dimension no longer
-    matches the collection, but a caller can produce that mismatch themselves
-    with one prior ``patch_rag_config``. Hence the admin credential and the
-    ``confirm`` flag that the strictly less destructive ``bulk_delete_session``
-    has always had.
+    **This is not scoped to your session.** Each embedding model has its own
+    collection, and every session on that model shares it (sessions are a
+    filter within it), so a drop takes every session's documents on that model
+    with it. The dimension check below means it only drops when the configured
+    embedding dimension no longer matches the collection, but a caller can
+    produce that mismatch themselves with one prior ``patch_rag_config``. Hence
+    the admin credential and the ``confirm`` flag that the strictly less
+    destructive ``bulk_delete_session`` has always had.
 
     :param admin_token: Required on a networked transport with
         ``RAG_REQUIRE_AUTH`` set.
@@ -1891,9 +1942,10 @@ def rebuild_collection(
         return json.dumps(
             {
                 "error": (
-                    "confirm must be true. This drops the shared collection, "
-                    "which removes every session's documents, not only "
-                    f"{session_id!r}."
+                    "confirm must be true. This drops the collection for this "
+                    "session's embedding model, which every session on that "
+                    "model shares, so it removes every session's documents "
+                    f"there, not only {session_id!r}'s."
                 )
             }
         )
@@ -2850,7 +2902,8 @@ def archive_document(
     the grace window (default 24 h).
 
     Use ``restore_document`` to recover the document within the grace window.
-    Use ``delete_document`` instead for an immediate, irreversible hard delete.
+    ``delete_document`` (served with ``--tools all``) deletes immediately and
+    irreversibly.
 
     :param document_id: ID of the document to archive.
     :param session_id: Session that owns the document.
@@ -3138,7 +3191,7 @@ def _get_welcome_html(host: str, port: int) -> str:
         </div>
 
         <div class="card">
-            <h2>🚀 SOTA Features</h2>
+            <h2>Retrieval features</h2>
             <div class="tools-grid">
                 <div class="tool">
                     <h4>Hybrid Search</h4>
@@ -3164,7 +3217,7 @@ def _get_welcome_html(host: str, port: int) -> str:
             <div class="tools-grid">
                 <div class="tool">
                     <h4>search</h4>
-                    <p>SOTA semantic search with citations for LLM injection</p>
+                    <p>Search with citations, formatted for an LLM prompt</p>
                 </div>
                 <div class="tool">
                     <h4>list_documents</h4>
@@ -3175,7 +3228,7 @@ def _get_welcome_html(host: str, port: int) -> str:
                     <p>Upload and index a document (PDF, DOCX, TXT, etc.)</p>
                 </div>
                 <div class="tool">
-                    <h4>delete_document</h4>
+                    <h4>delete_document (--tools all)</h4>
                     <p>Delete a document and all its indexed chunks</p>
                 </div>
                 <div class="tool">
@@ -3188,14 +3241,14 @@ def _get_welcome_html(host: str, port: int) -> str:
                 </div>
                 <div class="tool">
                     <h4>get_system_status</h4>
-                    <p>RAG system health, config, and SOTA features status</p>
+                    <p>RAG system health, config, and enabled features</p>
                 </div>
                 <div class="tool">
                     <h4>reindex_document</h4>
                     <p>Re-process and re-embed a document</p>
                 </div>
                 <div class="tool">
-                    <h4>clear_session</h4>
+                    <h4>clear_session (--tools all)</h4>
                     <p>Delete all documents in a session</p>
                 </div>
             </div>
@@ -3389,7 +3442,7 @@ def _get_docs_html(host: str, port: int) -> str:
                 <div><span class="method">TOOL</span> <span class="toggle-icon">▶</span></div>
             </div>
             <div class="collapsible">
-                <p class="tool-desc">SOTA semantic search with citations. Retrieval behaviour is driven by session config.</p>
+                <p class="tool-desc">Search with citations. Retrieval behavior is driven by session config.</p>
                 <div class="params">
                     <h4>Parameters</h4>
                     <div class="param">
@@ -3743,67 +3796,84 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
 # ---------------------------------------------------------------------------
 
 
+#: Every tool, in the order clients list them.
+_TOOLS = (
+    # Search
+    search,
+    search_knowledge,  # deprecated alias
+    search_with_context,  # deprecated alias
+    list_documents,
+    upload_document,
+    delete_document,
+    get_document_status,
+    get_document_info,
+    get_document_chunks,
+    get_system_status,
+    rebuild_collection,
+    reindex_document,
+    clear_session,
+    get_document_context,
+    # Focus / scoping
+    set_focused_documents,
+    get_focused_documents,
+    # Profile management
+    list_profiles,
+    get_active_profile,
+    set_active_profile,
+    get_profile_stats,
+    # Runtime config
+    get_rag_config,
+    patch_rag_config,
+    save_rag_profile,
+    delete_rag_profile,
+    reset_rag_config,
+    # Lifecycle (soft-delete, restore, bulk-delete, GC status, policy management)
+    archive_document,
+    restore_document,
+    bulk_delete_session,
+    get_gc_status,
+    get_lifecycle_policy,
+    set_lifecycle_policy,
+)
+
+
 def create_mcp_server(
-    host: str = "0.0.0.0", port: int = 8005, transport_security: Any = None
+    host: str = "0.0.0.0",
+    port: int = 8005,
+    transport_security: Any = None,
+    tools: Optional[str] = None,
 ) -> FastMCP:
     """Create a configured MCP server instance without starting it.
 
-    Returns a FastMCP instance with all RAG tools registered.
     Can be used standalone (via ``main()``) or mounted inside a FastAPI app
     for single-process deployments (e.g. ARM64 with Milvus Lite).
     ``transport_security`` is FastMCP's Host/Origin check for the SSE
     endpoints; FastMCP turns it on by itself only for a loopback ``host``.
-    """
-    server = FastMCP("lasagna", host=host, port=port, transport_security=transport_security)
 
-    # Search
-    server.add_tool(_flag_failures(search))
-    server.add_tool(_flag_failures(search_knowledge))  # deprecated alias
-    server.add_tool(_flag_failures(search_with_context))  # deprecated alias
-    server.add_tool(_flag_failures(list_documents))
-    server.add_tool(_flag_failures(upload_document))
-    server.add_tool(_flag_failures(delete_document))
-    server.add_tool(_flag_failures(get_document_status))
-    server.add_tool(_flag_failures(get_document_info))
-    server.add_tool(_flag_failures(get_document_chunks))
-    server.add_tool(_flag_failures(get_system_status))
-    server.add_tool(_flag_failures(rebuild_collection))
-    server.add_tool(_flag_failures(reindex_document))
-    server.add_tool(_flag_failures(clear_session))
-    server.add_tool(_flag_failures(get_document_context))
-    # Focus / scoping
-    server.add_tool(_flag_failures(set_focused_documents))
-    server.add_tool(_flag_failures(get_focused_documents))
-    # Profile management
-    server.add_tool(_flag_failures(list_profiles))
-    server.add_tool(_flag_failures(get_active_profile))
-    server.add_tool(_flag_failures(set_active_profile))
-    server.add_tool(_flag_failures(get_profile_stats))
-    # Runtime config
-    server.add_tool(_flag_failures(get_rag_config))
-    server.add_tool(_flag_failures(patch_rag_config))
-    server.add_tool(_flag_failures(save_rag_profile))
-    server.add_tool(_flag_failures(delete_rag_profile))
-    server.add_tool(_flag_failures(reset_rag_config))
-    # Lifecycle (soft-delete, restore, bulk-delete, GC status, policy management)
-    server.add_tool(_flag_failures(archive_document))
-    server.add_tool(_flag_failures(restore_document))
-    server.add_tool(_flag_failures(bulk_delete_session))
-    server.add_tool(_flag_failures(get_gc_status))
-    server.add_tool(_flag_failures(get_lifecycle_policy))
-    server.add_tool(_flag_failures(set_lifecycle_policy))
+    ``tools`` is ``"safe"`` or ``"all"``; ``None`` reads ``LASAGNA_MCP_TOOLS``
+    and falls back to ``"safe"``. The safe set leaves out ``DESTRUCTIVE_TOOLS``
+    entirely, so ``call_tool`` cannot reach them either, and lists the
+    deprecated search aliases without removing them.
+    """
+    tool_set = resolve_tool_set(tools)
+    server = _LasagnaMCP("lasagna", host=host, port=port, transport_security=transport_security)
+    for fn in _TOOLS:
+        if tool_set == "safe" and fn.__name__ in DESTRUCTIVE_TOOLS:
+            continue
+        server.add_tool(_flag_failures(fn))
+    if tool_set == "safe":
+        server.unlisted = UNLISTED_UNDER_SAFE
 
     # Custom HTTP routes (welcome, docs, health, api/call)
     _register_custom_routes(server, host, port)
 
-    # Drift guard: warn if @mcp.tool() registered tools not present here.
+    # Drift guard: warn if a tool registered via @mcp.tool() is not in _TOOLS.
     # NOTE: Accessing private API (_tool_manager._tools) because the public
     # get_tools() is async but this factory is sync. Verified against
     # fastmcp 2.x. If this breaks on upgrade, make this factory async
     # or remove the drift guard.
     _module_tools = set(mcp._tool_manager._tools.keys())
-    _server_tools = set(server._tool_manager._tools.keys())
-    _missing = _module_tools - _server_tools
+    _missing = _module_tools - {fn.__name__ for fn in _TOOLS}
     if _missing:
         logger.warning(
             f"create_mcp_server() is missing {len(_missing)} tool(s) "
@@ -3818,6 +3888,20 @@ def create_mcp_server(
 # ---------------------------------------------------------------------------
 
 
+def _apply_path_flags(db_dir: Optional[str], upload_dir: Optional[str]) -> bool:
+    """Make ``--db-dir`` and ``--upload-dir`` win over the environment.
+
+    Both names are written: ``LASAGNA_`` wins over ``RAG_`` when both are set,
+    so writing only the ``RAG_`` name let an ambient ``LASAGNA_DB_DIR``
+    override the flag. Returns whether anything was set.
+    """
+    if db_dir:
+        os.environ["LASAGNA_DB_DIR"] = os.environ["RAG_DB_DIR"] = db_dir
+    if upload_dir:
+        os.environ["LASAGNA_UPLOAD_DIR"] = os.environ["RAG_UPLOAD_DIR"] = upload_dir
+    return bool(db_dir or upload_dir)
+
+
 def main():
     """Run the Lasagna MCP server."""
     global mcp, _eager_init, _owns_logging
@@ -3830,11 +3914,27 @@ def main():
         _configure_rag_logging("DEBUG")
 
     parser = argparse.ArgumentParser(description="Lasagna MCP Server")
+    # stdio by default: that is how Claude Code, Claude Desktop and Cursor
+    # launch a server, and it needs no port, no bind decision and no auth.
     parser.add_argument(
-        "--transport", default="sse", choices=["sse", "stdio"], help="Transport type (default: sse)"
+        "--transport",
+        default="stdio",
+        choices=["stdio", "sse"],
+        help="stdio (default) for a client that launches this process; sse to serve on a port",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="Host to bind (SSE only)")
-    parser.add_argument("--port", type=int, default=8005, help="Port to bind (SSE only)")
+    parser.add_argument("--host", default=None, help="Host to bind (sse only, default 127.0.0.1)")
+    parser.add_argument(
+        "--port", type=int, default=None, help="Port to bind (sse only, default 8005)"
+    )
+    parser.add_argument(
+        "--tools",
+        default=None,
+        choices=TOOL_SETS,
+        help=(
+            f"safe (default) leaves out the {len(DESTRUCTIVE_TOOLS)} tools that delete data "
+            f"or reset configuration; all serves every tool. Env: {TOOLS_ENV}"
+        ),
+    )
     parser.add_argument(
         "--lazy-init",
         action="store_true",
@@ -3867,12 +3967,12 @@ def main():
     parser.add_argument(
         "--db-dir",
         default=None,
-        help="Database directory (default: RAG_DB_DIR env or ~/.rag_knowledge/dbs)",
+        help="Database directory (default: LASAGNA_DB_DIR or RAG_DB_DIR, else ~/.lasagna/dbs)",
     )
     parser.add_argument(
         "--upload-dir",
         default=None,
-        help="Upload directory (default: RAG_UPLOAD_DIR env or ~/.rag_knowledge/uploads)",
+        help="Upload directory (default: LASAGNA_UPLOAD_DIR or RAG_UPLOAD_DIR, else ~/.lasagna/uploads)",
     )
     parser.add_argument(
         "--session-backend",
@@ -3886,15 +3986,26 @@ def main():
     )
     args = parser.parse_args()
 
+    # The default transport used to be sse, so `lasagna-mcp --port 8005` is in
+    # scripts and notes. Serving stdio instead would sit waiting on stdin and
+    # look like a hang; say what changed.
+    if args.transport == "stdio" and (args.host is not None or args.port is not None):
+        parser.error(
+            "--host and --port apply only to --transport sse; the default transport "
+            "is stdio. Add --transport sse to serve on a port."
+        )
+    args.host = args.host or "127.0.0.1"
+    args.port = args.port or 8005
+    try:
+        tool_set = resolve_tool_set(args.tools)
+    except ValueError as exc:
+        parser.error(str(exc))
+
     # Apply overrides — env vars feed auto-config in the providers layer.
     # NOTE: Module-level imports may have already triggered auto-config with
     # default paths, so we must reset providers + config after setting env vars.
     _needs_reset = False
-    if args.db_dir:
-        os.environ["RAG_DB_DIR"] = args.db_dir
-        _needs_reset = True
-    if args.upload_dir:
-        os.environ["RAG_UPLOAD_DIR"] = args.upload_dir
+    if _apply_path_flags(args.db_dir, args.upload_dir):
         _needs_reset = True
     if args.session_backend:
         os.environ["RAG_SESSION_BACKEND"] = args.session_backend
@@ -3965,7 +4076,7 @@ def main():
     else:
         _eager_init = args.transport != "stdio"
 
-    mcp = create_mcp_server(host=args.host, port=args.port)
+    mcp = create_mcp_server(host=args.host, port=args.port, tools=tool_set)
 
     logger.info("=" * 60)
     logger.info("Lasagna MCP Server")
@@ -3978,7 +4089,13 @@ def main():
         logger.info(f"Docs:     http://{args.host}:{args.port}/docs")
         logger.info(f"Health:   http://{args.host}:{args.port}/health")
         logger.info(f"SSE:      http://{args.host}:{args.port}/sse")
-    logger.info(f"Tools:    {len(mcp._tool_manager._tools)}")
+    if tool_set == "safe":
+        logger.info(
+            f"Tools:    {len(mcp._tool_manager._tools)} (safe set; --tools all adds "
+            f"{', '.join(sorted(DESTRUCTIVE_TOOLS))})"
+        )
+    else:
+        logger.info(f"Tools:    {len(mcp._tool_manager._tools)} (all)")
     logger.info("=" * 60)
 
     if _eager_init:

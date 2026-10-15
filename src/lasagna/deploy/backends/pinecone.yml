@@ -15,6 +15,12 @@ services:
     environment:
       RAG_VECTOR_BACKEND: pinecone
 
+  # Beat only schedules tasks, but it imports the same config, so it gets
+  # the same backend settings as every other service.
+  celery-beat:
+    environment:
+      RAG_VECTOR_BACKEND: pinecone
+
   mcp:
     environment:
       RAG_VECTOR_BACKEND: pinecone

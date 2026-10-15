@@ -24,6 +24,13 @@ services:
       RAG_VECTOR_BACKEND: pgvector
       PGVECTOR_DSN: postgresql://rag:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/rag
 
+  # Beat only schedules tasks, but it imports the same config, so it gets
+  # the same backend settings as every other service.
+  celery-beat:
+    environment:
+      RAG_VECTOR_BACKEND: pgvector
+      PGVECTOR_DSN: postgresql://rag:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/rag
+
   mcp:
     environment:
       RAG_VECTOR_BACKEND: pgvector

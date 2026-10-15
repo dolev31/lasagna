@@ -1,6 +1,6 @@
 """What the MCP surface is allowed to do, decided by how it is reached.
 
-The 33 tools in ``server.py`` had no authentication of any kind, and five of
+The tools in ``server.py`` had no authentication of any kind, and five of
 them are operations the REST API refuses without ``X-Admin-Token``:
 
 ===========================  ==========================================
@@ -18,11 +18,12 @@ serves those routes, so the admin gate on the REST side was decorative: the
 identical operation was one unauthenticated MCP call away.
 
 ``rebuild_collection`` is the worst of the five and has no REST equivalent at
-all. It reads ``config.collection_name``, which resolves to the single global
-``rag_documents_v2`` — sessions are a metadata filter *within* that collection,
-not separate collections — and calls ``recreate_collection_for_config``. One
-call from any session drops every session's documents. It has no ``confirm``
-flag, where the strictly less destructive ``bulk_delete_session`` does.
+all. It reads ``config.collection_name``, which resolves to the collection of
+the session's embedding model, shared by every session on that model (sessions
+are a metadata filter *within* it, not separate collections), and calls
+``recreate_collection_for_config``. One call from any session drops every
+session's documents on that model. It had no ``confirm`` flag, where the
+strictly less destructive ``bulk_delete_session`` does; it has one now.
 
 **The rule.** Enforcement turns on when the surface is both networked and
 running with ``RAG_REQUIRE_AUTH``:
@@ -140,8 +141,8 @@ def loopback_browser_guard():
     )
 
 
-#: Directory a networked, authenticated MCP surface may read server-side files
-#: from. Unset means it may read none.
+#: Directory a networked MCP surface may read server-side files from. Unset
+#: means it may read none.
 UPLOAD_ROOT_ENV = "RAG_MCP_UPLOAD_ROOT"
 
 
@@ -149,20 +150,24 @@ def guard_server_path(file_path: str) -> str:
     """Resolve a server-side path a caller asked the server to ingest.
 
     ``upload_document`` takes a path on the server's own disk. Over stdio that
-    is the client's own machine. On a networked surface with auth on, any
-    caller can mint a session token, so a bare path let an anonymous caller
-    ingest and read back any file the process could open (credential JSON,
-    config files). There, the path must resolve inside ``RAG_MCP_UPLOAD_ROOT``.
+    is the client's own machine. On any networked surface the caller is
+    someone else: with auth on, anyone who can mint a session token; with auth
+    off, anything that can reach the port, which on a container network is
+    every neighbouring container. A bare path let them ingest and read back any
+    file the process could open (credential JSON, config files, other
+    sessions' stored uploads). There, the path must resolve inside
+    ``RAG_MCP_UPLOAD_ROOT``, auth or not.
     """
     resolved = os.path.realpath(file_path)
-    if not enforcement_active():
+    if not is_networked():
         return resolved
     root = os.environ.get(UPLOAD_ROOT_ENV, "").strip()
     if not root:
         raise MCPAuthError(
-            "upload_document cannot read server-side paths on a networked, "
-            f"authenticated MCP surface unless {UPLOAD_ROOT_ENV} names a directory "
-            "they must be inside. Upload through the REST API instead, or set it."
+            f"upload_document reads files from the server's disk, and this MCP server "
+            f"is reachable over {_transport!r}, so it reads none unless "
+            f"{UPLOAD_ROOT_ENV} names the directory they must be inside. Set it, run "
+            "the server with --transport stdio, or upload through the REST API."
         )
     root_real = os.path.realpath(root)
     if os.path.commonpath([resolved, root_real]) != root_real:

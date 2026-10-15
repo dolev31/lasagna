@@ -44,7 +44,7 @@ from ._validation import (
 )
 from lasagna.core.tenant import get_tenant_manager
 from lasagna.core.quota import get_quota_manager
-from lasagna.infrastructure.tasks.document_tasks import dispatch_processing
+from lasagna.infrastructure.tasks.document_tasks import ProcessingAtCapacity, dispatch_processing
 
 if TYPE_CHECKING:
     from ._collection_manager import CollectionManager
@@ -66,6 +66,10 @@ def is_dim_mismatch_error(exc: BaseException) -> bool:
         or "expected dim" in message
         or ("dimension" in message and "length" in message)
     )
+
+
+class ChunkStoreUnavailable(RuntimeError):
+    """The vector store could not be read; REST answers 503."""
 
 
 class DocumentPipeline:
@@ -119,6 +123,7 @@ class DocumentPipeline:
         document_id: Optional[str] = None,
         _chunker_override: Any = None,
         _document_processor_override: Any = None,
+        refuse_when_busy: bool = False,
     ) -> Document:
         """Upload and process a document with SOTA pipeline.
 
@@ -214,13 +219,24 @@ class DocumentPipeline:
         logger.info(f"Document uploaded: {document_id} ({filename})")
 
         # --- Celery async path: dispatch and return immediately ---
-        if dispatch_processing(
-            document_id,
-            session_id,
-            stored_file_path,
-            reservation_id=reservation_id,
-            reserved_file_size=file_size_for_quota,
-        ):
+        try:
+            dispatched = dispatch_processing(
+                document_id,
+                session_id,
+                stored_file_path,
+                reservation_id=reservation_id,
+                reserved_file_size=file_size_for_quota,
+                refuse_when_busy=refuse_when_busy,
+            )
+        except ProcessingAtCapacity:
+            # Refused before any processing: leave nothing behind, so the
+            # caller's retry is a clean upload rather than a duplicate.
+            self._forget_unprocessed_upload(document_id, stored_file_path)
+            quota_mgr.release_upload_reservation(
+                session_id, file_size_for_quota, reservation_id=reservation_id
+            )
+            raise
+        if dispatched:
             METRICS.counter("rag.document.uploads", 1)
             return document  # status=PROCESSING; client polls for completion
 
@@ -245,6 +261,7 @@ class DocumentPipeline:
                 )
             except Exception as e:
                 logger.error(f"Failed to process document {document_id}: {e}")
+                METRICS.counter("lasagna_ingests", 1, tags={"outcome": "error"})
                 try:
                     self._update_document_status(
                         document_id, DocumentStatus.ERROR, error_message=str(e)
@@ -288,6 +305,19 @@ class DocumentPipeline:
         )
 
         return document
+
+    def _forget_unprocessed_upload(self, document_id: str, stored_file_path: str) -> None:
+        """Remove the metadata row and stored file of an upload that was refused."""
+        from lasagna.core.database import get_rag_database
+
+        try:
+            get_rag_database().delete_document(document_id)
+        except Exception as exc:
+            logger.warning(f"Could not remove the record of refused upload {document_id}: {exc}")
+        try:
+            self.storage.delete(stored_file_path)
+        except Exception as exc:
+            logger.warning(f"Could not remove the file of refused upload {document_id}: {exc}")
 
     def _store_file(self, source_path: str, document_id: str, filename: str) -> str:
         """Store uploaded file via the pluggable storage backend.
@@ -735,14 +765,15 @@ class DocumentPipeline:
                         if _is_dim_mismatch_error(exc)
                         else "COLLECTION SCHEMA"
                     )
+                    session = document.session_id
                     error_msg = (
-                        f"{mismatch} MISMATCH during insert:\n"
-                        "Cannot insert document - it does not match the collection's schema.\n"
-                        "Collection contains existing documents that would be lost.\n\n"
-                        "To resolve:\n"
-                        "  1. Use the same embedding model as existing documents\n"
-                        "  2. Call backend.force_rebuild_collection(confirm=True) to clear all data\n"
-                        "  3. Re-upload all documents after rebuild"
+                        f"{mismatch} MISMATCH during insert: collection "
+                        f"{config.collection_name!r} holds documents embedded another way, "
+                        f"so this document was not added and nothing was deleted. To keep "
+                        f"those documents, switch the session back to the profile they were "
+                        f"embedded with (lasagna configure --profile <profile> -s {session}). "
+                        f"To use this embedding model, upload into a new session "
+                        f"(lasagna upload <file> -s <new-session>)."
                     )
                     logger.error(error_msg)
                     raise ValueError(error_msg) from exc
@@ -805,6 +836,7 @@ class DocumentPipeline:
             text_length=text_length,
             preview_text=preview_text,
         )
+        METRICS.counter("lasagna_ingests", 1, tags={"outcome": "ready"})
 
         logger.info(
             f"Document processed: {document.document_id} "
@@ -1140,8 +1172,13 @@ class DocumentPipeline:
             ]
 
         except Exception as e:
-            logger.error(f"Failed to get chunks for document {document_id}: {e}")
-            return []
+            # Raised, not answered with []: an empty list reads as "this document
+            # has no chunks", which is a different and alarming claim about the
+            # data, made with a 200 while the store was unreachable.
+            raise ChunkStoreUnavailable(
+                f"The chunks of {document_id} could not be read from the vector store "
+                f"({type(e).__name__}: {e})."
+            ) from e
 
     def get_document_file_path(self, document_id: str, session_id: str) -> Optional[str]:
         """Get the file path for a document."""

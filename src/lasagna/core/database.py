@@ -32,6 +32,32 @@ from loguru import logger
 
 SCHEMA_VERSION = 6
 
+#: The metadata store's version, shared by the SQLite and PostgreSQL stores and
+#: recorded in their ``schema_meta`` table. A store recorded at a higher version
+#: was written by newer code, whose columns and meanings this code does not know.
+STORE_VERSION = SCHEMA_VERSION
+
+
+class StoreVersionError(RuntimeError):
+    """The store was written by a newer Lasagna than the one opening it."""
+
+
+def refuse_newer_store(recorded: int, where: str) -> None:
+    """Raise when the store at ``where`` is newer than this code.
+
+    Opening it anyway used to work silently: migrations only ran upward, so an
+    older install read and wrote rows whose columns it did not know, after a
+    downgrade or with two versions sharing one database.
+    """
+    if recorded > STORE_VERSION:
+        raise StoreVersionError(
+            f"The metadata store at {where} is at store version {recorded}, written by a "
+            f"newer Lasagna; this version reads store versions up to {STORE_VERSION}. "
+            f"Upgrade (pip install -U lasagna-rag), or point RAG_DB_DIR or "
+            f"RAG_DATABASE_DSN at a different store."
+        )
+
+
 # Document metadata table
 CREATE_DOCUMENTS_TABLE = """
 CREATE TABLE IF NOT EXISTS rag_documents (
@@ -279,6 +305,7 @@ class RAGDatabase:
                 cursor.execute("SELECT value FROM schema_meta WHERE key = 'version'")
                 row = cursor.fetchone()
                 current_version = int(row[0]) if row else 0
+                refuse_newer_store(current_version, self.db_path)
 
                 # Create tables
                 cursor.execute(CREATE_DOCUMENTS_TABLE)

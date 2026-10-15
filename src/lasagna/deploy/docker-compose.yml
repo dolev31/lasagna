@@ -12,8 +12,13 @@
 #   redis        — Cache + message broker (always starts)
 #   postgres     — Metadata database (always starts)
 #   celery-worker — Background processing (profile: celery)
+#   celery-beat  — Periodic GC and orphan scans (profile: celery)
 #   mcp          — Standalone MCP server (profile: mcp)
 #   jaeger       — Distributed tracing (profile: tracing)
+#
+# Every long-running service has a healthcheck, so
+#   docker compose -f docker-compose.yml -f backends/qdrant.yml up -d --wait
+# returns once the stack can serve, or fails naming the service that cannot.
 # ============================================================================
 
 x-env: &common-env
@@ -25,6 +30,21 @@ x-env: &common-env
   # POSTGRES_PASSWORD back to "rag" -- exactly what requiring it prevents.
   RAG_DATABASE_DSN: postgresql://rag:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/rag
   RAG_REDIS_URL: redis://redis:6379
+  # The api stores an upload at <upload dir>/<document_id>/<file> and hands
+  # that absolute path to the celery worker, which opens it to process the
+  # document. Each container has its own filesystem, so the path only resolves
+  # on the worker because every service mounts the `uploads-data` volume at
+  # this same directory. Metadata and session config live in Postgres, so no
+  # SQLite directory needs sharing. The LASAGNA_ name, because it wins over a
+  # RAG_UPLOAD_DIR in .env, which would move uploads off the shared volume.
+  LASAGNA_UPLOAD_DIR: /data/uploads
+  # On shutdown the api waits this long (seconds) for documents still in its
+  # own processing threads, then marks them failed with the reason. It has to
+  # fit inside gunicorn's --graceful-timeout (30 s in the image), which has to
+  # fit inside the api's stop_grace_period below; otherwise the process is
+  # killed first and the documents stay "processing". With the celery profile
+  # the worker processes documents and these threads are a fallback.
+  RAG_PROCESSING_TIMEOUT: "${RAG_PROCESSING_TIMEOUT:-20}"
   RAG_CACHE_BACKEND: redis
   RAG_CELERY_ENABLED: "${RAG_CELERY_ENABLED:-true}"
   RAG_CELERY_BROKER_URL: redis://redis:6379/0
@@ -47,6 +67,9 @@ x-env: &common-env
   # Guards the GC/admin routes and the five MCP tools that mirror them. Unset
   # means those routes return 503, not that they are open.
   RAG_ADMIN_TOKEN: "${RAG_ADMIN_TOKEN:-}"
+  # With RAG_REQUIRE_AUTH on, POST /api/v1/sessions needs one of these in
+  # X-API-Key (comma-separated, each at least 32 characters).
+  RAG_API_KEYS: "${RAG_API_KEYS:-}"
   # Every service here binds 0.0.0.0 on the container network -- it has no other
   # option -- and is published on 127.0.0.1 by the `ports:` entries below. The
   # process cannot see the publish address, so it would otherwise refuse to
@@ -58,7 +81,7 @@ x-env: &common-env
   RAG_BIND_IS_PROTECTED: "${RAG_BIND_IS_PROTECTED:-true}"
   # Cross-origin browser access is denied unless origins are named here.
   RAG_CORS_ORIGINS: "${RAG_CORS_ORIGINS:-}"
-  # SOTA model and retrieval config
+  # Model and retrieval config
   RAG_EMBEDDING_MODEL: "${RAG_EMBEDDING_MODEL:-BAAI/bge-m3}"
   RAG_EMBEDDING_DIM: "${RAG_EMBEDDING_DIM:-1024}"
   RAG_EMBEDDING_BACKEND: "${RAG_EMBEDDING_BACKEND:-sentence-transformers}"
@@ -68,6 +91,15 @@ x-env: &common-env
   RAG_ENABLE_CRAG: "${RAG_ENABLE_CRAG:-false}"
   RAG_ENABLE_CONTEXTUAL_RETRIEVAL: "${RAG_ENABLE_CONTEXTUAL_RETRIEVAL:-false}"
   RAG_DOCLING_ENABLED: "${RAG_DOCLING_ENABLED:-false}"
+
+# The api, worker, beat and mcp containers also read .env itself. Compose uses
+# .env only to fill in the ${...} references in this file, so without this an
+# OPENAI_API_KEY, PINECONE_API_KEY, QDRANT_API_KEY, RAG_SETTINGS_FILE or any
+# other RAG_* override set there never reached the containers. Values under
+# `environment:` still win.
+x-env-file: &env-file
+  - path: .env
+    required: false
 
 x-logging: &default-logging
   driver: json-file
@@ -100,8 +132,25 @@ services:
       # is visible. `lasagna serve` does enforce it, because there the bind
       # address is an argument it can read.
       - "${API_BIND:-127.0.0.1}:${API_PORT:-8000}:8000"
+    env_file: *env-file
     environment:
       <<: *common-env
+      # Proxy addresses whose X-Forwarded-For gunicorn trusts (the client
+      # address the rate limiter and logs see). Unset trusts only loopback.
+      FORWARDED_ALLOW_IPS: "${FORWARDED_ALLOW_IPS:-127.0.0.1}"
+    volumes:
+      - uploads-data:/data/uploads
+    # Longer than gunicorn's 30 s graceful timeout; see RAG_PROCESSING_TIMEOUT.
+    stop_grace_period: 40s
+    # Ready, not merely alive: the backend is loaded and the vector store,
+    # Redis and Postgres answer. Loading the embedding model takes a while on
+    # a cold start, hence the long start period.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8000/api/v1/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 300s
     depends_on:
       redis:
         condition: service_healthy
@@ -122,8 +171,22 @@ services:
       worker
       --loglevel=info
       --concurrency=${CELERY_CONCURRENCY:-4}
+    env_file: *env-file
     environment:
       <<: *common-env
+    volumes:
+      - uploads-data:/data/uploads
+    # The image's own HEALTHCHECK probes the api on :8000, which this
+    # container does not serve, so without this the worker reported unhealthy.
+    healthcheck:
+      # The same -A as the worker command, so the probe reaches this worker
+      # through the app's own broker settings. It imports the package, so it
+      # runs once a minute rather than every few seconds.
+      test: ["CMD-SHELL", "celery -A lasagna.infrastructure.tasks.celery_app inspect ping -d celery@$$HOSTNAME --timeout 10 > /dev/null"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 60s
     depends_on:
       redis:
         condition: service_healthy
@@ -147,8 +210,18 @@ services:
       --loglevel=info
       --scheduler celery.beat.PersistentScheduler
       --schedule /tmp/celerybeat-schedule
+    env_file: *env-file
     environment:
       <<: *common-env
+    # Beat answers no ping. Its schedule file exists once it has started and
+    # loaded the schedule; the process itself is PID 1, so a crash stops the
+    # container rather than leaving it running.
+    healthcheck:
+      test: ["CMD-SHELL", "ls /tmp/celerybeat-schedule* > /dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     depends_on:
       redis:
         condition: service_healthy
@@ -167,12 +240,26 @@ services:
       - python
       - "-m"
       - "lasagna.mcp"
+      # stdio is the default transport; a container serves a port.
+      - "--transport=sse"
       - "--host=0.0.0.0"
       - "--port=8005"
     ports:
       - "127.0.0.1:${MCP_PORT:-8005}:8005"
+    env_file: *env-file
     environment:
       <<: *common-env
+      # `safe` (default) leaves out the six tools that delete data or reset
+      # configuration; `all` serves them.
+      LASAGNA_MCP_TOOLS: "${LASAGNA_MCP_TOOLS:-safe}"
+    volumes:
+      - uploads-data:/data/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8005/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 300s
     depends_on:
       redis:
         condition: service_healthy
@@ -237,3 +324,4 @@ services:
 volumes:
   redis-data:
   postgres-data:
+  uploads-data:

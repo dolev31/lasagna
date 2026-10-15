@@ -122,7 +122,13 @@ class RAGBackend:
                 self._do_init()
             except Exception as e:
                 self._initialized = False
-                logger.error(f"Failed to initialize RAG Backend: {e}", exc_info=True)
+                if _is_data_dir_locked(e):
+                    # Another process (a running `lasagna serve`) holds the data
+                    # directory. The caller prints the one sentence that says
+                    # so; a traceback here buried it.
+                    logger.debug(f"RAG backend not initialized: {type(e).__name__}: {e}")
+                else:
+                    logger.opt(exception=e).error("Failed to initialize RAG Backend: {}", e)
                 raise
 
     def _do_init(self):
@@ -422,6 +428,7 @@ class RAGBackend:
         document_id: Optional[str] = None,
         _chunker_override: Any = None,
         _document_processor_override: Any = None,
+        refuse_when_busy: bool = False,
     ) -> Document:
         """Upload and process a document with SOTA pipeline.
 
@@ -429,6 +436,10 @@ class RAGBackend:
         ``_reranker_override`` the search path already accepts. Underscored for
         the same reason: it is the swap seam an experiment uses, not part of the
         everyday API.
+
+        ``refuse_when_busy`` raises ``ProcessingAtCapacity`` when every
+        background processing thread is busy, instead of processing in the
+        calling thread. A server request handler passes it; a script does not.
         """
         return self._document_pipeline.upload_document(
             file_path,
@@ -437,6 +448,7 @@ class RAGBackend:
             document_id=document_id,
             _chunker_override=_chunker_override,
             _document_processor_override=_document_processor_override,
+            refuse_when_busy=refuse_when_busy,
         )
 
     def process_document(
@@ -965,6 +977,21 @@ class RAGBackend:
         return stats
 
 
+def _is_data_dir_locked(exc: BaseException) -> bool:
+    """Whether ``exc`` is, or was caused by, a ``DataDirLockedError``.
+
+    Matched by name: the error belongs to the vector-store layer, and the
+    backend should not import it just to recognize it.
+    """
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if type(exc).__name__ == "DataDirLockedError":
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
 def get_rag_backend() -> RAGBackend:
     """Get or create the RAG backend singleton.
 
@@ -1008,6 +1035,14 @@ def close_backend() -> None:
             backend._lifecycle_scheduler.stop()
         except Exception as e:
             logger.warning(f"Lifecycle scheduler stop failed: {e}")
+
+    # Before the vector store closes: documents still processing write to it.
+    try:
+        from lasagna.infrastructure.tasks.document_tasks import drain_document_processing
+
+        drain_document_processing(timeout=float(rag_config._config.get("processing_timeout", 300)))
+    except Exception as e:
+        logger.warning(f"Draining document processing at shutdown failed: {e}")
 
     if hasattr(backend, "_vector_backend") and backend._vector_backend is not None:
         try:

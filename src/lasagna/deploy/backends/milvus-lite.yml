@@ -1,13 +1,17 @@
-# Backend: Milvus Lite (ARM64 / Apple Silicon)
+# Backend: Milvus Lite (one process, no extra container)
 #
 # Uses embedded Milvus Lite instead of a standalone container.
 # Milvus Lite is single-process — requires:
-#   - Single gunicorn worker (--workers=1)
+#   - Single uvicorn worker (--workers=1)
 #   - Celery disabled (cannot share embedded DB across processes)
 #   - MCP server embedded in the API process
 #
+# So it runs with an empty COMPOSE_PROFILES; `make validate` refuses the
+# celery and mcp profiles with it. Started anyway, those services exit at once
+# with the reason below instead of failing later on a database they cannot open.
+#
 # Usage:
-#   docker compose -f docker-compose.yml -f backends/milvus-lite.yml up -d
+#   COMPOSE_PROFILES= docker compose -f docker-compose.yml -f backends/milvus-lite.yml up -d
 
 services:
   api:
@@ -25,6 +29,22 @@ services:
       RAG_CELERY_ENABLED: "false"
     volumes:
       - milvus-data:/data/milvus
+
+  celery-worker: &not-with-milvus-lite
+    command:
+      - sh
+      - -c
+      - >-
+        echo "Milvus Lite runs inside the api process, so this service cannot
+        reach it. Unset COMPOSE_PROFILES (MCP is served by the api at /mcp/sse)
+        or use a server backend, e.g. VECTOR_BACKEND=qdrant." >&2; exit 1
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  celery-beat: *not-with-milvus-lite
+
+  mcp: *not-with-milvus-lite
 
 volumes:
   milvus-data:

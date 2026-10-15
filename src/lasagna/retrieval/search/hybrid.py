@@ -413,8 +413,17 @@ class MilvusNativeHybridSearcher:
             return hybrid_results
 
         except Exception as e:
-            logger.error(f"Native hybrid search failed: {e}")
-            return []
+            # Raised, not answered with []: an empty list is a valid result, so
+            # the caller returned "no matches" for every query while Milvus was
+            # failing. `HybridSearcher.search_hybrid` falls back to BM25 instead.
+            raise RuntimeError(f"Native hybrid search failed: {e}") from e
+
+
+def _record_degraded(stage: str, reason: object) -> None:
+    """Report a hybrid fallback to the caller (see ``lasagna.utils.degraded``)."""
+    from lasagna.utils.degraded import record
+
+    record(stage, reason)
 
 
 class BM25FallbackIndex:
@@ -1105,22 +1114,28 @@ class HybridSearcher:
 
             except Exception as e:
                 logger.warning(f"Backend hybrid search failed, falling back: {e}")
+                _record_degraded("hybrid", e)
                 # Fall through to legacy native or BM25 fallback
 
         # Legacy: Try Milvus native mode
         if self.is_native_mode_available() and query_embedding is not None:
             metrics["hybrid_mode"] = "native_milvus"
             timer = time.perf_counter()
-            results = self._native_searcher.hybrid_search(
-                query=query,
-                query_embedding=query_embedding,
-                session_id=session_id,
-                top_k=top_k,
-                document_ids=document_ids,
-                config=config,
-            )
-            metrics["sparse_ms"] = (time.perf_counter() - timer) * 1000.0
-            return (results, metrics) if return_metrics else results
+            try:
+                results = self._native_searcher.hybrid_search(
+                    query=query,
+                    query_embedding=query_embedding,
+                    session_id=session_id,
+                    top_k=top_k,
+                    document_ids=document_ids,
+                    config=config,
+                )
+            except Exception as e:
+                logger.warning(f"{e}; falling back to the BM25 index")
+                _record_degraded("hybrid", e)
+            else:
+                metrics["sparse_ms"] = (time.perf_counter() - timer) * 1000.0
+                return (results, metrics) if return_metrics else results
 
         # Fallback to rank_bm25 (or SPLADE)
         results, fallback_metrics = self._fallback_hybrid_search(
@@ -1174,6 +1189,7 @@ class HybridSearcher:
                     "index is empty. Results differ from a hybrid run."
                 )
             metrics["hybrid_mode"] = "dense_only_fallback"
+            _record_degraded("hybrid", "BM25 index empty; dense results only")
             return self._convert_dense_results(dense_results), metrics
 
         sparse_timer = time.perf_counter()

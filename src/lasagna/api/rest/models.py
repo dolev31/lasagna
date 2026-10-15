@@ -61,11 +61,23 @@ class RoutingInfo(BaseModel):
     estimated_complexity: Optional[str] = None
 
 
+#: Documented on every search response.
+_DEGRADED_STAGES = Field(
+    default_factory=list,
+    description=(
+        "Pipeline stages that failed and fell back to a lesser result during this "
+        "search (hyde, graphrag, hybrid, query_expansion, agentic). Empty when every "
+        "configured stage ran."
+    ),
+)
+
+
 class SearchResponse(BaseModel):
     results: List[SearchResultResponse]
     query: str
     total_results: int
     routing: Optional[RoutingInfo] = None
+    degraded_stages: List[str] = _DEGRADED_STAGES
 
 
 class CitationResponse(BaseModel):
@@ -89,6 +101,7 @@ class SearchWithCitationsResponse(BaseModel):
     query: str
     total_results: int
     routing: Optional[RoutingInfo] = None
+    degraded_stages: List[str] = _DEGRADED_STAGES
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +186,9 @@ class HealthResponse(BaseModel):
     #: hardened instance from an open one without attempting the attack. Not
     #: sensitive to disclose: a caller learns it from their first request.
     require_auth: bool = False
+
+    #: The checks that are not ``up``; a readiness 503 names them here.
+    failing: List[str] = Field(default_factory=list)
 
 
 class LivenessResponse(BaseModel):

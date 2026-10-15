@@ -11,6 +11,20 @@ import json
 import threading
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+
+@pytest.fixture
+def stdio_transport():
+    """The MCP upload tests model a local client: over a networked transport
+    `upload_document` refuses server-side paths outside RAG_MCP_UPLOAD_ROOT."""
+    from lasagna.mcp import transport_guard
+
+    previous = transport_guard.get_transport()
+    transport_guard.set_transport("stdio")
+    yield
+    transport_guard.set_transport(previous)
+
 
 # ---------------------------------------------------------------------------
 # 1. Dispatch tiering
@@ -264,6 +278,7 @@ class TestThreadPoolRetry:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("stdio_transport")
 class TestUploadResponseContract:
     """Verify MCP upload_document returns valid JSON with expected keys."""
 
@@ -387,6 +402,7 @@ class TestGetDocumentStatus:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("stdio_transport")
 class TestUploadWaitPolling:
     """Verify wait=true blocks until document processing completes."""
 
