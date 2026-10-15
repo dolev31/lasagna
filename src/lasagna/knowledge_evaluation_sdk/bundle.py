@@ -76,6 +76,59 @@ METRICS_VERSION = "1.5"
 #: Bundle schema version. Consumers accept >=1.0,<2.0.
 SCHEMA_VERSION = "1.0"
 
+#: What a run's ``determinism`` may say. ``seeded_per_task``: one task at a
+#: time, each seeding the process-wide generators before it runs.
+#: ``seeded_global_concurrent``: tasks interleaved and shared those generators.
+#: ``seeded`` is what runs recorded before the two were told apart.
+SEEDED_LABELS = ("seeded_per_task", "seeded_global_concurrent", "seeded")
+
+
+class MetricsVersionError(ValueError):
+    """A result's metric definitions are missing or are not this build's."""
+
+
+def metrics_version_problem(recorded: Any, package_version: Any = None) -> Optional[str]:
+    """Why a result computed under ``recorded`` cannot be bundled here, or None."""
+    rerun = (
+        "Run the experiment again with this version of Lasagna "
+        "(lasagna benchmark experiment <sweep.yaml>) and bundle the new results.json"
+    )
+    if not recorded:
+        return (
+            "the results record no metrics_version, so it is not known which metric "
+            f"definitions produced their numbers (results.json files from before 0.1.0 "
+            f"do not have one). {rerun}."
+        )
+    if str(recorded) != METRICS_VERSION:
+        made_by = f" by Lasagna {package_version}" if package_version else ""
+        return (
+            f"the results were computed{made_by} under metrics version {recorded}, and "
+            f"this version of Lasagna computes {METRICS_VERSION}; the definitions differ, "
+            f"so the numbers would be labelled as something they are not. {rerun}, or "
+            f"bundle them with the version that produced them."
+        )
+    return None
+
+
+def metrics_version_problems(bundle: Dict[str, Any]) -> List[str]:
+    """What ``results validate`` refuses about a bundle's metrics version."""
+    problems = []
+    problem = metrics_version_problem(
+        bundle.get("metrics_version"),
+        ((bundle.get("experiment") or {}).get("environment") or {}).get("lasagna_version"),
+    )
+    if problem:
+        problems.append(f"metrics_version: {problem}")
+    for cfg in bundle.get("configs") or []:
+        held = (cfg.get("held_fixed") or {}).get("metrics_version")
+        if held != bundle.get("metrics_version"):
+            problems.append(
+                f"config {cfg.get('name')!r}: held_fixed.metrics_version {held!r} differs "
+                f"from the bundle's {bundle.get('metrics_version')!r}"
+            )
+    return problems
+
+
 #: Fields whose agreement is required before two results may be compared.
 #: Order is irrelevant (the payload is sorted); membership is not.
 HELD_FIXED_FIELDS = (
@@ -267,7 +320,9 @@ def held_fixed_from(
         return value if value is not None else declared.get(name)
 
     return {
-        "metrics_version": METRICS_VERSION,
+        # The run's own: stamping this build's made a result computed under
+        # older definitions look like one computed under these.
+        "metrics_version": run_meta.get("metrics_version"),
         "benchmark": result.get("benchmark_name"),
         "split": result.get("split"),
         "n_samples": result.get("n_samples"),
@@ -372,6 +427,11 @@ def build_bundle(
     with theirs, without access to the machine that produced them.
     """
     run_meta = dict(getattr(results, "experiment_config", {}) or {})
+    problem = metrics_version_problem(
+        run_meta.get("metrics_version"), run_meta.get("package_version")
+    )
+    if problem:
+        raise MetricsVersionError(f"Cannot bundle: {problem}")
     rows = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results._results]
 
     # Every distinct config's overrides, so "varied" can mean "differs somewhere
@@ -409,7 +469,7 @@ def build_bundle(
 
     bundle = {
         "schema_version": SCHEMA_VERSION,
-        "metrics_version": METRICS_VERSION,
+        "metrics_version": run_meta["metrics_version"],
         "experiment": run_meta,
         "submitter": submitter or {},
         "configs": list(configs.values()),
@@ -488,9 +548,12 @@ def json_schema() -> Dict[str, Any]:
                     },
                     "variance_source": {"enum": ["run", "sample"]},
                     "determinism": {
-                        "const": "seeded",
+                        "enum": list(SEEDED_LABELS),
                         "description": (
-                            "Never 'reproducible': LLM judges and GPU kernels defeat that claim."
+                            "seeded_per_task: tasks ran one at a time, each seeding the "
+                            "process-wide generators first. seeded_global_concurrent: "
+                            "tasks interleaved and shared them. Never 'reproducible': "
+                            "LLM judges and GPU kernels defeat that claim."
                         ),
                     },
                 },
@@ -770,7 +833,7 @@ def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str
     if judge and _is_floating_alias(judge):
         warnings.append("UNRESOLVED_JUDGE_ALIAS")
 
-    if run_meta.get("determinism") != "seeded":
+    if run_meta.get("determinism") not in SEEDED_LABELS:
         warnings.append("UNSEEDED")
 
     # Stage isolation: two arms may differ only in the stages they name. A

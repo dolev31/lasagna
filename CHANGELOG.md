@@ -111,6 +111,17 @@ Sweeps, validation and metrics:
   warns once with the closest one. `on` and `off` are booleans, an empty value
   means unset, and settings only the settings file defines (`use_agentic_rag`,
   `max_agent_iterations` and others) can be set from the environment.
+- **`results.json` records what its numbers were computed under:** the metrics
+  version and package version (also at the top of the file), the settings the
+  environment overrode (credentials and hosts redacted) and the Hugging Face
+  commit of each model the tasks ran, read from the local cache. `determinism`
+  says `seeded_per_task` when tasks ran one at a time and
+  `seeded_global_concurrent` when they shared the process-wide generators; it
+  said `seeded` for both.
+- **Checkpoints from before this release do not resume.** The resume key now
+  includes a hash of the metrics version, package version, judge model and
+  environment settings, so `--resume` never restores a result computed under
+  other ones. A run resumed after upgrading starts its tasks again.
 - **Searching on Milvus no longer pays for a JSON filter.** A search was
   confined to its session through `metadata["session_id"]`, which Milvus parses
   row by row; it now uses the `session_id` field every collection has and every
@@ -144,6 +155,14 @@ Sweeps, validation and metrics:
 
 ### Fixed
 
+- **A bundle carried this build's metrics version, not the run's.** `results
+  bundle` stamped the current `METRICS_VERSION` on any results file, so numbers
+  computed under older definitions were published as current ones. A bundle
+  now carries the run's version, and `results bundle` refuses a file with a
+  missing or different one, saying how to re-run it; `metrics_version_problems`
+  gives `results validate` the same check.
+- A checkpoint is flushed to disk before it is renamed into place, so a crash
+  cannot leave an empty checkpoint that `--resume` reads as a finished task.
 - **Configuring a second profile broke search in every other session.**
   `lasagna configure --profile speed -s A` and an upload rebuilt the shared
   collection at 384 dimensions (logging "Dropping vector collection for

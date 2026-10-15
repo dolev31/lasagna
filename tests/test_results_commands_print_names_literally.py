@@ -15,6 +15,7 @@ import pytest
 typer_testing = pytest.importorskip("typer.testing")
 
 from lasagna.cli import app  # noqa: E402
+from lasagna.knowledge_evaluation_sdk.bundle import METRICS_VERSION  # noqa: E402
 
 runner = typer_testing.CliRunner()
 
@@ -39,7 +40,7 @@ def _results_file(tmp_path, headline_off_by=0.0):
             }
         )
     path = tmp_path / "results.json"
-    path.write_text(json.dumps({"results": rows}))
+    path.write_text(json.dumps({"metrics_version": METRICS_VERSION, "results": rows}))
     return str(path)
 
 

@@ -59,8 +59,12 @@
           ]
         },
         "determinism": {
-          "const": "seeded",
-          "description": "Never 'reproducible': LLM judges and GPU kernels defeat that claim."
+          "enum": [
+            "seeded_per_task",
+            "seeded_global_concurrent",
+            "seeded"
+          ],
+          "description": "seeded_per_task: tasks ran one at a time, each seeding the process-wide generators first. seeded_global_concurrent: tasks interleaved and shared them. Never 'reproducible': LLM judges and GPU kernels defeat that claim."
         }
       }
     },
