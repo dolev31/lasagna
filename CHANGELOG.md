@@ -111,6 +111,9 @@ Sweeps, validation and metrics:
   `GOVERNANCE.md`, recorded in `tests/snapshots/openapi.json` and
   `tests/snapshots/mcp_tools.json`. Errors are documented as `ErrorResponse`.
 
+- `lasagna component list [stage]` lists every component a sweep can name, with
+  its stage, description and paper, without loading any of them.
+
 ### Changed
 
 - **One vector collection per embedding model.** The default collection name is
@@ -182,6 +185,31 @@ Sweeps, validation and metrics:
 - BGE-M3 no longer gets the BGE v1.5 query instruction, which it was not
   trained with. This changes BGE-M3 query vectors on the sentence-transformers
   backend.
+- **`lasagna.__all__` is the public API: 20 names.** The component decorators,
+  `register`, `registry`, `RAGConfig`, `KnowledgeClient`, `KnowledgeConfig`,
+  `Experiment`, `ExperimentConfig`, `RAGBackend`, `get_rag_backend`,
+  `create_rag_backend`, `VectorStoreAdapter`, `register_backend` and
+  `__version__`. The 56 other names it exported still import from `lasagna`
+  until 0.2.0, each with a `DeprecationWarning` naming the module to import it
+  from.
+- Listing components no longer imports them: built-ins declare that they
+  implement their stage's interface. `registry.list_*()` and
+  `lasagna plugins list` load no model code, and `lasagna-mcp --help` takes
+  under half a second (it took 8).
+- **CLI.** `-s` means `--session` in every command; `benchmark run` spells out
+  `--split` and `--mode`. `benchmark run` measures retrieval unless `--tracks`
+  names generation or `--generator` is given (generation needs an API key).
+  `benchmark experiment` ends with the leaderboard, as `benchmark run` does.
+  `benchmark compare` and `benchmark leaderboard` are now `results compare` and
+  `results leaderboard`, and `results interaction --bootstrap` is
+  `--resamples`; the old spellings work until 0.2.0 and say so.
+- The preset profiles name the chunker they run: `structure_aware` for `speed`
+  and `standard`, `hierarchical` for `balanced` and `max_quality`. They said
+  `semantic`, and each upload warned that it was overridden. The chunks are the
+  same; with the structural settings turned off, both mean `semantic`.
+- `lasagna serve` logs warnings only (`-v` or `LASAGNA_LOG_LEVEL=INFO` for
+  more), prints the default session's profile, embedding model, vector store
+  and data directory, and opens a browser only with `--open`.
 
 Servers and deployment:
 
@@ -304,6 +332,43 @@ Numbers that were wrong:
   `retrieval_chunk_overfetch` even when BM25 had simply run out of documents
   matching a one- or two-word query; it now names the cause.
 - `results significance` and the isolation summary said "1 pairs".
+- **Markdown chunking cut code blocks at comments.** The structure-aware
+  chunker, which every built-in profile runs, read a `#` comment inside a
+  fenced code block as a header and split the block there. Fenced code is now
+  skipped when headers are found, and a chunk that is only a horizontal rule
+  or table border (`---`, `|---|---|`) is dropped: searching the README
+  returned `---` first, at score 1.0. Plain-text corpora chunk as before; the
+  BEIR, smoke and plugin-template numbers are unchanged.
+
+- A misspelled benchmark, profile, stage or component name is one error with
+  the likely name (`did you mean 'smoke'?`), before any model loads. A
+  misspelled benchmark ran for seconds and failed inside its task.
+- `component validate path/to/my_ideas.py:keyword_overlap` names the component
+  `my_ideas:keyword_overlap`, as a sweep does.
+
+First run:
+
+- The `lasagna` command prints a bad setting as one message and exits 2;
+  it was a traceback around the message.
+- `lasagna doctor` names the session, profile, settings file and data
+  directory in force, reports a bad setting as a failed check instead of
+  crashing on it, and no longer checks for the GitHub CLI. `doctor --json`
+  printed invalid JSON when piped: long lines were folded inside strings.
+- `lasagna status` names a pre-0.1.0 collection that no configured model
+  reads, and how to search it again.
+- `lasagna init` states what each profile downloads (91 MB for `speed`,
+  3.1 GB for `standard`), asks again for an empty or broken API key, and no
+  longer cuts its title box off.
+- **Another project's credentials leaked in.** pymilvus loads the nearest
+  `.env` when imported: from a virtualenv inside a project, that project's
+  keys appeared in `os.environ` and provider auto-detection used them. Lasagna
+  now imports pymilvus with `.env` loading off and the environment restored.
+- A command run while `lasagna serve` holds the local store prints one
+  sentence with the fix, not a 25-line traceback.
+- One-shot commands no longer print gRPC fork notices, a "Loading weights" bar
+  per model, or a warning about background GC, which only `serve` and the MCP
+  server run. Progress bars that last longer than two seconds, such as a model
+  download, still show.
 
 Servers and deployment:
 

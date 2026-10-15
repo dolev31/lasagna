@@ -9,6 +9,6 @@ Usage::
     python -m lasagna --help
 """
 
-from lasagna.cli import app
+from lasagna.cli import main
 
-app()
+main()

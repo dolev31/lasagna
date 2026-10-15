@@ -796,6 +796,19 @@ PARAMETERS: list[ParameterDef] = [
             EnumOption(
                 "sentence_window", "Sentence Window", "Sliding window over sentences — good for Q&A"
             ),
+            # What the preset profiles run. They take effect through
+            # preserve_headers/preserve_tables and enable_hierarchical; with
+            # those off, either one chunks by topic, as "semantic".
+            EnumOption(
+                "structure_aware",
+                "Structure-aware",
+                "Splits at headings and keeps tables whole, then by topic within each section",
+            ),
+            EnumOption(
+                "hierarchical",
+                "Hierarchical",
+                "Large parent pieces, each split into smaller child pieces",
+            ),
         ],
     ),
     ParameterDef(

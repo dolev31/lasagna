@@ -116,25 +116,25 @@ class ProfileMixin:
             # Create preset profiles based on common configurations
             speed_profile = RAGProfile(
                 name="speed",
-                description="Fast, pure vector search - no reranking/MMR/HyDE",
+                description="Vector search only, with all-MiniLM-L6-v2: no reranking, MMR or HyDE",
                 config=self._create_speed_config(rag_config),
             )
 
             standard_profile = RAGProfile(
                 name="standard",
-                description="SOTA features with BGE-M3 embedding model (recommended starter)",
+                description="Hybrid search, reranking and agentic retrieval with BGE-M3 (recommended start)",
                 config=self._create_standard_config(rag_config),
             )
 
             balanced_profile = RAGProfile(
                 name="balanced",
-                description="SOTA features with BGE-M3, hierarchical chunking, structured graph",
+                description="Standard plus hierarchical chunking and the structured agentic graph, with BGE-M3",
                 config=self._create_balanced_config(rag_config),
             )
 
             max_quality_profile = RAGProfile(
                 name="max_quality",
-                description="All features enabled - HyDE, query expansion, max recall",
+                description="Every retrieval feature on: HyDE, query expansion, RAG fusion and CRAG",
                 config=self._create_max_quality_config(rag_config),
             )
 
@@ -226,7 +226,7 @@ class ProfileMixin:
                 "use_agentic_rag": True,
                 "max_agent_iterations": 3,
                 "chunk_refinement_method": "auto",
-                # SOTA retrieval defaults
+                # Retrieval defaults
                 "enable_context_reordering": True,
                 "enable_contextual_retrieval": False,
                 "enable_rag_fusion": False,
@@ -281,6 +281,11 @@ class ProfileMixin:
             "default_top_k": 20,
             "rerank_top_k": 5,
             "similarity_threshold": 0.3,
+            # What runs: headers and tables are kept (preserve_headers and
+            # preserve_tables, from settings.lasagna.toml), so sections are
+            # split structurally and each is chunked semantically. It said
+            # "semantic", and every upload warned that it was overridden.
+            "chunking_strategy": "structure_aware",
             "enable_hierarchical": False,
             "parent_chunk_size": 2000,
             "child_chunk_size": 500,
@@ -313,7 +318,7 @@ class ProfileMixin:
             "reranker_model": "mixedbread-ai/mxbai-rerank-large-v1",
             "embedding_model": "BAAI/bge-m3",
             "embedding_dim": 1024,
-            "chunking_strategy": "semantic",
+            "chunking_strategy": "structure_aware",  # as in speed
             "chunk_size": 800,
             "chunk_overlap": 0,
             "default_top_k": 20,
@@ -359,7 +364,7 @@ class ProfileMixin:
             "reranker_model": "mixedbread-ai/mxbai-rerank-large-v1",
             "embedding_model": "BAAI/bge-m3",
             "embedding_dim": 1024,
-            "chunking_strategy": "semantic",
+            "chunking_strategy": "hierarchical",  # enable_hierarchical wins
             "chunk_size": 800,
             "chunk_overlap": 0,
             "enable_hierarchical": True,
@@ -407,7 +412,7 @@ class ProfileMixin:
             "reranker_model": "mixedbread-ai/mxbai-rerank-large-v1",
             "embedding_model": "BAAI/bge-m3",
             "embedding_dim": 1024,
-            "chunking_strategy": "semantic",
+            "chunking_strategy": "hierarchical",  # enable_hierarchical wins
             "chunk_size": 800,
             "chunk_overlap": 0,
             "enable_hierarchical": True,

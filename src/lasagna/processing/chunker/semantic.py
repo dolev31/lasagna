@@ -123,6 +123,30 @@ class ChunkingStrategy(str, Enum):
     RECURSIVE = "recursive"
     SENTENCE_WINDOW = "sentence_window"
     HIERARCHICAL = "hierarchical"
+    #: Sections split at headers, tables kept whole, each section chunked
+    #: semantically. Runs when preserve_headers or preserve_tables is on.
+    STRUCTURE_AWARE = "structure_aware"
+
+
+#: Strategies named after a structural setting. With that setting off, what is
+#: left is the strategy their sections are chunked with: semantic. The preset
+#: profiles declared "semantic" until they named the chunker that runs, so an
+#: arm that turns the structure off chunks exactly as it did then.
+_STRUCTURAL_STRATEGIES = frozenset(
+    {ChunkingStrategy.STRUCTURE_AWARE.value, ChunkingStrategy.HIERARCHICAL.value}
+)
+
+
+def chunker_needs_embeddings(config) -> bool:
+    """Whether the built-in chunking for ``config`` may chunk semantically.
+
+    Benchmark ingest hands the chunker the embedding model only when this is
+    true. It was ``chunking_strategy == "semantic"``; a structural strategy
+    counts too, because its sections (or, with the structure off, the whole
+    text) are chunked semantically.
+    """
+    strategy = str(getattr(config, "chunking_strategy", "") or "")
+    return strategy == ChunkingStrategy.SEMANTIC.value or strategy in _STRUCTURAL_STRATEGIES
 
 
 class Chunk(_BaseChunk):
@@ -578,6 +602,10 @@ class StructureAwareChunker:
     TABLE_PATTERN = re.compile(r"(\|[^\n]+\|\n)+", re.MULTILINE)
     CODE_BLOCK_PATTERN = re.compile(r"```[\s\S]*?```", re.MULTILINE)
     PAGE_MARKER_PATTERN = re.compile(r"\[Page\s+(\d+)\]", re.IGNORECASE)
+    #: A chunk made only of these is a horizontal rule (``---``, ``***``) or a
+    #: table border (``|---|---|``): it carries no text, and alone it matched
+    #: queries about the text around it, ranking first at score 1.0.
+    RULE_ONLY_PATTERN = re.compile(r"[\s\-*_=|]*")
 
     def __init__(self, semantic_chunker: SemanticChunker):
         """Initialize with a base chunker.
@@ -625,14 +653,19 @@ class StructureAwareChunker:
                         section_text, len(chunks), current_header, page_number
                     )
                     for table_chunk in table_chunks:
+                        if self.RULE_ONLY_PATTERN.fullmatch(table_chunk.content):
+                            continue
+                        table_chunk.chunk_index = len(chunks)
                         table_chunk.start_char += section_offset
                         table_chunk.end_char += section_offset
-                    chunks.extend(table_chunks)
+                        chunks.append(table_chunk)
 
                 # Chunk remaining text
                 text_chunks = self.semantic_chunker.chunk_semantic_configured(section_text)
 
                 for chunk in text_chunks:
+                    if self.RULE_ONLY_PATTERN.fullmatch(chunk.content):
+                        continue
                     chunk.chunk_index = len(chunks)
                     chunk.section_header = current_header
                     chunk.page_number = page_number
@@ -644,12 +677,21 @@ class StructureAwareChunker:
         return chunks
 
     def _split_by_headers(self, text: str) -> List[Dict[str, Any]]:
-        """Split text by header markers."""
+        """Split text by header markers outside fenced code.
+
+        A ``#`` line inside a fenced block is a shell or Python comment, and
+        reading it as a header cut the block in two. Headers are looked for in
+        a copy with each block blanked to spaces (newlines kept, so every offset
+        still points into ``text``); sections are cut from ``text`` itself.
+        """
         sections = []
         current_pos = 0
         current_header = None
+        outside_code = self.CODE_BLOCK_PATTERN.sub(
+            lambda block: re.sub(r"[^\n]", " ", block.group(0)), text
+        )
 
-        for match in self.HEADER_PATTERN.finditer(text):
+        for match in self.HEADER_PATTERN.finditer(outside_code):
             # Add content before this header
             if match.start() > current_pos:
                 content = text[current_pos : match.start()].strip()
@@ -753,10 +795,13 @@ def resolve_effective_strategy(config, requested=None) -> str:
     """
     requested = requested or config.chunking_strategy
 
+    structure_off = False
     if config.enable_hierarchical:
         effective = ChunkingStrategy.HIERARCHICAL.value
     elif config.preserve_headers or config.preserve_tables:
-        effective = "structure_aware"
+        effective = ChunkingStrategy.STRUCTURE_AWARE.value
+    elif str(requested) in _STRUCTURAL_STRATEGIES:
+        effective, structure_off = ChunkingStrategy.SEMANTIC.value, True
     else:
         effective = str(requested)
 
@@ -766,14 +811,25 @@ def resolve_effective_strategy(config, requested=None) -> str:
         _WARNED_OVERRIDES.add((str(requested), effective))
         # loguru formats with braces, not %-style: a "%r" here renders
         # literally and the names never appear.
-        logger.warning(
-            f"chunking_strategy={str(requested)!r} is being overridden by "
-            f"structural settings; {effective!r} will run instead. Set "
-            f"enable_hierarchical=False and preserve_headers=preserve_tables=False "
-            f"for the requested strategy to take effect. Two configs differing "
-            f"only in chunking_strategy produce identical chunks under these "
-            f"settings."
-        )
+        if structure_off:
+            setting = (
+                "enable_hierarchical"
+                if str(requested) == ChunkingStrategy.HIERARCHICAL.value
+                else "preserve_headers or preserve_tables"
+            )
+            logger.warning(
+                f"chunking_strategy={str(requested)!r} needs {setting}, which is off, "
+                f"so 'semantic' runs. Name the strategy you want, or turn the setting on."
+            )
+        else:
+            logger.warning(
+                f"chunking_strategy={str(requested)!r} is being overridden by "
+                f"structural settings; {effective!r} will run instead. Set "
+                f"enable_hierarchical=False and preserve_headers=preserve_tables=False "
+                f"for the requested strategy to take effect. Two configs differing "
+                f"only in chunking_strategy produce identical chunks under these "
+                f"settings."
+            )
     return effective
 
 
@@ -978,7 +1034,10 @@ def chunk_document(
     elif config.preserve_headers or config.preserve_tables:
         structure_chunker = StructureAwareChunker(chunker)
         chunks = structure_chunker.chunk_with_structure(text)
-    elif strategy == ChunkingStrategy.SEMANTIC and embedding_manager:
+    elif (
+        strategy == ChunkingStrategy.SEMANTIC or str(strategy) in _STRUCTURAL_STRATEGIES
+    ) and embedding_manager:
+        # A structural strategy with its structure off; see _STRUCTURAL_STRATEGIES.
         chunks = chunker.chunk_semantic_configured(text)
     elif strategy == ChunkingStrategy.SENTENCE_WINDOW:
         chunks = chunker.chunk_sentence_window(text)

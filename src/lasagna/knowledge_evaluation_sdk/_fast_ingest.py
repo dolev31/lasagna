@@ -612,7 +612,9 @@ async def fast_ingest_corpus(
         or getattr(config, "enable_raptor", False)
     )
     chunking_strategy = getattr(config, "chunking_strategy", "fixed")
-    _uses_semantic = chunking_strategy in ("semantic",)
+    from ..processing.chunker.semantic import chunker_needs_embeddings
+
+    _uses_semantic = chunker_needs_embeddings(config)
     # One worker for a component: nothing says a researcher's chunker is
     # thread-safe, and a deterministic corpus matters more than speed here.
     n_workers = (

@@ -23,7 +23,7 @@ import os
 import shutil
 import sys
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 #: Extras a user is most likely to be missing, and what breaks without them.
 _OPTIONAL_IMPORTS = {
@@ -310,8 +310,14 @@ def diagnose(*, check_gh: bool = True) -> Diagnosis:
     )
 
 
-def format_issue_body(diagnosis: Optional[Diagnosis] = None) -> str:
-    """A ready-to-paste diagnostics block for a bug report."""
+def format_issue_body(
+    diagnosis: Optional[Diagnosis] = None, context: Optional[List[Tuple[str, str]]] = None
+) -> str:
+    """A ready-to-paste diagnostics block for a bug report.
+
+    ``context`` is the setup in force (session, profile, files), as
+    ``setup_text.doctor_context`` gives it; already redacted.
+    """
     d = diagnosis or diagnose()
     env = d.environment
     lines = [
@@ -323,6 +329,7 @@ def format_issue_body(diagnosis: Optional[Diagnosis] = None) -> str:
         f"platform    {env.get('platform', '?')} {env.get('machine', '')}".rstrip(),
         f"torch       {env.get('torch_version') or 'not installed'}",
         f"gpu         {env.get('gpu') or 'none'}",
+        *(f"{name:<11} {value}" for name, value in context or []),
         "",
     ]
     for c in d.checks:

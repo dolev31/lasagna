@@ -16,7 +16,7 @@ import json
 import os
 import shlex
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import typer
 from rich.console import Console
@@ -27,8 +27,8 @@ from rich.table import Table
 
 console = Console()
 app = typer.Typer(
-    name="rag-knowledge",
-    help="Lasagna — upload, search, benchmark, configure, and serve.",
+    name="lasagna",
+    help="Lasagna: upload and search documents, benchmark pipeline changes, configure, and serve.",
     no_args_is_help=True,
 )
 
@@ -37,8 +37,15 @@ app = typer.Typer(
 _LOG_LEVELS = frozenset({"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"})
 
 
-def _configure_cli_logging(verbose: bool = False, default: str = "WARNING") -> None:
-    """Own logging for the CLI process.
+def _configure_cli_logging(
+    verbose: bool = False,
+    default: str = "WARNING",
+    hide: Optional[Callable[[Dict[str, Any]], bool]] = None,
+) -> str:
+    """Own logging for the CLI process, and return the level it chose.
+
+    ``hide`` drops records that are noise for the command at hand (see
+    :func:`_server_only_warning`); ``--verbose`` shows them anyway.
 
     Nothing configured it before, so every command inherited loguru's default
     DEBUG sink. That is three lines on `lasagna doctor` -- not the flood it
@@ -63,15 +70,43 @@ def _configure_cli_logging(verbose: bool = False, default: str = "WARNING") -> N
     logger.remove()
     if level == "DEBUG":
         logger.add(sys.stderr, level=level)
-        return
+        return level
     threshold = logger.level(level).no
 
     def _shown(record) -> bool:
+        if hide is not None and hide(record):
+            return False
         # Progress lines (corpus ingestion) show at the warnings-only default:
         # without them a half-hour ingest looks like a hang.
         return record["level"].no >= threshold or bool(record["extra"].get("progress"))
 
     logger.add(sys.stderr, level=min(threshold, logger.level("INFO").no), filter=_shown)
+    return level
+
+
+def _server_only_warning(record: Dict[str, Any]) -> bool:
+    """A warning about background work that only a long-lived process does.
+
+    The backend schedules garbage collection when it starts, so every
+    `upload`, `search` and `status` warned that APScheduler was missing and
+    "GC will not run automatically". A one-shot command exits long before a
+    cycle would run; `serve` and the MCP server still say it.
+    """
+    return record["name"] == "lasagna.lifecycle.scheduler" and (
+        record["function"] == "_start_apscheduler"
+    )
+
+
+def _ephemeral_signing_secret_warning(record: Dict[str, Any]) -> bool:
+    """The REST app's warning that RAG_JWT_SECRET is unset.
+
+    On a loopback server with auth off, a per-process signing secret costs
+    nothing anyone relies on: it only means session tokens end with the
+    process. `serve` hides it there, and keeps it on any other address.
+    """
+    return record["name"] == "lasagna.api.rest.session_token" and (
+        "RAG_JWT_SECRET" in record["message"]
+    )
 
 
 def _print_version(value: bool) -> None:
@@ -95,6 +130,11 @@ def _cli(
         help="Print the installed version and exit.",
     ),
 ):
+    # First, before anything imports gRPC, tokenizers or tqdm.
+    from ._quiet import quiet_third_party_output
+
+    quiet_third_party_output()
+
     from loguru import logger
 
     logger.enable("lasagna")
@@ -102,7 +142,7 @@ def _cli(
     # (`configure` then `upload`, `search`, `serve`): keep sessions on disk.
     os.environ.setdefault("RAG_SESSION_BACKEND", "persistent")
     _settings_file_from_dotenv()
-    _configure_cli_logging(verbose)
+    _configure_cli_logging(verbose, hide=_server_only_warning)
 
 
 def _settings_file_from_dotenv() -> None:
@@ -199,10 +239,125 @@ def _count(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
-def _error(msg: str, exit_code: int = 1):
-    """Print error and exit."""
-    console.print(f"[red]Error: {escape(msg)}[/red]")
+def _error(msg: str, exit_code: int = 1, exc: Optional[BaseException] = None):
+    """Print error and exit.
+
+    Pass the exception behind ``msg`` as ``exc`` when there is one: a failure
+    with one known fix is then reported as that fix instead, and a bad setting
+    exits 2, as :func:`main` does.
+    """
+    config_error = _in_cause_chain(exc, "ConfigError")
+    if config_error is not None:
+        console.print(f"[red]Error: {escape(str(config_error))}[/red]")
+        raise typer.Exit(2)
+    console.print(f"[red]Error: {escape(_known_failure(exc) or msg)}[/red]")
     raise typer.Exit(exit_code)
+
+
+def _in_cause_chain(exc: Optional[BaseException], class_name: str) -> Optional[BaseException]:
+    """The first exception named ``class_name`` in ``exc``'s cause chain.
+
+    Matched by name, so the CLI does not import the module that defines it
+    (the vector backend, the config) just to check.
+    """
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if type(exc).__name__ == class_name:
+            return exc
+        exc = exc.__cause__ or exc.__context__
+    return None
+
+
+def main() -> None:
+    """The `lasagna` command: the app, with a bad setting reported in one message.
+
+    A ConfigError names the setting, its value and the fix. Raised from a
+    command that does not catch it, it arrived inside a 40-line traceback.
+    """
+    try:
+        app()
+    except Exception as exc:
+        config_error = _in_cause_chain(exc, "ConfigError")
+        if config_error is None:
+            raise
+        console.print(f"[red]Error: {escape(str(config_error))}[/red]")
+        raise SystemExit(2) from None
+
+
+def _home(path: str) -> str:
+    """``path`` with the home directory written as ``~``."""
+    home = str(Path.home())
+    path = str(path)
+    if path == home or path.startswith(home + os.sep):
+        return "~" + path[len(home) :]
+    return path
+
+
+def _known_failure(exc: Optional[BaseException]) -> Optional[str]:
+    """The one-sentence explanation and fix for a failure we can name.
+
+    Recognized by class name anywhere in the cause chain, so a wrapper that
+    re-raises keeps the cause. A store held by `lasagna serve` was reported as
+    "Failed to get status:" plus a 300-character message wrapped across five
+    lines.
+    """
+    locked = _in_cause_chain(exc, "DataDirLockedError")
+    if locked is None:
+        return None
+    path = getattr(locked, "db_path", None)
+    where = f" at {_home(path)}" if path else ""
+    return (
+        f"Another process is using the local store{where} (a running "
+        f"`lasagna serve`, MCP server or benchmark). Stop it and run this "
+        f"again, or give one of them its own store with "
+        f"RAG_DB_DIR=<another directory>."
+    )
+
+
+def _require_known(kind: str, name: str, known, listing: str) -> None:
+    """Exit with one sentence when ``name`` is not one of ``known``."""
+    from .core._text import did_you_mean
+
+    if name in known:
+        return
+    _error(f"Unknown {kind} {name!r}{did_you_mean(name, known)}. {listing}")
+
+
+def _require_benchmark(name: str) -> None:
+    from .knowledge_evaluation_sdk.benchmarks import benchmark_registry
+
+    _require_known(
+        "benchmark", name, benchmark_registry.names(), "`lasagna benchmark list` shows them all."
+    )
+
+
+def _require_profile(name: str, session_id: str = "default") -> None:
+    from .core.session_config import get_knowledge_config_manager
+
+    profiles = get_knowledge_config_manager(session_id=session_id).list_profiles(
+        session_id=session_id
+    )
+    names = [p["name"] for p in profiles]
+    _require_known("profile", name, names, f"Profiles: {', '.join(sorted(names))}.")
+
+
+def _require_component(stage: str, name: str) -> None:
+    """A registered name, or a ``module:attribute`` reference the sweep imports."""
+    from . import components
+    from .core.registry import registry
+
+    if components.is_reference(name) or registry.has(stage, name):
+        return
+    listing = f"`lasagna component list {stage}` shows them."
+    if "." in name or "/" in name:
+        # Looks like an import path: the likely miss is how it was named.
+        listing = (
+            f"To use a {stage} from your own module, name it as module:attribute "
+            f"(for example my_pkg:MyReranker), or install it as a "
+            f"lasagna_components entry point. {listing}"
+        )
+    _require_known(stage.replace("_", " "), name, registry.list(stage)[stage], listing)
 
 
 # ---------------------------------------------------------------------------
@@ -224,13 +379,11 @@ def init():
         console.print("Install with: pip install questionary")
         raise typer.Exit(1)
 
+    from lasagna.core.setup_text import api_key_problem, profile_download_text
+
     console.print()
-    console.print(
-        Panel.fit(
-            "[bold cyan]Lasagna Setup[/bold cyan]",
-            subtitle="Configure your knowledge base",
-        )
-    )
+    # The subtitle sat on the border, wider than the title: the box cut it off.
+    console.print(Panel.fit("[bold cyan]Lasagna setup[/bold cyan]\nConfigure your knowledge base"))
     console.print()
 
     # 1. Embedding mode
@@ -238,11 +391,11 @@ def init():
         "Where should embeddings run?",
         choices=[
             questionary.Choice(
-                "Cloud API (OpenAI/Cohere) — lightweight, no GPU needed",
+                "Cloud API (OpenAI/Cohere): no model download, no GPU needed",
                 value="cloud",
             ),
             questionary.Choice(
-                "Local (sentence-transformers) — private, needs ~2GB disk",
+                "Local (sentence-transformers): private; the profile sets the download",
                 value="local",
             ),
         ],
@@ -272,7 +425,7 @@ def init():
             questionary.Choice("Anthropic (Claude)", value="anthropic"),
             questionary.Choice("Groq (fast inference)", value="groq"),
             questionary.Choice("IBM watsonx", value="watsonx"),
-            questionary.Choice("None — search only, no LLM features", value="none"),
+            questionary.Choice("None, search only (no LLM features)", value="none"),
         ],
     ).ask()
     if llm_provider is None:
@@ -282,12 +435,13 @@ def init():
     profile = questionary.select(
         "Quality profile?",
         choices=[
-            questionary.Choice("Speed — pure vector search, fastest", value="speed"),
-            questionary.Choice(
-                "Standard — recommended (reranking + hybrid search)", value="standard"
-            ),
-            questionary.Choice("Balanced — best quality/speed tradeoff", value="balanced"),
-            questionary.Choice("Max Quality — all features enabled", value="max_quality"),
+            questionary.Choice(f"{label} ({profile_download_text(value)})", value=value)
+            for label, value in (
+                ("Speed: vector search only, fastest", "speed"),
+                ("Standard: hybrid search and reranking, recommended", "standard"),
+                ("Balanced: standard plus hierarchical chunking", "balanced"),
+                ("Max quality: every retrieval feature on", "max_quality"),
+            )
         ],
         default="standard",
     ).ask()
@@ -323,9 +477,17 @@ def init():
     if llm_provider in api_key_env:
         key_name = api_key_env[llm_provider]
         if not os.environ.get(key_name):
-            api_key = questionary.password(f"Enter your {key_name}:").ask()
-            if api_key:
-                env_vars[key_name] = api_key
+            # An empty or pasted-with-a-newline key was saved without a word,
+            # and the first LLM call failed instead.
+            while True:
+                api_key = questionary.password(f"Enter your {key_name}:").ask()
+                if api_key is None:  # Ctrl-C
+                    raise typer.Exit(0)
+                problem = api_key_problem(key_name, api_key)
+                if problem is None:
+                    env_vars[key_name] = api_key.strip()
+                    break
+                console.print(f"  [yellow]{escape(problem)}[/yellow]")
 
     # Write .env file
     try:
@@ -442,7 +604,7 @@ def upload(
     try:
         result, doc = _run(_upload())
     except Exception as exc:
-        _error(f"Upload failed: {exc}")
+        _error(f"Upload failed: {exc}", exc=exc)
 
     from lasagna.sdk.types import DocumentStatus
 
@@ -491,7 +653,7 @@ def search(
     try:
         result = _run(_search())
     except Exception as exc:
-        _error(f"Search failed: {exc}")
+        _error(f"Search failed: {exc}", exc=exc)
 
     if context:
         # Chunk text is data, not markup: Rich deleted "[metrics](...)" and
@@ -535,14 +697,14 @@ def status(
         try:
             docs = await client.list_documents()
             config = client.get_config_dict()
-            return docs, config
+            return docs, config, await _unused_collections(client)
         finally:
             await client.close()
 
     try:
-        docs, config = _run(_status())
+        docs, config, unused = _run(_status())
     except Exception as exc:
-        _error(f"Failed to get status: {exc}")
+        _error(f"Failed to get status: {exc}", exc=exc)
 
     # Documents table
     if docs:
@@ -559,6 +721,16 @@ def status(
         console.print(table)
     else:
         console.print("[dim]No documents uploaded yet.[/dim]")
+    for collection in unused:
+        dim = collection.get("embedding_dim")
+        size = f"{dim} dimensions" if dim else "an unknown size"
+        console.print(
+            f"[yellow]Unused: collection {escape(collection['name'])} holds "
+            f"{collection['rows']:,} chunks at {size} from before 0.1.0, and no configured "
+            f"model reads it. To search it again, set "
+            f"RAG_COLLECTION_NAME={escape(collection['name'])} with the embedding model "
+            f"that wrote it.[/yellow]"
+        )
 
     # Config summary
     console.print()
@@ -586,14 +758,66 @@ def status(
     )
 
 
+async def _unused_collections(client) -> List[Dict[str, Any]]:
+    """Collections from before 0.1.0 that no configured model reads.
+
+    A listing for `status`: it never fails the command.
+    """
+    try:
+        from lasagna.api._collection_manager import legacy_collections
+
+        backend = await client._get_backend()
+        return legacy_collections(backend._vector_backend)
+    except Exception as exc:  # noqa: BLE001
+        from loguru import logger
+
+        logger.debug(f"Could not list unused collections: {exc}")
+        return []
+
+
 # ---------------------------------------------------------------------------
 # serve
 # ---------------------------------------------------------------------------
 
 
+#: loguru level -> uvicorn's --log-level, so one setting governs both.
+_UVICORN_LEVELS = {"TRACE": "trace", "DEBUG": "debug", "INFO": "info", "SUCCESS": "info"}
+
+
+def _session_summary(session_id: str = "default") -> List[str]:
+    """What a request on ``session_id`` runs with, for the `serve` banner.
+
+    The server's start-up log named the global default embedding model
+    (BAAI/bge-m3, 1024 dimensions) while the default session, after
+    `lasagna configure --profile speed`, searched with all-MiniLM-L6-v2 at 384.
+    """
+    try:
+        from lasagna.core.config import rag_config
+        from lasagna.core.session_config import get_knowledge_config_manager
+
+        mgr = get_knowledge_config_manager(session_id=session_id)
+        profile = mgr.get_active_profile(session_id=session_id)
+        resolved = mgr.get_resolved_config(session_id)
+        model = resolved.get("embedding_model") or rag_config.embedding_model
+        dim = resolved.get("embedding_dim") or rag_config.embedding_dim
+        backend = resolved.get("vector_backend") or rag_config.vector_backend
+        data = os.path.dirname(rag_config.db_path)
+        if os.path.dirname(os.path.abspath(rag_config.upload_dir)) == os.path.dirname(data):
+            data = os.path.dirname(data)  # dbs/ and uploads/ side by side
+    except Exception as exc:  # the banner must never stop the server
+        return [f"Session config: could not be read ({type(exc).__name__}: {exc})"]
+    return [
+        f"Profile: {profile} (session '{session_id}')",
+        f"Embedding: {model} ({dim} dimensions)",
+        f"Vector store: {backend}",
+        f"Data: {_home(data)}",
+    ]
+
+
 @app.command()
 def serve(
-    port: int = typer.Option(8000, "--port", "-p", help="API port"),
+    ctx: typer.Context,
+    port: int = typer.Option(8000, "--port", "-p", help="Port to listen on."),
     host: str = typer.Option(
         "127.0.0.1",
         "--host",
@@ -601,16 +825,31 @@ def serve(
         "on every interface, and it is UNAUTHENTICATED (see SECURITY.md).",
     ),
     configurator: bool = typer.Option(
-        True, "--configurator/--no-configurator", help="Enable configurator UI"
+        True,
+        "--configurator/--no-configurator",
+        help="Serve the configurator web page at /configurator.",
     ),
     open_browser: bool = typer.Option(
-        True, "--open/--no-open", help="Open browser to configurator"
+        False,
+        "--open/--no-open",
+        help="Open the configurator in a browser once the server starts.",
     ),
 ):
-    """Start the RAG REST API server with configurator UI."""
-    # A long-lived server should say what it resolved. The CLI default of
-    # WARNING is right for one-shot commands and wrong here.
-    _configure_cli_logging(default="INFO")
+    """Start the REST API server, with the configurator web page."""
+
+    def _hide(record) -> bool:
+        if not _ephemeral_signing_secret_warning(record):
+            return False
+        # Decided when the warning arrives, from the module that sent it:
+        # importing auth_mode any earlier builds the app, and with it the
+        # warning, before this filter exists.
+        from lasagna.api.rest.auth_mode import is_loopback, require_auth
+
+        return is_loopback(host) and not require_auth()
+
+    # Warnings only by default, as for every other command: the banner below
+    # says what the server resolved. -v or LASAGNA_LOG_LEVEL=INFO shows more.
+    level = _configure_cli_logging(bool(ctx.find_root().params.get("verbose")), hide=_hide)
     if configurator:
         os.environ["RAG_CONFIGURATOR"] = "true"
 
@@ -624,7 +863,10 @@ def serve(
             f"API: {base}/api/v1\n"
             f"Health: {base}/api/v1/health\n"
             f"Docs: {base}/docs\n"
-            + (f"Configurator: {base}/configurator\n" if configurator else ""),
+            + (f"Configurator: {base}/configurator\n" if configurator else "")
+            + "\n"
+            + "\n".join(escape(line) for line in _session_summary())
+            + "\n\n[dim]Press Ctrl+C to stop.[/dim]",
         )
     )
 
@@ -675,6 +917,7 @@ def serve(
         reload=False,
         proxy_headers=bool(trusted_proxies),
         forwarded_allow_ips=trusted_proxies or None,
+        log_level=_UVICORN_LEVELS.get(level, level.lower()),
     )
 
 
@@ -710,6 +953,7 @@ def configure(
         _error(f"Failed to initialize config manager: {exc}")
 
     if profile:
+        _require_profile(profile, session_id)
         from lasagna.api._profile_guard import EmbeddingSizeConflict
 
         try:
@@ -841,7 +1085,7 @@ def evaluate(
     try:
         metrics = _run(_run_eval())
     except Exception as exc:
-        _error(f"Evaluation failed: {exc}")
+        _error(f"Evaluation failed: {exc}", exc=exc)
 
     console.print()
     console.print(
@@ -931,10 +1175,8 @@ def benchmark_info(
     """Show detailed information about a benchmark."""
     from .knowledge_evaluation_sdk.benchmarks import benchmark_registry
 
-    try:
-        adapter = benchmark_registry.get(name)
-    except KeyError as exc:
-        _error(str(exc))
+    _require_benchmark(name)
+    adapter = benchmark_registry.get(name)
 
     info = adapter.info()
     splits = adapter.available_splits()
@@ -965,30 +1207,46 @@ def benchmark_info(
 
 @benchmark_app.command("run")
 def benchmark_run(
-    name: str = typer.Argument(..., help="Benchmark name"),
-    samples: Optional[int] = typer.Option(100, "--samples", "-n", help="Number of samples"),
-    runs: int = typer.Option(1, "--runs", "-r", help="Number of runs"),
-    mode: str = typer.Option("auto", "--mode", "-m", help="auto | live | generation_only"),
-    split: str = typer.Option("test", "--split", "-s", help="Dataset split"),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output directory"),
-    seed: int = typer.Option(42, "--seed", help="Random seed"),
-    profile: str = typer.Option("standard", "--profile", "-p", help="Base profile"),
-    tracks: str = typer.Option(
-        "retrieval,generation",
+    name: str = typer.Argument(..., help="Benchmark name, as `lasagna benchmark list` shows it."),
+    samples: Optional[int] = typer.Option(
+        100, "--samples", "-n", help="Queries to evaluate, at most."
+    ),
+    runs: int = typer.Option(
+        1, "--runs", "-r", help="Runs per arm. Repeat runs when an LLM stage is in the loop."
+    ),
+    mode: str = typer.Option(
+        "auto",
+        "--mode",
+        help="auto, live (retrieve from the benchmark's corpus) or generation_only "
+        "(answer from the gold passages).",
+    ),
+    split: str = typer.Option("test", "--split", help="Dataset split."),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Output directory (default: a new folder under ~/.lasagna)."
+    ),
+    seed: int = typer.Option(42, "--seed", help="Random seed for sampling queries."),
+    profile: str = typer.Option(
+        "standard", "--profile", "-p", help="Profile every arm starts from."
+    ),
+    tracks: Optional[str] = typer.Option(
+        None,
         "--tracks",
-        help="retrieval, generation, or both (comma-separated)",
+        help="retrieval, generation, or both, comma-separated. Default: retrieval, or both "
+        "with --generator. Generation needs an LLM API key and the answer-scoring models, "
+        "so it runs only when asked for.",
+        show_default=False,
     ),
     reranker: Optional[str] = typer.Option(
-        None, "--reranker", help="Run with this registered reranker"
+        None, "--reranker", help="Run with this registered reranker."
     ),
     query_enhancer: Optional[str] = typer.Option(
-        None, "--query-enhancer", help="Run with this registered query enhancer"
+        None, "--query-enhancer", help="Run with this registered query enhancer."
     ),
     generator: Optional[str] = typer.Option(
-        None, "--generator", help="Write answers with this registered generator"
+        None, "--generator", help="Write answers with this registered generator."
     ),
 ):
-    """Run a single benchmark evaluation."""
+    """Run one benchmark and print its leaderboard."""
     from .knowledge_evaluation_sdk.experiment import (
         Experiment,
         ExperimentConfig,
@@ -997,6 +1255,9 @@ def benchmark_run(
         _parse_tracks,
     )
 
+    if tracks is None:
+        # Naming a generator is asking for answers; it ran on nothing otherwise.
+        tracks = "retrieval,generation" if generator else "retrieval"
     try:
         track_list = _parse_tracks([t.strip() for t in tracks.split(",") if t.strip()])
     except ValueError as exc:
@@ -1007,6 +1268,18 @@ def benchmark_run(
             f"Invalid mode '{mode}'. Must be 'auto', 'live' or "
             f"'generation_only' ('offline' is a deprecated alias)."
         )
+
+    # Before anything loads: a misspelled name ran for seconds, failed inside
+    # its task, and printed every registered name without the one meant.
+    _require_benchmark(name)
+    _require_profile(profile)
+    for stage, component in (
+        ("reranker", reranker),
+        ("query_enhancer", query_enhancer),
+        ("generator", generator),
+    ):
+        if component:
+            _require_component(stage, component)
 
     console.print(
         f"Running benchmark [cyan]{name}[/cyan] (up to {samples} samples, {runs} run(s), "
@@ -1038,9 +1311,19 @@ def benchmark_run(
     try:
         results = _run(_execute())
     except Exception as exc:
-        _error(f"Benchmark failed: {exc}")
+        _error(f"Benchmark failed: {exc}", exc=exc)
 
-    # Summary
+    _print_leaderboard(results)
+
+    if results.failed_tasks:
+        console.print(f"\n[red]{len(results.failed_tasks)} task(s) failed[/red]")
+    console.print(f"Output: {escape(config.effective_output_dir())}", soft_wrap=True)
+    _release_backend()
+    _exit_if_tasks_failed(results)
+
+
+def _print_leaderboard(results) -> None:
+    """The run's leaderboard by its primary metric, as `benchmark run` ends."""
     metric_names = results.get_metric_names()
     if metric_names:
         # A retrieval run has no generated answers, so leading with the first
@@ -1052,12 +1335,6 @@ def benchmark_run(
         console.print(results.leaderboard(primary))
     else:
         console.print("[yellow]No metrics computed[/yellow]")
-
-    if results.failed_tasks:
-        console.print(f"\n[red]{len(results.failed_tasks)} task(s) failed[/red]")
-    console.print(f"Output: {escape(config.effective_output_dir())}", soft_wrap=True)
-    _release_backend()
-    _exit_if_tasks_failed(results)
 
 
 @benchmark_app.command("experiment")
@@ -1129,9 +1406,10 @@ def benchmark_experiment(
     try:
         results = _run(_execute())
     except Exception as exc:
-        _error(f"Experiment failed: {exc}")
+        _error(f"Experiment failed: {exc}", exc=exc)
 
     output_dir = exp.config.effective_output_dir()
+    _print_leaderboard(results)
     console.print(
         Panel.fit(
             f"[bold]Experiment Complete[/bold]\n\n"
@@ -1217,27 +1495,35 @@ def _exit_if_tasks_failed(results) -> None:
     raise typer.Exit(code=1)
 
 
-@benchmark_app.command("compare")
+def _deprecated_spelling(old: str, new: str) -> None:
+    console.print(
+        f"[yellow]`lasagna {old}` is deprecated and will be removed in 0.2.0; "
+        f"use `lasagna {new}`.[/yellow]"
+    )
+
+
+# `benchmark compare` and `results compare` did different things under one
+# name; the `results` commands are the ones that check comparability. These
+# stay for one release, hidden.
+@benchmark_app.command("compare", hidden=True)
 def benchmark_compare(
-    results_a: str = typer.Argument(..., help="First results JSON"),
-    results_b: str = typer.Argument(..., help="Second results JSON"),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to compare"),
+    results_a: str = typer.Argument(..., help="First results JSON."),
+    results_b: str = typer.Argument(..., help="Second results JSON."),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to compare."),
     format_: str = typer.Option(
-        "markdown", "--format", "-f", help="Output format (markdown, latex)"
+        "markdown", "--format", "-f", help="markdown, or latex for one table per run."
     ),
 ):
-    """Compare two experiment results."""
+    """Old name of `lasagna results compare`."""
+    _deprecated_spelling("benchmark compare", "results compare")
+    if format_ != "latex":
+        results_compare(results_a, results_b, metric=metric)
+        return
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    ra = BenchmarkResults.load(results_a)
-    rb = BenchmarkResults.load(results_b)
-
-    if format_ == "latex":
-        console.print(ra.to_latex(metric))
-        console.print()
-        console.print(rb.to_latex(metric))
-    else:
-        console.print(ra.compare(rb, metric))
+    console.print(BenchmarkResults.load(results_a).to_latex(metric))
+    console.print()
+    console.print(BenchmarkResults.load(results_b).to_latex(metric))
 
 
 @benchmark_app.command("licenses")
@@ -1246,9 +1532,9 @@ def benchmark_licenses(
 ):
     """List every benchmark with its license and citation.
 
-    Generated rather than hand-written, so it cannot drift from the adapters.
-    Lasagna redistributes no benchmark data — each dataset is fetched from its
-    own source under its own terms, and those terms are the user's to honour.
+    Generated from the benchmark adapters. Lasagna redistributes no benchmark
+    data: each dataset is fetched from its own source under its own terms, and
+    those terms are yours to honor.
     """
     from .knowledge_evaluation_sdk.benchmarks import benchmark_registry
 
@@ -1313,16 +1599,21 @@ def benchmark_licenses(
         console.print(markdown, markup=False)
 
 
-@benchmark_app.command("leaderboard")
+@benchmark_app.command("leaderboard", hidden=True)
 def benchmark_leaderboard(
-    results_path: str = typer.Argument(..., help="Results JSON file"),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric for ranking"),
+    results_path: str = typer.Argument(..., help="A directory of bundles, or one results.json."),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to rank by."),
 ):
-    """Display a leaderboard from results."""
+    """Old name of `lasagna results leaderboard`."""
+    _deprecated_spelling("benchmark leaderboard", "results leaderboard")
+    if Path(results_path).is_dir():
+        results_leaderboard(results_path, metric=metric, output=None)
+        return
+    # One run's own table: `benchmark run` and `benchmark experiment` print it
+    # when they finish.
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    results = BenchmarkResults.load(results_path)
-    console.print(results.leaderboard(metric))
+    console.print(BenchmarkResults.load(results_path).leaderboard(metric))
 
 
 # ---------------------------------------------------------------------------
@@ -1331,7 +1622,7 @@ def benchmark_leaderboard(
 
 component_app = typer.Typer(
     name="component",
-    help="Validate components you have written.",
+    help="List components, and check components you have written.",
     no_args_is_help=True,
 )
 app.add_typer(component_app, name="component")
@@ -1346,6 +1637,58 @@ _FUNCTION_STAGES = (
     "document_processor",
     "generator",
 )
+
+
+@component_app.command("list")
+def component_list(
+    stage: Optional[str] = typer.Argument(
+        None,
+        help="Show one stage only: agentic_pipeline, chunker, document_processor, embedder, "
+        "generator, query_enhancer, reranker or retriever.",
+    ),
+):
+    """List the components a sweep can name, by stage.
+
+    Built-in components and those of installed plugins, with the paper each
+    one implements. A component of your own module is named as module:function
+    and does not appear here.
+    """
+    from lasagna.core.registry import COMPONENT_TYPES, registry
+
+    if stage is not None and stage != "enhancer":
+        _require_known(
+            "stage",
+            stage,
+            sorted(COMPONENT_TYPES),
+            f"Stages: {', '.join(sorted(COMPONENT_TYPES))}.",
+        )
+    entries = registry.list_components(stage)
+
+    by_stage: Dict[str, List[Dict[str, Any]]] = {}
+    for entry in entries:
+        by_stage.setdefault(entry["stage"], []).append(entry)
+    for stage_name, rows in by_stage.items():
+        table = Table(
+            title=f"{stage_name} ({len(rows)})",
+            title_justify="left",
+            title_style="bold cyan",
+            show_lines=False,
+        )
+        table.add_column("Name", style="bold", no_wrap=True)
+        table.add_column("Description", ratio=3)
+        table.add_column("Paper", style="dim", ratio=1, overflow="fold")
+        for entry in rows:
+            description = next(
+                (ln.strip() for ln in (entry.get("description") or "").splitlines() if ln.strip()),
+                "",
+            )
+            name = entry["name"] if entry["builtin"] else f"{entry['name']} (plugin)"
+            table.add_row(escape(name), escape(description), escape(entry.get("paper") or ""))
+        console.print(table)
+    console.print(
+        f"[dim]{_count(len(entries), 'component')}. Name one in a sweep's pipeline "
+        f"section, or try a reranker with `lasagna benchmark run smoke --reranker NAME`.[/dim]"
+    )
 
 
 @component_app.command("validate")
@@ -1363,17 +1706,15 @@ def component_validate(
 ):
     """Check a component satisfies its stage contract.
 
-    Turns "did I implement this correctly?" from a code review into a command.
-    The harness checks the things that make a component safe to swap: that it
-    returns the declared type, survives empty input, and does not mutate what
-    it was handed -- the last one being the property that makes a comparison
-    attributable, since a component that edits its input changes results for
-    whatever runs after it.
+    Checks what makes a component safe to swap: it returns the declared type,
+    survives empty input, and does not change what it was handed. The last is
+    what makes a comparison attributable: a component that edits its input
+    changes the results of whatever runs after it.
 
-    The target is resolved the way a sweep resolves it, from the working
-    directory, so the function you name in a sweep is the one checked here. A
-    function registered with ``@lasagna.reranker`` (or any stage decorator) is
-    checked as the component the sweep would run.
+    The target is resolved from the working directory, as a sweep resolves it,
+    so the function you name in a sweep is the one checked here. A function
+    decorated with @lasagna.reranker (or another stage decorator) is checked as
+    the component the sweep would run.
     """
     import inspect
 
@@ -1390,6 +1731,9 @@ def component_validate(
         obj = components.import_reference(target)
     except Exception as exc:
         _error(f"Could not import {target}: {type(exc).__name__}: {exc}")
+    # What a sweep names it: a file's module is its stem, so
+    # path/to/my_ideas.py:keyword_overlap is my_ideas:keyword_overlap.
+    name = f"{Path(module_path).stem}:{attr}" if module_path.endswith(".py") else target
 
     if not inspect.isclass(obj) and callable(obj):
         tagged = getattr(obj, "__lasagna_component__", None)
@@ -1400,7 +1744,7 @@ def component_validate(
                 f"(@lasagna.reranker, @lasagna.query_enhancer, ...) or pass --stage."
             )
         try:
-            obj = components.as_component_class(chosen, obj, target)
+            obj = components.as_component_class(chosen, obj, name)
         except (TypeError, ValueError) as exc:
             _error(str(exc))
 
@@ -1418,10 +1762,7 @@ def component_validate(
     except Exception as exc:  # a model that cannot load, a missing key: not a contract verdict
         _error(f"The checks could not run: {type(exc).__name__}: {exc}")
 
-    console.print(
-        f"\n[bold]{escape(str(report.component_class))}[/bold] "
-        f"({report.component_type or 'unknown'})"
-    )
+    console.print(f"\n[bold]{escape(name)}[/bold] ({report.component_type or 'unknown'})")
     for check in report.checks:
         # `checks` records every check as "PASS: name" or "FAIL: name"; the
         # failures, with their reasons, are printed below.
@@ -1435,7 +1776,12 @@ def component_validate(
 
     if report.passed:
         console.print("\n[green]Contract satisfied.[/green] This component is interchangeable.")
-        console.print("Next: register it, then compare it against a control — see docs/guide.md")
+        console.print(
+            "Next: register it, then compare it against a control: "
+            "https://github.com/dolev31/lasagna/blob/main/docs/guide.md"
+            "#6-compare-it-against-a-baseline",
+            soft_wrap=True,
+        )
     else:
         console.print(
             f"\n[red]{len(report.failures)} contract failure(s).[/red] "
@@ -1458,10 +1804,9 @@ app.add_typer(plugins_app, name="plugins")
 def plugins_list():
     """Show discovered plugins, including the ones that failed to load.
 
-    Discovery is best-effort: one broken plugin must not stop the registry
-    loading. But a failure was previously only a log line, so an author whose
-    entry point was malformed saw nothing — their component simply did not
-    exist. Set ``LASAGNA_STRICT_PLUGINS=1`` to raise instead.
+    One broken plugin does not stop the others loading, so a plugin that fails
+    is simply absent from the registry. This lists it with its error. Set
+    LASAGNA_STRICT_PLUGINS=1 to make a failure raise instead.
     """
     from lasagna.core.registry import discovery_log, registry
     from lasagna.knowledge_evaluation_sdk.benchmarks import benchmark_registry
@@ -1526,11 +1871,15 @@ def results_bundle(
     affiliation: str = typer.Option("", "--affiliation", help="Submitter affiliation"),
 ):
     """Package a run into a self-contained, publishable bundle."""
+    from .knowledge_evaluation_sdk.bundle import MetricsVersionError
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
     results = BenchmarkResults.load(results_path)
     submitter = {k: v for k, v in {"name": name, "affiliation": affiliation}.items() if v}
-    bundle = results.to_bundle(submitter=submitter or None)
+    try:
+        bundle = results.to_bundle(submitter=submitter or None)
+    except MetricsVersionError as exc:
+        _error(str(exc))
 
     Path(output).write_text(json.dumps(bundle, indent=2, default=str))
     console.print(f"[green]Wrote[/green] {escape(output)}")
@@ -1557,6 +1906,7 @@ def results_validate(
         _content_hash,
         aggregate_mismatches,
         comparability_key,
+        metrics_version_problems,
         ranked_list_mismatches,
     )
 
@@ -1584,6 +1934,7 @@ def results_validate(
                 f"held_fixed block ({cfg.get('comparability_key')} vs {recomputed})"
             )
 
+    problems.extend(metrics_version_problems(bundle))
     problems.extend(
         f"aggregate disagrees with per-query scores: {m}"
         for m in aggregate_mismatches(bundle.get("results") or [])
@@ -1636,7 +1987,7 @@ def results_validate(
 def results_compare(
     a: str = typer.Argument(..., help="First bundle or results.json"),
     b: str = typer.Argument(..., help="Second bundle or results.json"),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m"),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to compare."),
 ):
     """Compare two runs, reporting whether they are comparable at all."""
     from .knowledge_evaluation_sdk.results import BenchmarkResults
@@ -1653,17 +2004,19 @@ def results_power(
     results_path: str = typer.Argument(..., help="results.json from a run"),
     config_a: str = typer.Argument(..., help="Baseline config"),
     config_b: str = typer.Argument(..., help="Candidate config"),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m"),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to test."),
     benchmark: str = typer.Option("", "--benchmark", help="Which benchmark"),
-    alpha: float = typer.Option(0.05, "--alpha"),
-    power: float = typer.Option(0.80, "--power"),
+    alpha: float = typer.Option(0.05, "--alpha", help="Significance level of the test."),
+    power: float = typer.Option(
+        0.80, "--power", help="Chance of detecting the effect, for the smallest one reported."
+    ),
 ):
     """Could this run have detected the effect you care about?
 
-    A non-significant result has two readings — the techniques are the same, or
-    the run was too small to tell — and they call for opposite next steps.
-    Reports the smallest difference this run could have detected, and how many
-    queries the observed difference would need.
+    A non-significant result has two readings: the techniques are the same, or
+    the run was too small to tell. They call for opposite next steps. Reports
+    the smallest difference this run could have detected, and how many queries
+    the observed difference would need.
     """
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
@@ -1742,7 +2095,7 @@ def _format_effect_size(effect: Optional[float]) -> str:
 @results_app.command("significance")
 def results_significance(
     results_path: str = typer.Argument(..., help="results.json from a run"),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m"),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to test."),
     benchmark: str = typer.Option("", "--benchmark", help="Which benchmark"),
     correction: str = typer.Option(
         "holm", "--correction", help="'holm' (Holm-Bonferroni) or 'none'"
@@ -1759,11 +2112,7 @@ def results_significance(
     comparisons and roughly a 54% chance that at least one clears the bar by
     luck alone. Holm-Bonferroni controls the family-wise error rate over the
     whole set, so what comes out is a claim about the grid rather than about the
-    pair that happened to look best.
-
-    `BenchmarkResults.pairwise_significance` has done this since the beginning
-    and was reachable only from Python -- the CLI offered `compare`, `power` and
-    `per-query` but not the test a paper actually reports.
+    pair that happened to look best. Each pair is a paired sign-flip test.
     """
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
@@ -1970,9 +2319,7 @@ def results_per_query(
     """One row per query, retrieval and generation metrics side by side.
 
     Turns "config A lost" into "config A lost on the multi-hop questions, at
-    retrieval rather than generation". The two eval paths already wrote
-    per-query rows into the same list and nothing joined them, so the answer was
-    in the results file and could not be read out of it.
+    retrieval rather than generation".
 
     In the JSONL export, `_retrieved` lists each document's `score` and `rank`.
     The rank is authoritative: scores can tie, so sorting by score does not
@@ -2091,21 +2438,30 @@ def results_interaction(
     benchmark: str = typer.Option(
         "", "--benchmark", help="Which benchmark (default: the only one)"
     ),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m"),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to test."),
     neither: str = typer.Option("neither", "--neither", help="Config with both techniques off"),
     only_a: str = typer.Option("", "--only-a", help="Config with technique A only"),
     only_b: str = typer.Option("", "--only-b", help="Config with technique B only"),
     both: str = typer.Option("", "--both", help="Config with both on"),
-    alpha: float = typer.Option(0.05, "--alpha"),
-    bootstrap: int = typer.Option(10_000, "--bootstrap"),
+    alpha: float = typer.Option(0.05, "--alpha", help="Significance level of the test."),
+    resamples: int = typer.Option(
+        10_000,
+        "--resamples",
+        help="Random sign patterns for the sign-flip permutation test when more than "
+        "30 queries differ; with 30 or fewer it is exact. The interval is a t interval.",
+    ),
+    bootstrap: Optional[int] = typer.Option(
+        None, "--bootstrap", hidden=True, help="Old name of --resamples, removed in 0.2.0."
+    ),
 ):
     """Do two techniques compose, or do they overlap?
 
-    Estimates `(AB - neither) - (A - neither) - (B - neither)` from a 2x2 run,
-    with a bootstrap confidence interval. The question every RAG paper raises
-    and none answers: A is reported against a baseline, B is reported against a
-    baseline, and whether A+B is worth A alone cannot be recovered from the two
-    papers, because the interaction is not a function of the main effects.
+    Estimates `(AB - neither) - (A - neither) - (B - neither)` from a 2x2 run.
+    The p-value is a paired sign-flip permutation test on each query's
+    interaction, and the confidence interval a t interval. A is reported against
+    a baseline, B is reported against a baseline, and whether A+B is worth A
+    alone cannot be recovered from the two, because the interaction is not a
+    function of the main effects.
     """
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
@@ -2144,7 +2500,7 @@ def results_interaction(
             only_a=only_a,
             only_b=only_b,
             both=both,
-            n_bootstrap=bootstrap,
+            n_bootstrap=resamples if bootstrap is None else bootstrap,
             alpha=alpha,
         )
     except ValueError as exc:
@@ -2280,9 +2636,8 @@ def skills_install(
 ):
     """Copy the bundled skills where a coding agent will find them.
 
-    Skills teach an agent how to use Lasagna correctly — which mode to run a
-    benchmark in, why the first search is slow, how to file a useful bug report.
-    An agent that has them stops guessing.
+    Skills teach an agent how to use Lasagna: which mode to run a benchmark in,
+    why the first search is slow, how to file a useful bug report.
     """
     import shutil
 
@@ -2313,16 +2668,46 @@ def skills_install(
         console.print("[dim]Restart the agent, or start a new session, to pick them up.[/dim]")
 
 
+def _diagnose_or_report_the_setting(diagnose):
+    """Run doctor's checks; a bad setting becomes a failed check, not a traceback.
+
+    Every other command stops at an invalid setting, so this is where a user
+    looks next, and it crashed on the same error.
+    """
+    from .core.diagnostics import Check, Diagnosis
+
+    try:
+        return diagnose(check_gh=False)
+    except Exception as exc:
+        config_error = _in_cause_chain(exc, "ConfigError")
+        if config_error is None:
+            raise
+    from .core.provenance import redact
+
+    try:
+        from .core.provenance import capture
+
+        environment = redact(capture())
+    except Exception:  # noqa: BLE001 - the setting may break this too
+        environment = {}
+    return Diagnosis(
+        checks=[Check("config", "error", redact(str(config_error)))], environment=environment
+    )
+
+
 @app.command("doctor")
 def doctor(
     json_output: bool = typer.Option(False, "--json", help="Machine-readable output"),
     issue: bool = typer.Option(False, "--issue", help="Print a block to paste into a bug report"),
+    session_id: str = typer.Option(
+        "default", "--session", "-s", help="Session whose profile to report."
+    ),
 ):
     """Check this installation and say what to fix.
 
-    Answers the questions every support thread opens with — version, install
+    Answers the questions every support thread opens with: version, install
     source, backend, credentials, model cache, and anything that failed to load
-    quietly — so nobody has to be asked them.
+    quietly.
 
     Output is redacted: no absolute paths, no credential values. `--json` is
     for agents; `--issue` produces a collapsible block for a GitHub issue.
@@ -2331,14 +2716,23 @@ def doctor(
 
     from .core.diagnostics import diagnose, format_issue_body
 
-    d = diagnose()
+    d = _diagnose_or_report_the_setting(diagnose)
+    try:
+        from .core.setup_text import doctor_context
+
+        context = doctor_context(session_id)
+    except Exception as exc:  # noqa: BLE001 - doctor reports, it does not fail
+        context = [("session", session_id), ("setup", f"could not be read ({exc})")]
 
     if json_output:
-        console.print(_json.dumps(d.to_dict(), indent=2), markup=False, highlight=False)
+        payload = {**d.to_dict(), "context": dict(context)}
+        # soft_wrap: Rich folded long lines at the terminal width, newlines
+        # inside JSON strings included, so a long advice line made it invalid.
+        console.print(_json.dumps(payload, indent=2), markup=False, highlight=False, soft_wrap=True)
         raise typer.Exit(1 if d.worst == "error" else 0)
 
     if issue:
-        console.print(format_issue_body(d), markup=False, highlight=False)
+        console.print(format_issue_body(d, context), markup=False, highlight=False, soft_wrap=True)
         raise typer.Exit(1 if d.worst == "error" else 0)
 
     env = d.environment
@@ -2347,6 +2741,7 @@ def doctor(
         f"({env.get('installed_from', '?')}) · python {env.get('python', '?')} · "
         f"{env.get('platform', '?')}"
     )
+    console.print(" · ".join(f"{name} {escape(value)}" for name, value in context))
     console.print()
 
     style = {"ok": "green", "warning": "yellow", "error": "red"}
@@ -2383,7 +2778,7 @@ def doctor(
 @results_app.command("leaderboard")
 def results_leaderboard(
     directory: str = typer.Argument(..., help="Directory of validated bundles"),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m"),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to rank by."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Write markdown here"),
 ):
     """Render bundles as leaderboards, grouped by comparability key.
@@ -2447,8 +2842,8 @@ def pipelines_list():
     """List all registered agentic pipelines.
 
     Shows name, description, implementing class, and which pipeline is
-    currently active (from config).  Useful for verifying custom pipeline
-    registration after using ``@registry.register("agentic_pipeline", ...)``.
+    active (from config). Use it to check that a pipeline you registered
+    with @registry.register("agentic_pipeline", ...) is there.
     """
     try:
         from .core.registry import registry
