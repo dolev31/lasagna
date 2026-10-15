@@ -743,8 +743,8 @@ def config_for_speed() -> KnowledgeConfig:
         # Fixed-k chunk selection, as the speed profile does.
         chunk_retrieval_strategy=ChunkRetrievalStrategy.FIXED,
         chunk_retrieval_max=10,
-        # Semantic chunking — no hierarchical overhead
-        chunking_strategy=ChunkingStrategy.SEMANTIC,
+        # Structure-aware: headers and tables kept, no hierarchical overhead
+        chunking_strategy=ChunkingStrategy.STRUCTURE_AWARE,
         chunk_overlap=0,
         enable_hierarchical=False,
         parent_chunk_size=2000,
@@ -793,7 +793,7 @@ def config_for_standard() -> KnowledgeConfig:
         embedding_model="BAAI/bge-m3",
         embedding_dim=1024,
         # Semantic chunking — no hierarchical overhead
-        chunking_strategy=ChunkingStrategy.SEMANTIC,
+        chunking_strategy=ChunkingStrategy.STRUCTURE_AWARE,  # what runs, as in the profile
         chunk_size=800,
         chunk_overlap=0,
         enable_hierarchical=False,
@@ -856,7 +856,7 @@ def config_for_balanced() -> KnowledgeConfig:
         embedding_model="BAAI/bge-m3",
         embedding_dim=1024,
         # Semantic chunking with hierarchical auto-merge
-        chunking_strategy=ChunkingStrategy.SEMANTIC,
+        chunking_strategy=ChunkingStrategy.HIERARCHICAL,  # what runs, as in the profile
         chunk_size=800,
         chunk_overlap=0,
         enable_hierarchical=True,
@@ -920,7 +920,7 @@ def config_for_max_quality() -> KnowledgeConfig:
         embedding_model="BAAI/bge-m3",
         embedding_dim=1024,
         # Semantic chunking with hierarchical auto-merge
-        chunking_strategy=ChunkingStrategy.SEMANTIC,
+        chunking_strategy=ChunkingStrategy.HIERARCHICAL,  # what runs, as in the profile
         chunk_size=800,
         chunk_overlap=0,
         enable_hierarchical=True,

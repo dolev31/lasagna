@@ -281,6 +281,11 @@ class ProfileMixin:
             "default_top_k": 20,
             "rerank_top_k": 5,
             "similarity_threshold": 0.3,
+            # What runs: headers and tables are kept (preserve_headers and
+            # preserve_tables, from settings.lasagna.toml), so sections are
+            # split structurally and each is chunked semantically. It said
+            # "semantic", and every upload warned that it was overridden.
+            "chunking_strategy": "structure_aware",
             "enable_hierarchical": False,
             "parent_chunk_size": 2000,
             "child_chunk_size": 500,
@@ -313,7 +318,7 @@ class ProfileMixin:
             "reranker_model": "mixedbread-ai/mxbai-rerank-large-v1",
             "embedding_model": "BAAI/bge-m3",
             "embedding_dim": 1024,
-            "chunking_strategy": "semantic",
+            "chunking_strategy": "structure_aware",  # as in speed
             "chunk_size": 800,
             "chunk_overlap": 0,
             "default_top_k": 20,
@@ -359,7 +364,7 @@ class ProfileMixin:
             "reranker_model": "mixedbread-ai/mxbai-rerank-large-v1",
             "embedding_model": "BAAI/bge-m3",
             "embedding_dim": 1024,
-            "chunking_strategy": "semantic",
+            "chunking_strategy": "hierarchical",  # enable_hierarchical wins
             "chunk_size": 800,
             "chunk_overlap": 0,
             "enable_hierarchical": True,
@@ -407,7 +412,7 @@ class ProfileMixin:
             "reranker_model": "mixedbread-ai/mxbai-rerank-large-v1",
             "embedding_model": "BAAI/bge-m3",
             "embedding_dim": 1024,
-            "chunking_strategy": "semantic",
+            "chunking_strategy": "hierarchical",  # enable_hierarchical wins
             "chunk_size": 800,
             "chunk_overlap": 0,
             "enable_hierarchical": True,

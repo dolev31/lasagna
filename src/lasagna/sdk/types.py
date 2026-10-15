@@ -57,12 +57,19 @@ class ChunkingStrategy(_StrValueEnum):
         SEMANTIC: Semantically coherent chunks based on similarity
         RECURSIVE: Recursive character text splitting
         SENTENCE_WINDOW: Sliding window over sentences
+        STRUCTURE_AWARE: Sections split at headers, tables kept whole, each
+            section chunked semantically (needs preserve_headers or
+            preserve_tables; with both off it chunks as SEMANTIC)
+        HIERARCHICAL: Parent chunks split into children (needs
+            enable_hierarchical; with it off it chunks as SEMANTIC)
     """
 
     FIXED = "fixed"
     SEMANTIC = "semantic"
     RECURSIVE = "recursive"
     SENTENCE_WINDOW = "sentence_window"
+    STRUCTURE_AWARE = "structure_aware"
+    HIERARCHICAL = "hierarchical"
 
 
 class EmbeddingProvider(_StrValueEnum):

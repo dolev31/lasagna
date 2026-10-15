@@ -1088,6 +1088,30 @@ class ComponentRegistry:
         self._ensure_builtins()
         return {ct: self._listed(names) for ct, names in self._components.items()}
 
+    def list_components(self, component_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Every listed component of one stage or all, with what it declares.
+
+        Each entry is what the stage's ``list_*`` helper returns, plus
+        ``stage`` and ``builtin``. Stages are in name order. Imports no
+        component, so it is safe for a CLI listing.
+        """
+        self._ensure_builtins()
+        if component_type:
+            stage = _resolve_category(component_type)
+            if stage not in COMPONENT_TYPES:
+                raise ValueError(
+                    f"Unknown component type '{component_type}'. "
+                    f"Valid types: {sorted(COMPONENT_TYPES)}"
+                )
+            stages = [stage]
+        else:
+            stages = sorted(COMPONENT_TYPES)
+        return [
+            {"stage": stage, "builtin": (stage, entry["name"]) in self._builtin_names, **entry}
+            for stage in stages
+            for entry in self._list_category(self._components[stage], stage)
+        ]
+
     @staticmethod
     def _listed(store: Dict[str, "_Registration"]) -> List[str]:
         return [name for name, reg in store.items() if not reg.hidden]

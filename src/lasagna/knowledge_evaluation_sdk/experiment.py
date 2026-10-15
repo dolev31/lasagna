@@ -1078,11 +1078,9 @@ def _slug(name: str) -> str:
     return slug or "experiment"
 
 
-def _did_you_mean(key: str, known: Iterable[str]) -> str:
-    import difflib
-
-    close = difflib.get_close_matches(key, sorted(known), n=1, cutoff=0.6)
-    return f" (did you mean {close[0]!r}?)" if close else ""
+# Moved to lasagna.core._text so the CLI can check names before importing this
+# module; kept here under its old name for the callers below.
+from lasagna.core._text import did_you_mean as _did_you_mean  # noqa: E402
 
 
 def _refuse_unknown(keys: Iterable[str], known: Iterable[str], where: str) -> None:

@@ -28,7 +28,7 @@ from rich.table import Table
 console = Console()
 app = typer.Typer(
     name="rag-knowledge",
-    help="Lasagna — upload, search, benchmark, configure, and serve.",
+    help="Lasagna: upload and search documents, benchmark pipeline changes, configure, and serve.",
     no_args_is_help=True,
 )
 
@@ -280,6 +280,51 @@ def _known_failure(exc: Optional[BaseException]) -> Optional[str]:
             )
         exc = exc.__cause__ or exc.__context__
     return None
+
+
+def _require_known(kind: str, name: str, known, listing: str) -> None:
+    """Exit with one sentence when ``name`` is not one of ``known``."""
+    from .core._text import did_you_mean
+
+    if name in known:
+        return
+    _error(f"Unknown {kind} {name!r}{did_you_mean(name, known)}. {listing}")
+
+
+def _require_benchmark(name: str) -> None:
+    from .knowledge_evaluation_sdk.benchmarks import benchmark_registry
+
+    _require_known(
+        "benchmark", name, benchmark_registry.names(), "`lasagna benchmark list` shows them all."
+    )
+
+
+def _require_profile(name: str, session_id: str = "default") -> None:
+    from .core.session_config import get_knowledge_config_manager
+
+    profiles = get_knowledge_config_manager(session_id=session_id).list_profiles(
+        session_id=session_id
+    )
+    names = [p["name"] for p in profiles]
+    _require_known("profile", name, names, f"Profiles: {', '.join(sorted(names))}.")
+
+
+def _require_component(stage: str, name: str) -> None:
+    """A registered name, or a ``module:attribute`` reference the sweep imports."""
+    from . import components
+    from .core.registry import registry
+
+    if components.is_reference(name) or registry.has(stage, name):
+        return
+    listing = f"`lasagna component list {stage}` shows them."
+    if "." in name or "/" in name:
+        # Looks like an import path: the likely miss is how it was named.
+        listing = (
+            f"To use a {stage} from your own module, name it as module:attribute "
+            f"(for example my_pkg:MyReranker), or install it as a "
+            f"lasagna_components entry point. {listing}"
+        )
+    _require_known(stage.replace("_", " "), name, registry.list(stage)[stage], listing)
 
 
 # ---------------------------------------------------------------------------
@@ -841,6 +886,7 @@ def configure(
         _error(f"Failed to initialize config manager: {exc}")
 
     if profile:
+        _require_profile(profile, session_id)
         from lasagna.api._profile_guard import EmbeddingSizeConflict
 
         try:
@@ -1062,10 +1108,8 @@ def benchmark_info(
     """Show detailed information about a benchmark."""
     from .knowledge_evaluation_sdk.benchmarks import benchmark_registry
 
-    try:
-        adapter = benchmark_registry.get(name)
-    except KeyError as exc:
-        _error(str(exc))
+    _require_benchmark(name)
+    adapter = benchmark_registry.get(name)
 
     info = adapter.info()
     splits = adapter.available_splits()
@@ -1096,30 +1140,46 @@ def benchmark_info(
 
 @benchmark_app.command("run")
 def benchmark_run(
-    name: str = typer.Argument(..., help="Benchmark name"),
-    samples: Optional[int] = typer.Option(100, "--samples", "-n", help="Number of samples"),
-    runs: int = typer.Option(1, "--runs", "-r", help="Number of runs"),
-    mode: str = typer.Option("auto", "--mode", "-m", help="auto | live | generation_only"),
-    split: str = typer.Option("test", "--split", "-s", help="Dataset split"),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output directory"),
-    seed: int = typer.Option(42, "--seed", help="Random seed"),
-    profile: str = typer.Option("standard", "--profile", "-p", help="Base profile"),
-    tracks: str = typer.Option(
-        "retrieval,generation",
+    name: str = typer.Argument(..., help="Benchmark name, as `lasagna benchmark list` shows it."),
+    samples: Optional[int] = typer.Option(
+        100, "--samples", "-n", help="Queries to evaluate, at most."
+    ),
+    runs: int = typer.Option(
+        1, "--runs", "-r", help="Runs per arm. Repeat runs when an LLM stage is in the loop."
+    ),
+    mode: str = typer.Option(
+        "auto",
+        "--mode",
+        help="auto, live (retrieve from the benchmark's corpus) or generation_only "
+        "(answer from the gold passages).",
+    ),
+    split: str = typer.Option("test", "--split", help="Dataset split."),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Output directory (default: a new folder under ~/.lasagna)."
+    ),
+    seed: int = typer.Option(42, "--seed", help="Random seed for sampling queries."),
+    profile: str = typer.Option(
+        "standard", "--profile", "-p", help="Profile every arm starts from."
+    ),
+    tracks: Optional[str] = typer.Option(
+        None,
         "--tracks",
-        help="retrieval, generation, or both (comma-separated)",
+        help="retrieval, generation, or both, comma-separated. Default: retrieval, or both "
+        "with --generator. Generation needs an LLM API key and the answer-scoring models, "
+        "so it runs only when asked for.",
+        show_default=False,
     ),
     reranker: Optional[str] = typer.Option(
-        None, "--reranker", help="Run with this registered reranker"
+        None, "--reranker", help="Run with this registered reranker."
     ),
     query_enhancer: Optional[str] = typer.Option(
-        None, "--query-enhancer", help="Run with this registered query enhancer"
+        None, "--query-enhancer", help="Run with this registered query enhancer."
     ),
     generator: Optional[str] = typer.Option(
-        None, "--generator", help="Write answers with this registered generator"
+        None, "--generator", help="Write answers with this registered generator."
     ),
 ):
-    """Run a single benchmark evaluation."""
+    """Run one benchmark and print its leaderboard."""
     from .knowledge_evaluation_sdk.experiment import (
         Experiment,
         ExperimentConfig,
@@ -1128,6 +1188,9 @@ def benchmark_run(
         _parse_tracks,
     )
 
+    if tracks is None:
+        # Naming a generator is asking for answers; it ran on nothing otherwise.
+        tracks = "retrieval,generation" if generator else "retrieval"
     try:
         track_list = _parse_tracks([t.strip() for t in tracks.split(",") if t.strip()])
     except ValueError as exc:
@@ -1138,6 +1201,18 @@ def benchmark_run(
             f"Invalid mode '{mode}'. Must be 'auto', 'live' or "
             f"'generation_only' ('offline' is a deprecated alias)."
         )
+
+    # Before anything loads: a misspelled name ran for seconds, failed inside
+    # its task, and printed every registered name without the one meant.
+    _require_benchmark(name)
+    _require_profile(profile)
+    for stage, component in (
+        ("reranker", reranker),
+        ("query_enhancer", query_enhancer),
+        ("generator", generator),
+    ):
+        if component:
+            _require_component(stage, component)
 
     console.print(
         f"Running benchmark [cyan]{name}[/cyan] (up to {samples} samples, {runs} run(s), "
@@ -1171,7 +1246,17 @@ def benchmark_run(
     except Exception as exc:
         _error(f"Benchmark failed: {exc}", exc=exc)
 
-    # Summary
+    _print_leaderboard(results)
+
+    if results.failed_tasks:
+        console.print(f"\n[red]{len(results.failed_tasks)} task(s) failed[/red]")
+    console.print(f"Output: {escape(config.effective_output_dir())}", soft_wrap=True)
+    _release_backend()
+    _exit_if_tasks_failed(results)
+
+
+def _print_leaderboard(results) -> None:
+    """The run's leaderboard by its primary metric, as `benchmark run` ends."""
     metric_names = results.get_metric_names()
     if metric_names:
         # A retrieval run has no generated answers, so leading with the first
@@ -1183,12 +1268,6 @@ def benchmark_run(
         console.print(results.leaderboard(primary))
     else:
         console.print("[yellow]No metrics computed[/yellow]")
-
-    if results.failed_tasks:
-        console.print(f"\n[red]{len(results.failed_tasks)} task(s) failed[/red]")
-    console.print(f"Output: {escape(config.effective_output_dir())}", soft_wrap=True)
-    _release_backend()
-    _exit_if_tasks_failed(results)
 
 
 @benchmark_app.command("experiment")
@@ -1263,6 +1342,7 @@ def benchmark_experiment(
         _error(f"Experiment failed: {exc}", exc=exc)
 
     output_dir = exp.config.effective_output_dir()
+    _print_leaderboard(results)
     console.print(
         Panel.fit(
             f"[bold]Experiment Complete[/bold]\n\n"
@@ -1348,27 +1428,35 @@ def _exit_if_tasks_failed(results) -> None:
     raise typer.Exit(code=1)
 
 
-@benchmark_app.command("compare")
+def _deprecated_spelling(old: str, new: str) -> None:
+    console.print(
+        f"[yellow]`lasagna {old}` is deprecated and will be removed in 0.2.0; "
+        f"use `lasagna {new}`.[/yellow]"
+    )
+
+
+# `benchmark compare` and `results compare` did different things under one
+# name; the `results` commands are the ones that check comparability. These
+# stay for one release, hidden.
+@benchmark_app.command("compare", hidden=True)
 def benchmark_compare(
-    results_a: str = typer.Argument(..., help="First results JSON"),
-    results_b: str = typer.Argument(..., help="Second results JSON"),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to compare"),
+    results_a: str = typer.Argument(..., help="First results JSON."),
+    results_b: str = typer.Argument(..., help="Second results JSON."),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to compare."),
     format_: str = typer.Option(
-        "markdown", "--format", "-f", help="Output format (markdown, latex)"
+        "markdown", "--format", "-f", help="markdown, or latex for one table per run."
     ),
 ):
-    """Compare two experiment results."""
+    """Old name of `lasagna results compare`."""
+    _deprecated_spelling("benchmark compare", "results compare")
+    if format_ != "latex":
+        results_compare(results_a, results_b, metric=metric)
+        return
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    ra = BenchmarkResults.load(results_a)
-    rb = BenchmarkResults.load(results_b)
-
-    if format_ == "latex":
-        console.print(ra.to_latex(metric))
-        console.print()
-        console.print(rb.to_latex(metric))
-    else:
-        console.print(ra.compare(rb, metric))
+    console.print(BenchmarkResults.load(results_a).to_latex(metric))
+    console.print()
+    console.print(BenchmarkResults.load(results_b).to_latex(metric))
 
 
 @benchmark_app.command("licenses")
@@ -1377,9 +1465,9 @@ def benchmark_licenses(
 ):
     """List every benchmark with its license and citation.
 
-    Generated rather than hand-written, so it cannot drift from the adapters.
-    Lasagna redistributes no benchmark data — each dataset is fetched from its
-    own source under its own terms, and those terms are the user's to honour.
+    Generated from the benchmark adapters. Lasagna redistributes no benchmark
+    data: each dataset is fetched from its own source under its own terms, and
+    those terms are yours to honor.
     """
     from .knowledge_evaluation_sdk.benchmarks import benchmark_registry
 
@@ -1444,16 +1532,21 @@ def benchmark_licenses(
         console.print(markdown, markup=False)
 
 
-@benchmark_app.command("leaderboard")
+@benchmark_app.command("leaderboard", hidden=True)
 def benchmark_leaderboard(
-    results_path: str = typer.Argument(..., help="Results JSON file"),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric for ranking"),
+    results_path: str = typer.Argument(..., help="A directory of bundles, or one results.json."),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to rank by."),
 ):
-    """Display a leaderboard from results."""
+    """Old name of `lasagna results leaderboard`."""
+    _deprecated_spelling("benchmark leaderboard", "results leaderboard")
+    if Path(results_path).is_dir():
+        results_leaderboard(results_path, metric=metric, output=None)
+        return
+    # One run's own table: `benchmark run` and `benchmark experiment` print it
+    # when they finish.
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    results = BenchmarkResults.load(results_path)
-    console.print(results.leaderboard(metric))
+    console.print(BenchmarkResults.load(results_path).leaderboard(metric))
 
 
 # ---------------------------------------------------------------------------
@@ -1462,7 +1555,7 @@ def benchmark_leaderboard(
 
 component_app = typer.Typer(
     name="component",
-    help="Validate components you have written.",
+    help="List components, and check components you have written.",
     no_args_is_help=True,
 )
 app.add_typer(component_app, name="component")
@@ -1477,6 +1570,58 @@ _FUNCTION_STAGES = (
     "document_processor",
     "generator",
 )
+
+
+@component_app.command("list")
+def component_list(
+    stage: Optional[str] = typer.Argument(
+        None,
+        help="Show one stage only: agentic_pipeline, chunker, document_processor, embedder, "
+        "generator, query_enhancer, reranker or retriever.",
+    ),
+):
+    """List the components a sweep can name, by stage.
+
+    Built-in components and those of installed plugins, with the paper each
+    one implements. A component of your own module is named as module:function
+    and does not appear here.
+    """
+    from lasagna.core.registry import COMPONENT_TYPES, registry
+
+    if stage is not None and stage != "enhancer":
+        _require_known(
+            "stage",
+            stage,
+            sorted(COMPONENT_TYPES),
+            f"Stages: {', '.join(sorted(COMPONENT_TYPES))}.",
+        )
+    entries = registry.list_components(stage)
+
+    by_stage: Dict[str, List[Dict[str, Any]]] = {}
+    for entry in entries:
+        by_stage.setdefault(entry["stage"], []).append(entry)
+    for stage_name, rows in by_stage.items():
+        table = Table(
+            title=f"{stage_name} ({len(rows)})",
+            title_justify="left",
+            title_style="bold cyan",
+            show_lines=False,
+        )
+        table.add_column("Name", style="bold", no_wrap=True)
+        table.add_column("Description", ratio=3)
+        table.add_column("Paper", style="dim", ratio=1, overflow="fold")
+        for entry in rows:
+            description = next(
+                (ln.strip() for ln in (entry.get("description") or "").splitlines() if ln.strip()),
+                "",
+            )
+            name = entry["name"] if entry["builtin"] else f"{entry['name']} (plugin)"
+            table.add_row(escape(name), escape(description), escape(entry.get("paper") or ""))
+        console.print(table)
+    console.print(
+        f"[dim]{_count(len(entries), 'component')}. Name one in a sweep's pipeline "
+        f"section, or try a reranker with `lasagna benchmark run smoke --reranker NAME`.[/dim]"
+    )
 
 
 @component_app.command("validate")
@@ -1494,17 +1639,15 @@ def component_validate(
 ):
     """Check a component satisfies its stage contract.
 
-    Turns "did I implement this correctly?" from a code review into a command.
-    The harness checks the things that make a component safe to swap: that it
-    returns the declared type, survives empty input, and does not mutate what
-    it was handed -- the last one being the property that makes a comparison
-    attributable, since a component that edits its input changes results for
-    whatever runs after it.
+    Checks what makes a component safe to swap: it returns the declared type,
+    survives empty input, and does not change what it was handed. The last is
+    what makes a comparison attributable: a component that edits its input
+    changes the results of whatever runs after it.
 
-    The target is resolved the way a sweep resolves it, from the working
-    directory, so the function you name in a sweep is the one checked here. A
-    function registered with ``@lasagna.reranker`` (or any stage decorator) is
-    checked as the component the sweep would run.
+    The target is resolved from the working directory, as a sweep resolves it,
+    so the function you name in a sweep is the one checked here. A function
+    decorated with @lasagna.reranker (or another stage decorator) is checked as
+    the component the sweep would run.
     """
     import inspect
 
@@ -1521,6 +1664,9 @@ def component_validate(
         obj = components.import_reference(target)
     except Exception as exc:
         _error(f"Could not import {target}: {type(exc).__name__}: {exc}")
+    # What a sweep names it: a file's module is its stem, so
+    # path/to/my_ideas.py:keyword_overlap is my_ideas:keyword_overlap.
+    name = f"{Path(module_path).stem}:{attr}" if module_path.endswith(".py") else target
 
     if not inspect.isclass(obj) and callable(obj):
         tagged = getattr(obj, "__lasagna_component__", None)
@@ -1531,7 +1677,7 @@ def component_validate(
                 f"(@lasagna.reranker, @lasagna.query_enhancer, ...) or pass --stage."
             )
         try:
-            obj = components.as_component_class(chosen, obj, target)
+            obj = components.as_component_class(chosen, obj, name)
         except (TypeError, ValueError) as exc:
             _error(str(exc))
 
@@ -1549,10 +1695,7 @@ def component_validate(
     except Exception as exc:  # a model that cannot load, a missing key: not a contract verdict
         _error(f"The checks could not run: {type(exc).__name__}: {exc}")
 
-    console.print(
-        f"\n[bold]{escape(str(report.component_class))}[/bold] "
-        f"({report.component_type or 'unknown'})"
-    )
+    console.print(f"\n[bold]{escape(name)}[/bold] ({report.component_type or 'unknown'})")
     for check in report.checks:
         # `checks` records every check as "PASS: name" or "FAIL: name"; the
         # failures, with their reasons, are printed below.
@@ -1566,7 +1709,12 @@ def component_validate(
 
     if report.passed:
         console.print("\n[green]Contract satisfied.[/green] This component is interchangeable.")
-        console.print("Next: register it, then compare it against a control — see docs/guide.md")
+        console.print(
+            "Next: register it, then compare it against a control: "
+            "https://github.com/dolev31/lasagna/blob/main/docs/guide.md"
+            "#6-compare-it-against-a-baseline",
+            soft_wrap=True,
+        )
     else:
         console.print(
             f"\n[red]{len(report.failures)} contract failure(s).[/red] "
@@ -1589,10 +1737,9 @@ app.add_typer(plugins_app, name="plugins")
 def plugins_list():
     """Show discovered plugins, including the ones that failed to load.
 
-    Discovery is best-effort: one broken plugin must not stop the registry
-    loading. But a failure was previously only a log line, so an author whose
-    entry point was malformed saw nothing — their component simply did not
-    exist. Set ``LASAGNA_STRICT_PLUGINS=1`` to raise instead.
+    One broken plugin does not stop the others loading, so a plugin that fails
+    is simply absent from the registry. This lists it with its error. Set
+    LASAGNA_STRICT_PLUGINS=1 to make a failure raise instead.
     """
     from lasagna.core.registry import discovery_log, registry
     from lasagna.knowledge_evaluation_sdk.benchmarks import benchmark_registry
@@ -1767,7 +1914,7 @@ def results_validate(
 def results_compare(
     a: str = typer.Argument(..., help="First bundle or results.json"),
     b: str = typer.Argument(..., help="Second bundle or results.json"),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m"),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to compare."),
 ):
     """Compare two runs, reporting whether they are comparable at all."""
     from .knowledge_evaluation_sdk.results import BenchmarkResults
@@ -1784,17 +1931,19 @@ def results_power(
     results_path: str = typer.Argument(..., help="results.json from a run"),
     config_a: str = typer.Argument(..., help="Baseline config"),
     config_b: str = typer.Argument(..., help="Candidate config"),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m"),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to test."),
     benchmark: str = typer.Option("", "--benchmark", help="Which benchmark"),
-    alpha: float = typer.Option(0.05, "--alpha"),
-    power: float = typer.Option(0.80, "--power"),
+    alpha: float = typer.Option(0.05, "--alpha", help="Significance level of the test."),
+    power: float = typer.Option(
+        0.80, "--power", help="Chance of detecting the effect, for the smallest one reported."
+    ),
 ):
     """Could this run have detected the effect you care about?
 
-    A non-significant result has two readings — the techniques are the same, or
-    the run was too small to tell — and they call for opposite next steps.
-    Reports the smallest difference this run could have detected, and how many
-    queries the observed difference would need.
+    A non-significant result has two readings: the techniques are the same, or
+    the run was too small to tell. They call for opposite next steps. Reports
+    the smallest difference this run could have detected, and how many queries
+    the observed difference would need.
     """
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
@@ -1873,7 +2022,7 @@ def _format_effect_size(effect: Optional[float]) -> str:
 @results_app.command("significance")
 def results_significance(
     results_path: str = typer.Argument(..., help="results.json from a run"),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m"),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to test."),
     benchmark: str = typer.Option("", "--benchmark", help="Which benchmark"),
     correction: str = typer.Option(
         "holm", "--correction", help="'holm' (Holm-Bonferroni) or 'none'"
@@ -1890,11 +2039,7 @@ def results_significance(
     comparisons and roughly a 54% chance that at least one clears the bar by
     luck alone. Holm-Bonferroni controls the family-wise error rate over the
     whole set, so what comes out is a claim about the grid rather than about the
-    pair that happened to look best.
-
-    `BenchmarkResults.pairwise_significance` has done this since the beginning
-    and was reachable only from Python -- the CLI offered `compare`, `power` and
-    `per-query` but not the test a paper actually reports.
+    pair that happened to look best. Each pair is a paired sign-flip test.
     """
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
@@ -2101,9 +2246,7 @@ def results_per_query(
     """One row per query, retrieval and generation metrics side by side.
 
     Turns "config A lost" into "config A lost on the multi-hop questions, at
-    retrieval rather than generation". The two eval paths already wrote
-    per-query rows into the same list and nothing joined them, so the answer was
-    in the results file and could not be read out of it.
+    retrieval rather than generation".
 
     In the JSONL export, `_retrieved` lists each document's `score` and `rank`.
     The rank is authoritative: scores can tie, so sorting by score does not
@@ -2222,21 +2365,30 @@ def results_interaction(
     benchmark: str = typer.Option(
         "", "--benchmark", help="Which benchmark (default: the only one)"
     ),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m"),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to test."),
     neither: str = typer.Option("neither", "--neither", help="Config with both techniques off"),
     only_a: str = typer.Option("", "--only-a", help="Config with technique A only"),
     only_b: str = typer.Option("", "--only-b", help="Config with technique B only"),
     both: str = typer.Option("", "--both", help="Config with both on"),
-    alpha: float = typer.Option(0.05, "--alpha"),
-    bootstrap: int = typer.Option(10_000, "--bootstrap"),
+    alpha: float = typer.Option(0.05, "--alpha", help="Significance level of the test."),
+    resamples: int = typer.Option(
+        10_000,
+        "--resamples",
+        help="Random sign patterns for the sign-flip permutation test when more than "
+        "30 queries differ; with 30 or fewer it is exact. The interval is a t interval.",
+    ),
+    bootstrap: Optional[int] = typer.Option(
+        None, "--bootstrap", hidden=True, help="Old name of --resamples, removed in 0.2.0."
+    ),
 ):
     """Do two techniques compose, or do they overlap?
 
-    Estimates `(AB - neither) - (A - neither) - (B - neither)` from a 2x2 run,
-    with a bootstrap confidence interval. The question every RAG paper raises
-    and none answers: A is reported against a baseline, B is reported against a
-    baseline, and whether A+B is worth A alone cannot be recovered from the two
-    papers, because the interaction is not a function of the main effects.
+    Estimates `(AB - neither) - (A - neither) - (B - neither)` from a 2x2 run.
+    The p-value is a paired sign-flip permutation test on each query's
+    interaction, and the confidence interval a t interval. A is reported against
+    a baseline, B is reported against a baseline, and whether A+B is worth A
+    alone cannot be recovered from the two, because the interaction is not a
+    function of the main effects.
     """
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
@@ -2275,7 +2427,7 @@ def results_interaction(
             only_a=only_a,
             only_b=only_b,
             both=both,
-            n_bootstrap=bootstrap,
+            n_bootstrap=resamples if bootstrap is None else bootstrap,
             alpha=alpha,
         )
     except ValueError as exc:
@@ -2411,9 +2563,8 @@ def skills_install(
 ):
     """Copy the bundled skills where a coding agent will find them.
 
-    Skills teach an agent how to use Lasagna correctly — which mode to run a
-    benchmark in, why the first search is slow, how to file a useful bug report.
-    An agent that has them stops guessing.
+    Skills teach an agent how to use Lasagna: which mode to run a benchmark in,
+    why the first search is slow, how to file a useful bug report.
     """
     import shutil
 
@@ -2451,9 +2602,9 @@ def doctor(
 ):
     """Check this installation and say what to fix.
 
-    Answers the questions every support thread opens with — version, install
+    Answers the questions every support thread opens with: version, install
     source, backend, credentials, model cache, and anything that failed to load
-    quietly — so nobody has to be asked them.
+    quietly.
 
     Output is redacted: no absolute paths, no credential values. `--json` is
     for agents; `--issue` produces a collapsible block for a GitHub issue.
@@ -2514,7 +2665,7 @@ def doctor(
 @results_app.command("leaderboard")
 def results_leaderboard(
     directory: str = typer.Argument(..., help="Directory of validated bundles"),
-    metric: str = typer.Option("ndcg@10", "--metric", "-m"),
+    metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to rank by."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Write markdown here"),
 ):
     """Render bundles as leaderboards, grouped by comparability key.
@@ -2578,8 +2729,8 @@ def pipelines_list():
     """List all registered agentic pipelines.
 
     Shows name, description, implementing class, and which pipeline is
-    currently active (from config).  Useful for verifying custom pipeline
-    registration after using ``@registry.register("agentic_pipeline", ...)``.
+    active (from config). Use it to check that a pipeline you registered
+    with @registry.register("agentic_pipeline", ...) is there.
     """
     try:
         from .core.registry import registry

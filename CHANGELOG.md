@@ -89,6 +89,9 @@ Sweeps, validation and metrics:
 - A terminal demo, `docs/assets/demo.gif`, regenerated from a real run by
   `docs/assets/demo/record.sh`.
 
+- `lasagna component list [stage]` lists every component a sweep can name, with
+  its stage, description and paper, without loading any of them.
+
 ### Changed
 
 - **Searching on Milvus no longer pays for a JSON filter.** A search was
@@ -132,6 +135,17 @@ Sweeps, validation and metrics:
   implement their stage's interface. `registry.list_*()` and
   `lasagna plugins list` load no model code, and `lasagna-mcp --help` takes
   under half a second (it took 8).
+- **CLI.** `-s` means `--session` in every command; `benchmark run` spells out
+  `--split` and `--mode`. `benchmark run` measures retrieval unless `--tracks`
+  names generation or `--generator` is given (generation needs an API key).
+  `benchmark experiment` ends with the leaderboard, as `benchmark run` does.
+  `benchmark compare` and `benchmark leaderboard` are now `results compare` and
+  `results leaderboard`, and `results interaction --bootstrap` is
+  `--resamples`; the old spellings work until 0.2.0 and say so.
+- The preset profiles name the chunker they run: `structure_aware` for `speed`
+  and `standard`, `hierarchical` for `balanced` and `max_quality`. They said
+  `semantic`, and each upload warned that it was overridden. The chunks are the
+  same; with the structural settings turned off, both mean `semantic`.
 - `lasagna serve` logs warnings only (`-v` or `LASAGNA_LOG_LEVEL=INFO` for
   more), prints the default session's profile, embedding model, vector store
   and data directory, and opens a browser only with `--open`.
@@ -202,6 +216,12 @@ Numbers that were wrong:
   or table border (`---`, `|---|---|`) is dropped: searching the README
   returned `---` first, at score 1.0. Plain-text corpora chunk as before; the
   BEIR, smoke and plugin-template numbers are unchanged.
+
+- A misspelled benchmark, profile, stage or component name is one error with
+  the likely name (`did you mean 'smoke'?`), before any model loads. A
+  misspelled benchmark ran for seconds and failed inside its task.
+- `component validate path/to/my_ideas.py:keyword_overlap` names the component
+  `my_ideas:keyword_overlap`, as a sweep does.
 
 First run:
 
