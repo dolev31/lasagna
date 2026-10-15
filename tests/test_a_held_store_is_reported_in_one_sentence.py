@@ -102,3 +102,5 @@ def test_a_real_held_store(tmp_path):
     said = " ".join(result.stdout.split())
     assert "Error: Another process is using the local store at ~/dbs/rag_milvus.db" in said, said
     assert "Traceback" not in result.stdout + result.stderr, result.stderr
+    # The sentence alone: no log line beside it says the same thing again.
+    assert "ERROR" not in result.stdout + result.stderr, result.stderr

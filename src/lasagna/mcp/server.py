@@ -373,6 +373,25 @@ def _log_tool_result(tool_name: str, success: bool, result_summary: str, duratio
     logger.info(f"TOOL RESULT: {tool_name} | {status} | {result_summary} | {duration_ms:.1f}ms")
 
 
+def _log_tool_failure(what: str, exc: BaseException) -> None:
+    """Log a tool's failure at ERROR, with its traceback.
+
+    Except a store another process holds (a running `lasagna serve`): the
+    tool's reply already says so and how to fix it, and an ERROR line with a
+    traceback on every call buried that sentence, so it is logged at DEBUG.
+    """
+    try:
+        from lasagna.api.rag_backend import _is_data_dir_locked
+
+        held = _is_data_dir_locked(exc)
+    except Exception:  # the backend module itself failed to import
+        held = False
+    if held:
+        logger.debug("{}: {}", what, exc)
+    else:
+        logger.opt(exception=exc).error("{}: {}", what, exc)
+
+
 def _truncate_text(value: Optional[str], max_len: int = 200) -> str:
     if not value:
         return ""
@@ -1213,7 +1232,7 @@ CONTENT:
         return _RAG_DISABLED_MSG
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"search failed: {e}")
+        _log_tool_failure("search failed", e)
         _log_tool_result("search", False, str(e), duration_ms)
         return f"Search failed: {e}"
 
@@ -1346,7 +1365,7 @@ async def get_document_context(
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"get_document_context failed: {e}")
+        _log_tool_failure("get_document_context failed", e)
         _log_tool_result("get_document_context", False, str(e), duration_ms)
         # "" is also the answer for "no documents"; a failure must not read as that.
         return f"Failed to get document context: {e}"
@@ -1397,7 +1416,7 @@ def list_documents(session_id: str = "", session_token: Optional[str] = None) ->
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"list_documents failed: {e}")
+        _log_tool_failure("list_documents failed", e)
         _log_tool_result("list_documents", False, str(e), duration_ms)
         return f"Failed to list documents: {e}"
 
@@ -1526,7 +1545,7 @@ def upload_document(
         return json.dumps({"error": str(e)})
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"upload_document unexpected error: {e}")
+        _log_tool_failure("upload_document unexpected error", e)
         _log_tool_result("upload_document", False, f"Error: {e}", duration_ms)
         return json.dumps({"error": f"Unexpected error: {e}"})
 
@@ -1571,7 +1590,7 @@ def delete_document(
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"delete_document failed: {e}")
+        _log_tool_failure("delete_document failed", e)
         _log_tool_result("delete_document", False, str(e), duration_ms)
         return f"Failed to delete document: {e}"
 
@@ -1631,7 +1650,7 @@ def get_document_status(
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"get_document_status failed: {e}")
+        _log_tool_failure("get_document_status failed", e)
         _log_tool_result("get_document_status", False, str(e), duration_ms)
         return json.dumps({"error": f"Failed to get document status: {e}"})
 
@@ -1693,7 +1712,7 @@ def get_document_info(
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"get_document_info failed: {e}")
+        _log_tool_failure("get_document_info failed", e)
         _log_tool_result("get_document_info", False, str(e), duration_ms)
         return f"Failed to get document info: {e}"
 
@@ -1795,7 +1814,7 @@ def get_document_chunks(
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"get_document_chunks failed: {e}")
+        _log_tool_failure("get_document_chunks failed", e)
         _log_tool_result("get_document_chunks", False, str(e), duration_ms)
         return f"Failed to get document chunks: {e}"
 
@@ -1908,7 +1927,7 @@ def get_system_status() -> str:
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"get_system_status failed: {e}")
+        _log_tool_failure("get_system_status failed", e)
         _log_tool_result("get_system_status", False, str(e), duration_ms)
         return json.dumps(
             {
@@ -1989,7 +2008,7 @@ def rebuild_collection(
         )
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"rebuild_collection failed: {e}")
+        _log_tool_failure("rebuild_collection failed", e)
         _log_tool_result("rebuild_collection", False, str(e), duration_ms)
         return f"Failed to rebuild collection: {e}"
 
@@ -2149,7 +2168,7 @@ def reindex_document(
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"reindex_document failed: {e}")
+        _log_tool_failure("reindex_document failed", e)
         _log_tool_result("reindex_document", False, str(e), duration_ms)
         return f"Failed to reindex document: {e}"
 
@@ -2231,7 +2250,7 @@ def clear_session(
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"clear_session failed: {e}")
+        _log_tool_failure("clear_session failed", e)
         _log_tool_result("clear_session", False, str(e), duration_ms)
         return f"Failed to clear session: {e}"
 
@@ -2292,7 +2311,7 @@ def get_lifecycle_policy(session_id: str = "default", admin_token: Optional[str]
         return json.dumps({"policy": result})
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"get_lifecycle_policy failed: {e}")
+        _log_tool_failure("get_lifecycle_policy failed", e)
         _log_tool_result("get_lifecycle_policy", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -2386,7 +2405,7 @@ def set_lifecycle_policy(
         return json.dumps({"error": f"Invalid JSON: {e}"})
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"set_lifecycle_policy failed: {e}")
+        _log_tool_failure("set_lifecycle_policy failed", e)
         _log_tool_result("set_lifecycle_policy", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -2432,7 +2451,7 @@ def list_profiles(
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"list_profiles failed: {e}")
+        _log_tool_failure("list_profiles failed", e)
         _log_tool_result("list_profiles", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -2476,7 +2495,7 @@ def get_active_profile(session_id: str = "", session_token: Optional[str] = None
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"get_active_profile failed: {e}")
+        _log_tool_failure("get_active_profile failed", e)
         _log_tool_result("get_active_profile", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -2522,7 +2541,7 @@ def set_active_profile(
         return f"Failed to set profile: {e}"
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"set_active_profile failed: {e}")
+        _log_tool_failure("set_active_profile failed", e)
         _log_tool_result("set_active_profile", False, str(e), duration_ms)
         return f"Failed to set profile: {e}"
 
@@ -2558,7 +2577,7 @@ def get_profile_stats(session_id: str = "default", session_token: Optional[str] 
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"get_profile_stats failed: {e}")
+        _log_tool_failure("get_profile_stats failed", e)
         _log_tool_result("get_profile_stats", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -2636,7 +2655,7 @@ def set_focused_documents(
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"set_focused_documents failed: {e}")
+        _log_tool_failure("set_focused_documents failed", e)
         _log_tool_result("set_focused_documents", False, str(e), duration_ms)
         return f"Failed to set focused documents: {e}"
 
@@ -2676,7 +2695,7 @@ def get_focused_documents(session_id: str = "", session_token: Optional[str] = N
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"get_focused_documents failed: {e}")
+        _log_tool_failure("get_focused_documents failed", e)
         _log_tool_result("get_focused_documents", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -2712,7 +2731,7 @@ def get_rag_config(session_id: str = "", session_token: Optional[str] = None) ->
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"get_rag_config failed: {e}")
+        _log_tool_failure("get_rag_config failed", e)
         _log_tool_result("get_rag_config", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -2777,7 +2796,7 @@ def patch_rag_config(
         return json.dumps({"error": f"Invalid JSON: {e}"})
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"patch_rag_config failed: {e}")
+        _log_tool_failure("patch_rag_config failed", e)
         _log_tool_result("patch_rag_config", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -2825,7 +2844,7 @@ def save_rag_profile(
         return json.dumps({"error": f"Invalid JSON: {e}"})
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"save_rag_profile failed: {e}")
+        _log_tool_failure("save_rag_profile failed", e)
         _log_tool_result("save_rag_profile", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -2863,7 +2882,7 @@ def delete_rag_profile(
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"delete_rag_profile failed: {e}")
+        _log_tool_failure("delete_rag_profile failed", e)
         _log_tool_result("delete_rag_profile", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -2898,7 +2917,7 @@ def reset_rag_config(
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"reset_rag_config failed: {e}")
+        _log_tool_failure("reset_rag_config failed", e)
         _log_tool_result("reset_rag_config", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -2940,7 +2959,7 @@ def archive_document(
         return json.dumps(doc_dict, indent=2, default=str)
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"archive_document failed: {e}")
+        _log_tool_failure("archive_document failed", e)
         _log_tool_result("archive_document", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -2973,7 +2992,7 @@ def restore_document(
         return json.dumps(doc_dict, indent=2, default=str)
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"restore_document failed: {e}")
+        _log_tool_failure("restore_document failed", e)
         _log_tool_result("restore_document", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -3029,7 +3048,7 @@ def bulk_delete_session(
         )
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"bulk_delete_session failed: {e}")
+        _log_tool_failure("bulk_delete_session failed", e)
         _log_tool_result("bulk_delete_session", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 
@@ -3070,7 +3089,7 @@ def get_gc_status(
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        logger.exception(f"get_gc_status failed: {e}")
+        _log_tool_failure("get_gc_status failed", e)
         _log_tool_result("get_gc_status", False, str(e), duration_ms)
         return json.dumps({"error": str(e)})
 

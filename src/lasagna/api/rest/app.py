@@ -78,7 +78,15 @@ async def _lifespan(app: FastAPI):
         _backend = get_rag_backend()
         logger.info("RAG backend ready")
     except Exception as exc:
-        logger.error(f"RAG backend init failed (will retry on first request): {exc}")
+        from lasagna.api.rag_backend import _is_data_dir_locked
+
+        if _is_data_dir_locked(exc):
+            # Another process holds the store. Each request answers 503 with
+            # the sentence that says so and how to fix it, and retries, so a
+            # lock held for a moment (a `lasagna status` run) costs nothing.
+            logger.debug(f"RAG backend not initialized: {exc}")
+        else:
+            logger.error(f"RAG backend init failed (will retry on first request): {exc}")
 
     # Log service configuration summary
     try:
