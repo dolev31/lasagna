@@ -208,6 +208,12 @@ NON_SETTING_ENV = frozenset(
 )
 NON_SETTING_ENV_PREFIXES = ("RAG_GC_", "RAG_STORAGE_", "RAG_EVAL_")
 
+#: ``LASAGNA_*`` names that already meant something else before settings took
+#: the prefix, and keep that meaning. ``LASAGNA_LOG_LEVEL`` is the CLI's console
+#: threshold (tolerant of a typo, so a bad value never stops ``doctor``); the
+#: ``log_level`` setting stays ``RAG_LOG_LEVEL``.
+LASAGNA_RESERVED_ENV = frozenset({"LASAGNA_LOG_LEVEL"})
+
 _UNSET = object()
 _warned_unknown_env: set = set()
 
@@ -476,13 +482,13 @@ class RAGConfig:
             return None
 
     def _load_knowledge_settings(self) -> Dynaconf:
-        """Load settings from settings.lasagna.toml (or RAG_SETTINGS_FILE override).
+        """Load settings from settings.lasagna.toml, or the file the environment names.
 
         The config file is located in the knowledge module folder, making the
         knowledge service self-contained and usable as an external service.
 
-        When the ``RAG_SETTINGS_FILE`` environment variable is set, that file
-        is loaded instead of the default ``settings.lasagna.toml``.  The
+        When ``LASAGNA_SETTINGS_FILE`` (or ``RAG_SETTINGS_FILE``) is set, that
+        file is loaded instead of the default ``settings.lasagna.toml``.  The
         path can be absolute or relative to the knowledge module directory.
 
         Returns:
@@ -491,19 +497,22 @@ class RAGConfig:
         knowledge_module_dir = Path(__file__).parent.parent  # knowledge/ folder
 
         # Allow overriding the settings file via environment variable
-        settings_file_env = os.environ.get("RAG_SETTINGS_FILE")
+        from lasagna.core.paths import env_get
+
+        settings_file_env = env_get("SETTINGS_FILE")
         if settings_file_env:
             override_path = Path(settings_file_env)
             if not override_path.is_absolute():
                 override_path = knowledge_module_dir / override_path
             if override_path.exists():
-                logger.info(f"Loading settings from RAG_SETTINGS_FILE: {override_path}")
+                logger.info(f"Loading settings from {override_path}")
                 return Dynaconf(
                     root_path=str(override_path.parent),
                     settings_files=[str(override_path)],
                 )
             logger.warning(
-                f"RAG_SETTINGS_FILE={settings_file_env} not found, falling back to default"
+                f"Settings file {settings_file_env} (LASAGNA_SETTINGS_FILE or "
+                f"RAG_SETTINGS_FILE) not found; using the packaged settings.lasagna.toml"
             )
 
         knowledge_toml_path = knowledge_module_dir / "settings.lasagna.toml"
@@ -933,9 +942,11 @@ class RAGConfig:
 
     @staticmethod
     def _load_env_overrides(default_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Load overrides from ``RAG_*`` environment variables (12-factor).
+        """Load overrides from ``LASAGNA_*`` and ``RAG_*`` environment variables (12-factor).
 
-        Keys of *default_config* are accepted, coerced to the type of their
+        ``LASAGNA_<SETTING>`` and ``RAG_<SETTING>`` name the same setting, and
+        ``LASAGNA_`` wins when both are set (and not empty). Keys of
+        *default_config* are accepted, coerced to the type of their
         default (bool, int, float, str, JSON list or object). A value that does
         not parse, or is outside its range or its set of choices, raises
         :class:`ConfigError` naming every bad variable; it used to be logged
@@ -949,11 +960,19 @@ class RAGConfig:
         overrides: Dict[str, Any] = {}
         problems: List[str] = []
         for env_key, env_value in sorted(os.environ.items()):
-            if not env_key.startswith("RAG_"):
-                continue
-            config_key = env_key[4:].lower()  # Strip RAG_ prefix
-            if config_key not in default_config:
-                _warn_unknown_env(env_key, default_config)
+            if env_key.startswith("LASAGNA_"):
+                config_key = env_key[len("LASAGNA_") :].lower()
+                if config_key not in default_config or env_key in LASAGNA_RESERVED_ENV:
+                    continue  # LASAGNA_* also names things that are not settings
+            elif env_key.startswith("RAG_"):
+                config_key = env_key[len("RAG_") :].lower()
+                if config_key not in default_config:
+                    _warn_unknown_env(env_key, default_config)
+                    continue
+                alias = f"LASAGNA_{env_key[len('RAG_') :]}"
+                if alias not in LASAGNA_RESERVED_ENV and os.environ.get(alias):
+                    continue  # the LASAGNA_ name of the same setting wins
+            else:
                 continue
             try:
                 parsed = _parse_env_value(config_key, env_value, default_config[config_key])
@@ -973,7 +992,7 @@ class RAGConfig:
             )
 
         if overrides:
-            logger.info(f"Applied {len(overrides)} RAG_* env overrides: {list(overrides.keys())}")
+            logger.info(f"Applied {len(overrides)} environment overrides: {list(overrides.keys())}")
         return overrides
 
     def _get_knowledge_setting(self, *keys, default=None):
@@ -1164,7 +1183,9 @@ class RAGConfig:
         # carry use_gpu from the settings file, so as a per-query override it
         # outranked the operator's RAG_USE_GPU=false and moved models onto a
         # GPU backend the operator had turned off.
-        env = os.environ.get("RAG_USE_GPU", "").strip().lower()
+        from lasagna.core.paths import env_get
+
+        env = (env_get("USE_GPU") or "").strip().lower()
         if env:
             return env in TRUTHY
         return self._get_knowledge_setting("rag", "use_gpu", default=self._config["use_gpu"])

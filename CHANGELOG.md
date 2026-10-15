@@ -122,6 +122,17 @@ Sweeps, validation and metrics:
   includes a hash of the metrics version, package version, judge model and
   environment settings, so `--resume` never restores a result computed under
   other ones. A run resumed after upgrading starts its tasks again.
+- **Data lives in `~/.lasagna`.** The default data directory was
+  `~/.rag_knowledge`. `LASAGNA_DATA_DIR` names another, and `LASAGNA_DB_DIR`
+  and `LASAGNA_UPLOAD_DIR` place its parts; the `RAG_` names still work. An
+  existing `~/.rag_knowledge` is renamed on first use when `~/.lasagna` does
+  not exist. When both exist nothing is moved or deleted, and a warning gives
+  the `mv` command.
+- **Every setting has a `LASAGNA_` variable.** `LASAGNA_<NAME>` sets the same
+  setting as `RAG_<NAME>` and wins when both are set; `RAG_` names keep
+  working. `LASAGNA_SETTINGS_FILE` names the settings file.
+- Session tokens are issued as `lasagna`; tokens issued as `rag-knowledge`
+  before this release stay valid until they expire.
 - **Searching on Milvus no longer pays for a JSON filter.** A search was
   confined to its session through `metadata["session_id"]`, which Milvus parses
   row by row; it now uses the `session_id` field every collection has and every

@@ -736,7 +736,7 @@ pytest tests/ --ignore=tests/live --ignore=tests/stress
 ```
 
 Hermetic by default: no network, no external services, and the suite runs in a
-throwaway home directory, so it never touches your real `~/.rag_knowledge` store.
+throwaway home directory, so it never touches your real `~/.lasagna` store.
 CI enforces it: sockets are blocked except loopback, and test order is shuffled
 on every run (pytest-randomly prints the seed). `tests/live/` needs a running
 stack; `tests/stress/` is long-running.
