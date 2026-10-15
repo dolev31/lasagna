@@ -38,6 +38,10 @@ HARNESS_KEYS = frozenset(
         # live run.
         "metric_k",
         "retrieval_chunk_overfetch",
+        # An arm that answers with no retrieval at all: the harness skips the
+        # pipeline query, so the generator gets no passages. Not a pipeline
+        # setting, and it changes every generation number, so it is hashed.
+        "no_rag",
     }
 )
 

@@ -8,7 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.1.0] - YYYY-MM-DD
 
-Lasagna now has eight swappable stages and 53 built-in components; each one that
+Lasagna now has eight swappable stages and 55 built-in components; each one that
 implements a published method names its paper. Several fixes below change
 measured numbers, so `METRICS_VERSION` is now 1.5 (it was 1.3), and results from
 before this release do not share a leaderboard group with results after it.
@@ -25,6 +25,14 @@ Components, by stage:
   Sweep it with `pipeline.generators`, run one with
   `lasagna benchmark run --generator`, or call `KnowledgePipeline.generate()`.
   A run that names no generator writes answers exactly as before.
+- **Baseline arms.** The `closed_book` generator answers from the question
+  alone; `long_context` reads all ten retrieved passages where the default
+  reads five, and the judge sees the same ten. An arm with `no_rag: true`
+  retrieves nothing: its retrieval track is skipped, it answers with
+  `closed_book`, and the isolation check files it under the retriever stage.
+  An arm whose generator reads no passages is not judged on faithfulness or
+  the context metrics, and the report and leaderboard say so.
+  `BaseGenerator.needs_context` and `context_k` let a component declare either.
 - **Retriever:** `dense`, `bm25`, `splade`, `hybrid_rrf` and `hybrid_convex`.
   The stage had no built-in component before. `dense` is the default vector
   search as a component, the control for a retriever sweep. New settings:

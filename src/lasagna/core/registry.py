@@ -472,6 +472,22 @@ class ComponentRegistry:
             ),
             (
                 "generator",
+                "closed_book",
+                "lasagna.generation.strategies:ClosedBookGenerator",
+                "The question alone, no passages: the no-retrieval baseline",
+                None,
+                [],
+            ),
+            (
+                "generator",
+                "long_context",
+                "lasagna.generation.strategies:LongContextGenerator",
+                "The concise prompt over all ten retrieved passages, in rank order",
+                None,
+                [],
+            ),
+            (
+                "generator",
                 "cited",
                 "lasagna.generation.strategies:CitedGenerator",
                 "Answers citing their supporting passages as [n]",

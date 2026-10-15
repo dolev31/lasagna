@@ -1,7 +1,8 @@
 """Built-in answer generation strategies.
 
-Each is a published prompting strategy behind ``BaseGenerator``, so a sweep can
-hold retrieval fixed and vary only how the answer is written. The run's
+Each is a published prompting strategy, or a baseline (``closed_book``,
+``long_context``), behind ``BaseGenerator``, so a sweep can hold retrieval
+fixed and vary only how the answer is written. The run's
 generator model is passed in as ``llm``; with none, a strategy raises rather
 than return an empty answer that a judge would then score.
 """
@@ -39,6 +40,18 @@ def _numbered(contexts: List[str]) -> str:
     return "\n\n".join(f"Document [{i}]: {c}" for i, c in enumerate(contexts, 1))
 
 
+def _concise_prompt(query: str, contexts: List[str], instructions: str) -> str:
+    ctx_text = "\n\n".join(contexts)
+    return (
+        "Answer the following question in ONE concise sentence "
+        "based only on the provided context. "
+        "Do not explain or elaborate. "
+        f"{instructions}\n\n"
+        f"Context:\n{ctx_text}\n\n"
+        f"Question: {query}\n\nAnswer:"
+    )
+
+
 class ConciseGenerator(BaseGenerator):
     """One concise sentence from the context only: the harness's default prompt.
 
@@ -46,16 +59,45 @@ class ConciseGenerator(BaseGenerator):
     """
 
     def generate(self, query, contexts, *, llm=None, instructions="", **kwargs) -> str:
-        ctx_text = "\n\n".join(contexts)
+        return _invoke(llm, _concise_prompt(query, contexts, instructions), "the concise generator")
+
+
+class ClosedBookGenerator(BaseGenerator):
+    """The question alone, with no retrieved passage: the no-retrieval baseline.
+
+    The number a retrieval arm has to beat to show that retrieval helped at
+    all. The harness hands it no passages and does not ask the judge for the
+    metrics that read them (faithfulness, context precision and recall), so it
+    is compared on exact match, token F1 and factual correctness.
+    """
+
+    needs_context = False
+
+    def generate(self, query, contexts, *, llm=None, instructions="", **kwargs) -> str:
         prompt = (
-            "Answer the following question in ONE concise sentence "
-            "based only on the provided context. "
+            "Answer the following question in ONE concise sentence. "
             "Do not explain or elaborate. "
             f"{instructions}\n\n"
-            f"Context:\n{ctx_text}\n\n"
             f"Question: {query}\n\nAnswer:"
         )
-        return _invoke(llm, prompt, "the concise generator")
+        return _invoke(llm, prompt, "the closed-book generator")
+
+
+class LongContextGenerator(BaseGenerator):
+    """The concise prompt over every passage retrieval returned, in rank order.
+
+    The harness hands it ten passages where the default is five, and judges
+    faithfulness against the same ten, so against `concise` the one thing that
+    differs is how much the generator reads: whether more context helps or
+    buries the answer.
+    """
+
+    context_k = 10
+
+    def generate(self, query, contexts, *, llm=None, instructions="", **kwargs) -> str:
+        return _invoke(
+            llm, _concise_prompt(query, contexts, instructions), "the long-context generator"
+        )
 
 
 class CitedGenerator(BaseGenerator):
