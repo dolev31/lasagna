@@ -33,7 +33,9 @@ generator           ``f(query, contexts)``                              ``str`` 
 
 A class that already implements the stage's interface can be registered the
 same way. The wrapper hands the function copies of its inputs, so a technique
-cannot change what another stage sees, whatever it does to them.
+cannot change what another stage sees, whatever it does to them. A LangChain or
+LlamaIndex object (a compressor, embeddings, a retriever) can be named as
+``module:attr`` too; it is wrapped as ``lasagna.from_langchain`` wraps it.
 """
 
 from __future__ import annotations
@@ -282,6 +284,15 @@ _WRAPPERS = {
 }
 
 
+def _library_of(obj: Any) -> Optional[str]:
+    """``"langchain"`` or ``"llamaindex"`` when an object's class comes from one
+    of them, read off its class hierarchy so neither is imported."""
+    roots = {getattr(k, "__module__", "").split(".")[0] for k in type(obj).__mro__}
+    if any(root.startswith("langchain") for root in roots):
+        return "langchain"
+    return "llamaindex" if "llama_index" in roots else None
+
+
 def as_component_class(stage: str, obj: Any, name: str) -> type:
     """The class the registry should hold for ``obj`` under ``stage``.
 
@@ -301,6 +312,13 @@ def as_component_class(stage: str, obj: Any, name: str) -> type:
             f"{obj.__qualname__} does not implement the {stage} interface "
             f"({abc.__name__}). Subclass {abc.__name__}{fix}."
         )
+    library = _library_of(obj)
+    if library is not None:
+        # A LangChain or LlamaIndex object a sweep names as `module:attr`,
+        # wrapped as lasagna.from_langchain would wrap it.
+        from .sdk.integrations.inbound import wrapper_class
+
+        return wrapper_class(stage, obj, library, name)
     if stage not in _WRAPPERS:
         raise TypeError(
             f"A {stage} is a class, not a function: subclass {abc.__name__} and register the class."

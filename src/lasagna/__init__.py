@@ -81,6 +81,9 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "retriever": (".components", "retriever"),
     "document_processor": (".components", "document_processor"),
     "generator": (".components", "generator"),
+    # A LangChain or LlamaIndex component as a stage.
+    "from_langchain": (".sdk.integrations.inbound", "from_langchain"),
+    "from_llamaindex": (".sdk.integrations.inbound", "from_llamaindex"),
     # Core
     "RAGConfig": (".core", "RAGConfig"),
     "get_rag_config": (".core", "get_rag_config"),
@@ -169,6 +172,7 @@ if TYPE_CHECKING:
         document_processor,
         generator,
     )
+    from .sdk.integrations.inbound import from_langchain, from_llamaindex
     from .core import (
         RAGConfig,
         get_rag_config,
@@ -282,6 +286,8 @@ __all__ = [
     "retriever",
     "document_processor",
     "generator",
+    "from_langchain",
+    "from_llamaindex",
     # Core
     "RAGConfig",
     "get_rag_config",

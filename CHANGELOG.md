@@ -88,6 +88,13 @@ Sweeps, validation and metrics:
   cross-encoder within 0.004 of the BEIR paper, BM25 within 0.008.
 - A terminal demo, `docs/assets/demo.gif`, regenerated from a real run by
   `docs/assets/demo/record.sh`.
+- **LangChain and LlamaIndex components as stages.** `lasagna.from_langchain`
+  registers a document compressor as a reranker, embeddings as an embedder and
+  a retriever as a retriever; `lasagna.from_llamaindex` does the same for a node
+  postprocessor, an embedding and a retriever. A sweep file can also name such
+  an object as `module:attr`. The listing describes the entry as
+  `wrapped: langchain.<Class>`. A wrapped retriever searches its own index, not
+  the ingested corpus. New extra: `llamaindex`.
 
 ### Changed
 
