@@ -74,6 +74,11 @@ def test_listing_every_stage_imports_no_component(tmp_path):
     assert not [m for m, present in loaded.items() if present], loaded
 
 
+def test_component_list_imports_no_component(tmp_path):
+    loaded = _imported_after(_run_cli("component", "list"), tmp_path)
+    assert not [m for m, present in loaded.items() if present], loaded
+
+
 def test_plugins_list_imports_no_component(tmp_path):
     loaded = _imported_after(_run_cli("plugins", "list"), tmp_path)
     assert not [m for m, present in loaded.items() if present], loaded
