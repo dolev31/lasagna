@@ -2293,7 +2293,7 @@ def _apply_overrides_to_pipeline(
         if len(models) != len(weights):
             logger.warning(
                 f"ensemble_reranker_models/weights length mismatch: "
-                f"{len(models)} vs {len(weights)} — using equal weights"
+                f"{len(models)} vs {len(weights)}: using equal weights"
             )
             weights = [1.0] * len(models)
         try:
@@ -2443,7 +2443,7 @@ async def _eval_offline(
             error=(
                 f"Config overrides {sorted(inert_keys)} have no effect in "
                 f"'{task.mode}' mode, which scores gold context and never runs the "
-                f"retrieval pipeline — any metric produced here would be unrelated "
+                f"retrieval pipeline: any metric produced here would be unrelated "
                 f"to them. Use mode='live' (or mode='auto') to measure these. "
                 f"Set allow_inert_overrides=True to score gold context anyway."
             ),
@@ -3213,7 +3213,7 @@ async def _ensure_corpus_ingested(
             if pct > 50:
                 _msg = (
                     f"Aborting: {pct:.0f}% of qrels docs missing from loaded "
-                    f"corpus — results would be unreliable. Raise "
+                    f"corpus: results would be unreliable. Raise "
                     f"`max_corpus_docs` (0 = no limit) so the judged documents "
                     f"are actually ingested."
                 )
@@ -3682,10 +3682,10 @@ async def _eval_live(
         if _hybrid.is_native_mode_available() or _hybrid._backend_supports_native_hybrid(
             shared_session_id
         ):
-            logger.debug("Native hybrid available — skipping BM25 fallback prebuild")
+            logger.debug("Native hybrid available: skipping BM25 fallback prebuild")
         elif not _BM25_AVAIL:
             # Guard 2: rank_bm25 not installed
-            logger.debug("BM25 fallback not available — skipping prebuild")
+            logger.debug("BM25 fallback not available: skipping prebuild")
         else:
             _bm25_idx = _hybrid.get_session_index(shared_session_id)
             if _bm25_idx.is_current():
@@ -3732,7 +3732,7 @@ async def _eval_live(
                 else:
                     logger.warning(
                         f"No chunks found in vector store for session "
-                        f"{shared_session_id} — BM25 hybrid search will use "
+                        f"{shared_session_id}: BM25 hybrid search will use "
                         f"dense-only fallback"
                     )
 
@@ -4506,7 +4506,7 @@ async def _eval_live(
                         else:
                             logger.warning(
                                 f"All agentic answers were empty for "
-                                f"{task.task_key} — skipping agentic eval"
+                                f"{task.task_key}: skipping agentic eval"
                             )
 
                     # Emit canonical unsuffixed metrics so downstream

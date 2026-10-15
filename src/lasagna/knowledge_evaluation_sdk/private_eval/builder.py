@@ -114,7 +114,7 @@ class DatasetBuilder:
           - ``corpus_retrieval.jsonl``: BEIR docs + distractors
           - ``corpus_e2e.jsonl``: retrieval corpus + gold QA passages
         """
-        logger.info("Starting private eval dataset build (v2.0 — 3-track)...")
+        logger.info("Starting private eval dataset build (v2.0, 3 tracks)...")
 
         # ── Load samples ─────────────────────────────────────────────────
         retrieval_samples = self._load_retrieval_track()
@@ -161,9 +161,9 @@ class DatasetBuilder:
         h_test = [self._strip_expected_docs(s) for s in g_test]
 
         logger.info(
-            f"Splits — Retrieval: {len(r_train)}/{len(r_eval)}/{len(r_test)}, "
-            f"E2E Gen: {len(e2e_train)}/{len(e2e_eval)}/{len(e2e_test)}, "
-            f"Hallucination: {len(h_train)}/{len(h_eval)}/{len(h_test)}"
+            f"Splits (train/eval/test): Retrieval {len(r_train)}/{len(r_eval)}/{len(r_test)}, "
+            f"E2E Gen {len(e2e_train)}/{len(e2e_eval)}/{len(e2e_test)}, "
+            f"Hallucination {len(h_train)}/{len(h_eval)}/{len(h_test)}"
         )
 
         # ── Save everything ──────────────────────────────────────────────

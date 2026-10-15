@@ -173,7 +173,7 @@ def reject_unverified_identity(
     if resolved == "default":
         return (
             f"{REQUIRE_AUTH_ENV} is on, so every request needs a session token "
-            f"issued by POST /api/v1/sessions — including requests that send no "
+            f"issued by POST /api/v1/sessions, including requests that send no "
             f"{what} at all, which would otherwise land in the shared "
             f"'default' namespace. Set {ALLOW_ANONYMOUS_ENV} if that namespace "
             f"is meant to be publicly writable."

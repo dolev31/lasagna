@@ -22,7 +22,7 @@ class WikiMultiHopAdapter(BaseBenchmarkAdapter):
     def info(self) -> BenchmarkInfo:
         return BenchmarkInfo(
             name="wiki_multihop",
-            description="2WikiMultiHopQA — multi-hop reasoning over two Wikipedia articles",
+            description="2WikiMultiHopQA: multi-hop reasoning over two Wikipedia articles",
             category=BenchmarkCategory.MULTI_HOP,
             eval_mode=BenchmarkEvalMode.GENERATION,
             num_queries=192_606,

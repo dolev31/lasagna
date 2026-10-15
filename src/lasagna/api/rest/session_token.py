@@ -82,7 +82,7 @@ def _get_secret() -> str:
         from loguru import logger
 
         logger.warning(
-            "RAG_JWT_SECRET not set — using ephemeral secret (tokens won't survive restart)"
+            "RAG_JWT_SECRET not set: using ephemeral secret (tokens won't survive restart)"
         )
     return _fallback_secret
 

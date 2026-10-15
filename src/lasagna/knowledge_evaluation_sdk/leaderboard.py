@@ -242,7 +242,7 @@ def render_markdown(
         f"# {benchmark}",
         "",
         f"Ranked by `{metric}`. **Self-reported and machine-validated, not "
-        "independently reproduced** — every row links to its bundle.",
+        "independently reproduced**. Every row links to its bundle.",
         "",
         "Each table is one comparability group: those rows held the same "
         "configuration fixed, so they may be compared with each other. Rows in "

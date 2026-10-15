@@ -282,7 +282,7 @@ async def multi_query_search(
     and fuses the results for higher recall.  Requires ``enable_query_expansion``
     to be set in the session config.
 
-    Note: ``routing_tier`` from SearchRequest is ignored here — multi-query
+    Note: ``routing_tier`` from SearchRequest is ignored here; multi-query
     search uses RAG Fusion which applies its own retrieval strategy per sub-query.
     """
     if body.routing_tier:
@@ -331,7 +331,7 @@ async def agentic_search(
     retrieval rounds, and synthesise results with citations.
     Requires ``use_agentic_rag`` to be enabled in session config.
 
-    Note: ``routing_tier`` from SearchRequest is ignored here — the agentic
+    Note: ``routing_tier`` from SearchRequest is ignored here; the agentic
     endpoint IS the comprehensive tier by definition.
     """
     if body.routing_tier:

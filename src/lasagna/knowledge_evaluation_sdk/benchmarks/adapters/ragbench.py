@@ -38,7 +38,7 @@ class RAGBenchAdapter(BaseBenchmarkAdapter):
     def info(self) -> BenchmarkInfo:
         return BenchmarkInfo(
             name=f"ragbench/{self._config}",
-            description=f"RAGBench ({self._config}) — TRACe-style RAG evaluation",
+            description=f"RAGBench ({self._config}): TRACe-style RAG evaluation",
             category=BenchmarkCategory.SINGLE_HOP,
             eval_mode=BenchmarkEvalMode.END_TO_END,
             paper="arxiv:2407.11005",

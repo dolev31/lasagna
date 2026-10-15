@@ -137,7 +137,7 @@ async def check_hallucination_node(state: RAGGraphState) -> Dict[str, Any]:
     quality_check_attempts: int = state.get("quality_check_attempts", 0)
 
     if not llm or not generation or not chunks:
-        logger.warning("[HallucinationCheck] Missing LLM, generation, or chunks — skipping")
+        logger.warning("[HallucinationCheck] Missing LLM, generation, or chunks: skipping")
         return {
             "hallucination_check": "supported",
             "quality_check_attempts": quality_check_attempts,
@@ -153,7 +153,7 @@ async def check_hallucination_node(state: RAGGraphState) -> Dict[str, Any]:
         response = await llm.ainvoke([HumanMessage(content=prompt)])
         label = _parse_label(response.content, _VALID_HALLUCINATION_LABELS, "supported")
     except Exception:
-        logger.exception("[HallucinationCheck] LLM call failed — defaulting to 'supported'")
+        logger.exception("[HallucinationCheck] LLM call failed: defaulting to 'supported'")
         label = "supported"
 
     elapsed_ms = (time.time() - start) * 1000
@@ -194,7 +194,7 @@ async def check_answer_quality_node(state: RAGGraphState) -> Dict[str, Any]:
     quality_check_attempts: int = state.get("quality_check_attempts", 0)
 
     if not llm or not generation:
-        logger.warning("[AnswerQualityCheck] Missing LLM or generation — skipping")
+        logger.warning("[AnswerQualityCheck] Missing LLM or generation: skipping")
         return {
             "answer_quality": "addresses_question",
             "quality_check_attempts": quality_check_attempts,
@@ -209,9 +209,7 @@ async def check_answer_quality_node(state: RAGGraphState) -> Dict[str, Any]:
         response = await llm.ainvoke([HumanMessage(content=prompt)])
         label = _parse_label(response.content, _VALID_QUALITY_LABELS, "addresses_question")
     except Exception:
-        logger.exception(
-            "[AnswerQualityCheck] LLM call failed — defaulting to 'addresses_question'"
-        )
+        logger.exception("[AnswerQualityCheck] LLM call failed: defaulting to 'addresses_question'")
         label = "addresses_question"
 
     elapsed_ms = (time.time() - start) * 1000

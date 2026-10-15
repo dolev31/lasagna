@@ -473,8 +473,8 @@ def get_search_cache(config=None) -> SearchCache:
                 logger.warning(
                     f"get_search_cache() called with different config "
                     f"(max_size={desired_max}, ttl={desired_ttl}) after initialization "
-                    f"(max_size={cache.max_size}, ttl={cache.ttl_seconds}) "
-                    f"— original config retained"
+                    f"(max_size={cache.max_size}, ttl={cache.ttl_seconds}); "
+                    f"original config retained"
                 )
         return cache
 

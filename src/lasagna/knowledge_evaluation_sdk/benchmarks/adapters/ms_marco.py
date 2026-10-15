@@ -22,7 +22,7 @@ class MSMARCOAdapter(BaseBenchmarkAdapter):
     def info(self) -> BenchmarkInfo:
         return BenchmarkInfo(
             name="ms_marco",
-            description="MS MARCO — passage ranking (8.8M passages)",
+            description="MS MARCO: passage ranking (8.8M passages)",
             category=BenchmarkCategory.PASSAGE_RANKING,
             eval_mode=BenchmarkEvalMode.GENERATION,
             num_queries=808_731,

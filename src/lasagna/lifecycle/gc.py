@@ -79,7 +79,7 @@ class GarbageCollector:
             report.aborted = True
             report.abort_reason = "Another GC process is running (lock held)."
             report.completed_at = datetime.now(timezone.utc)
-            logger.info(f"GC skipped — lock held by another process (run_id={run_id})")
+            logger.info(f"GC skipped: lock held by another process (run_id={run_id})")
             return report
 
         try:
@@ -106,7 +106,7 @@ class GarbageCollector:
             report.completed_at = datetime.now(timezone.utc)
 
         logger.info(
-            f"GC cycle complete (run_id={run_id}) — "
+            f"GC cycle complete (run_id={run_id}): "
             f"cleaned={report.total_docs_cleaned} docs, "
             f"freed={report.total_bytes_freed / 1024:.1f} KB, "
             f"errors={report.total_errors}"
@@ -148,7 +148,7 @@ class GarbageCollector:
             result.details["fraction"] = fraction
             logger.warning(
                 f"GC Phase 1 safety threshold exceeded: {len(candidate_ids)} candidates "
-                f"({fraction:.1%} of {total_docs} docs) — aborting hard deletion. "
+                f"({fraction:.1%} of {total_docs} docs): aborting hard deletion. "
                 f"Threshold: {self._policy.safety_threshold_percent:.1%}"
             )
             return result

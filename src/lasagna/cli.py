@@ -1616,7 +1616,7 @@ def benchmark_licenses(
         "",
         "Lasagna **redistributes no benchmark data**. Each dataset below is",
         "downloaded from its own upstream source on first use, under its own",
-        "license and terms of use. Those terms are yours to honour — including",
+        "license and terms of use. Those terms are yours to honor, including",
         "for anything you publish from results produced with them.",
         "",
         "`Live` marks the benchmarks that ship a retrievable corpus. The rest",
@@ -1629,8 +1629,8 @@ def benchmark_licenses(
         adapter = benchmark_registry.get(name)
         from .knowledge_evaluation_sdk.experiment import _adapter_has_corpus
 
-        live = "yes" if _adapter_has_corpus(adapter) else "—"
-        paper = info.paper or "—"
+        live = "yes" if _adapter_has_corpus(adapter) else "-"
+        paper = info.paper or "-"
         lic = info.license or "**unknown**"
         desc = (info.description or "").replace("|", "\\|")
         lines.append(f"| `{name}` | {lic} | {live} | {paper} | {desc} |")
@@ -2156,9 +2156,7 @@ def results_validate(
             problems.append(f"missing required block: {field}")
 
     if "run_id" in bundle and _content_hash(bundle) != bundle["run_id"]:
-        problems.append(
-            "run_id does not match the bundle contents — it was edited after generation"
-        )
+        problems.append("run_id does not match the bundle contents: it was edited after generation")
 
     for cfg in bundle.get("configs", []):
         recomputed = comparability_key(cfg.get("held_fixed", {}))
@@ -2200,7 +2198,7 @@ def results_validate(
         problems.extend(f"integrity (strict): {code}" for code in warnings)
 
     if problems:
-        console.print(f"[red]INVALID[/red] — {len(problems)} problem(s):")
+        console.print(f"[red]INVALID[/red], {len(problems)} problem(s):")
         # Problem lines quote arm names, which are free text: `a[/b]` is a
         # Rich closing tag and crashed the command instead of printing.
         for p in problems:
@@ -2372,7 +2370,7 @@ def results_significance(
 
     label = "Holm-Bonferroni" if correction == "holm" else "uncorrected"
     console.print(
-        f"[bold]{escape(metric)}[/bold] on {escape(benchmark)} — {_count(len(rows), 'pair')}, {label}"
+        f"[bold]{escape(metric)}[/bold] on {escape(benchmark)}: {_count(len(rows), 'pair')}, {label}"
     )
     console.print()
 
@@ -2408,7 +2406,7 @@ def results_significance(
             cells.append(str(row.get("n_paired", "")))
             if any_dropped:
                 cells.append(f"{row.get('n_dropped_a', 0)}/{row.get('n_dropped_b', 0)}")
-            cells.append("[green]significant[/green]" if row.get("significant") else "[dim]—[/dim]")
+            cells.append("[green]significant[/green]" if row.get("significant") else "[dim]-[/dim]")
             table.add_row(*cells)
         return table
 
@@ -2438,7 +2436,7 @@ def results_significance(
         console.print(
             f"  {survivors} of {_count(len(rows), 'pair')} "
             f"{'is' if survivors == 1 else 'are'} significant at alpha={alpha}, "
-            f"[yellow]uncorrected[/yellow] — with {len(rows)} comparisons, expect "
+            f"[yellow]uncorrected[/yellow]: with {len(rows)} comparisons, expect "
             f"about {len(rows) * alpha:.1f} of these by chance."
         )
     if any_dropped:
@@ -2565,7 +2563,7 @@ def results_per_query(
             table.add_row(
                 label(str(row["config"])),
                 escape(str(row["sample_id"])[:24]),
-                *[f"{row[m]:.3f}" if m in row else "—" for m in metrics],
+                *[f"{row[m]:.3f}" if m in row else "-" for m in metrics],
             )
         return table
 
@@ -2708,7 +2706,7 @@ def results_interaction(
         ("both", both),
     ):
         mean = report["means"][name]
-        delta = "—" if name == neither else f"{mean - base:+.4f}"
+        delta = "-" if name == neither else f"{mean - base:+.4f}"
         table.add_row(f"{label}  [dim]{escape(name)}[/dim]", f"{mean:.4f}", delta)
     console.print(table)
     for line in _identical_cells(results, benchmark, [neither, only_a, only_b, both]):

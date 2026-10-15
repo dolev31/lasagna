@@ -1224,7 +1224,7 @@ class BenchmarkResults:
         annotated, so its absence cannot pass for a result.
         """
         lines = [
-            f"Leaderboard — {metric}" + (" (lower is better)" if lower_is_better(metric) else ""),
+            f"Leaderboard: {metric}" + (" (lower is better)" if lower_is_better(metric) else ""),
             "=" * 50,
             "Ranked within each benchmark, over configs that scored the same queries.",
         ]
@@ -1307,7 +1307,7 @@ class BenchmarkResults:
             return "_No results_"
 
         configs = self.configs
-        lines = [f"## {self.experiment_name or 'Benchmark Results'} — {metric}\n"]
+        lines = [f"## {self.experiment_name or 'Benchmark Results'}: {metric}\n"]
 
         # Header
         header = "| Benchmark | " + " | ".join(configs) + " |"
@@ -1327,7 +1327,7 @@ class BenchmarkResults:
                         val = f"**{val}**"
                     cells.append(val)
                 else:
-                    cells.append("—")
+                    cells.append("-")
             lines.append(f"| {bench} | " + " | ".join(cells) + " |")
         notes = self._no_context_notes()
         if notes:
@@ -1404,7 +1404,7 @@ class BenchmarkResults:
         lines = [
             "\\begin{table}[t]",
             "\\centering",
-            f"\\caption{{{self.experiment_name or 'Benchmark Results'} — {_escape_latex(metric)}}}",
+            f"\\caption{{{self.experiment_name or 'Benchmark Results'}: {_escape_latex(metric)}}}",
             "\\begin{tabular}{l" + "c" * len(configs) + "}",
             "\\toprule",
             "Benchmark & " + " & ".join(_escape_latex(c) for c in configs) + " \\\\",
@@ -1430,7 +1430,7 @@ class BenchmarkResults:
                         val += "$^{\\dagger}$"
                     cells.append(val)
                 else:
-                    cells.append("—")
+                    cells.append("--")  # LaTeX: an en dash, the empty-cell mark
             lines.append(f"{_escape_latex(bench)} & " + " & ".join(cells) + " \\\\")
 
         lines.extend(
@@ -1665,7 +1665,7 @@ class BenchmarkResults:
             else:
                 diffs = compare_keys(held_a, held_b)
                 lines.append(
-                    "Comparable: NO — these runs did not hold the same things fixed.\n"
+                    "Comparable: NO. These runs did not hold the same things fixed.\n"
                     "Differences that make the numbers below incommensurable:"
                 )
                 lines.extend(f"    {d}" for d in diffs)
@@ -1749,11 +1749,11 @@ def format_effect_size(effect: Optional[float]) -> str:
     import math
 
     if effect is None:
-        return "—"
+        return "-"
     if math.isinf(effect):
         return "+∞" if effect > 0 else "-∞"
     if math.isnan(effect):
-        return "—"
+        return "-"
     return f"{effect:+.2f}"
 
 

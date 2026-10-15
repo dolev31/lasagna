@@ -22,7 +22,7 @@ class BamboogleAdapter(BaseBenchmarkAdapter):
     def info(self) -> BenchmarkInfo:
         return BenchmarkInfo(
             name="bamboogle",
-            description="Bamboogle — 125 multi-hop questions that Google cannot answer directly",
+            description="Bamboogle: 125 multi-hop questions that Google cannot answer directly",
             category=BenchmarkCategory.MULTI_HOP,
             eval_mode=BenchmarkEvalMode.GENERATION,
             num_queries=125,

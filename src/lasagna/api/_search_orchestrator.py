@@ -1195,7 +1195,7 @@ class SearchOrchestrator:
                 f"Dropped {len(missing_metadata_ids)} retrieved chunk(s) from "
                 f"{len(unique_missing)} document(s) with no metadata row"
                 + (
-                    " — returning 0 results despite successful retrieval"
+                    ": returning 0 results despite successful retrieval"
                     if not search_results
                     else ""
                 )

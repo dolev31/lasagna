@@ -115,7 +115,7 @@ def _check_optional_extras() -> List[Check]:
             Check(
                 f"import:{module}",
                 _WARN,
-                f"not installed — {purpose} unavailable",
+                f"not installed: {purpose} unavailable",
                 f"{install}",
             )
         )

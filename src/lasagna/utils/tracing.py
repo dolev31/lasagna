@@ -230,13 +230,13 @@ def configure_tracing(
         try:
             TRACER._backend = _OpenTelemetryBackend(service_name, exporter, endpoint)
             logger.info(
-                f"OpenTelemetry tracing enabled — service={service_name}, "
+                f"OpenTelemetry tracing enabled: service={service_name}, "
                 f"exporter={exporter}, endpoint={endpoint}"
             )
         except ImportError:
             TRACER._backend = _TracingBackend()
             logger.warning(
-                "opentelemetry-api/sdk not installed — tracing remains no-op.  "
+                "opentelemetry-api/sdk not installed: tracing remains no-op.  "
                 "Install with: pip install opentelemetry-api>=1.24.0 opentelemetry-sdk>=1.24.0"
             )
     else:

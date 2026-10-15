@@ -28,7 +28,7 @@ class MuSiQueAdapter(BaseBenchmarkAdapter):
     def info(self) -> BenchmarkInfo:
         return BenchmarkInfo(
             name="musique",
-            description="MuSiQue — multi-hop questions requiring 2-4 composition steps",
+            description="MuSiQue: multi-hop questions requiring 2-4 composition steps",
             category=BenchmarkCategory.MULTI_HOP,
             eval_mode=BenchmarkEvalMode.GENERATION,
             num_queries=25_000,

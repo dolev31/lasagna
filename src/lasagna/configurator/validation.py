@@ -259,7 +259,7 @@ def validate_config(
         result.add_warning(
             "use_structured_graph",
             "use_structured_graph is enabled but use_agentic_rag is disabled. "
-            "Structured graph mode is a feature of the agentic RAG system — "
+            "Structured graph mode is a feature of the agentic RAG system, so "
             "it will be ignored.",
         )
 

@@ -122,8 +122,8 @@ class TestTheInfiniteEffectSizeDoesNotLeakIntoAReport:
 
         assert _format_effect_size(math.inf) == "+∞"
         assert _format_effect_size(-math.inf) == "−∞"
-        assert _format_effect_size(None) == "—"
-        assert _format_effect_size(float("nan")) == "—"
+        assert _format_effect_size(None) == "-"
+        assert _format_effect_size(float("nan")) == "-"
         assert _format_effect_size(1.5) == "1.500"
 
 

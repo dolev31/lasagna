@@ -1135,7 +1135,7 @@ class EmbeddingManagerAdapter(BaseEmbedder):
                 )
             logger.warning(
                 f"Embedding batch had {len(results) - len(valid)} failed entries "
-                f"out of {len(results)} — replacing with zero vectors"
+                f"out of {len(results)}: replacing with zero vectors"
             )
             dim = self.dimension
             results = [r if r is not None else np.zeros(dim) for r in results]

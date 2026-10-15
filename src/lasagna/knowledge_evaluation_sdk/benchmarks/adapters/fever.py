@@ -22,7 +22,7 @@ class FEVERAdapter(BaseBenchmarkAdapter):
     def info(self) -> BenchmarkInfo:
         return BenchmarkInfo(
             name="fever",
-            description="FEVER — Fact Extraction and VERification (185K claims)",
+            description="FEVER: Fact Extraction and VERification (185K claims)",
             category=BenchmarkCategory.FACT_VERIFICATION,
             eval_mode=BenchmarkEvalMode.GENERATION,
             num_queries=185_445,

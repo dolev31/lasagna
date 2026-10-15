@@ -17,11 +17,11 @@ if TYPE_CHECKING:
 
 _KILT_TASKS = {
     "nq": {
-        "description": "KILT Natural Questions — knowledge-intensive QA",
+        "description": "KILT Natural Questions: knowledge-intensive QA",
         "paper": "arxiv:2009.02252",
     },
     "triviaqa": {
-        "description": "KILT TriviaQA — trivia questions as knowledge-intensive task",
+        "description": "KILT TriviaQA: trivia questions as knowledge-intensive task",
         "paper": "arxiv:2009.02252",
     },
 }

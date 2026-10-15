@@ -189,7 +189,7 @@ def get_llm_provider() -> LLMProvider:
         supported_keys = ", ".join(env for env, _ in _API_KEY_TO_PLATFORM)
         raise LLMProviderNotConfigured(
             f"No LLMProvider configured. Set one of these API key env vars: "
-            f"{supported_keys} — or call configure_providers()."
+            f"{supported_keys}, or call configure_providers()."
         )
     return _llm_provider
 

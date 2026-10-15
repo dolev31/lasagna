@@ -291,7 +291,7 @@
       },
       "ConfigPatchRequest": {
         "additionalProperties": false,
-        "description": "Partial config update. Only provided keys are applied.\n\nAll fields are Optional \u2014 only non-None values are patched.\nUnknown fields are rejected by Pydantic (model_config forbids extras).",
+        "description": "Partial config update. Only provided keys are applied.\n\nAll fields are Optional: only non-None values are patched.\nUnknown fields are rejected by Pydantic (model_config forbids extras).",
         "properties": {
           "agentic_pipeline": {
             "anyOf": [
@@ -3461,7 +3461,7 @@
     },
     "/api/v1/admin/gc/orphans": {
       "get": {
-        "description": "Detect orphaned data between the metadata DB and vector store.\n\nReturns a consistency report with:\n- ``db_only``: Documents in the DB but missing from the vector store\n  (likely a failed ingestion).\n- ``vec_only``: Chunks in the vector store with no DB record\n  (likely a leaked vector after a hard-delete failure).\n- ``scan_limited``: True if the vector scan hit ``vector_scan_limit`` and\n  results may be incomplete.\n\nThis endpoint is **read-only** \u2014 it does not modify any data.\nPass the report to ``POST /admin/gc/repair`` to fix the issues.",
+        "description": "Detect orphaned data between the metadata DB and vector store.\n\nReturns a consistency report with:\n- ``db_only``: Documents in the DB but missing from the vector store\n  (likely a failed ingestion).\n- ``vec_only``: Chunks in the vector store with no DB record\n  (likely a leaked vector after a hard-delete failure).\n- ``scan_limited``: True if the vector scan hit ``vector_scan_limit`` and\n  results may be incomplete.\n\nThis endpoint is **read-only**: it does not modify any data.\nPass the report to ``POST /admin/gc/repair`` to fix the issues.",
         "operationId": "detect_orphans_api_v1_admin_gc_orphans_get",
         "parameters": [
           {
@@ -3681,7 +3681,7 @@
         ]
       },
       "patch": {
-        "description": "Update one or more lifecycle policy fields at runtime.\n\nChanges take effect immediately for the current process but are **not\npersisted** \u2014 the server reverts to its configured policy on restart.\nTo make changes permanent, update ``[rag.lifecycle]`` in\n``settings.lasagna.toml`` or the corresponding ``RAG_GC_*`` env vars.\n\nUnknown field names are rejected with HTTP 422.",
+        "description": "Update one or more lifecycle policy fields at runtime.\n\nChanges take effect immediately for the current process but are **not\npersisted**: the server reverts to its configured policy on restart.\nTo make changes permanent, update ``[rag.lifecycle]`` in\n``settings.lasagna.toml`` or the corresponding ``RAG_GC_*`` env vars.\n\nUnknown field names are rejected with HTTP 422.",
         "operationId": "patch_gc_policy_api_v1_admin_gc_policy_patch",
         "parameters": [
           {
@@ -3927,7 +3927,7 @@
     },
     "/api/v1/admin/gc/run": {
       "post": {
-        "description": "Trigger a manual full garbage-collection cycle.\n\nRuns all 6 GC phases:\n\n1. Hard-delete expired soft-deleted documents\n2. Expire documents past their TTL\n3. Clean up old ERROR documents\n4. Clean up expired citations\n5. Clean up idle sessions\n6. Reconcile quota counters\n\nIdempotent \u2014 safe to call multiple times.  Returns per-phase results.",
+        "description": "Trigger a manual full garbage-collection cycle.\n\nRuns all 6 GC phases:\n\n1. Hard-delete expired soft-deleted documents\n2. Expire documents past their TTL\n3. Clean up old ERROR documents\n4. Clean up expired citations\n5. Clean up idle sessions\n6. Reconcile quota counters\n\nIdempotent: safe to call multiple times.  Returns per-phase results.",
         "operationId": "run_gc_api_v1_admin_gc_run_post",
         "parameters": [
           {
@@ -4625,7 +4625,7 @@
         ]
       },
       "patch": {
-        "description": "Patch session-scoped RAG configuration.\n\nAccepts a partial config object \u2014 only non-null keys are updated.\nUnknown keys are rejected with 422.\n\nExample body: ``{\"enable_hyde\": true, \"similarity_threshold\": 0.5}``",
+        "description": "Patch session-scoped RAG configuration.\n\nAccepts a partial config object: only non-null keys are updated.\nUnknown keys are rejected with 422.\n\nExample body: ``{\"enable_hyde\": true, \"similarity_threshold\": 0.5}``",
         "operationId": "patch_config_api_v1_config_patch",
         "parameters": [
           {
@@ -5878,7 +5878,7 @@
     },
     "/api/v1/documents/{document_id}/archive": {
       "post": {
-        "description": "Soft-delete (archive) a document.\n\nThe document is marked as ``soft_deleted`` and enters the GC grace window.\nVectors and the stored file are **not** removed immediately \u2014 the GC\nhard-deletes them after the configured grace period (default: 24 h).\n\nUse ``POST /{document_id}/restore`` to recover the document before the\ngrace window expires.\n\nUnlike ``DELETE /{document_id}``, this operation is **reversible**.",
+        "description": "Soft-delete (archive) a document.\n\nThe document is marked as ``soft_deleted`` and enters the GC grace window.\nVectors and the stored file are **not** removed immediately: the GC\nhard-deletes them after the configured grace period (default: 24 h).\n\nUse ``POST /{document_id}/restore`` to recover the document before the\ngrace window expires.\n\nUnlike ``DELETE /{document_id}``, this operation is **reversible**.",
         "operationId": "archive_document_api_v1_documents__document_id__archive_post",
         "parameters": [
           {
@@ -6610,7 +6610,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "description": "Full health check \u2014 reports dependency status but always returns 200.\n\nUse this for dashboards and monitoring; use ``/health/ready`` for\norchestrator probes that need to remove unhealthy instances.",
+        "description": "Full health check: reports dependency status but always returns 200.\n\nUse this for dashboards and monitoring; use ``/health/ready`` for\norchestrator probes that need to remove unhealthy instances.",
         "operationId": "full_health_api_v1_health_get",
         "responses": {
           "200": {
@@ -6682,7 +6682,7 @@
     },
     "/api/v1/health/live": {
       "get": {
-        "description": "Liveness probe \u2014 is this process alive?\n\nAlways returns 200 unless the process is deadlocked.\nUsed by Kubernetes to decide whether to restart the container.",
+        "description": "Liveness probe: is this process alive?\n\nAlways returns 200 unless the process is deadlocked.\nUsed by Kubernetes to decide whether to restart the container.",
         "operationId": "liveness_api_v1_health_live_get",
         "responses": {
           "200": {
@@ -6754,7 +6754,7 @@
     },
     "/api/v1/health/ready": {
       "get": {
-        "description": "Readiness probe \u2014 can this instance handle requests?\n\nPings the vector store, the metadata database (Postgres or SQLite) and,\nwhen this instance uses it, Redis, each with a 2 s timeout. Returns 503\nnaming every dependency that did not answer in ``failing``, so a load\nbalancer stops routing here and an operator sees which one.",
+        "description": "Readiness probe: can this instance handle requests?\n\nPings the vector store, the metadata database (Postgres or SQLite) and,\nwhen this instance uses it, Redis, each with a 2 s timeout. Returns 503\nnaming every dependency that did not answer in ``failing``, so a load\nbalancer stops routing here and an operator sees which one.",
         "operationId": "readiness_api_v1_health_ready_get",
         "responses": {
           "200": {
@@ -7120,7 +7120,7 @@
     },
     "/api/v1/search/agentic": {
       "post": {
-        "description": "Agentic multi-hop search with iterative retrieval.\n\nUses an LLM agent to decompose complex queries, perform multiple\nretrieval rounds, and synthesise results with citations.\nRequires ``use_agentic_rag`` to be enabled in session config.\n\nNote: ``routing_tier`` from SearchRequest is ignored here \u2014 the agentic\nendpoint IS the comprehensive tier by definition.",
+        "description": "Agentic multi-hop search with iterative retrieval.\n\nUses an LLM agent to decompose complex queries, perform multiple\nretrieval rounds, and synthesise results with citations.\nRequires ``use_agentic_rag`` to be enabled in session config.\n\nNote: ``routing_tier`` from SearchRequest is ignored here; the agentic\nendpoint IS the comprehensive tier by definition.",
         "operationId": "agentic_search_api_v1_search_agentic_post",
         "parameters": [
           {
@@ -7508,7 +7508,7 @@
     },
     "/api/v1/search/multi-query": {
       "post": {
-        "description": "Multi-query expansion search.\n\nGenerates ``n_variations`` alternative query phrasings, searches each,\nand fuses the results for higher recall.  Requires ``enable_query_expansion``\nto be set in the session config.\n\nNote: ``routing_tier`` from SearchRequest is ignored here \u2014 multi-query\nsearch uses RAG Fusion which applies its own retrieval strategy per sub-query.",
+        "description": "Multi-query expansion search.\n\nGenerates ``n_variations`` alternative query phrasings, searches each,\nand fuses the results for higher recall.  Requires ``enable_query_expansion``\nto be set in the session config.\n\nNote: ``routing_tier`` from SearchRequest is ignored here; multi-query\nsearch uses RAG Fusion which applies its own retrieval strategy per sub-query.",
         "operationId": "multi_query_search_api_v1_search_multi_query_post",
         "parameters": [
           {
@@ -7680,7 +7680,7 @@
     },
     "/api/v1/sessions": {
       "post": {
-        "description": "Create a signed session token encoding (session_id, user_id).\n\nThe token is self-contained \u2014 the server decodes it on each request\nwithout any database lookup.  Pass it via the ``X-Session-Token``\nheader on subsequent requests.\n\nBoth ``session_id`` and ``user_id`` are optional and are generated when\nomitted, which is the normal path and needs no credentials.\n\n**Naming them requires ``X-Admin-Token``.** Without that check this endpoint\nhands out a token for any identity the caller asks for, and since sessions\nare the isolation boundary, that is read/write access to another tenant's\ndocuments. Requested identities are therefore refused rather than silently\nreplaced with generated ones \u2014 quietly returning a different session than\nthe one asked for would look like success and fail later in a confusing\nplace.\n\n**With ``RAG_REQUIRE_AUTH`` on, an ``X-API-Key`` from ``RAG_API_KEYS`` is\nrequired** (or ``X-Admin-Token``). The key's principal is written into the\ntoken, and rate limits are counted per principal rather than per session.",
+        "description": "Create a signed session token encoding (session_id, user_id).\n\nThe token is self-contained: the server decodes it on each request\nwithout any database lookup.  Pass it via the ``X-Session-Token``\nheader on subsequent requests.\n\nBoth ``session_id`` and ``user_id`` are optional and are generated when\nomitted, which is the normal path and needs no credentials.\n\n**Naming them requires ``X-Admin-Token``.** Without that check this endpoint\nhands out a token for any identity the caller asks for, and since sessions\nare the isolation boundary, that is read/write access to another tenant's\ndocuments. Requested identities are therefore refused rather than silently\nreplaced with generated ones: quietly returning a different session than\nthe one asked for would look like success and fail later in a confusing\nplace.\n\n**With ``RAG_REQUIRE_AUTH`` on, an ``X-API-Key`` from ``RAG_API_KEYS`` is\nrequired** (or ``X-Admin-Token``). The key's principal is written into the\ntoken, and rate limits are counted per principal rather than per session.",
         "operationId": "create_session_api_v1_sessions_post",
         "parameters": [
           {
@@ -7816,7 +7816,7 @@
     },
     "/api/v1/stats": {
       "get": {
-        "description": "System statistics \u2014 embedding model, features, cache stats.",
+        "description": "System statistics: embedding model, features, cache stats.",
         "operationId": "system_stats_api_v1_stats_get",
         "parameters": [
           {

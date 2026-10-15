@@ -400,7 +400,7 @@ class AblationResults:
                     formatted = f"**{formatted}**"
                 cells.append(formatted)
             duration = r.get("duration_seconds")
-            cells.append(f"{duration:.1f}" if duration is not None else "—")
+            cells.append(f"{duration:.1f}" if duration is not None else "-")
             lines.append("| " + " | ".join(cells) + " |")
 
         return "\n".join(lines)
@@ -519,7 +519,7 @@ def sweep(
     if component in _INGESTION_ONLY:
         raise ValueError(
             f"Cannot ablate '{component}' at query time. "
-            f"{component} is an ingestion-time component — documents must be "
+            f"{component} is an ingestion-time component: documents must be "
             f"re-ingested with each variant for results to differ. "
             f"Use pipeline.ingest() with each variant before evaluating."
         )
@@ -812,7 +812,7 @@ def grid_search(
     try:
         for i, combo in enumerate(itertools.product(*variant_lists), 1):
             variant_name = "__".join(f"{ct}={v}" for ct, v in zip(component_types, combo))
-            logger.info(f"Grid search: {i}/{total} — {variant_name}")
+            logger.info(f"Grid search {i}/{total}: {variant_name}")
 
             start = time.time()
             try:

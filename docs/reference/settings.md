@@ -95,7 +95,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 
 | Setting | Type | Default | Environment variables | Description |
 |---|---|---|---|---|
-| `enable_hybrid_search` | bool | `true` | `LASAGNA_ENABLE_HYBRID_SEARCH`, `RAG_ENABLE_HYBRID_SEARCH` | Finds results by both meaning and exact keywords, catches acronyms, IDs, and rare terms that pure AI search misses. |
+| `enable_hybrid_search` | bool | `true` | `LASAGNA_ENABLE_HYBRID_SEARCH`, `RAG_ENABLE_HYBRID_SEARCH` | Finds results by both meaning and exact keywords, so it catches acronyms, IDs, and rare terms that pure AI search misses. |
 | `hybrid_alpha` | float, 0.0 to 1.0 | `0.7` | `LASAGNA_HYBRID_ALPHA`, `RAG_HYBRID_ALPHA` | Balance between understanding meaning (right) and matching exact words (left). Most documents work best around 0.7. |
 | `sparse_method` | str | `"bm25"` | `LASAGNA_SPARSE_METHOD`, `RAG_SPARSE_METHOD` | Which keyword-based retrieval method to use alongside AI vector search. |
 | `default_top_k` | int, 1 to 1000 | `20` | `LASAGNA_DEFAULT_TOP_K`, `RAG_DEFAULT_TOP_K` | Research: 75+ introduces hard negatives (ICLR 2025) |
@@ -160,7 +160,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `self_rag_weight_sup` | float | `1.0` | `LASAGNA_SELF_RAG_WEIGHT_SUP`, `RAG_SELF_RAG_WEIGHT_SUP` | Self-RAG: weight of the support critique (ISSUP). |
 | `self_rag_weight_use` | float | `0.5` | `LASAGNA_SELF_RAG_WEIGHT_USE`, `RAG_SELF_RAG_WEIGHT_USE` | Self-RAG: weight of the utility critique (ISUSE). |
 | `self_rag_retrieval` | str | `"adaptive"` | `LASAGNA_SELF_RAG_RETRIEVAL`, `RAG_SELF_RAG_RETRIEVAL` | Self-RAG: 'adaptive' (the model judges) or 'always' retrieve. |
-| `enable_mmr` | bool | `true` | `LASAGNA_ENABLE_MMR`, `RAG_ENABLE_MMR` | Avoids showing repetitive or near-duplicate results, ensures variety in answers. |
+| `enable_mmr` | bool | `true` | `LASAGNA_ENABLE_MMR`, `RAG_ENABLE_MMR` | Avoids showing repetitive or near-duplicate results, so answers draw on varied sources. |
 | `mmr_lambda` | float, 0.0 to 1.0 | `0.5` | `LASAGNA_MMR_LAMBDA`, `RAG_MMR_LAMBDA` | LangChain and LlamaIndex default; a pre-MMR filter keeps only relevant items. |
 | `mmr_score_normalization` | str | `"sigmoid"` | `LASAGNA_MMR_SCORE_NORMALIZATION`, `RAG_MMR_SCORE_NORMALIZATION` | MMR score normalization strategy. |
 
@@ -235,7 +235,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 
 | Setting | Type | Default | Environment variables | Description |
 |---|---|---|---|---|
-| `enable_ocr` | bool | `false` | `LASAGNA_ENABLE_OCR`, `RAG_ENABLE_OCR` | Read text from scanned PDFs and images, useful for old documents or photos of text. |
+| `enable_ocr` | bool | `false` | `LASAGNA_ENABLE_OCR`, `RAG_ENABLE_OCR` | Read text from scanned PDFs and images. Useful for old documents or photos of text. |
 | `ocr_engine` | str | `"easyocr"` | `LASAGNA_OCR_ENGINE`, `RAG_OCR_ENGINE` | Which engine reads text from scanned documents and images. |
 | `ocr_languages` | list | `["en"]` | `LASAGNA_OCR_LANGUAGES`, `RAG_OCR_LANGUAGES` | Language codes for OCR text extraction. |
 | `ocr_confidence_threshold` | float | `0.5` | `LASAGNA_OCR_CONFIDENCE_THRESHOLD`, `RAG_OCR_CONFIDENCE_THRESHOLD` | How confident the OCR must be before accepting text. Lower = more text (possibly noisy), higher = cleaner. |

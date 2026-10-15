@@ -34,7 +34,7 @@ class HotpotQAMultiHopAdapter(BaseBenchmarkAdapter):
     def info(self) -> BenchmarkInfo:
         return BenchmarkInfo(
             name="hotpotqa",
-            description="HotpotQA — multi-hop question answering with supporting facts",
+            description="HotpotQA: multi-hop question answering with supporting facts",
             category=BenchmarkCategory.MULTI_HOP,
             eval_mode=BenchmarkEvalMode.END_TO_END,
             num_queries=112_779,

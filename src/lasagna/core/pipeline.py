@@ -647,7 +647,7 @@ class KnowledgePipeline:
 
         if evaluator is not None and answer_generator is None:
             logger.warning(
-                "No answer_generator provided — answer-level metrics "
+                "No answer_generator provided: answer-level metrics "
                 "(faithfulness, relevancy) are evaluated on raw concatenated "
                 "chunks, which may produce misleading scores. Provide "
                 "answer_generator=... for reliable answer-quality metrics."

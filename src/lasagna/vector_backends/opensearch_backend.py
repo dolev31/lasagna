@@ -231,7 +231,7 @@ class OpenSearchBackend(VectorStoreAdapter):
         client = self._client
         if client is None:
             raise RuntimeError(
-                "OpenSearch client unavailable — was disconnect() called concurrently?"
+                "OpenSearch client unavailable: was disconnect() called concurrently?"
             )
         return client
 
@@ -449,7 +449,7 @@ class OpenSearchBackend(VectorStoreAdapter):
     ) -> int:
         if not filter_expr or filter_expr.is_empty():
             raise ValueError(
-                "Cannot delete with empty filter — this would delete all documents. "
+                "Cannot delete with empty filter: this would delete all documents. "
                 "Build a FilterExpression with at least one condition."
             )
         client = self._ensure_connected()
@@ -1317,7 +1317,7 @@ class OpenSearchBackend(VectorStoreAdapter):
         if len(responses) < len(non_empty_indices):
             logger.warning(
                 f"multi_hybrid_search: expected {len(non_empty_indices)} responses "
-                f"but got {len(responses)} — some queries will have empty results"
+                f"but got {len(responses)}: some queries will have empty results"
             )
         for resp_idx, resp in enumerate(responses):
             if resp_idx >= len(non_empty_indices):

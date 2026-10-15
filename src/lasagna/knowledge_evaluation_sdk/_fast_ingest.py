@@ -750,7 +750,7 @@ async def fast_ingest_corpus(
         # Check for failures
         if embed_thread.is_alive() or insert_thread.is_alive():
             raise RuntimeError(
-                "Fast ingest pipeline timed out — threads still alive "
+                "Fast ingest pipeline timed out: threads still alive "
                 f"(embed={embed_thread.is_alive()}, insert={insert_thread.is_alive()})"
             )
 

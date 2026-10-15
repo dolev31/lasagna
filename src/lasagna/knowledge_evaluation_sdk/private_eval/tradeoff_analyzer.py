@@ -314,7 +314,7 @@ class TradeoffAnalyzer:
             lines.append("Configs where no other is both higher quality AND faster:")
             for i, e in enumerate(sorted(frontier, key=lambda x: x.avg_latency_ms), 1):
                 lines.append(
-                    f"{i}. **{e.config_name}** — quality={e.quality:.4f}, "
+                    f"{i}. **{e.config_name}**: quality={e.quality:.4f}, "
                     f"latency={e.avg_latency_ms:.0f}ms, "
                     f"tokens={e.avg_tokens_per_query:.0f}"
                 )
@@ -324,9 +324,9 @@ class TradeoffAnalyzer:
             lines.extend(["", "### Tier Recommendations", ""])
             for r in recommendations:
                 lines.append(
-                    f"- **{r.tier.upper()}**: {r.config_name} — "
+                    f"- **{r.tier.upper()}**: {r.config_name} ("
                     f"quality={r.quality:.4f}, p95={r.p95_latency_ms:.0f}ms, "
-                    f"tokens={r.tokens_per_query:.0f}"
+                    f"tokens={r.tokens_per_query:.0f})"
                 )
                 lines.append(f"  {r.rationale}")
 

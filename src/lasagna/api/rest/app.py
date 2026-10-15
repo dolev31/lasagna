@@ -71,7 +71,7 @@ async def _lifespan(app: FastAPI):
     from lasagna.api.rest.limits import apply_log_format
 
     apply_log_format()
-    logger.info("RAG REST API starting — initialising backend...")
+    logger.info("RAG REST API starting: initializing backend...")
     try:
         from lasagna.api.rag_backend import get_rag_backend
 
@@ -118,7 +118,7 @@ async def _lifespan(app: FastAPI):
 
     yield  # app is running
 
-    logger.info("RAG REST API shutting down — releasing resources...")
+    logger.info("RAG REST API shutting down: releasing resources...")
     try:
         from lasagna.api.rag_backend import close_backend
 
@@ -405,7 +405,7 @@ def create_app(
                 "browser. Name the origins you actually serve."
             )
         logger.warning(
-            "CORS allow_origins=['*'] — any web page can call this API from a "
+            "CORS allow_origins=['*']: any web page can call this API from a "
             "browser. Restrict via RAG_CORS_ORIGINS before exposing it."
         )
     elif not _cors:

@@ -313,7 +313,7 @@ class QuotaManager:
             if not reservation_id or reservation_id not in usage._upload_timestamps:
                 logger.warning(
                     f"release_upload_reservation: unknown reservation_id "
-                    f"{reservation_id!r} for session {session_id!r} — no-op"
+                    f"{reservation_id!r} for session {session_id!r}: no-op"
                 )
                 return
             del usage._upload_timestamps[reservation_id]
@@ -684,7 +684,7 @@ class RedisQuotaManager(QuotaManager):
         if not reservation_id:
             logger.warning(
                 f"release_upload_reservation: empty reservation_id for "
-                f"session {session_id!r} — no-op"
+                f"session {session_id!r}: no-op"
             )
             return
 
@@ -701,7 +701,7 @@ class RedisQuotaManager(QuotaManager):
                 logger.warning(
                     f"release_upload_reservation: reservation_id "
                     f"{reservation_id!r} not found in Redis for session "
-                    f"{session_id!r} — no-op"
+                    f"{session_id!r}: no-op"
                 )
         except Exception as exc:
             logger.warning(f"Redis quota release failed, using in-memory: {exc}")

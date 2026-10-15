@@ -1046,11 +1046,11 @@ async def search(
     citation data.
 
     Retrieval behaviour (hybrid search, reranking, HyDE, adaptive routing)
-    is governed by the session configuration — callers only specify *what*
+    is governed by the session configuration: callers only specify *what*
     to search and optional scope constraints.
 
     :param query: Natural-language search query.
-    :param session_id: Session identifier — only documents belonging to this
+    :param session_id: Session identifier; only documents belonging to this
         session are searched.
     :param top_k: Optional override for the number of results to return.
         When ``None`` (default), uses the session config value.
@@ -1442,11 +1442,11 @@ def upload_document(
 
     When ``wait=true`` (default), the tool blocks until processing is complete
     and returns the final status.  When ``wait=false``, the tool returns
-    immediately with ``status: "processing"`` — use ``get_document_status``
+    immediately with ``status: "processing"``; use ``get_document_status``
     to poll for completion.
 
     :param file_path: Absolute path to the file on disk.
-    :param session_id: Session identifier — the document will only be visible
+    :param session_id: Session identifier; the document will only be visible
         within this session.
     :param filename: Optional display name to override the basename of
         file_path.
@@ -1566,7 +1566,7 @@ def delete_document(
     original file is deleted from disk.
 
     :param document_id: The document ID to delete (e.g. "doc_abc123").
-    :param session_id: Session identifier — used to verify ownership.
+    :param session_id: Session identifier; used to verify ownership.
     :returns: Confirmation or error message.
     """
     session_id, _user_id = _resolve_session(session_id, session_token)
@@ -1610,7 +1610,7 @@ def get_document_status(
     (``upload_document`` with ``wait=false``).
 
     :param document_id: The document ID returned by ``upload_document``.
-    :param session_id: Session identifier — used to verify ownership.
+    :param session_id: Session identifier; used to verify ownership.
     :returns: JSON object with document_id, status, chunks_count, and
         error_message (if any).
     """
@@ -1670,7 +1670,7 @@ def get_document_info(
     file information, and chunk details.
 
     :param document_id: The document ID to query.
-    :param session_id: Session identifier — used to verify ownership.
+    :param session_id: Session identifier; used to verify ownership.
     :returns: Detailed document information in JSON format.
     """
     session_id, _user_id = _resolve_session(session_id, session_token)
@@ -1740,7 +1740,7 @@ def get_document_chunks(
     Useful for inspecting how a document was split.
 
     :param document_id: The document ID to query.
-    :param session_id: Session identifier — used to verify ownership.
+    :param session_id: Session identifier; used to verify ownership.
     :param offset: Number of chunks to skip (for pagination).
     :param limit: Maximum number of chunks to return.
     :returns: List of chunks with their content and metadata.
@@ -2031,7 +2031,7 @@ def reindex_document(
     regenerate embeddings with updated settings.
 
     :param document_id: The document ID to reindex.
-    :param session_id: Session identifier — used to verify ownership.
+    :param session_id: Session identifier; used to verify ownership.
     :param force_rebuild: If true, recreate the collection at the configured
         embedding dimension when it differs, but only while the collection is
         empty. A collection holding documents is never dropped from here:
@@ -2187,7 +2187,7 @@ def clear_session(
     WARNING: This will permanently delete all documents and their indexed
     chunks for the specified session.
 
-    :param session_id: Session identifier — all documents in this session will be deleted.
+    :param session_id: Session identifier; all documents in this session will be deleted.
     :param confirm: Must be set to True to confirm deletion.
     :returns: Confirmation or error message.
     """
@@ -2286,7 +2286,7 @@ def get_lifecycle_policy(session_id: str = "default", admin_token: Optional[str]
     - ``batch_size``: documents per GC batch
     - ``reconcile_quota_on_startup``: rebuild quota counters at startup
 
-    :param session_id: Unused — policy is global, not per-session.
+    :param session_id: Unused; policy is global, not per-session.
     :param admin_token: Required on a networked transport with
         ``RAG_REQUIRE_AUTH`` set, matching ``GET /gc/policy``.
     :returns: JSON object with all policy fields and their current values.
@@ -2323,13 +2323,13 @@ def set_lifecycle_policy(
     """Update lifecycle policy fields at runtime.
 
     Changes take effect immediately for the current process but are **not
-    persisted** — the server reverts to its configured defaults on restart.
+    persisted**: the server reverts to its configured defaults on restart.
     To make changes permanent, update ``[rag.lifecycle]`` in
     ``settings.lasagna.toml`` or set the corresponding ``RAG_GC_*`` env vars.
 
     Unknown field names are rejected with an error.
 
-    :param session_id: Unused — policy is global, not per-session.
+    :param session_id: Unused; policy is global, not per-session.
     :param policy_updates: JSON string mapping field names to new values.
         Example: '{"gc_cycle_hours": 12, "soft_delete_grace_hours": 48}'
     :param admin_token: Required on a networked transport with
@@ -3068,7 +3068,7 @@ def get_gc_status(
 
     :param session_id: Session identifier (used for auth resolution only).
     :param admin_token: Required on a networked transport with
-        ``RAG_REQUIRE_AUTH`` set — the report covers every session.
+        ``RAG_REQUIRE_AUTH`` set: the report covers every session.
     :returns: JSON GC report or error message.
     """
     transport_guard.guard_admin(admin_token, tool="get_gc_status")

@@ -44,10 +44,10 @@ def _canonicalize_patch(patch_dict: Dict[str, Any]) -> Dict[str, Any]:
 
 
 _PROFILES = {
-    "speed": "Pure vector search — fastest, no reranking/hybrid/HyDE",
+    "speed": "Pure vector search: fastest, no reranking/hybrid/HyDE",
     "standard": "Core SOTA features with lightweight embedding model",
     "balanced": "Best quality-speed tradeoff with BGE-large embeddings",
-    "max_quality": "All features enabled — maximum recall and precision",
+    "max_quality": "All features enabled: maximum recall and precision",
 }
 
 
@@ -183,7 +183,7 @@ async def patch_config(
 ):
     """Patch session-scoped RAG configuration.
 
-    Accepts a partial config object — only non-null keys are updated.
+    Accepts a partial config object: only non-null keys are updated.
     Unknown keys are rejected with 422.
 
     Example body: ``{"enable_hyde": true, "similarity_threshold": 0.5}``

@@ -371,7 +371,7 @@ async def archive_document(
     """Soft-delete (archive) a document.
 
     The document is marked as ``soft_deleted`` and enters the GC grace window.
-    Vectors and the stored file are **not** removed immediately — the GC
+    Vectors and the stored file are **not** removed immediately: the GC
     hard-deletes them after the configured grace period (default: 24 h).
 
     Use ``POST /{document_id}/restore`` to recover the document before the

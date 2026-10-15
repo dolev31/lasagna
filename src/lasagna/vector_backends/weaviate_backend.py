@@ -295,7 +295,7 @@ class WeaviateBackend(VectorStoreAdapter):
             else:
                 logger.warning(
                     f"Weaviate: skipping field '{field.name}' with unsupported "
-                    f"dtype '{field.dtype}' — not mapped to a Weaviate DataType"
+                    f"dtype '{field.dtype}': not mapped to a Weaviate DataType"
                 )
 
         # Add standard properties
@@ -562,7 +562,7 @@ class WeaviateBackend(VectorStoreAdapter):
 
         if where_filter is None:
             raise ValueError(
-                "Cannot delete with empty filter — this could delete all objects. "
+                "Cannot delete with empty filter: this could delete all objects. "
                 "Build a FilterExpression with at least one condition."
             )
 

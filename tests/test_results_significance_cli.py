@@ -174,7 +174,7 @@ class TestTheDegenerateEffectSize:
         assert cli._format_effect_size(math.inf) == "+∞"
         assert cli._format_effect_size(-math.inf) == "-∞"
         assert cli._format_effect_size(0.0) == "+0.00"
-        assert cli._format_effect_size(None) == "—"
+        assert cli._format_effect_size(None) == "-"
 
     def test_the_underlying_value_is_infinite_not_zero(self):
         """Asserted on the library, not the rendering, so a consumer reading

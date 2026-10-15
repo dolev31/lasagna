@@ -40,13 +40,13 @@ def route_after_grading(state: Dict[str, Any]) -> str:
             getattr(session_config, "crag_web_search_fallback", False) if session_config else False
         )
         if web_fallback and state.get("crag_web_fallback_used", False):
-            logger.info("[Edge] CRAG grade='incorrect' — routing to web_fallback")
+            logger.info("[Edge] CRAG grade='incorrect': routing to web_fallback")
             return "web_fallback"
 
     # ambiguous or incorrect without web fallback: rewrite if budget remains
     if attempts < max_attempts:
         logger.info(
-            "[Edge] CRAG grade='{grade}', attempt {a}/{max_a} — routing to rewrite_query",
+            "[Edge] CRAG grade='{grade}', attempt {a}/{max_a}: routing to rewrite_query",
             grade=grade,
             a=attempts,
             max_a=max_attempts,
@@ -55,7 +55,7 @@ def route_after_grading(state: Dict[str, Any]) -> str:
 
     # Budget exhausted — generate best-effort answer
     logger.info(
-        "[Edge] CRAG grade='{grade}' but retrieval budget exhausted — routing to generate",
+        "[Edge] CRAG grade='{grade}' but retrieval budget exhausted: routing to generate",
         grade=grade,
     )
     return "generate"
@@ -101,7 +101,7 @@ def route_after_hallucination_check(state: Dict[str, Any]) -> str:
 
     if label == "not_supported" and attempts < max_attempts:
         logger.info(
-            "[Edge] Hallucination='not_supported', attempt {a}/{max_a} — rewrite_query",
+            "[Edge] Hallucination='not_supported', attempt {a}/{max_a}: rewrite_query",
             a=attempts,
             max_a=max_attempts,
         )
@@ -135,7 +135,7 @@ def route_after_quality_check(state: Dict[str, Any]) -> str:
 
     # Budget exhausted → accept what we have
     if attempts >= max_attempts:
-        logger.info("[Edge] Quality check budget exhausted — accepting current answer")
+        logger.info("[Edge] Quality check budget exhausted: accepting current answer")
         return "select_chunks"
 
     # Hallucination issue → need better retrieval
@@ -172,7 +172,7 @@ def route_after_select_chunks(state: Dict[str, Any]) -> str:
     if current_idx < len(sub_queries) - 1:
         if hop_count >= max_attempts:
             logger.info(
-                "[Edge] Sub-query {idx}/{total} — retrieval budget exhausted "
+                "[Edge] Sub-query {idx}/{total}: retrieval budget exhausted "
                 "({hops}/{max_a} hops), skipping remaining sub-queries",
                 idx=current_idx + 1,
                 total=len(sub_queries),
@@ -181,7 +181,7 @@ def route_after_select_chunks(state: Dict[str, Any]) -> str:
             )
             return "final_search"
         logger.info(
-            "[Edge] Sub-query {idx}/{total} — advancing to next sub-query",
+            "[Edge] Sub-query {idx}/{total}: advancing to next sub-query",
             idx=current_idx + 1,
             total=len(sub_queries),
         )
@@ -205,7 +205,7 @@ def route_after_rewrite(state: Dict[str, Any]) -> str:
 
     if rewrite_count >= max_rewrites:
         logger.info(
-            "[Edge] Max rewrites ({max}) reached — routing to generate",
+            "[Edge] Max rewrites ({max}) reached: routing to generate",
             max=max_rewrites,
         )
         return "generate"
