@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from starlette.concurrency import run_in_threadpool
 
-from lasagna.api import _degraded
+from lasagna.utils import degraded as _degraded
 from lasagna.api._search_orchestrator import SearchScopeUnavailable
 from lasagna.api.rag_backend import RAGBackend
 from lasagna.core.quota import QuotaExceededError

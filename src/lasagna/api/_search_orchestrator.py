@@ -38,7 +38,7 @@ from lasagna.utils.tracing import TRACER
 from lasagna.sdk.config_validation import validate_runtime
 
 from ._validation import is_valid_session_id, is_safe_document_id
-from . import _degraded
+from lasagna.utils import degraded as _degraded
 from ._auto_merger import AutoMerger
 from lasagna.core.tenant import get_tenant_manager
 from lasagna.core.quota import get_quota_manager

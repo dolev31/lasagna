@@ -420,8 +420,8 @@ class MilvusNativeHybridSearcher:
 
 
 def _record_degraded(stage: str, reason: object) -> None:
-    """Report a hybrid fallback to the caller (see ``lasagna.api._degraded``)."""
-    from lasagna.api._degraded import record
+    """Report a hybrid fallback to the caller (see ``lasagna.utils.degraded``)."""
+    from lasagna.utils.degraded import record
 
     record(stage, reason)
 

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from types import SimpleNamespace
 
@@ -35,7 +36,7 @@ from fastapi.testclient import TestClient
 from loguru import logger
 from starlette.requests import Request
 
-from lasagna.api import _degraded
+from lasagna.utils import degraded as _degraded
 from lasagna.api import _search_orchestrator as orch_mod
 from lasagna.api.rest import limits, session_token
 from lasagna.api.rest.app import _rate_limit_key, create_app
@@ -549,6 +550,21 @@ class TestReadiness:
         r = _client(_backend()).get("/api/v1/health/ready")
         assert r.status_code == 503
         assert r.json()["failing"] == ["redis"]
+
+    def test_hung_pings_do_not_take_the_threads_searches_use(self, auth_off, fast_pings):
+        """Searches run on the default executor; a hung ping must not hold it."""
+        names = []
+
+        def hangs(name):
+            names.append(threading.current_thread().name)
+            time.sleep(0.5)
+            return True
+
+        async def probe():
+            return await fast_pings.readiness(_backend(has_collection=hangs))
+
+        asyncio.run(probe())
+        assert names and all(n.startswith("lasagna-ping") for n in names), names
 
     def test_everything_up_is_ready(self, auth_off, fast_pings):
         r = _client(_backend()).get("/api/v1/health/ready")

@@ -102,6 +102,25 @@ async def liveness():
 #: Seconds each dependency has to answer a readiness ping.
 PING_TIMEOUT_S = 2.0
 
+_ping_pool = None
+
+
+def _ping_executor():
+    """Threads of their own for readiness pings.
+
+    A ping that hangs keeps its thread until the dependency answers. On the
+    default executor, which the search path also uses, a probe every few
+    seconds against a hung Redis would fill it with stuck pings and stall
+    searches; here at most these four threads are stuck, and later pings
+    time out in the queue instead.
+    """
+    global _ping_pool
+    if _ping_pool is None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        _ping_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="lasagna-ping")
+    return _ping_pool
+
 
 async def _ping(name: str, call: Callable[[], Optional[str]]) -> Tuple[str, HealthCheckDetail]:
     """Run one blocking ping in a thread, bounded by ``PING_TIMEOUT_S``.
@@ -113,7 +132,10 @@ async def _ping(name: str, call: Callable[[], Optional[str]]) -> Tuple[str, Heal
     """
     t0 = perf_counter()
     try:
-        detail = await asyncio.wait_for(asyncio.to_thread(call), PING_TIMEOUT_S)
+        loop = asyncio.get_running_loop()
+        detail = await asyncio.wait_for(
+            loop.run_in_executor(_ping_executor(), call), PING_TIMEOUT_S
+        )
     except asyncio.TimeoutError:
         return name, HealthCheckDetail(
             status="down", detail=f"no answer within {PING_TIMEOUT_S:g} s"
