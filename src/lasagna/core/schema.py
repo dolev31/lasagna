@@ -286,7 +286,7 @@ def create_rag_document_schema(embedding_dim: int = 1024, enable_native_bm25: bo
             )
         )
 
-    description = "RAG document chunks with embeddings for semantic search (SOTA)"
+    description = "RAG document chunks with embeddings for semantic search"
     if enable_native_bm25:
         description += " - includes native BM25 sparse vectors"
 
