@@ -164,6 +164,22 @@ def pytest_collection_modifyitems(config, items):
         item.add_marker(skip)
 
 
+@pytest.fixture(autouse=True)
+def _process_limiters_restored():
+    """Put the process-wide rate limiter and quota manager back after each test.
+
+    A test that configured an enabled limiter (or a Redis one with no Redis)
+    left it in place, so every REST test that ran after it in a shuffled order
+    was throttled to ten requests and started failing with 429: three
+    unrelated tests failed one run in five.
+    """
+    from lasagna.core import quota, rate_limiter
+
+    saved = (rate_limiter._instance, quota._instance)
+    yield
+    rate_limiter._instance, quota._instance = saved
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _lasagna_logs_enabled():
     """The package disables its own logs on import (library default); several
