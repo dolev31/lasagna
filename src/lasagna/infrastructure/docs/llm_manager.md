@@ -27,16 +27,16 @@ from langchain_google_genai import ChatGoogleGenerativeAI    # Optional (try/exc
 
 | Platform | Class | Required Env Vars | Optional Env Vars | Default Model |
 | -------- | ----- | ----------------- | ----------------- | ------------- |
-| `openai` | `ChatOpenAI` | `OPENAI_API_KEY` (implicit) | `MODEL_NAME`, `OPENAI_BASE_URL`, `OPENAI_API_VERSION` | `gpt-4o` |
-| `azure` | `AzureChatOpenAI` | `AZURE_OPENAI_API_KEY` (implicit) | `MODEL_NAME` | `gpt-4o` |
+| `openai` | `ChatOpenAI` | `OPENAI_API_KEY` (implicit) | `MODEL_NAME`, `OPENAI_BASE_URL`, `OPENAI_API_VERSION` | `gpt-6-luna` |
+| `azure` | `AzureChatOpenAI` | `AZURE_OPENAI_API_KEY` (implicit) | `MODEL_NAME` | `gpt-5.6-luna` |
 | `groq` | `ChatGroq` | `GROQ_API_KEY` (implicit) | `MODEL_NAME` | `openai/gpt-oss-20b` |
 | `watsonx` | `ChatWatsonx` | `WATSONX_PROJECT_ID`, `WATSONX_APIKEY` (implicit) | `MODEL_NAME` | `meta-llama/llama-4-maverick-17b-128e-instruct-fp8` |
-| `google-genai` | `ChatGoogleGenerativeAI` | `GOOGLE_API_KEY` | `MODEL_NAME` | `gemini-1.5-pro` |
-| `openrouter` | `ChatOpenAI` (wrapper) | `OPENROUTER_API_KEY` | `MODEL_NAME`, `OPENROUTER_BASE_URL`, `OPENROUTER_SITE_URL`, `OPENROUTER_APP_NAME` | `anthropic/claude-3.5-sonnet` |
+| `google-genai` | `ChatGoogleGenerativeAI` | `GOOGLE_API_KEY` | `MODEL_NAME` | `gemini-2.5-pro` |
+| `openrouter` | `ChatOpenAI` (wrapper) | `OPENROUTER_API_KEY` | `MODEL_NAME`, `OPENROUTER_BASE_URL`, `OPENROUTER_SITE_URL`, `OPENROUTER_APP_NAME` | `anthropic/claude-sonnet-5.5` |
 
 ### Model Name Resolution
 
-Priority: `MODEL_NAME` env var > TOML `model_name` > platform default.
+Priority: `MODEL_NAME` env var > TOML `model_name` > platform default. The openai, azure and openrouter defaults are `SimpleLLMProvider.SUPPORTED_PLATFORMS`, where the source of each is cited.
 
 ---
 
@@ -74,7 +74,7 @@ MD5 hash of model settings dict (with prompt keys removed) plus resolved model n
 ```text
 key = MD5(JSON({
     ...model_settings (minus prompt keys)...,
-    "resolved_model_name": "gpt-4o",
+    "resolved_model_name": "gpt-6-luna",
     "resolved_api_version": "2024-08-06",
     "resolved_base_url": null,
 }))
@@ -115,15 +115,11 @@ Each cached model is a LangChain `BaseChatModel` instance (~1-10 KB depending on
 
 ## Reasoning Model Detection
 
-```python
-def _is_reasoning_model(model_name: str) -> bool:
-    return model_name.startswith(('o1', 'o3', 'gpt-5'))
-```
+`_is_reasoning_model()` reads `lasagna.providers.model_capabilities`, the package's one table of what each model accepts, and also keeps the prefixes this manager always skipped (`o1`, `o3`, `gpt-5`) for ids the table does not know.
 
-Reasoning models (OpenAI o1, o3, GPT-5) don't support the `temperature` parameter. When detected:
-- Temperature is skipped during instance creation
-- Temperature is skipped during parameter updates
-- `max_completion_tokens` is used instead of `max_tokens` for Azure
+- A model that takes temperature only with reasoning off (`gpt-6-luna`, `gpt-6-sol`, `gpt-5.6-luna`, `gpt-5.5`, ...) is built with `reasoning_effort="none"` and the temperature, and later parameter updates set its temperature as usual.
+- Any other reasoning model gets no temperature, at creation or on update.
+- `max_completion_tokens` is used instead of `max_tokens` for Azure reasoning models.
 
 ---
 

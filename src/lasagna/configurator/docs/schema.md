@@ -149,7 +149,7 @@ All nested under `document_awareness` parent key.
 | `max_agent_iterations` | integer | `3` | min=1, max=10, step=1 |
 | `agent_temperature` | float | `0.1` | min=0.0, max=1.0, step=0.05 |
 | `chunk_refinement_method` | enum | `"auto"` | Options: `vanilla`, `refined`, `auto` |
-| `refinement_model` | string | `"gpt-4o-mini"` | — |
+| `refinement_model` | string | `"gpt-6-luna"` | — |
 | `agentic_hyde_strategy` | enum | `"adaptive"` | Options: `off`, `first_hop`, `adaptive`, `always` |
 | `use_final_search` | boolean | `false` | — |
 | `agentic_pipeline` | string | `"legacy_react"` | Built-in: `legacy_react`, `default`. Custom registered names also accepted. |

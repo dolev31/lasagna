@@ -295,13 +295,16 @@ class TestJudgeGeneratorSeparation:
             "RAG_EVAL_GENERATOR_MODEL should win over MODEL_NAME"
         )
 
-    def test_judge_returns_none_without_a_model(self, monkeypatch):
+    def test_judge_returns_none_without_a_model_or_a_key(self, monkeypatch):
+        """With a key and no model the judge is DEFAULT_JUDGE_MODEL (see
+        test_current_model_parameters.py); with neither there is nothing to build."""
         from lasagna.knowledge_evaluation_sdk import experiment
 
         monkeypatch.setattr(experiment, "_active_judge_model", None)
-        monkeypatch.delenv("RAG_EVAL_JUDGE_MODEL", raising=False)
+        for var in ("RAG_EVAL_JUDGE_MODEL", "RAG_EVAL_JUDGE_API_KEY", "OPENAI_API_KEY"):
+            monkeypatch.delenv(var, raising=False)
         assert experiment._build_judge_llm() is None, (
-            "no judge model configured should defer to the RAGAS default, not raise"
+            "no judge model and no key should defer to the RAGAS default, not raise"
         )
 
     def test_judge_credentials_do_not_hijack_the_generator(self, monkeypatch):

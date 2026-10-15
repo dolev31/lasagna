@@ -48,7 +48,7 @@ from .types import (
 
 def _get_default_model() -> str:
     """Resolve default model name from env var or fallback."""
-    return os.environ.get("MODEL_NAME", "gpt-4o-mini")
+    return os.environ.get("MODEL_NAME", "gpt-6-luna")
 
 
 # =============================================================================
@@ -262,8 +262,8 @@ class KnowledgeConfig:
     """Model for entity extraction in GraphRAG.
 
     Empty means "use the configured default LLM". Set a provider-specific
-    identifier to pin one (e.g. ``"gpt-4o-mini"``, or a gateway-prefixed name
-    such as ``"openai/gpt-4o-mini"``). Default: empty.
+    identifier to pin one (e.g. ``"gpt-6-luna"``, or a gateway-prefixed name
+    such as ``"openai/gpt-6-luna"``). Default: empty.
     """
 
     custom_reranker: str = ""

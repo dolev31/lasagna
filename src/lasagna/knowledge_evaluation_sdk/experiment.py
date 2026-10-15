@@ -315,8 +315,9 @@ def _add_citation_scores(
     judge = _build_judge_llm()
     if judge is None:
         logger.warning(
-            f"{len(cited)} answers cite passages but no judge model is configured "
-            f"(RAG_EVAL_JUDGE_MODEL); citation_recall/precision are not reported."
+            f"{len(cited)} answers cite passages but no judge could be built; "
+            f"citation_recall/precision are not reported. Set OPENAI_API_KEY (or "
+            f"RAG_EVAL_JUDGE_API_KEY), and RAG_EVAL_JUDGE_MODEL to choose the judge."
         )
         return None
     from .judge import entailment_judge
@@ -578,7 +579,7 @@ class ExperimentConfig:
     checkpoint_dir: str = ""
     output_dir: str = ""
     output_formats: List[str] = field(default_factory=lambda: ["markdown", "json"])
-    judge_model: str = ""  # LLM model for RAGAS judge (e.g. "gpt-4o-mini")
+    judge_model: str = ""  # LLM model for RAGAS judge (default: DEFAULT_JUDGE_MODEL)
     ingestion_per_config: bool = False  # True = each config variant gets its own corpus session
     max_corpus_docs: int = 0  # 0 = no limit; >0 = cap corpus size (e.g. 500 for pilot runs)
     #: Evaluation tracks to run: "retrieval", "generation", or both (the
@@ -1494,9 +1495,14 @@ class Experiment:
         # RAG_EVAL_JUDGE_MODEL env var takes precedence over YAML judge_model so
         # operators can override the model without editing YAML files (e.g. for OpenRouter).
         global _active_judge_model
-        _active_judge_model = os.environ.get("RAG_EVAL_JUDGE_MODEL") or cfg.judge_model or None
+        _active_judge_model = _resolve_judge_model(cfg)
         if _active_judge_model:
             logger.info(f"Judge model: {_active_judge_model}")
+        # Said once, before any work: a model that takes no temperature makes
+        # repeated runs differ, and n_runs is how a reader learns by how much.
+        if "generation" in _parse_tracks(cfg.tracks):
+            for note in _sampling_notes():
+                logger.warning(note)
 
         # Checkpoint manager
         cp_dir = cfg.checkpoint_dir or output_dir
@@ -1687,6 +1693,10 @@ def _run_metadata(cfg: "ExperimentConfig") -> Dict[str, Any]:
             "config_overrides": list(cfg.pipeline.config_overrides),
         },
         "judge_model": _active_judge_model or cfg.judge_model or None,
+        # Whether temperature reached the generator and the judge. A model that
+        # takes none ("provider-default") samples between runs however the
+        # pipeline is configured. None for a run that generates nothing.
+        "sampling": _sampling_record() if "generation" in _parse_tracks(cfg.tracks) else None,
         # The embedder behind answer_similarity: a different one gives
         # different numbers, so it belongs in the comparability key.
         "similarity_model": _similarity_model_for_record(),
@@ -1889,8 +1899,69 @@ def _adapter_has_corpus(adapter: Any) -> bool:
 
 
 # Module-level judge model set by Experiment.run() for _eval_offline to read.
-# Resolved order: ExperimentConfig.judge_model → env RAG_EVAL_JUDGE_MODEL → None (RAGAS default).
+# Resolved order: env RAG_EVAL_JUDGE_MODEL → ExperimentConfig.judge_model → DEFAULT_JUDGE_MODEL.
 _active_judge_model: Optional[str] = None
+
+#: The judge when neither ``judge_model:`` nor ``RAG_EVAL_JUDGE_MODEL`` names
+#: one. Without it RAGAS chose GPT-4o mini itself, on a client this harness
+#: neither metered nor cached; OpenAI shuts that model down on 2027-01-14 and
+#: names gpt-6-luna as the replacement.
+#: https://developers.openai.com/api/docs/deprecations
+DEFAULT_JUDGE_MODEL = "gpt-6-luna"
+
+#: The temperature RAGAS asks its judge for (``InstructorModelArgs``). It
+#: forces 1.0 on gpt-5 and later; the judge client restores this one where the
+#: model takes it. See ``pin_openai_client``.
+_JUDGE_TEMPERATURE = 0.01
+
+
+def _resolve_judge_model(cfg: "ExperimentConfig") -> Optional[str]:
+    """``RAG_EVAL_JUDGE_MODEL``, then ``judge_model:``, then the default.
+
+    A run with no generation track has no judge: None, so its comparability
+    key stays what it was.
+    """
+    named = os.environ.get("RAG_EVAL_JUDGE_MODEL") or cfg.judge_model or None
+    if named or "generation" not in _parse_tracks(cfg.tracks):
+        return named
+    return DEFAULT_JUDGE_MODEL
+
+
+def _judge_platform() -> str:
+    """The judge is an OpenAI client; a base URL can point it at OpenRouter."""
+    base_url = os.environ.get("RAG_EVAL_JUDGE_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or ""
+    return "openrouter" if "openrouter.ai" in base_url else "openai"
+
+
+def _sampling_record() -> Dict[str, Any]:
+    """Whether the generator and the judge could be pinned, for the run metadata."""
+    from lasagna.providers.model_capabilities import sampling_label
+
+    from .cost import _platform, generator_model_name, judge_model_name
+
+    generator, platform = generator_model_name(), _platform()
+    judge = judge_model_name() or DEFAULT_JUDGE_MODEL
+    return {
+        "generator": {
+            "model": generator,
+            "sampling": sampling_label(generator, platform) if generator else None,
+        },
+        "judge": {"model": judge, "sampling": sampling_label(judge, _judge_platform())},
+    }
+
+
+def _sampling_notes() -> List[str]:
+    """One line each for a generator or judge that cannot be pinned."""
+    from lasagna.providers.model_capabilities import unpinned_note
+
+    from .cost import _platform, generator_model_name, judge_model_name
+
+    judge = judge_model_name() or DEFAULT_JUDGE_MODEL
+    notes = [
+        unpinned_note(generator_model_name(), _platform(), "answers"),
+        unpinned_note(judge, _judge_platform(), "judge scores"),
+    ]
+    return [n for n in notes if n]
 
 
 # ---------------------------------------------------------------------------
@@ -1931,26 +2002,37 @@ def _build_judge_llm(model_name: Optional[str] = None):
     api key     ``RAG_EVAL_JUDGE_API_KEY`` → ``OPENAI_API_KEY``
     base url    ``RAG_EVAL_JUDGE_BASE_URL`` → ``OPENAI_BASE_URL``
     model       argument → ``_active_judge_model`` → ``RAG_EVAL_JUDGE_MODEL``
+                → ``DEFAULT_JUDGE_MODEL``
     ==========  ==========================================================
 
-    Returns None when no judge model is configured, or when construction
-    fails — callers treat that as "fall back to the RAGAS default judge".
+    Returns None when construction fails, or when nothing names a judge and
+    there is no key for the default one; callers then fall back to the RAGAS
+    default judge.
+
+    Each request is rebuilt for the model it names (``pin_openai_client``):
+    RAGAS sends gpt-5 and later temperature 1.0 at their default reasoning
+    effort, so gpt-6-luna gets ``reasoning_effort="none"`` and RAGAS's usual
+    0.01 instead, and a model that takes no temperature gets none.
     """
     resolved_model = model_name or _active_judge_model or os.environ.get("RAG_EVAL_JUDGE_MODEL")
+    client_kwargs = {}
+    api_key = os.environ.get("RAG_EVAL_JUDGE_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    base_url = os.environ.get("RAG_EVAL_JUDGE_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+    if api_key:
+        client_kwargs["api_key"] = api_key
+    if base_url:
+        client_kwargs["base_url"] = base_url
     if not resolved_model:
+        resolved_model = DEFAULT_JUDGE_MODEL
+    named = model_name or os.environ.get("RAG_EVAL_JUDGE_MODEL")
+    if resolved_model == DEFAULT_JUDGE_MODEL and not named and not api_key:
+        # The default judge needs a key, and nobody asked for it: no judge is
+        # not an error here, as it was not before there was a default.
         return None
 
     try:
         from ragas.llms import llm_factory
         from openai import OpenAI
-
-        client_kwargs = {}
-        api_key = os.environ.get("RAG_EVAL_JUDGE_API_KEY") or os.environ.get("OPENAI_API_KEY")
-        base_url = os.environ.get("RAG_EVAL_JUDGE_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
-        if api_key:
-            client_kwargs["api_key"] = api_key
-        if base_url:
-            client_kwargs["base_url"] = base_url
 
         # Counted under `eval`, separately from the system under test. RAGAS
         # builds its judge on a raw OpenAI client rather than through the
@@ -1960,13 +2042,15 @@ def _build_judge_llm(model_name: Optional[str] = None):
         #
         # The cache goes on first, so the meter sees a replayed response too
         # and counts it at its cold-run usage.
+        #
+        # The sampling rewrite goes on last, so the cache keys on, and the
+        # meter counts, the request that is actually sent.
+        from lasagna.providers.model_capabilities import pin_openai_client
         from lasagna.utils.llm_cache import cache_openai_client
         from lasagna.utils.token_usage import EVAL, instrument_openai_client
 
-        judge = llm_factory(
-            resolved_model,
-            client=instrument_openai_client(cache_openai_client(OpenAI(**client_kwargs)), EVAL),
-        )
+        client = instrument_openai_client(cache_openai_client(OpenAI(**client_kwargs)), EVAL)
+        judge = llm_factory(resolved_model, client=pin_openai_client(client, _JUDGE_TEMPERATURE))
         logger.info(f"RAGAS judge using model: {resolved_model}")
         return judge
     except Exception as exc:

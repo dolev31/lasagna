@@ -108,8 +108,9 @@ One row per query with retrieval and generation metrics side by side.
 - **Retrieval** — `ndcg@10`, `mrr@10`, `recall@k`. Computed against qrels; no
   LLM involved; trustworthy.
 - **Generation** — RAGAS faithfulness, answer relevancy, context precision.
-  These are LLM-judged, so they move with the judge model. Pin a dated judge
-  snapshot, never a floating alias like `gpt-4o-mini`.
+  These are LLM-judged, so they move with the judge model. Pin a judge
+  snapshot: a dated id, or a dateless id that is its own snapshot
+  (`gpt-6-luna`, `claude-sonnet-5-5`), never a floating alias like `gpt-5.5`.
 - `context_recall` is known to be unreliable with some judges. If it reads 0.0
   across the board, suspect the judge, not the pipeline.
 

@@ -1162,10 +1162,10 @@ PARAMETERS: list[ParameterDef] = [
         type="string",
         label="Refinement AI Model",
         description="Which AI model refines the search results. A fast, affordable model works well here.",
-        help_text="Technical: refinement_model — LLM used for chunk refinement. gpt-4o-mini is a good default.",
+        help_text="Technical: refinement_model — LLM used for chunk refinement. gpt-6-luna is a good default.",
         tab="advanced",
         group="agentic_rag",
-        default=os.environ.get("MODEL_NAME", "gpt-4o-mini"),
+        default=os.environ.get("MODEL_NAME", "gpt-6-luna"),
     ),
     ParameterDef(
         key="agentic_hyde_strategy",

@@ -148,9 +148,9 @@ else:
 ```python
 from lasagna.utils import resolve_model_settings
 
-# Supports: None, "default", "openai:gpt-4o-mini", "agent.action.model", dict
+# Supports: None, "default", "openai:gpt-6-luna", "agent.action.model", dict
 settings = resolve_model_settings(
-    model_ref="openai:gpt-4o-mini",
+    model_ref="openai:gpt-6-luna",
     default_settings=default,
     max_tokens=1000,
     context="Query enhancement",

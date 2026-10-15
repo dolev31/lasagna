@@ -237,7 +237,7 @@ await config_manager.reset()
 | `agentic_pipeline` | str | legacy_react | Pipeline selection: `legacy_react`, `default` (structured graph), or any registered name |
 | `max_agent_iterations` | int | 3 | Max search hops |
 | `chunk_refinement_method` | str | auto | Chunk refinement (vanilla, refined, auto) |
-| `refinement_model` | str | gpt-4o-mini | Model for chunk refinement |
+| `refinement_model` | str | gpt-6-luna | Model for chunk refinement |
 | `agent_temperature` | float | 0.1 | Temperature for agent LLM calls |
 | `enable_crag` | bool | False | Enable Corrective RAG quality grading |
 | `crag_web_search_fallback` | bool | False | Allow web search fallback on poor CRAG grade |

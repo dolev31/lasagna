@@ -135,6 +135,33 @@ def _check_llm_credentials(env: Dict[str, Any]) -> Check:
     )
 
 
+def _check_llm_sampling() -> Optional[Check]:
+    """Whether the configured LLM takes a temperature, so answers can be pinned.
+
+    Read from the environment, as provider auto-detection reads it, without
+    building a client. None when no LLM is configured.
+    """
+    try:
+        from lasagna.providers import _detect_llm_platform
+        from lasagna.providers.llm_provider import SimpleLLMProvider
+        from lasagna.providers.model_capabilities import unpinned_note
+    except Exception:  # noqa: BLE001 - a broken install is reported elsewhere
+        return None
+    platform = _detect_llm_platform()
+    if platform is None:
+        return None
+    model = (
+        os.environ.get("RAG_EVAL_GENERATOR_MODEL")
+        or os.environ.get("MODEL_NAME")
+        or SimpleLLMProvider.SUPPORTED_PLATFORMS.get(platform, "")
+    )
+    note = unpinned_note(model, platform)
+    if note is None:
+        return Check("llm_sampling", _OK, f"{model} ({platform}) decodes at temperature 0")
+    # One line: what is wrong, what it does, and what to do about it.
+    return Check("llm_sampling", _WARN, note)
+
+
 def _check_model_cache() -> Check:
     """Whether the first search will trigger a multi-gigabyte download.
 
@@ -293,6 +320,7 @@ def diagnose(*, check_gh: bool = True) -> Diagnosis:
         _check_vector_backend(),
         _check_writable_dirs(),
         _check_llm_credentials(env),
+        *filter(None, [_check_llm_sampling()]),
         _check_model_cache(),
         _check_accelerator(env),
         *_check_optional_extras(),

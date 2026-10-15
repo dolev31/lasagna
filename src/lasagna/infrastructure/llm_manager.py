@@ -18,6 +18,8 @@ from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain_core.language_models.chat_models import BaseChatModel
 from loguru import logger
 
+from lasagna.providers.llm_provider import SimpleLLMProvider
+
 # Guarded like every other optional provider in this file.
 #
 # This was a bare module-level import, and `langchain-ibm` is declared in no
@@ -41,6 +43,11 @@ try:
 except ImportError:
     ChatGoogleGenerativeAI = None
 
+
+#: Ids this manager never sent a temperature, kept for the ones the capability
+#: table does not know (gpt-5-mini): it may not take one, and a temperature set
+#: on a cached model later is sent as is.
+_LEGACY_NO_TEMPERATURE = ("o1", "o3", "gpt-5")
 
 # Configurable max cached LLM instances (prevents unbounded memory growth)
 _DEFAULT_MAX_MODELS = 50
@@ -135,9 +142,13 @@ class LLMManager:
             model_kwargs = model.model_kwargs.copy()
 
         model_name = getattr(model, "model_name", "") or getattr(model, "model", "")
-        is_reasoning = self._is_reasoning_model(model_name)
+        # A reasoning model built with reasoning_effort="none" takes temperature.
+        takes_temperature = (
+            not self._is_reasoning_model(model_name)
+            or getattr(model, "reasoning_effort", None) == "none"
+        )
 
-        if not is_reasoning:
+        if takes_temperature:
             if hasattr(model, "temperature"):
                 model.temperature = temperature
             elif "temperature" in model_kwargs:
@@ -214,7 +225,8 @@ class LLMManager:
             elif toml_model_name:
                 return toml_model_name
             else:
-                return "gpt-4o"
+                # Same default as SimpleLLMProvider, with the source cited there.
+                return SimpleLLMProvider.SUPPORTED_PLATFORMS["openai"]
         elif platform == "groq":
             env_model_name = os.environ.get("MODEL_NAME")
             if env_model_name:
@@ -238,7 +250,7 @@ class LLMManager:
             elif toml_model_name:
                 return toml_model_name
             else:
-                return "gpt-4o"
+                return SimpleLLMProvider.SUPPORTED_PLATFORMS["azure"]
         elif platform == "google-genai":
             env_model_name = os.environ.get("MODEL_NAME")
             if env_model_name:
@@ -246,7 +258,11 @@ class LLMManager:
             elif toml_model_name:
                 return toml_model_name
             else:
-                return "gemini-1.5-pro"
+                # Gemini 1.5 Pro was shut down 2025-09-29
+                # (https://ai.google.dev/gemini-api/docs/changelog);
+                # gemini-2.5-pro is served, with no shutdown date announced.
+                # https://ai.google.dev/gemini-api/docs/deprecations
+                return "gemini-2.5-pro"
         elif platform == "openrouter":
             env_model_name = os.environ.get("MODEL_NAME")
             if env_model_name:
@@ -254,7 +270,7 @@ class LLMManager:
             elif toml_model_name:
                 return toml_model_name
             else:
-                return "anthropic/claude-3.5-sonnet"
+                return SimpleLLMProvider.SUPPORTED_PLATFORMS["openrouter"]
         elif platform == "ollama":
             env_model_name = os.environ.get("MODEL_NAME")
             if env_model_name:
@@ -339,11 +355,32 @@ class LLMManager:
             return model_settings.get("url")
 
     def _is_reasoning_model(self, model_name: str) -> bool:
-        """Check if model is a reasoning model that doesn't support temperature"""
+        """Whether the model takes temperature only with reasoning off, or never.
+
+        Read from :mod:`lasagna.providers.model_capabilities`, the one table of
+        what each model accepts. The prefix list this replaced matched every
+        ``gpt-5*`` and nothing newer, so gpt-6-luna was sent a temperature at
+        its default reasoning effort, which the API rejects.
+        """
+        from lasagna.providers.model_capabilities import ACCEPTED, model_capabilities
+
         if not model_name:
             return False
-        reasoning_prefixes = ("o1", "o3", "gpt-5")
-        return model_name.startswith(reasoning_prefixes)
+        return model_capabilities(model_name).temperature != ACCEPTED or model_name.startswith(
+            _LEGACY_NO_TEMPERATURE
+        )
+
+    @staticmethod
+    def _sampling(model_name: str, temperature: float, platform: str) -> Dict[str, Any]:
+        """``temperature`` and ``reasoning_effort`` as the model takes them."""
+        from lasagna.providers.model_capabilities import sampling_kwargs
+
+        kwargs, _ = sampling_kwargs(model_name, temperature, platform)
+        if (model_name or "").startswith(
+            _LEGACY_NO_TEMPERATURE
+        ) and "reasoning_effort" not in kwargs:
+            kwargs.pop("temperature", None)
+        return kwargs
 
     def _create_llm_instance(self, model_settings: Dict[str, Any]):
         """Create LLM instance based on platform and settings"""
@@ -366,6 +403,7 @@ class LLMManager:
                     api_version="2025-04-01-preview",
                     azure_deployment=model_name + "-" + api_version,
                     max_completion_tokens=max_tokens,
+                    **self._sampling(model_name, temperature, platform),
                 )
             else:
                 llm = AzureChatOpenAI(
@@ -375,14 +413,12 @@ class LLMManager:
                     max_tokens=max_tokens,
                 )
         elif platform == "openai":
-            is_reasoning = self._is_reasoning_model(model_name)
             openai_params = {
                 "model_name": model_name,
                 "max_tokens": max_tokens,
                 "timeout": 61,
+                **self._sampling(model_name, temperature, platform),
             }
-            if not is_reasoning:
-                openai_params["temperature"] = temperature
             apikey_name = model_settings.get("apikey_name")
             if apikey_name:
                 openai_params["openai_api_key"] = os.environ.get(apikey_name)
@@ -424,7 +460,6 @@ class LLMManager:
                 max_tokens=max_tokens,
             )
         elif platform == "openrouter":
-            is_reasoning = self._is_reasoning_model(model_name)
             api_key = os.environ.get("OPENROUTER_API_KEY")
             if not api_key:
                 raise ValueError("OPENROUTER_API_KEY environment variable not set")
@@ -434,9 +469,8 @@ class LLMManager:
                 "timeout": 61,
                 "openai_api_key": api_key,
                 "openai_api_base": base_url,
+                **self._sampling(model_name, temperature, platform),
             }
-            if not is_reasoning:
-                openrouter_params["temperature"] = temperature
             default_headers = {}
             site_url = model_settings.get("site_url") or os.environ.get("OPENROUTER_SITE_URL")
             app_name = model_settings.get("app_name") or os.environ.get("OPENROUTER_APP_NAME")

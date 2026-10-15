@@ -799,11 +799,20 @@ def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str
 def _is_floating_alias(model: str) -> bool:
     """Whether a model name will silently point at different weights over time.
 
-    `gpt-4o-mini` is an alias; `gpt-4o-mini-2024-07-18` is a snapshot. Two
-    researchers six months apart run different judges under the same string.
+    `gpt-5.5` is an alias; `gpt-5.5-2026-04-23` is a snapshot. Two researchers
+    six months apart run different judges under the same string.
+
+    Some ids are snapshots without a date: every Claude id from the 4.6
+    generation on (`claude-sonnet-5-5`), and OpenAI models whose only listed
+    snapshot is the dateless id (`gpt-6-luna`). The capability table knows
+    which; anything else without a date is still an alias.
     """
     import re
 
+    from lasagna.providers.model_capabilities import model_capabilities
+
+    if model_capabilities(model).pinned_snapshot:
+        return False
     return not re.search(r"\d{4}-\d{2}-\d{2}|\d{8}|@\w+", model)
 
 

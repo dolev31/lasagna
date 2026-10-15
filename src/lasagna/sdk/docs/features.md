@@ -52,7 +52,7 @@ config = KnowledgeConfig(
 
     # Chunk refinement: "vanilla" (passthrough), "refined" (LLM), "auto" (heuristic gate)
     chunk_refinement_method="auto",
-    refinement_model="gpt-4o-mini",
+    refinement_model="gpt-6-luna",
 
     # HyDE: OFF, ALWAYS, FIRST_HOP, ADAPTIVE (default)
     hyde_strategy=HyDEStrategy.ADAPTIVE,

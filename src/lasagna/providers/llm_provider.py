@@ -20,7 +20,7 @@ Example usage::
 
     llm = SimpleLLMProvider(default_provider="openai")
     model = llm.get_chat_model(
-        {"platform": "openai", "model_name": "gpt-4o-mini"},
+        {"platform": "openai", "model_name": "gpt-6-luna"},
         temperature=0.1,
         max_tokens=1000,
     )
@@ -58,7 +58,7 @@ class LLMProvider(ABC):
         Args:
             model_settings: Dict with model configuration. Expected keys:
                 - 'platform': Provider name ('openai', 'anthropic', etc.)
-                - 'model_name': Model identifier ('gpt-4o-mini', etc.)
+                - 'model_name': Model identifier ('gpt-6-luna', etc.)
                 - Additional provider-specific settings
             temperature: Sampling temperature (0.0 = deterministic)
             max_tokens: Maximum output tokens (None = model default)
@@ -123,17 +123,24 @@ class OpenAICompatibleConfig(NamedTuple):
 _OPENAI_COMPATIBLE: Dict[str, OpenAICompatibleConfig] = {
     "openrouter": OpenAICompatibleConfig(
         "https://openrouter.ai/api/v1",
-        "anthropic/claude-3.5-sonnet",
+        # The Claude 3.5 Sonnet route is gone from the catalog (404). OpenRouter
+        # spells Claude versions with a dot. https://openrouter.ai/api/v1/models
+        "anthropic/claude-sonnet-5.5",
         "OPENROUTER_API_KEY",
     ),
     "together": OpenAICompatibleConfig(
         "https://api.together.xyz/v1",
-        "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        # Llama 3.3 70B Instruct Turbo leaves serverless inference on
+        # 2026-10-22; this is the replacement Together names.
+        # https://docs.together.ai/docs/deprecations
+        "meta-models/Muse-Glimmer-30B",
         "TOGETHER_API_KEY",
     ),
     "deepseek": OpenAICompatibleConfig(
         "https://api.deepseek.com/v1",
-        "deepseek-chat",
+        # The old chat model was retired after 2026-07-24 ("Use deepseek-flash
+        # as the model name"). https://api-docs.deepseek.com/
+        "deepseek-flash",
         "DEEPSEEK_API_KEY",
     ),
     "fireworks": OpenAICompatibleConfig(
@@ -162,8 +169,6 @@ _OPENAI_COMPATIBLE: Dict[str, OpenAICompatibleConfig] = {
 # Platforms that don't require an API key (local inference)
 _LOCAL_PLATFORMS = {"ollama", "huggingface", "llamacpp", "vllm"}
 
-_REASONING_MODEL_PREFIXES = {"o1", "o3"}
-
 # Tier 1 platform API key environment variables (for lightweight validation)
 _TIER1_API_KEY_ENV: Dict[str, Any] = {
     "openai": "OPENAI_API_KEY",
@@ -182,34 +187,27 @@ _TIER1_API_KEY_ENV: Dict[str, Any] = {
 }
 
 
-def _is_reasoning_model(model_name: str) -> bool:
-    """Check if model is a reasoning model that doesn't support temperature."""
-    if not model_name:
-        return False
-    return any(model_name.startswith(p) for p in _REASONING_MODEL_PREFIXES)
-
-
 class SimpleLLMProvider(LLMProvider):
     """LLM provider with comprehensive platform support.
 
     Tier 1 — Native LangChain integrations (dedicated packages):
-      - openai:     OPENAI_API_KEY       (gpt-4o, gpt-4o-mini, etc.)
-      - anthropic:  ANTHROPIC_API_KEY    (claude-3-opus, sonnet, haiku)
+      - openai:     OPENAI_API_KEY       (gpt-6-luna, gpt-6-sol, etc.)
+      - anthropic:  ANTHROPIC_API_KEY    (claude-sonnet-5-5, claude-haiku-5-5, etc.)
       - azure:      AZURE_OPENAI_API_KEY (Azure OpenAI deployments)
-      - google:     GOOGLE_API_KEY       (gemini-pro, gemini-2.0-flash)
+      - google:     GOOGLE_API_KEY       (gemini-3.6-flash, gemini-2.5-pro)
       - google-genai: (alias for google)
       - groq:       GROQ_API_KEY         (llama-3.3-70b, mixtral, etc.)
       - watsonx:    WATSONX_APIKEY or WATSONX_API_KEY (granite, llama,
                     openai/gpt-oss-120b; also needs WATSONX_PROJECT_ID
                     and WATSONX_URL)
       - mistral:    MISTRAL_API_KEY      (mistral-large, codestral, etc.)
-      - cohere:     COHERE_API_KEY       (command-r-plus, etc.)
+      - cohere:     COHERE_API_KEY       (command-a-03-2025, etc.)
       - nvidia:     NVIDIA_API_KEY       (NIM endpoints)
 
     Tier 2 — OpenAI-compatible (zero extra dependencies):
       - openrouter: OPENROUTER_API_KEY   (any model via OpenRouter)
       - together:   TOGETHER_API_KEY     (Llama, Mixtral, etc.)
-      - deepseek:   DEEPSEEK_API_KEY     (deepseek-chat, deepseek-coder)
+      - deepseek:   DEEPSEEK_API_KEY     (deepseek-flash, deepseek-v4-pro)
       - fireworks:  FIREWORKS_API_KEY    (fast inference)
       - perplexity: PERPLEXITY_API_KEY   (sonar, etc.)
 
@@ -223,7 +221,7 @@ class SimpleLLMProvider(LLMProvider):
 
         llm = SimpleLLMProvider(default_provider="openai")
         model = llm.get_chat_model(
-            {"platform": "openai", "model_name": "gpt-4o-mini"},
+            {"platform": "openai", "model_name": "gpt-6-luna"},
             temperature=0.0,
             max_tokens=1000,
         )
@@ -239,23 +237,38 @@ class SimpleLLMProvider(LLMProvider):
         response = model.invoke("Hello!")
     """
 
-    # Supported platforms and their default models
+    # Supported platforms and their default models. Each replaced default was
+    # retired or closed to new accounts; the comment cites the provider's page
+    # (read 2026-10-15). The rest are still served and are unchanged.
     SUPPORTED_PLATFORMS = {
         # Tier 1 — native integrations
-        "openai": "gpt-4o-mini",
-        "anthropic": "claude-sonnet-4-20250514",
-        "azure": "gpt-4o-mini",
-        "google": "gemini-2.0-flash",
-        "google-genai": "gemini-2.0-flash",
-        "groq": "llama-3.3-70b-versatile",
+        # GPT-4o mini shuts down 2027-01-14 and OpenAI names gpt-6-luna as its
+        # replacement. https://developers.openai.com/api/docs/deprecations
+        "openai": "gpt-6-luna",
+        # Claude Sonnet 4 was retired 2026-06-15; this is its named
+        # replacement. https://platform.claude.com/docs/en/about-claude/model-deprecations
+        "anthropic": "claude-sonnet-5-5",
+        # An Azure deployment name. GPT-4o mini is deprecated on Azure (closed
+        # to new customers) and gpt-6-luna is not offered there; gpt-5.6-luna
+        # is GA. https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/model-retirement-schedule
+        "azure": "gpt-5.6-luna",
+        # Gemini 2.0 Flash was shut down 2026-06-01; this is its named replacement.
+        # https://ai.google.dev/gemini-api/docs/deprecations
+        "google": "gemini-3.6-flash",
+        "google-genai": "gemini-3.6-flash",
+        # Llama 3.3 70B Versatile was shut down 2026-08-16 for free and
+        # developer tiers; this is its named replacement. https://console.groq.com/docs/deprecations
+        "groq": "openai/gpt-oss-120b",
         "watsonx": "meta-llama/llama-4-maverick-17b-128e-instruct-fp8",
         "mistral": "mistral-large-latest",
-        "cohere": "command-r-plus",
+        # Command R+ is deprecated, "no longer available to new customers";
+        # this is the replacement Cohere recommends. https://docs.cohere.com/docs/deprecations
+        "cohere": "command-a-03-2025",
         "nvidia": "meta/llama-3.1-70b-instruct",
-        # Tier 2 — OpenAI-compatible
-        "openrouter": "anthropic/claude-3.5-sonnet",
-        "together": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-        "deepseek": "deepseek-chat",
+        # Tier 2 — OpenAI-compatible (sources beside _OPENAI_COMPATIBLE)
+        "openrouter": "anthropic/claude-sonnet-5.5",
+        "together": "meta-models/Muse-Glimmer-30B",
+        "deepseek": "deepseek-flash",
         "fireworks": "accounts/fireworks/models/llama-v3p1-70b-instruct",
         "perplexity": "sonar",
         # Tier 3 — Local inference (no API key needed)
@@ -311,17 +324,27 @@ class SimpleLLMProvider(LLMProvider):
 
         The experiment's response cache is attached here for the same reason.
         It serves a call only inside an experiment, and only when the model
-        decodes greedily (temperature 0; reasoning models take no temperature
-        and are not cached): see :mod:`lasagna.utils.llm_cache`.
+        decodes greedily: temperature 0 was asked for, the model accepts it
+        (see :mod:`lasagna.providers.model_capabilities`), and the client kept
+        it. See :mod:`lasagna.utils.llm_cache`.
         """
         from lasagna.utils.llm_cache import attach_llm_cache
         from lasagna.utils.token_usage import attach_usage_meter
+
+        from .model_capabilities import sampling_kwargs
 
         platform, model_name = self._resolve_model(model_settings)
         model = attach_usage_meter(
             self._build_chat_model(model_settings, temperature=temperature, max_tokens=max_tokens)
         )
-        deterministic = temperature == 0 and not _is_reasoning_model(model_name)
+        _, pinned = sampling_kwargs(
+            model_name, temperature, platform, model_settings.get("reasoning_effort")
+        )
+        # langchain-openai drops a temperature it believes the model rejects
+        # (gpt-5-mini) without a word, so read back what the client kept. A
+        # model with no such attribute sends what it was built with.
+        kept = getattr(model, "temperature", temperature)
+        deterministic = pinned and temperature == 0 and kept == 0
         return attach_llm_cache(model, f"{platform}:{model_name}", deterministic)
 
     def _resolve_model(self, model_settings: Dict[str, Any]) -> "tuple[str, str]":
@@ -333,9 +356,7 @@ class SimpleLLMProvider(LLMProvider):
         # Fall back to MODEL_NAME env var before using hardcoded platform defaults
         from lasagna.utils.model_utils import get_default_model_name
 
-        default_model = get_default_model_name(
-            self.SUPPORTED_PLATFORMS.get(platform, "gpt-4o-mini")
-        )
+        default_model = get_default_model_name(self.SUPPORTED_PLATFORMS.get(platform, "gpt-6-luna"))
         return platform, model_settings.get("model_name", default_model)
 
     def _build_chat_model(
@@ -345,12 +366,17 @@ class SimpleLLMProvider(LLMProvider):
         max_tokens: Optional[int] = None,
     ) -> "BaseChatModel":
         """Dispatch to the per-platform constructor. See ``get_chat_model``."""
+        from .model_capabilities import sampling_kwargs
+
         platform, model_name = self._resolve_model(model_settings)
 
-        # Build common kwargs — skip temperature for reasoning models
-        kwargs: Dict[str, Any] = {}
-        if not _is_reasoning_model(model_name):
-            kwargs["temperature"] = temperature
+        # Sampling as the model takes it: temperature as asked, with
+        # reasoning_effort="none" where only that admits it, or not at all
+        # (Claude 4.7 and later answer 400 to any temperature but the default).
+        # `reasoning_effort` in model_settings is the user's and wins.
+        kwargs, _ = sampling_kwargs(
+            model_name, temperature, platform, model_settings.get("reasoning_effort")
+        )
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
 
@@ -676,7 +702,7 @@ class SimpleLLMProvider(LLMProvider):
             settings["model_name"] = model_name
         else:
             # Respect MODEL_NAME env var (or host application config) before falling
-            # back to the hardcoded platform default (e.g. "gpt-4o-mini").
+            # back to the hardcoded platform default (e.g. "gpt-6-luna").
             from lasagna.utils.model_utils import get_default_model_name
 
             settings["model_name"] = get_default_model_name(

@@ -182,7 +182,7 @@ python -m lasagna.knowledge_evaluation_sdk \
     -g ./data/ground_truth.jsonl \
     -o ./my_results \
     --judge-platform openai \
-    --judge-model gpt-4o \
+    --judge-model gpt-6-luna \
     --verbose
 
 # Full agent mode (requires cuga.sdk)
