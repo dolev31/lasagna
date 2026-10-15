@@ -1,228 +1,126 @@
-# REST API — Design Overview
+# REST API: design note
 
-## Architecture
+How the FastAPI app in this directory resolves identity, which middleware runs on a request,
+and what `RAG_REQUIRE_AUTH` changes. The routes themselves are listed in
+[../README.md](../README.md); the security policy is in [SECURITY.md](../../../../SECURITY.md).
+
+## Request path
 
 ```
 Client
-  |
-  |  POST /api/v1/sessions   (handshake — get a token)
-  |  X-Session-Token: eyJ...  (all subsequent requests)
-  |
+  |  POST /api/v1/sessions          (handshake: get a token)
+  |  X-Session-Token: eyJ...        (every later request)
   v
-FastAPI (app.py)
-  |
-  |-- Middleware chain (outermost → innermost):
-  |     request-id → rate-limit → timing → handler
-  |
-  |-- Dependencies (dependencies.py):
-  |     get_session_id()  — token → header → query → "default"
-  |     get_user_id()     — Bearer → token → header → anon_<uuid>
-  |
-  |-- Routes (/api/v1/):
-  |     health.py      — liveness + readiness probes
-  |     sessions.py    — POST /sessions (identity handshake)
-  |     documents.py   — CRUD for documents
-  |     search.py      — semantic search endpoints
-  |     citations.py   — citation retrieval
-  |     config.py      — profile & config management
-  |
-  |-- Configurator Routes (outside /api/v1/):
-  |     knowledge_config.py — /api/config/knowledge/* (profile CRUD, import/export)
-  |     reindex.py          — /api/knowledge/reindex (re-process documents)
-  |
-  |-- session_token.py  — stateless JWT encode/decode (shared)
-  |
+create_app() in app.py
+  |-- CORS (RAG_CORS_ORIGINS, else the cors_origins argument, else no cross-origin access)
+  |-- middleware, outermost first:
+  |     request-id -> body size limit -> rate limit -> timing -> route
+  |-- dependencies.py: get_backend, get_session_id, get_user_id, get_profile_owner
+  |-- routes/ under /api/v1: health, sessions, documents, search, citations,
+  |     config, pipelines, admin (gc_admin.py)
+  |-- configurator routes outside /api/v1: /api/config/knowledge/*, /api/knowledge/reindex
   v
-Core layer (session_config, rag_backend, rate_limiter, ...)
+RAGBackend (lasagna.api.rag_backend), KnowledgeConfigManager, rate limiter
 ```
 
-## Identity Model
+## Identity
 
-### Problem
+`POST /api/v1/sessions` returns a JWT signed with HS256 that carries `(session_id, user_id)`.
+The server verifies it on each request with no database lookup.
 
-Without a handshake, unauthenticated clients share the identity
-`"__anonymous__"`, causing profile collisions, config bleed-through,
-and broken ownership checks in multi-tenant deployments.
+- Omitted ids are generated as `sess_<12 hex>` and `user_<12 hex>`. Naming a `session_id` or
+  `user_id` in the body requires `X-Admin-Token` matching `RAG_ADMIN_TOKEN`, else 403: sessions
+  are the isolation boundary, so choosing one is impersonation.
+- Claims: `sub` (user), `sid` (session), `typ: "session"`, `iat`, `exp`, `iss: "lasagna"`, and
+  `prn` (the principal that minted it) when auth is on. Decoding requires `sub`, `sid`, `exp`
+  and `typ`, and accepts the issuers in `ACCEPTED_ISSUERS` (`lasagna`, and `rag-knowledge` for
+  tokens minted before 0.1.0).
+- Lifetime: `RAG_SESSION_TOKEN_TTL_SECONDS` (default 604800, seven days). Tokens cannot be
+  revoked short of rotating `RAG_JWT_SECRET`.
+- With `RAG_JWT_SECRET` unset, `session_token._get_secret()` generates a per-process secret and
+  logs a warning. That is refused (`MissingSigningSecret`) when `RAG_REQUIRE_AUTH` is on, and a
+  placeholder or a secret shorter than 32 characters is refused too: with several replicas or
+  workers, a per-process secret rejects tokens minted by the others.
 
-### Solution: Stateless Session Tokens
+Resolution order (`dependencies.py`, `session_token.extract_session_id`):
 
-A lightweight `POST /api/v1/sessions` endpoint issues a signed JWT
-encoding `(session_id, user_id)`.  The token is self-contained — the
-server decodes it on every request without any database lookup.
+| `get_session_id()` | `get_user_id()` |
+| ------------------ | --------------- |
+| 1. `X-Session-Token` -> `sid` | 1. `Authorization: Bearer` JWT `sub` (verified with `RAG_JWT_SECRET`) |
+| 2. `X-Session-ID` header | 2. `X-Session-Token` -> `sub` |
+| 3. `session_id` query parameter | 3. `X-User-ID`, only with `RAG_ALLOW_HEADER_IDENTITY=true` (else 401) |
+| 4. `"default"` | 4. a fresh `anon_<16 hex>` per request |
 
-```
-POST /api/v1/sessions
-Body (all optional): { "session_id": "...", "user_id": "..." }
-Response 201:        { "token": "eyJ...", "session_id": "...",
-                       "user_id": "...", "expires_at": "..." }
-```
+A presented `X-Session-Token` that does not verify is a 401, never a fall-through to the
+header path: an expired token silently landing in `default` would write documents to the
+wrong namespace. Session ids longer than 128 characters are a 400.
 
-Omitted fields auto-generate UUIDs (`sess_<hex12>`, `user_<hex12>`).
+`get_profile_owner()` decides who owns saved profiles: the verified user with auth on, and the
+shared `__anonymous__` owner with auth off (a per-request `anon_` id could never edit its own
+profile on the next request).
 
-### Priority Chains
+## RAG_REQUIRE_AUTH
 
-Identity is resolved from the highest-trust source available:
+`auth_mode.py` holds the switch. It is read at call time, not import time.
 
-| `get_user_id()`                        | `get_session_id()`              |
-|----------------------------------------|---------------------------------|
-| 1. JWT Bearer `sub` (upstream auth)    | 1. `X-Session-Token` → `sid`   |
-| 2. `X-Session-Token` → `sub`          | 2. `X-Session-ID` header       |
-| 3. `X-User-ID` header                 | 3. `session_id` query param    |
-| 4. Auto-assign `anon_<uuid>`          | 4. `"default"`                  |
+- Off (default): `session_id` is a namespace, not a credential. `lasagna serve` (`cli.py`) and
+  `lasagna-mcp` call `require_auth_or_refuse_to_start()`, which raises `UnsafeBindError` for a
+  non-loopback bind unless `RAG_BIND_IS_PROTECTED=true` asserts that something outside the
+  process (a loopback port mapping, a NetworkPolicy, a firewall) limits access. In a container
+  the bind address is always `0.0.0.0`, so the process cannot check this itself.
+- `create_app()` itself only checks the signing secret (`_require_a_shared_signing_secret`) and
+  the limits (`limits.validate()`), because the shipped Dockerfile runs gunicorn on the app
+  directly and never passes through `lasagna serve`.
+- On: minting a session needs `X-API-Key` from `RAG_API_KEYS` (or `X-Admin-Token`), and the key's
+  principal goes into the token. `reject_unverified_identity()` refuses any session id that did
+  not come from a verified token, including `default`, unless `RAG_ALLOW_ANONYMOUS_SESSION` is
+  set.
+- CORS does not replace this. It decides whether a page may read a response, and a "simple"
+  cross-origin request (a multipart upload, a bodyless POST) still runs. With auth on, identity
+  travels in a custom header, which forces a preflight that the CORS policy denies.
 
-**Zero breaking changes** — existing `X-Session-ID` + `X-User-ID`
-clients keep working.  Bare requests get a unique `anon_<uuid>` user_id
-per request (no longer `"__anonymous__"`), preventing identity collisions.
+## Middleware
 
-### Token Claims
+Registered in `create_app()`:
 
-```json
-{
-  "sub": "<user_id>",
-  "sid": "<session_id>",
-  "typ": "session",
-  "iat": 1700000000,
-  "exp": 1700604800,
-  "iss": "rag-knowledge"
-}
-```
+1. **Request id**: keeps a client `X-Request-ID` that looks like an id, else generates one; it is
+   bound to every log line of the request and echoed in the response.
+2. **Body size limit** (`limits.BodySizeLimitMiddleware`): answers 413 from `Content-Length`
+   before the body is read, and counts chunked bodies as they arrive. Starlette would otherwise
+   spool a whole multipart upload to disk before the route runs.
+3. **Rate limit**: `core.rate_limiter` token buckets, off unless the limiter is enabled. With
+   auth off the bucket is the session id; with auth on it is the token's principal (`prn:`),
+   the verified session (`sid:`), or the client address (`ip:`) for unverified requests, so
+   minting sessions does not buy requests. 429 carries `Retry-After`, rounded up.
+4. **Timing**: `X-Response-Time`, a latency histogram labeled by route template and status
+   (not raw path, which would create one series per scanned URL), and the limiter's load input.
 
-- `typ: "session"` distinguishes from upstream auth JWTs.
-- Signed with `RAG_JWT_SECRET` env var (ephemeral fallback in dev).
-- Default TTL: 7 days (`RAG_SESSION_TOKEN_TTL_SECONDS`).
+Exempt from rate limit and timing: `/`, `/metrics`, and the prefixes in `_EXEMPT_PREFIXES`
+(`/health`, `/api/v1/health`, `/docs`, `/openapi.json`, `/redoc`). `/api/v1/sessions`, `/mcp`
+and `/configurator` are deliberately not exempt: they mint identities or carry destructive
+operations.
 
-## Key Files
+## Optional mounts
 
-| File | Responsibility |
-|------|---------------|
-| `session_token.py` | Token create/decode + shared `extract_session_id()` used by both middleware and dependencies. No FastAPI dependency — importable from MCP. |
-| `dependencies.py` | FastAPI `Depends()` functions: `get_session_id()`, `get_user_id()`, `get_backend()`. Delegates session extraction to `session_token.extract_session_id()`. |
-| `app.py` | App factory, middleware chain, lifespan. `_extract_session_id()` calls the shared helper for rate-limiter session resolution. |
-| `routes/sessions.py` | `POST /api/v1/sessions` — handshake endpoint. |
+- `RAG_EMBED_MCP=true` mounts the MCP SSE app at `/mcp` in the same process (needed where only
+  one process may open Milvus Lite). It sets the MCP transport to `http`, and with auth off adds
+  the loopback Host/Origin guard against DNS rebinding.
+- `RAG_CONFIGURATOR=true` mounts the configurator UI at `/configurator`
+  (`lasagna.configurator.mount_configurator`).
 
-## Middleware Chain
+## Configurator routes
 
-Registered in `create_app()`.  FastAPI middleware executes
-outermost-first:
+`routes/knowledge_config.py` (`/api/config/knowledge`, eight routes: get, set active, save,
+delete, rename, reset, export, import) and `routes/reindex.py` (`POST /api/knowledge/reindex`)
+are mounted on the app, outside `/api/v1`, because the configurator frontend uses those paths.
+They resolve identity with the same dependencies; profile writes use `get_profile_owner`.
+Reindex takes the session from the credential, not the body (the body's `session_id` field is
+deprecated and ignored), and runs the delete and re-upload of each document in
+`asyncio.to_thread()`.
 
-```
-Request-ID  →  Rate-Limit  →  Timing  →  Route Handler
-```
+## MCP
 
-1. **Request-ID** — attaches `X-Request-ID` (auto-generated or echoed).
-2. **Rate-Limit** — per-session token bucket.  Extracts session_id via
-   the shared helper.  Returns 429 with `Retry-After` when exceeded.
-   Exempt paths: `/health`, `/docs`, `/mcp`, `/configurator`,
-   `/api/v1/sessions`.
-3. **Timing** — records `X-Response-Time` header and feeds latency to
-   the Prometheus histogram + rate-limiter load estimator.
-
-## MCP Integration
-
-The MCP server (`mcp/server.py`) reuses the same identity model:
-
-- `_resolve_session(session_id, session_token)` decodes the token or
-  falls back to `(session_id, anon_<uuid>)`.
-- All tools that use `get_knowledge_config_manager()` pass the resolved
-  `user_id` and `session_id` so PostgreSQL-mode managers are
-  correctly scoped.
-- `save_rag_profile()` and `delete_rag_profile()` forward `user_id`
-  to the profile ownership system.
-
-## Flow Diagrams
-
-### With handshake
-
-```
-Client                              Server
-  |  POST /api/v1/sessions           |
-  |  {"user_id": "alice"}            |
-  |--------------------------------->|  Generate sess_<hex>, sign JWT
-  |  201 {token, session_id, ...}    |
-  |<---------------------------------|
-  |                                  |
-  |  GET /api/v1/config              |
-  |  X-Session-Token: eyJ...         |
-  |--------------------------------->|  Decode → (alice, sess_<hex>)
-  |  200 {config for alice}          |
-  |<---------------------------------|
-```
-
-### Without handshake (bare client)
-
-```
-Client                              Server
-  |  GET /api/v1/config              |
-  |  (no headers)                    |
-  |--------------------------------->|  session_id = "default"
-  |                                  |  user_id   = "anon_7f3a..."
-  |  200 {config}                    |  (unique per request)
-  |<---------------------------------|
-```
-
-### Backward-compatible (legacy headers)
-
-```
-Client                              Server
-  |  GET /api/v1/config              |
-  |  X-Session-ID: my-session        |
-  |  X-User-ID: bob                  |
-  |--------------------------------->|  session_id = "my-session"
-  |                                  |  user_id   = "bob"
-  |  200 {config for bob}            |
-  |<---------------------------------|
-```
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RAG_JWT_SECRET` | (ephemeral) | HMAC secret for signing session tokens. **Set in production** so tokens survive restarts and work across workers. |
-| `RAG_SESSION_TOKEN_TTL_SECONDS` | `604800` (7d) | Token lifetime. |
-
-## Security Notes
-
-- Session tokens are stateless and **cannot be revoked** short of
-  rotating `RAG_JWT_SECRET`.  Keep TTL reasonable.
-- The handshake endpoint is exempt from session-based rate limiting
-  (it creates the session identity).  Consider IP-based rate limiting
-  at the load balancer level.
-- Bearer JWT decode enforces `require: ["sub"]` to reject malformed
-  upstream tokens.
-- All silent `except` blocks log at `DEBUG` level for security auditing.
-
-## Configurator REST Routes
-
-The configurator UI (React SPA at `/configurator`) calls a set of
-REST endpoints that bridge to `KnowledgeConfigManager`.  These are
-mounted **directly on the app** (not under `/api/v1/`) because the
-frontend hardcodes the paths in `client.ts`.
-
-### Knowledge Config (`/api/config/knowledge`)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/config/knowledge` | Full config state (profiles, active, overrides) |
-| PUT | `/api/config/knowledge/active` | Switch active profile + optional overrides |
-| POST | `/api/config/knowledge/profile` | Create or update a named profile |
-| POST | `/api/config/knowledge/profile/delete` | Delete a custom profile |
-| POST | `/api/config/knowledge/profile/rename` | Rename a custom profile |
-| POST | `/api/config/knowledge/reset` | Reset config (`scope: "active"` or `"all"`) |
-| GET | `/api/config/knowledge/export` | Export full config as JSON |
-| POST | `/api/config/knowledge/import` | Import config from JSON |
-
-All endpoints resolve `session_id` and `user_id` via the same
-`Depends(get_session_id)` / `Depends(get_user_id)` chains described
-above.  Profile mutation endpoints (`save`, `delete`) pass `user_id`
-for ownership tracking.
-
-### Reindex (`/api/knowledge/reindex`)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/knowledge/reindex` | Re-process all documents in a session |
-
-Body: `{ "session_id": "...", "force_rebuild": true }`
-
-Blocking I/O (file reads, vector DB operations) is offloaded via
-`asyncio.to_thread()` to avoid blocking the event loop.
+`mcp/server.py` reuses `session_token.decode_session_token`. Its `_resolve_session()` takes a
+valid `session_token`, raises `MCPAuthError` for an invalid one, and otherwise uses the given
+`session_id` (or `RAG_SESSION_ID`) with a deterministic `anon_<hash>` user id, so profile
+ownership stays stable across calls. `session_token.py` has no FastAPI import for this reason.

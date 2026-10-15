@@ -1,93 +1,60 @@
-# RAG Configurator
+# configurator: the profile editor web page
 
-Schema-driven UI for managing RAG configuration profiles. The backend (`schema.py`) defines all 91 tunable parameters — the React frontend fetches this schema at runtime and renders controls dynamically. Two client-side exceptions: `reindexKeys.ts` hardcodes the 18 reindex key names (for instant UI feedback before schema loads), and `EssentialTab.tsx` hardcodes an embedding model-to-dimension mapping (for auto-fill on model change).
+A React page, served by the REST app at `/configurator`, for editing a session's RAG settings
+and saving them as profiles. The parameter list lives in Python (`schema.py`); the frontend
+fetches it at runtime and renders a control for each entry, so adding a parameter to the page
+is a Python change.
 
-## Module Structure
+Users start it with `lasagna serve` (the configurator is on by default; `--no-configurator`
+turns it off). Profiles themselves: [docs/configuration.md](../../../docs/configuration.md#profiles).
 
-| File | Purpose |
-|------|---------|
-| `__init__.py` | `mount_configurator(app, prefix)` — registers API routes and serves the built frontend |
-| `schema.py` | Single source of truth: 91 `ParameterDef` entries, tabs, groups, helpers (`get_schema_dict`, `get_reindex_keys`, `get_defaults`) |
-| `validation.py` | 8 cross-field validation rules + type/range checks + reindex detection |
-| `routes.py` | 2 endpoints: `GET /configurator/api/schema`, `POST /configurator/api/validate` |
-| `serve.py` | CLI helper invoked by `RAG_CONFIGURATOR=true python3 -m lasagna serve` (runs uvicorn with configurator mounted) |
-| `frontend/` | React + TypeScript + Vite SPA (see below) |
+## Module map
 
-### Frontend Tree
+| File | Responsibility |
+| ---- | -------------- |
+| `__init__.py` | `mount_configurator(app, prefix="/configurator")`: includes `routes.router` and, when `frontend/dist/` exists, serves it as static files |
+| `schema.py` | `ParameterDef` and `EnumOption`, `TABS`, `GROUPS`, `PARAMETERS`; `get_schema_dict()`, `get_reindex_keys()`, `get_defaults()` |
+| `validation.py` | `validate_config(config, baseline)`: type and range checks per parameter, type checks for every other config key against its default, cross-field rules, reindex detection; returns `ValidationResult` |
+| `routes.py` | `GET {prefix}/api/schema`, `POST {prefix}/api/validate` |
+| `serve.py` | `main()`: runs `lasagna.api.rest.app:app` under uvicorn with `RAG_CONFIGURATOR=true` (default host 127.0.0.1, port 8000, next free port if taken). There is no `__main__.py`, so run it as `python -m lasagna.configurator.serve` |
+| `frontend/` | React, TypeScript and Vite source. `npm run build` writes `frontend/dist/`, which the wheel ships (`configurator/frontend/dist/**/*` in `pyproject.toml`) |
 
-```
-frontend/
-  src/
-    App.tsx                      Root component — layout + tab routing
-    index.tsx                    Entry point
-    api/
-      client.ts                  10 API functions (fetch → backend)
-      types.ts                   TypeScript interfaces matching Python shapes
-    components/
-      fields/                    Parameter renderers (BooleanField, SliderField, EnumField, ...)
-      layout/                    Header, Sidebar, Footer, TabBar
-      profiles/                  Profile selector + CRUD UI
-      shared/                    Reusable atoms (Tooltip, StatusBadge, ...)
-      tabs/                      Tab-level containers (EssentialTab, SearchTab, ...)
-    hooks/
-      useConfig.ts               Central state manager — fetches config, applies edits, saves profiles
-    schema/
-      reindexKeys.ts             18 REINDEX_KEYS + 5 PROTECTED_PROFILES
-    styles/
-      configurator.css           Full stylesheet
-      variables.css              CSS custom properties (colors, spacing)
-```
+Frontend entry points: `src/api/client.ts` (every call to the backend), `src/api/types.ts`
+(TypeScript shapes of the Python responses), `src/hooks/useConfig.ts` (state, edits, saves),
+`src/components/tabs/` (one container per tab).
 
-## Quick Start
+Reference pages: [docs/schema.md](docs/schema.md), [docs/architecture.md](docs/architecture.md),
+[docs/validation.md](docs/validation.md).
 
-### Standalone (development)
+## Routes the page calls
 
-```bash
-RAG_CONFIGURATOR=true python3 -m lasagna serve
-# → http://localhost:8000/configurator
-```
+| Mount | Routes | Source |
+| ----- | ------ | ------ |
+| `/configurator/api` | `GET /schema`, `POST /validate` | `routes.py` |
+| `/api/config/knowledge` | `GET ""`, `PUT /active`, `POST /profile`, `POST /profile/delete`, `POST /profile/rename`, `POST /reset`, `GET /export`, `POST /import` | `api/rest/routes/knowledge_config.py` |
+| `/api/knowledge` | `POST /reindex` | `api/rest/routes/reindex.py` |
 
-This uses `serve.py` which runs the full REST API with the configurator mounted.
+The last two groups sit outside `/api/v1` because `client.ts` uses those paths. All three
+resolve identity through `api/rest/dependencies.py`, so with `RAG_REQUIRE_AUTH` on they need a
+session token like every other route ([../api/rest/DESIGN.md](../api/rest/DESIGN.md)).
 
-### Embedded in an existing FastAPI app
+## Design notes
 
-```python
-from fastapi import FastAPI
-from lasagna.configurator import mount_configurator
+**Python is the source of truth, with two copies in the frontend.**
+`frontend/src/schema/reindexKeys.ts` repeats the reindex keys (the `requires_reindex`
+parameters in `schema.py`) and the protected profile names, so the page can mark them before
+the schema loads. `EssentialTab.tsx` holds an embedding-model-to-dimension map to fill in
+`embedding_dim` when the model changes. Change either alongside `schema.py` and the embedding
+defaults.
 
-app = FastAPI()
-mount_configurator(app)  # mounts at /configurator by default
-```
+**Validation does not save.** `POST /validate` reports errors, warnings and which changed keys
+need a reindex. Saving goes through `KnowledgeConfigManager` (`core/session_config/`), which
+enforces its own checks, including the embedding-size guard in `api/_profile_guard.py`.
 
-## API Surface
+**Built-in profiles cannot be deleted or renamed.** The manager refuses it for any name in its
+default profiles (`_is_protected_profile_name`); the frontend's `PROTECTED_PROFILES` set
+(`default`, `speed`, `standard`, `balanced`, `max_quality`) only hides the buttons.
 
-The frontend communicates with **three** route groups:
-
-| Route Group | Mount Point | Endpoints | Source |
-|-------------|-------------|-----------|--------|
-| Configurator | `/configurator/api/` | `GET /schema`, `POST /validate` | `configurator/routes.py` |
-| Knowledge Config | `/api/config/knowledge/` | `GET ""`, `PUT /active`, `POST /profile`, `POST /profile/delete`, `POST /profile/rename`, `POST /reset`, `GET /export`, `POST /import` | `api/rest/routes/knowledge_config.py` |
-| Reindex | `/api/knowledge/` | `POST /reindex` | `api/rest/routes/reindex.py` |
-
-## Integration Points
-
-- **`KnowledgeConfigManager`** (`core/session_config/`): Profile CRUD, session-scoped config state, validation enforcement
-- **`RAGConfig`** (`core/config.py`): Singleton that resolves effective config via the priority chain (see [architecture docs](docs/architecture.md))
-- **`RAGBackend`** (`api/rag_backend.py`): Document operations used by the reindex endpoint
-
-## Profile System
-
-5 built-in profiles are protected from deletion and renaming: `default`, `speed`, `standard`, `balanced`, `max_quality`. Custom profiles can be created, renamed, and deleted freely.
-
-## Security Notes
-
-- No authentication — designed as a local development tool
-- No CSRF protection — same-origin API only
-- Session IDs from `localStorage` (frontend) or headers (backend)
-- Reindex endpoint has path traversal protection (`os.path.realpath` + upload dir check)
-
-## Documentation
-
-- [Parameter Reference (91 params)](docs/schema.md)
-- [Architecture & Data Flow](docs/architecture.md)
-- [Validation Rules (8 cross-field rules)](docs/validation.md)
+**Reindex deletes and re-uploads.** `POST /api/knowledge/reindex` re-processes every document
+in the caller's session from its stored file, with `keep_file=True` on the delete, in a worker
+thread.

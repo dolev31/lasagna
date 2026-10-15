@@ -1,604 +1,332 @@
-# Vector Database Backend Abstraction Layer
+# Vector backends
 
-A production-grade abstraction layer enabling RAG knowledge system to operate seamlessly across **any** vector database or search engine. Switch between Milvus, Qdrant, Pinecone, Weaviate, PgVector, and OpenSearch — per session, at runtime — without changing a single line of application code.
+Lasagna stores and searches chunk embeddings through one interface,
+`VectorStoreAdapter`, with six implementations: Milvus, Qdrant, Pinecone,
+Weaviate, PgVector and OpenSearch. You pick one with the `vector_backend`
+setting; the rest of the pipeline does not change.
 
-## Architecture
+## Choose a backend
 
-```
-                    RAGBackend / MCP Server
-                           |
-                   _resolve_backend(session_id)
-                           |
-              +------------+------------+
-              |                         |
-         Fast Path                 Slow Path
-    (no session / default)    (session has override)
-              |                         |
-     self._vector_backend       BackendRegistry
-                               get_backend(name, **config)
-                                        |
-              +----------+---------+---------+---------+-----------+
-              |          |         |         |         |           |
-           Milvus    Qdrant   Pinecone  Weaviate   PgVector   OpenSearch
-```
+Milvus (with Milvus Lite) ships with the core package. The others need their
+client library, installed through an extra. Without it, `get_backend(name)`
+raises `ValueError` and names the extra to install.
 
-**Design Principles:**
-1. **Minimal Interface** — Only methods the RAG system actually uses
-2. **Backend-Agnostic Filters** — Write once, translates to all backends
-3. **Capability Detection** — Runtime feature checks for graceful degradation
-4. **Score Normalization** — Consistent `[0, 1]` similarity across all backends
-5. **Zero Breaking Changes** — Existing code works without modification
-6. **Thread-Safe** — Concurrent session resolution with bounded resource tracking
+| Backend | Install | Read from the environment when no arguments are given | Compose fragment |
+| --- | --- | --- | --- |
+| `milvus` | core | `MILVUS_URI`, `MILVUS_TOKEN`; otherwise Milvus Lite at `<db dir>/rag_milvus.db` (but see the note on Milvus servers below) | `milvus-lite.yml`, `milvus.yml` |
+| `qdrant` | `pip install "lasagna-rag[vector-backends]"` | `QDRANT_URL`, `QDRANT_API_KEY`; otherwise local files in `<db dir>/qdrant_data` | `qdrant.yml` |
+| `pinecone` | `pip install "lasagna-rag[vector-backends]"` | `PINECONE_API_KEY` | `pinecone.yml` |
+| `weaviate` | `pip install "lasagna-rag[vector-backends]"` | `WEAVIATE_URL`, `WEAVIATE_API_KEY`; otherwise embedded Weaviate | `weaviate.yml` |
+| `pgvector` | `pip install "lasagna-rag[pgvector]"` | `PGVECTOR_DSN`, then `RAG_DATABASE_DSN`; otherwise `postgresql://rag:rag@localhost:5432/rag` | `pgvector.yml` |
+| `opensearch` | `pip install "lasagna-rag[opensearch]"` | `OPENSEARCH_HOSTS` (default `http://localhost:9200`), `OPENSEARCH_USER`, `OPENSEARCH_PASSWORD`, `OPENSEARCH_USE_SSL`, `OPENSEARCH_VERIFY_CERTS`, `OPENSEARCH_TIMEOUT` | `opensearch.yml` |
 
-## Package Structure
+`<db dir>` is `~/.lasagna/dbs` unless `LASAGNA_DB_DIR` or `LASAGNA_DATA_DIR`
+says otherwise (the `RAG_` names of both still work).
 
-| File | Purpose |
-|------|---------|
-| `base.py` | `VectorStoreAdapter` ABC, data classes, `Fields` constants |
-| `filters.py` | `FilterExpression` AST with 6 backend translators |
-| `registry.py` | `BackendRegistry` singleton factory with config-hash caching |
-| `pool.py` | `PooledVectorBackend` — thread-safe connection pool wrapper |
-| `milvus_backend.py` | Milvus Lite / Standalone / Distributed |
-| `qdrant_backend.py` | Qdrant in-memory / local / cloud |
-| `pinecone_backend.py` | Pinecone Serverless |
-| `weaviate_backend.py` | Weaviate Embedded / Local / Cloud (v3 + v4) |
-| `pgvector_backend.py` | PostgreSQL + pgvector with connection pooling and hybrid RRF |
-| `opensearch_backend.py` | OpenSearch search engine with native Lucene BM25 + k-NN hybrid |
+The compose fragments live in [`../deploy/backends/`](../deploy/backends/).
+From `src/lasagna/deploy`, `make up VECTOR_BACKEND=qdrant` starts the stack with
+that fragment; see [the deployment guide](../deploy/README.md#vector-backends).
 
-## Supported Backends
+## Select it
 
-Milvus Lite ships with the core package. The other backends need their client library, installed through an extra:
+| Where | How |
+| --- | --- |
+| Environment | `LASAGNA_VECTOR_BACKEND=qdrant` (or `RAG_VECTOR_BACKEND`) |
+| Settings file | `vector_backend = "qdrant"` in the `[rag]` section of `settings.lasagna.toml` |
+| SDK | `KnowledgeConfig(vector_backend="qdrant", vector_backend_config={"url": "http://localhost:6333"})` |
+| One session, over REST | `PATCH /api/v1/config` with body `{"vector_backend": "qdrant"}` and the session's `X-Session-ID` header |
+| CLI | `lasagna init` asks for one and writes a local configuration file |
 
-| Backend | Install |
-|---------|---------|
-| Qdrant, Pinecone, Weaviate | `pip install "lasagna-rag[vector-backends]"` |
-| PgVector | `pip install "lasagna-rag[pgvector]"` |
-| OpenSearch | `pip install "lasagna-rag[opensearch]"` |
+Valid names: `milvus`, `qdrant`, `pinecone`, `weaviate`, `pgvector`, `opensearch`.
 
-Without it, `get_backend()` raises `ValueError` and names the extra to install.
+`vector_backend_config` (`LASAGNA_VECTOR_BACKEND_CONFIG` as a JSON object) holds
+the constructor arguments listed below. When it is empty, the backend reads the
+environment variables in the table above. The process-wide backend is built
+once, at startup: changing either setting afterwards needs a restart (the SDK
+logs a warning if you try). A session switched over REST gets the named backend
+with its environment configuration. Every setting is listed in
+[the settings reference](../../../docs/reference/settings.md).
 
-### Milvus (Default)
+Switching backends moves no data: documents indexed in the previous backend
+stay there. Each document row records `vector_backend_name` and
+`collection_name`, and deleting the document deletes its vectors from that
+backend (opened with its default configuration) and collection.
 
-The default backend with the broadest feature set. Supports Lite mode (embedded, zero-config) and Standalone/Distributed (full hybrid search with BM25).
+**Milvus servers.** The backend Lasagna builds at startup always passes a
+`db_path` to `MilvusBackend` (from `vector_backend_config`, or
+`<db dir>/rag_milvus.db`), and `MilvusBackend` prefers `db_path` to `uri`. So
+neither `MILVUS_URI` nor `vector_backend_config = {"uri": "http://milvus:19530"}`
+(what `backends/milvus.yml` sets) connects that backend to a Milvus server: it
+opens Milvus Lite inside the process. `get_backend("milvus", uri=...)` called
+directly does connect to the server.
+
+## Collections: one per embedding model
+
+The default collection name is `rag_documents_v2__<model>__<dim>`, where
+`<model>` is the model id lowercased with every run of other characters
+replaced by `_` (an id longer than 32 characters is cut and given an 8-character
+hash). The default model, `BAAI/bge-m3` at 1024 dimensions, writes to
+`rag_documents_v2__baai_bge_m3__1024`. A `collection_name` other than
+`rag_documents_v2` is used exactly as given. The functions are
+`collection_name_for` and `resolve_collection_name` in `core/config.py`.
+
+When the collection manager (`api/_collection_manager.py`) creates a collection,
+it records the model and dimension in the `collection_meta` table of the
+metadata database. Opening an existing collection on the default backend with
+another model, or at another dimension, raises `CollectionIdentityError`, which
+names the command that switches back. Nothing is dropped, except an empty
+collection at the wrong dimension, which is rebuilt at the new one. See
+[One collection per embedding model](../../../docs/configuration.md#one-collection-per-embedding-model)
+for what this means when you change models.
+
+## Constructor arguments
+
+`get_backend(name, **kwargs)` passes `kwargs` to the backend's constructor.
 
 ```python
 from lasagna.vector_backends import get_backend
 
-# Milvus Lite (embedded, local file)
-backend = get_backend("milvus", db_path="/data/milvus.db")
-
-# Milvus Standalone (remote server)
-backend = get_backend("milvus", uri="http://localhost:19530")
-
-# Milvus Cloud (with auth)
-backend = get_backend("milvus", uri="https://...", token="your_token")
+get_backend("milvus", db_path="/data/milvus.db")                     # Milvus Lite
+get_backend("milvus", uri="http://localhost:19530", token="...")     # Milvus server or Zilliz Cloud
+get_backend("qdrant", path="/data/qdrant")                           # local files
+get_backend("qdrant", url="https://...", api_key="...")              # server or Qdrant Cloud
+get_backend("pinecone", api_key="...", cloud="aws", region="us-east-1")
+get_backend("weaviate", embedded=True)
+get_backend("weaviate", url="https://...", api_key="...")            # an api_key means Weaviate Cloud
+get_backend("pgvector", dsn="postgresql://rag:rag@localhost:5432/rag", pool_min=2, pool_max=10)
+get_backend("opensearch", hosts=["https://search.example.com:9200"],
+            http_auth=("user", "pass"), use_ssl=True, language="german")
 ```
 
-| Capability | Lite | Standalone |
-|------------|------|------------|
-| Hybrid Search (Dense + BM25) | - | Yes |
-| Native Sparse Vectors | - | Yes |
-| GPU Acceleration | - | Yes |
-| JSON Filters | Yes | Yes |
-| Dynamic Schema | Yes | Yes |
-| Max Batch Size | 1000 | 1000 |
-| Max Vector Dim | 32768 | 32768 |
+`QdrantBackend()` with no arguments is in-memory, but `get_backend("qdrant")`
+with no arguments fills in the environment defaults above. OpenSearch's
+`language` picks the BM25 analyzer for text fields (default `english`, also
+`OPENSEARCH_LANGUAGE`); `engine` and `space_type` pick the k-NN method
+(default `lucene` and `cosinesimil`). `OPENSEARCH_SHARDS` and
+`OPENSEARCH_REPLICAS` (default 1 and 0) apply when an index is created.
 
-### Qdrant
+## What each backend supports
 
-High-performance vector database with excellent filtering. Zero-config in-memory mode for development.
+From each backend's `capabilities` property:
 
-```python
-# In-memory (zero config, ideal for tests)
-backend = get_backend("qdrant")
+| | Milvus Lite | Milvus server | Qdrant | Pinecone | Weaviate | PgVector | OpenSearch |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Native hybrid search | no | yes | no | no | yes | yes (tsvector + RRF) | yes (BM25 + k-NN) |
+| Native BM25 | no | yes | no | no | yes | no | yes |
+| Partitions / namespaces | yes | yes | no | yes | no | no | no |
+| Dynamic schema | yes | yes | yes | yes | yes | no | yes |
+| Max batch size | 1000 | 1000 | 1000 | 100 | 1000 | 5000 | 10000 |
+| Max vector dimension | 32768 | 32768 | 65536 | 20000 | 65536 | 16000 | 16000 |
 
-# Local persistent storage
-backend = get_backend("qdrant", path="/data/qdrant")
+Calling `hybrid_search()` on a backend without native hybrid search falls back
+to dense search on Milvus Lite and Pinecone, and raises `NotImplementedError`
+on Qdrant. The search pipeline does not call it there: with
+`enable_hybrid_search` on, it fuses dense results with an in-process BM25 index
+(`rank_bm25`) instead.
 
-# Remote server
-backend = get_backend("qdrant", url="http://localhost:6333")
+## The interface
 
-# Qdrant Cloud
-backend = get_backend("qdrant", url="https://...", api_key="your_key")
-```
-
-| Capability | Value |
-|------------|-------|
-| Hybrid Search | Not yet wired |
-| Sparse Vectors | Yes |
-| JSON Filters | Yes |
-| Dynamic Schema | Yes |
-| Max Batch Size | 1000 |
-| Max Vector Dim | 65536 |
-
-### Pinecone
-
-Fully managed serverless vector database. No infrastructure to maintain.
+`VectorStoreAdapter` (`base.py`) has two abstract properties (`backend_name`,
+`capabilities`) and 14 abstract methods. A minimal round trip on Milvus Lite:
 
 ```python
-# Serverless (default: AWS us-east-1)
-backend = get_backend("pinecone", api_key="your_key")
+from lasagna.core.schema import create_abstract_rag_schema
+from lasagna.vector_backends import FilterExpression, get_backend
+from lasagna.vector_backends.base import IndexConfig, IndexType, MetricType
 
-# Custom region
-backend = get_backend("pinecone", api_key="your_key", cloud="gcp", region="us-central1")
-```
+backend = get_backend("milvus", db_path="/tmp/demo_milvus.db")
+backend.connect()
 
-| Capability | Value |
-|------------|-------|
-| Hybrid Search | Not yet wired |
-| Sparse Vectors | Yes |
-| JSON Filters | Yes |
-| Dynamic Schema | Yes |
-| Max Batch Size | 100 |
-| Max Vector Dim | 20000 |
-| Max Metadata | 40KB per vector |
-
-### Weaviate
-
-Native hybrid search (BM25 + vector) built in. Supports embedded mode for local development.
-
-```python
-# Embedded (zero config)
-backend = get_backend("weaviate", embedded=True)
-
-# Local server
-backend = get_backend("weaviate", url="http://localhost:8080")
-
-# Weaviate Cloud
-backend = get_backend("weaviate", url="https://...", api_key="your_key")
-```
-
-| Capability | Value |
-|------------|-------|
-| Hybrid Search | Yes (native BM25 + vector) |
-| Native BM25 | Yes |
-| JSON Filters | Yes |
-| Dynamic Schema | Yes |
-| Max Batch Size | 1000 |
-| Max Vector Dim | 65536 |
-
-### PgVector (PostgreSQL)
-
-Uses a single PostgreSQL instance with the pgvector extension for both metadata and vector storage. Native hybrid search via tsvector/tsquery + Reciprocal Rank Fusion (RRF) in a single SQL query.
-
-```python
-# Local PostgreSQL
-backend = get_backend("pgvector", dsn="postgresql://rag:rag@localhost:5432/rag")
-
-# With connection pool tuning
-backend = get_backend("pgvector", dsn="...", pool_min=2, pool_max=10)
-```
-
-| Capability | Value |
-|------------|-------|
-| Hybrid Search | Yes (tsvector + RRF) |
-| Native BM25 | No (uses tsvector/tsquery) |
-| JSON Filters | Yes (JSONB operators) |
-| Dynamic Schema | No |
-| Max Batch Size | 5000 |
-| Max Vector Dim | 16000 |
-| Connection Pooling | Built-in (psycopg_pool) |
-| HNSW + IVF Indexes | Yes |
-
-### OpenSearch
-
-Full search engine with native Lucene BM25 + k-NN vector hybrid search. Unlike vector DBs, OpenSearch provides production-grade text search (30+ language analyzers, fuzzy matching, phrase search) fused server-side with dense vector similarity in a single query.
-
-```python
-# Local dev
-backend = get_backend("opensearch", hosts=["http://localhost:9200"])
-
-# With authentication
-backend = get_backend("opensearch", hosts=["https://search.example.com:9200"],
-                      http_auth=("user", "pass"), use_ssl=True)
-
-# With language-specific BM25 (German stemming, stop-words, etc.)
-backend = get_backend("opensearch", language="german")
-```
-
-| Capability | Value |
-|------------|-------|
-| Hybrid Search | Yes (native Lucene BM25 + k-NN, server-side fusion) |
-| Native BM25 | Yes (Lucene — 30+ language analyzers, fuzzy, phrase) |
-| Fuzzy Matching | Yes (Levenshtein distance, catches typos) |
-| Phrase Boosting | Yes (exact phrases rank higher) |
-| Highlighting | Yes (returns matching text spans for citations) |
-| Multi-Search | Yes (_msearch — batch queries in 1 round-trip) |
-| JSON Filters | Yes |
-| Dynamic Schema | Yes |
-| Max Batch Size | 10000 |
-| Max Vector Dim | 16000 |
-| k-NN Engines | FAISS, Lucene, NMSLIB |
-
-## Abstract Interface
-
-All backends implement `VectorStoreAdapter` — 14 abstract methods covering the complete lifecycle:
-
-### Connection
-
-```python
-backend.connect()           # Establish connection (thread-safe, double-checked locking)
-backend.disconnect()        # Close connection
-backend.is_connected()      # Check status
-```
-
-### Collection Management
-
-```python
-backend.has_collection("my_collection")     # Check existence
-backend.create_collection(name, schema, index_config)
-backend.drop_collection(name)
-backend.describe_collection(name)           # -> CollectionInfo
-backend.get_collection_stats(name)          # -> {"row_count": ...}
-backend.describe_fields(name)               # -> field definitions, without counting rows
-backend.session_filter(name, session_id)    # -> the FilterExpression for one session's rows
-```
-
-### Data Operations
-
-```python
-# Insert (single or batch)
-ids = backend.insert("my_collection", documents)
-
-# Delete by filter
-count = backend.delete("my_collection", FilterExpression.eq("doc_id", "abc"))
-
-# Query by filter (non-vector)
-results = backend.query("my_collection", filter_expr, output_fields, limit)
-```
-
-### Vector Search
-
-```python
-# Dense search
-results = backend.search(
-    collection_name="my_collection",
-    query_embedding=[0.1, 0.2, ...],
-    filter_expr=FilterExpression.eq("session_id", "user123"),
-    limit=10,
-    output_fields=["content", "document_id", "metadata"],
+backend.create_collection(
+    "demo",
+    create_abstract_rag_schema(4),  # chunk_id, document_id, session_id, content, embedding, metadata
+    IndexConfig(index_type=IndexType.FLAT, metric_type=MetricType.COSINE),
 )
+backend.insert("demo", [
+    {"chunk_id": "c1", "document_id": "d1", "session_id": "s1",
+     "content": "zebrafish hearts regenerate", "embedding": [1, 0, 0, 0], "metadata": {}},
+    {"chunk_id": "c2", "document_id": "d2", "session_id": "s2",
+     "content": "mouse hearts scar", "embedding": [0.9, 0.1, 0, 0], "metadata": {}},
+])
+backend.flush("demo")
 
-# Hybrid search (dense + BM25, if supported)
-if backend.capabilities.supports_hybrid_search:
-    results = backend.hybrid_search(
-        collection_name="my_collection",
-        query_text="search terms",
-        query_embedding=[0.1, 0.2, ...],
-        alpha=0.7,  # 0.7 dense / 0.3 sparse
-    )
+hits = backend.search(
+    "demo",
+    query_embedding=[1, 0, 0, 0],
+    filter_expr=FilterExpression.eq("session_id", "s1"),
+    limit=5,
+    output_fields=["content", "document_id"],
+)
+for hit in hits:
+    print(hit.id, hit.score, hit.document_id, hit.content)
+
+backend.delete("demo", FilterExpression.eq("document_id", "d1"))
 ```
 
-### Search Results
+The same code runs on Qdrant with `get_backend("qdrant", path="/tmp/demo_qdrant")`.
 
-Every backend returns normalized `VectorSearchResult` objects:
+Other methods: `disconnect`, `is_connected`, `has_collection`, `drop_collection`,
+`describe_collection`, `get_collection_stats`, `create_index`, `list_indexes`,
+`query` (filter only, with `limit` and `offset`). With defaults you can
+override: `hybrid_search`, `iter_all` (every matching row, page by page),
+`list_document_ids`, `session_filter`, `describe_fields`, `async_search`,
+`async_insert`, the partition methods, `flush` and `compact`.
 
-```python
-for r in results:
-    r.id            # Unique ID (int or str)
-    r.score         # Normalized similarity [0, 1], higher = better
-    r.entity        # Dict of all fields
-    r.document_id   # Shortcut for entity["document_id"]
-    r.content       # Shortcut for entity["content"]
-    r.metadata      # Shortcut for entity["metadata"]
-    r.distance      # 1 - score (lower = better)
-```
+Each hit is a `VectorSearchResult` with `id`, `score` (higher is better),
+`entity` (the returned fields), the shortcuts `document_id`, `content`,
+`metadata`, `embedding`, and `distance` (`max(0, 1 - score)`).
 
-## Filter Expression System
+**Scores.** Milvus, Qdrant, Pinecone, and the dense paths of Weaviate and
+PgVector convert raw scores with `normalize_score()`: cosine similarity
+`s` becomes `(s + 1) / 2`, cosine distance `d` becomes `1 - d/2`, L2 distance
+becomes `1 / (1 + d)`, and inner product is kept as is (floored at 0, so it can
+exceed 1). OpenSearch returns its own scores unchanged (BM25 scores are
+unbounded). Native hybrid results carry the backend's fused score. Compare
+scores within one backend, not across backends.
 
-Write filters once — they translate to native syntax for each backend automatically.
+`capabilities` is a `BackendCapabilities` dataclass;
+`backend.supports_feature("hybrid_search")` checks a flag by name and
+`backend.get_effective_batch_size(n)` caps `n` at the backend's batch limit.
+Field names are constants on `Fields` (`CHUNK_ID`, `DOCUMENT_ID`, `SESSION_ID`,
+`CONTENT`, `EMBEDDING`, `METADATA`).
 
-### Creating Filters
+## Filters
+
+`FilterExpression` (`filters.py`) is written once and translated per backend.
 
 ```python
 from lasagna.vector_backends import FilterExpression
 
-# Comparison
-FilterExpression.eq("field", "value")       # ==
-FilterExpression.ne("field", "value")       # !=
-FilterExpression.gt("field", 10)            # >
-FilterExpression.gte("field", 10)           # >=
-FilterExpression.lt("field", 100)           # <
-FilterExpression.lte("field", 100)          # <=
+FilterExpression.eq("session_id", "s1")          # also ne, gt, gte, lt, lte
+FilterExpression.in_list("document_id", ["d1", "d2"])   # also not_in_list
+FilterExpression.like("content", "%heart%")
+FilterExpression.prefix("document_id", "doc_")
+FilterExpression.json_eq("metadata", "source", "pubmed")
+FilterExpression.json_contains("metadata", "tags", "biology")
 
-# Collections
-FilterExpression.in_list("field", [1, 2, 3])
-FilterExpression.not_in_list("field", [4, 5])
-
-# String matching
-FilterExpression.like("field", "%pattern%")
-FilterExpression.prefix("field", "pre")
-
-# JSON nested fields
-FilterExpression.json_eq("metadata", "source", "doc1")
-FilterExpression.json_contains("metadata", "tags", "python")
-
-# Composition (operator overloads)
-expr = (
-    FilterExpression.eq("session_id", "user123")
-    & FilterExpression.gte("score", 0.5)
-    | FilterExpression.eq("status", "active")
-)
+expr = (FilterExpression.eq("session_id", "s1") & FilterExpression.gte("page", 2)) | FilterExpression.eq("pinned", True)
 negated = ~FilterExpression.eq("archived", True)
 ```
 
-### Translation Examples
+`FilterExpression.eq("session_id", "s1")` becomes:
 
-```python
-expr = FilterExpression.eq("session_id", "user123")
-```
-
-| Backend | Native Format |
-|---------|---------------|
-| Milvus | `session_id == "user123"` |
-| Qdrant | `{"key": "session_id", "match": {"value": "user123"}}` |
-| Pinecone | `{"session_id": {"$eq": "user123"}}` |
-| Weaviate | `{"path": ["session_id"], "operator": "Equal", "valueText": "user123"}` |
-| PgVector | `WHERE session_id = %s` (parameterized) |
-| OpenSearch | `{"term": {"session_id": {"value": "user123"}}}` |
-
-### Operator Support Matrix
+| Backend | Native form |
+| --- | --- |
+| Milvus | `session_id == "s1"` |
+| Qdrant | `{"key": "session_id", "match": {"value": "s1"}}` |
+| Pinecone | `{"session_id": {"$eq": "s1"}}` |
+| Weaviate | `Filter.by_property("session_id").equal("s1")` (weaviate-client v4) |
+| PgVector | `session_id = %s` with parameters `["s1"]` |
+| OpenSearch | `{"term": {"session_id": {"value": "s1"}}}` |
 
 | Operator | Milvus | Qdrant | Pinecone | Weaviate | PgVector | OpenSearch |
-|----------|--------|--------|----------|----------|----------|------------|
-| EQ / NE | Yes | Yes | Yes | Yes | Yes | Yes |
-| GT / GTE / LT / LTE | Yes | Yes | Yes | Yes | Yes | Yes |
-| IN / NOT_IN | Yes | Yes | Yes | Yes | Yes | Yes |
-| LIKE | Yes | Yes | - | Yes | Yes | Yes |
-| PREFIX | Yes | Yes | - | Yes | Yes | Yes |
-| AND / OR / NOT | Yes | Yes | Partial | Yes | Yes | Yes |
-| JSON_EQ | Yes | Yes | - | - | Yes | Yes |
-| JSON_CONTAINS | Yes | Yes | - | - | Yes | Yes |
+| --- | --- | --- | --- | --- | --- | --- |
+| EQ, NE, GT, GTE, LT, LTE | yes | yes | yes | yes | yes | yes |
+| IN, NOT_IN | yes | yes | yes | yes | yes | yes |
+| LIKE, PREFIX | yes | full-text match | no | yes | yes | yes |
+| AND, OR, NOT | yes | yes | NOT only over EQ, IN, AND, OR | yes | yes | yes |
+| JSON_EQ, JSON_CONTAINS | yes | yes | no | no | yes | yes |
 
-Unsupported operators raise `UnsupportedFilterError` with the operator and backend name — never silently dropped.
+An operator a backend cannot express raises `UnsupportedFilterError` naming the
+operator and backend; it is never dropped. `in_list` and `not_in_list` accept
+at most 1,000 values, and JSON keys must start with a letter or underscore and
+contain only letters, digits, `_` and `-` (at most 256 characters); both are
+checked when the expression is built. The Milvus translator rejects field names
+that are not identifiers, strings over 65,535 characters, NaN and infinity, and
+control characters other than newline, carriage return and tab, and escapes
+quotes and backslashes. PgVector passes every value as a query parameter.
+`tests/test_filter_injection.py` checks that a value cannot change the filter.
 
-### Security
+## Registry and pooling
 
-Filter expressions enforce input validation at construction time:
-- String values capped at 65,535 characters
-- JSON keys validated (alphanumeric + underscore/hyphen, max 256 chars)
-- Control characters escaped (null bytes, tabs, newlines)
-- NaN/Inf rejected for numeric values
-- List values limited to 1,000 items
-- PgVector uses parameterized queries (`%s`) — no SQL injection possible
+`registry.py` holds one `BackendRegistry` per process. `get_backend(name, **kwargs)`
+returns the same instance for the same name and arguments (keyed by a hash of
+the arguments); `singleton=False` builds a new one. `get_available_backends()`
+lists the backends whose client library is installed. With
+`connection_pool_size` above 1 (or `get_backend(..., pool_size=n)`), the backend
+is wrapped in `PooledVectorBackend` (`pool.py`), which spreads calls over `n`
+connections. Instances are cached until `BackendRegistry().clear_instances()` or
+a restart, so an abandoned backend keeps its connection.
 
-## Backend Registry
+## Add a backend
 
-The `BackendRegistry` is an **in-process Python singleton** — not a server, no port, no network. It's a dictionary that caches backend instances by `name + MD5(config)` so the same configuration always returns the same connected client:
-
-```python
-from lasagna.vector_backends import (
-    get_backend,
-    get_available_backends,
-    register_backend,
-)
-
-# List available backends (only those whose client library is installed)
-print(get_available_backends())  # ['milvus', 'qdrant', 'pinecone', 'weaviate', 'pgvector', 'opensearch']
-
-# Get or create (cached by name + config hash)
-# "qdrant" needs pip install "lasagna-rag[vector-backends]"
-backend = get_backend("qdrant", url="http://localhost:6333")
-
-# Same config returns same instance (singleton)
-backend2 = get_backend("qdrant", url="http://localhost:6333")
-assert backend is backend2
-
-# Different config returns different instance
-backend3 = get_backend("qdrant", url="http://other-host:6333")
-assert backend is not backend3
-
-# Register a custom backend
-register_backend("my_custom_db", MyCustomBackend)
-```
-
-### Adding a New Backend
-
-Implement `VectorStoreAdapter` and register it:
+Subclass `VectorStoreAdapter`, implement the abstract members, and register it:
 
 ```python
-from lasagna.vector_backends.base import (
-    VectorStoreAdapter,
-    BackendCapabilities,
-    VectorSearchResult,
-    CollectionSchema,
-    CollectionInfo,
-    IndexConfig,
-)
-from lasagna.vector_backends.filters import FilterExpression
-from lasagna.vector_backends import get_backend, register_backend
+from lasagna.vector_backends import BackendCapabilities, VectorStoreAdapter, get_backend, register_backend
+from lasagna.vector_backends.base import CollectionInfo
+
 
 class ChromaBackend(VectorStoreAdapter):
-
     @property
     def backend_name(self) -> str:
         return "chroma"
 
     @property
     def capabilities(self) -> BackendCapabilities:
-        return BackendCapabilities(
-            supports_hybrid_search=False,
-            supports_json_filters=True,
-            max_batch_size=5000,
-        )
+        return BackendCapabilities(supports_hybrid_search=False, max_batch_size=5000)
 
     def connect(self) -> None: ...
     def disconnect(self) -> None: ...
     def is_connected(self) -> bool: ...
-    def has_collection(self, name: str) -> bool: ...
-    def create_collection(self, name, schema, index_config=None) -> None: ...
-    def drop_collection(self, name: str) -> None: ...
-    def describe_collection(self, name: str) -> CollectionInfo: ...
-    def get_collection_stats(self, name: str) -> dict: ...
-    def create_index(self, name, field, config) -> None: ...
-    def list_indexes(self, name: str) -> list: ...
-    def insert(self, name, data) -> list: ...
-    def delete(self, name, filter_expr) -> int: ...
-    def query(self, name, filter_expr=None, output_fields=None, limit=100, offset=0) -> list: ...
-    def search(self, name, query_embedding, **kwargs) -> list: ...
+    def has_collection(self, collection_name) -> bool: ...
+    def create_collection(self, collection_name, schema, index_config=None) -> None: ...
+    def drop_collection(self, collection_name) -> None: ...
+    def describe_collection(self, collection_name) -> CollectionInfo: ...
+    def get_collection_stats(self, collection_name) -> dict: ...
+    def create_index(self, collection_name, field_name, index_config) -> None: ...
+    def list_indexes(self, collection_name) -> list: ...
+    def insert(self, collection_name, data, partition_key=None) -> list: ...
+    def delete(self, collection_name, filter_expr, partition_key=None) -> int: ...
+    def query(self, collection_name, filter_expr=None, output_fields=None,
+              limit=100, offset=0, partition_key=None) -> list: ...
+    def search(self, collection_name, query_embedding, vector_field="embedding",
+               filter_expr=None, limit=10, output_fields=None,
+               search_params=None, partition_key=None) -> list: ...
 
-# Register and use
+
 register_backend("chroma", ChromaBackend)
 backend = get_backend("chroma")
 ```
 
-Add a filter translator in `filters.py` if the backend needs custom filter syntax:
+Translate `FilterExpression` trees in your backend (PgVector keeps its
+translator in `pgvector_backend.py`; the others are in `filters.py`). Override
+`list_document_ids` if your store can list distinct document ids natively: the
+orphan detector calls it, and the default scans every row through `query()`.
+Backends that need UUID ids derive them with `uuid5(LASAGNA_UUID_NAMESPACE, id)`
+(Qdrant and Weaviate do). An installed package named `lasagna_vector_<name>`
+with a `register_backend(registry)` function is registered when you call
+`discover_backends()` from `lasagna.vector_backends.registry`.
 
-```python
-class _ChromaTranslator:
-    @classmethod
-    def translate(cls, expr: FilterExpression) -> dict:
-        # Convert FilterExpression to Chroma's native format
-        ...
+## Tests
 
-# Then add to FilterExpression:
-def to_chroma(self) -> dict:
-    return _ChromaTranslator.translate(self)
-```
-
-## Per-Session Backend Switching
-
-The system supports switching backends per user session at runtime — configured from the UI or SDK:
-
-```
-Session A (Milvus)  ──┐
-                      │    RAGBackend._resolve_backend(session_id)
-Session B (Qdrant)  ──┤              │
-                      │    BackendRegistry (cached instances)
-Session C (PgVector) ─┘              │
-                              ┌──────┴──────┐
-                          Fast Path     Slow Path
-                       (same as default)  (different)
-                              │              │
-                     self._vector_backend  get_backend(name, **config)
-                                             │
-                                    connect + ensure collection
-                                    (thread-safe, LRU bounded)
-```
-
-**Key behaviors:**
-- **Zero overhead** for sessions using the default backend (fast path)
-- **Lazy initialization** — collections created on first access, not on config change
-- **Thread-safe** — `_collection_init_lock` prevents duplicate initialization
-- **Bounded memory** — LRU eviction at 500 initialized collections (oldest 10% evicted)
-- **Correct deletion** — SQLite tracks `vector_backend_name` per document, so deletions target the right backend even after switching
-
-**Limitations:**
-
-- Switching `vector_backend` at runtime does NOT migrate existing data. Documents indexed in the previous backend remain there.
-- The registry singleton caches instances — a full restart is needed to reclaim connections from an abandoned backend.
-
-## Capability Detection
-
-Check what a backend supports before using advanced features:
-
-```python
-caps = backend.capabilities
-
-# Feature flags
-caps.supports_hybrid_search      # Dense + sparse search
-caps.supports_native_bm25        # Built-in BM25
-caps.supports_sparse_vectors     # Sparse vector storage
-caps.supports_gpu                # GPU acceleration
-caps.supports_json_filters       # JSON field filtering
-caps.supports_dynamic_schema     # Schema-less fields
-
-# Limits
-caps.max_batch_size              # Max docs per insert
-caps.max_varchar_length          # Max string field length
-caps.max_vector_dimension        # Max embedding dimension
-
-# Convenience
-backend.supports_feature("hybrid_search")   # String-based check
-backend.get_effective_batch_size(5000)       # Clamps to backend limit
-```
-
-## Score Normalization
-
-All backends normalize scores to a consistent `[0, 1]` similarity range via `normalize_score()`:
-
-| Metric | Raw Range | Normalized |
-|--------|-----------|------------|
-| Cosine similarity | [-1, 1] | [0, 1] |
-| Cosine distance | [0, 2] | [0, 1] |
-| L2 distance | [0, inf) | [0, 1] via `1/(1+d)` |
-| Inner product | (-inf, inf) | [0, 1] clamped |
-
-This ensures that `result.score = 0.85` means the same thing regardless of which backend produced it.
-
-## Field Name Constants
-
-Use the `Fields` class instead of magic strings:
-
-```python
-from lasagna.vector_backends import Fields
-
-Fields.CHUNK_ID      # "chunk_id"
-Fields.DOCUMENT_ID   # "document_id"
-Fields.SESSION_ID    # "session_id"
-Fields.CONTENT       # "content"
-Fields.EMBEDDING     # "embedding"
-Fields.METADATA      # "metadata"
-```
-
-## Configuration
-
-Vector backend is configurable via multiple surfaces:
-
-| Surface | How |
-|---------|-----|
-| Environment variable | `RAG_VECTOR_BACKEND=pgvector` |
-| TOML config | `vector_backend = "pgvector"` in `settings.lasagna.toml` |
-| SDK | `KnowledgeConfig(vector_backend="pgvector")` |
-| REST API | `PATCH /api/v1/config {"vector_backend": "pgvector"}` |
-| CLI | `lasagna init` interactive wizard |
-| Session override | `session_config.set_vector_backend("qdrant")` |
-
-Valid values: `milvus`, `qdrant`, `pinecone`, `weaviate`, `pgvector`, `opensearch`
-
-## Testing
-
-The test suite validates every backend against the same contract:
-
-| Test File | Tests | Coverage |
-|-----------|-------|----------|
-| `test_vector_backends.py` | 43 | Filter translation, capabilities, base class |
-| `test_backend_resolution.py` | 23 | Resolution, concurrency, LRU eviction |
-| `test_backend_contract.py` | 101 | Full CRUD + search across all backends |
-| `test_backend_switching.py` | 9 | Data isolation, cross-backend consistency |
-| `test_reranking_quality.py` | 16 | Reranking pipeline integration |
-| **Total** | **192** | |
+[`tests/test_vector_backend_conformance.py`](../../../tests/test_vector_backend_conformance.py)
+asserts one contract (collections, insert and search, filters, delete, paging,
+declared capabilities) against every backend it can reach, and skips the others
+with the reason. It finds them through environment variables:
+`LASAGNA_MILVUS_DB_PATH` or `LASAGNA_MILVUS_URI`, `QDRANT_PATH` or `QDRANT_URL`,
+`PGVECTOR_DSN`, `WEAVIATE_URL`, `OPENSEARCH_HOSTS`. Pinecone is left out because
+running it creates billable cloud resources.
 
 ```bash
-# Run all vector backend tests
-pytest tests/unit/test_vector_backends.py tests/unit/test_backend_resolution.py -v
-
-# Run integration tests (requires Qdrant + Milvus Lite)
-pytest tests/integration/knowledge/ -v
-
-# Run everything
-pytest tests/unit/test_backend_resolution.py tests/unit/test_vector_backends.py \
-       tests/unit/test_reranking_quality.py tests/integration/knowledge/ -q
+LASAGNA_MILVUS_DB_PATH=/tmp/conf_milvus.db QDRANT_PATH=/tmp/conf_qdrant \
+  pytest tests/test_vector_backend_conformance.py -q
 ```
 
-## Design Overview
+The `Tests` workflow (`.github/workflows/tests.yml`) runs that command's
+equivalent against Milvus Lite and Qdrant's local mode, both in-process, on
+every push to `main` and every pull request. PgVector, Weaviate and OpenSearch
+run in the suite only when you point it at a service. In the same workflow,
+`tests/test_opensearch_backend.py` and `tests/test_pgvector_backend.py` test
+those two backends against mocked clients.
 
-### Layered Architecture
+## Files
 
-The vector backends package has four layers:
-
-1. **Contract Layer** (`base.py`): The `VectorStoreAdapter` ABC defines 14 abstract methods plus optional methods with defaults (hybrid search, async operations, partitions). `VectorSearchResult` enforces normalized `[0, 1]` similarity scores. `BackendCapabilities` enables runtime feature detection.
-
-2. **Filter Layer** (`filters.py`): A portable AST (`FilterExpression`) with factory methods (`eq`, `in_list`, `json_eq`) and operator overloads (`&`, `|`, `~`). Six backend translators (Milvus, Qdrant, Pinecone, Weaviate, PgVector, OpenSearch) convert the AST to native syntax. Input validation prevents injection at construction time.
-
-3. **Implementation Layer** (6 backends): Each backend implements the ABC, translates filters via the filter layer, normalizes scores via `normalize_score()`, and handles connection lifecycle with thread-safe double-checked locking.
-
-4. **Infrastructure Layer** (`registry.py`, `pool.py`): The singleton registry manages backend class registration, instance caching by config hash, and plugin discovery. The connection pool wraps any backend for parallel search across multiple connections using a semaphore-bounded deque.
-
-### Key Design Decisions
-
-- **Immutable filter AST**: `FilterExpression` objects are composed at construction time; translation is deferred to the point of use, keeping filters backend-agnostic until the last moment.
-- **Score normalization as a contract**: The base class provides `normalize_score()` and all backends must produce `[0, 1]` similarity — callers never need to know which metric type the backend uses internally.
-- **Singleton registry with config-hash keying**: Same `(name, config)` tuple always returns the same instance, preventing connection proliferation while allowing different configs to coexist.
-- **Capability-based degradation**: Callers check `caps.supports_hybrid_search` before calling `hybrid_search()`; the base class provides a dense-only fallback for backends that don't support it.
-- **Shared UUID namespace**: Backends that require UUID-format IDs (Qdrant, Weaviate) use a shared `LASAGNA_UUID_NAMESPACE` for deterministic conversion, ensuring the same string ID maps to the same UUID across backends.
+| File | Contents |
+| --- | --- |
+| `base.py` | `VectorStoreAdapter`, `BackendCapabilities`, `VectorSearchResult`, schema and index dataclasses, `Fields` |
+| `filters.py` | `FilterExpression` and the Milvus, Qdrant, Pinecone, Weaviate and OpenSearch translators |
+| `registry.py` | `BackendRegistry`, `get_backend`, default configuration per backend, plugin discovery |
+| `pool.py` | `PooledVectorBackend` |
+| `_pymilvus.py` | Imports pymilvus without letting it read a `.env` file |
+| `milvus_backend.py`, `qdrant_backend.py`, `pinecone_backend.py`, `weaviate_backend.py`, `pgvector_backend.py`, `opensearch_backend.py` | The six backends |

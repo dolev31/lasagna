@@ -1,4 +1,4 @@
-# MCP Server — Lasagna
+# Lasagna MCP server
 
 MCP server exposing the RAG knowledge base as 31 tools for search, document management, runtime configuration, and document lifecycle management. Works with Claude Code, Claude Desktop, Cursor, and any MCP client.
 
@@ -76,7 +76,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | `search` | Runs the session's retrieval pipeline (hybrid search, reranking, MMR, HyDE, routing and agentic multi-hop, each as the session config sets it). Returns context with inline citations and a `<search_metadata>` JSON block. |
 | `search_knowledge` | **Deprecated** alias for `search`, kept for one release cycle. Listed only under `all` |
 | `search_with_context` | **Deprecated** alias for `search`, kept for one release cycle. Listed only under `all` |
-| `get_document_context` | Document awareness for agent prompts — describes available docs and gives adaptive search guidance |
+| `get_document_context` | Document awareness for agent prompts: describes available docs and gives adaptive search guidance |
 
 ### Documents (6 tools)
 
@@ -93,11 +93,11 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 
 | Tool | Description |
 | ---- | ----------- |
-| `archive_document` | Soft-delete a document — recoverable during grace window, excluded from search immediately |
+| `archive_document` | Soft-delete a document: recoverable during the grace window, excluded from search immediately |
 | `restore_document` | Restore a soft-deleted document to READY state (must be within grace window) |
 | `bulk_delete_session` | Hard-delete all documents in a session; requires `confirm=True` *(all only)* |
-| `get_gc_status` | Last GC run report — phases, counts, quota sync status |
-| `get_lifecycle_policy` | Read the session's retention policy — grace window, quotas, GC schedule |
+| `get_gc_status` | Last GC run report: phases, counts, quota sync status |
+| `get_lifecycle_policy` | Read the session's retention policy: grace window, quotas, GC schedule |
 | `set_lifecycle_policy` | Change retention for the session; affects what archive and GC do |
 
 ### Session
@@ -113,7 +113,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | Tool | Description |
 | ---- | ----------- |
 | `get_rag_config` | Full resolved config for session (profile + overrides) |
-| `patch_rag_config` | Apply runtime overrides — pass JSON like `{"enable_reranking": false}` |
+| `patch_rag_config` | Apply runtime overrides: pass JSON like `{"enable_reranking": false}` |
 | `reset_rag_config` | Reset to defaults. `scope="active"` clears overrides, `"all"` full reset *(all only)* |
 | `list_profiles` | List built-in + custom profiles |
 | `get_active_profile` | Current active profile name |
@@ -126,7 +126,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 
 | Tool | Description |
 | ---- | ----------- |
-| `get_system_status` | Health check — vector DB connection, embeddings, features, storage |
+| `get_system_status` | Health check: vector DB connection, embeddings, features, storage |
 | `rebuild_collection` | Drop and recreate vector collection (needed when embedding dim changes) *(all only)* |
 | `reindex_document` | Re-process a document with current chunking/embedding settings. `force_rebuild=true` recreates the collection at the configured embedding size only while it is empty; a collection holding documents is never dropped from here |
 
@@ -136,58 +136,62 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 
 When resolving a config value, the first source that defines it wins:
 
-```text
-1. Per-request params     →  top_k, use_hyde, routing_tier (tool arguments)
-2. Session overrides      →  patch_rag_config (persists for session)
-3. Active profile         →  set_active_profile (named config preset)
-4. TOML defaults          →  settings.lasagna.toml (base)
-```
+1. Tool arguments: `top_k`, `use_hyde`, `routing_tier` and the like, for one call.
+2. The session: `set_active_profile` and `patch_rag_config` (or `lasagna configure
+   -s SESSION`), stored in the metadata database, so they persist across restarts.
+3. The environment: `LASAGNA_<NAME>` or `RAG_<NAME>`, as the server process sees it.
+4. The settings file: the packaged `settings.lasagna.toml`, or `--config-file`.
+
+[Configuration](../../../docs/configuration.md#where-a-setting-comes-from) explains
+the same order for every surface.
 
 ### Built-in Profiles
 
 | Profile | Description |
 | ------- | ----------- |
-| **default** | Settings from `settings.lasagna.toml` as-is |
-| **speed** | Vector-only search, no reranking/hybrid/HyDE. MiniLM-L6-v2. Lowest latency |
-| **standard** | BGE-M3, hybrid search, reranking, MMR, agentic RAG. Good balance |
-| **balanced** | Standard + hierarchical chunking, structured graph, adaptive routing |
-| **max_quality** | All features: HyDE, query expansion, RAG Fusion, CRAG, contextual retrieval |
+| **default** | Settings from `settings.lasagna.toml` as they are |
+| **speed** | Vector-only search with all-MiniLM-L6-v2; no reranking, hybrid search, HyDE or LLM call |
+| **standard** | BGE-M3, hybrid search, reranking, MMR, query routing with agentic RAG |
+| **balanced** | Standard plus hierarchical chunking, the structured graph and adaptive routing |
+| **max_quality** | Balanced plus HyDE, query expansion, RAG fusion, CRAG and contextual retrieval |
+
+What each downloads and when it calls an LLM is in
+[Configuration](../../../docs/configuration.md#profiles).
 
 ### Configuration Surfaces
 
 | Surface | Scope | Description |
 | ------- | ----- | ----------- |
 | `settings.lasagna.toml` | Global | Base defaults, loaded at startup |
-| `RAG_SETTINGS_FILE` env | Global | Override TOML file path |
-| CLI args | Server | `--transport`, `--tools`, `--host`, `--port`, `--lazy-init`, `--log-level`, `--config-file` |
+| `LASAGNA_SETTINGS_FILE` or `RAG_SETTINGS_FILE` env | Global | Override TOML file path |
+| CLI args | Server | `--transport`, `--tools`, `--host`, `--port`, `--lazy-init`, `--eager-init`, `--log-level`, `--config-file`, `--db-dir`, `--upload-dir`, `--session-backend` |
 | MCP config tools | Per-session | `patch_rag_config`, `set_active_profile`, etc. |
 | REST API | Per-session | `/api/v1/config`, `/api/config/knowledge` |
 | Configurator UI | Per-session | Interactive web UI at `/configurator` |
 | SDK `KnowledgeConfig` | Programmatic | Python dataclass with preset factories |
 
-### Config Categories (120+ parameters)
+### Settings
 
-- **Embedding** — model, dim, backend, GPU, batch size, normalization
-- **Chunking** — strategy (fixed/semantic/sentence_window), sizes, overlap, hierarchical
-- **Search** — top_k, threshold, hybrid alpha, MMR lambda, query routing
-- **Reranking** — model, batch size, custom reranker
-- **Agentic RAG** — max iterations, temperature, HyDE strategy, refinement
-- **Citations** — format, verification, page numbers, DB tracking
-- **Document awareness** — enrichment strategy, token count, caching
-- **Infrastructure** — cache TTLs, OCR engine, Prometheus, OpenTelemetry
+`patch_rag_config` takes any setting in
+[the settings reference](../../../docs/reference/settings.md): embedding, chunking,
+search, reranking, agentic RAG, citations, document awareness and infrastructure.
 
 ## Quick Start
 
-Start the server on a port:
+A client that launches the server (Claude Code, Claude Desktop, Cursor) runs it
+over stdio, the default; see [Claude Desktop](#claude-desktop). To serve several
+clients from one process, start it on a port:
 
 ```bash
 lasagna-mcp --transport sse --host 127.0.0.1 --port 8005
 ```
 
-> **Binding to `0.0.0.0` publishes the tool surface.** The server has no
-> authentication of its own, so put a reverse proxy in front of it and let that
-> terminate TLS and authenticate — do not expose it directly. The default bind
-> is `127.0.0.1` deliberately.
+> **Binding to `0.0.0.0` publishes the tool surface.** Without
+> `RAG_REQUIRE_AUTH=true` any client that reaches the port can call every tool
+> in the served set, and the server refuses a non-loopback bind unless auth is
+> on (or `RAG_BIND_IS_PROTECTED=true` says something else protects it). With
+> auth on, tools need a `session_token` issued by `POST /api/v1/sessions`. Put
+> a reverse proxy in front for TLS. The default bind is `127.0.0.1`.
 >
 > The `/docs` page's "try it" button is powered by an unauthenticated
 > `POST /api/call` that can invoke **any** tool, including deletion. It is off
@@ -210,25 +214,31 @@ asyncio.run(main())
 
 ### Claude Desktop
 
-Add to `claude_desktop_config.json`:
+Add to `claude_desktop_config.json` (Claude Code reads the same block from
+`.mcp.json` in the project):
 
 ```json
 {
   "mcpServers": {
     "lasagna": {
       "command": "lasagna-mcp",
-      "args": ["--transport", "stdio"]
+      "env": { "RAG_SESSION_ID": "my-corpus" }
     }
   }
 }
 ```
 
+`RAG_SESSION_ID` is the session a tool call uses when it names none, so the
+agent searches the documents uploaded with `lasagna upload FILE -s my-corpus`.
+If `lasagna-mcp` is not on the client's `PATH`, give its absolute path inside
+your virtualenv. Add `"args": ["--tools", "all"]` to serve the deletion tools.
+
 ## HTTP Endpoints (SSE mode)
 
 | Endpoint | Description |
 | -------- | ----------- |
-| `/` | Welcome page — server info, feature overview, links |
-| `/docs` | Interactive docs — test any tool in-browser |
+| `/` | Welcome page: server info, feature overview, links |
+| `/docs` | Interactive docs; the in-browser tool tester needs `--enable-docs-api` |
 | `/health` | Health check (JSON) |
 | `/sse` | MCP SSE transport endpoint |
 | `/api/call` | Direct tool invocation for the docs UI (no authentication) |
