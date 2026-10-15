@@ -19,6 +19,7 @@ import json
 
 from lasagna.knowledge_evaluation_sdk.bundle import (
     HELD_FIXED_FIELDS,
+    METRICS_VERSION,
     build_bundle,
     comparability_key,
     compare_keys,
@@ -77,7 +78,9 @@ def _sweep(held=None, manifest=True, submitter="labX", values=(0.6684, 0.5709)):
                 values[1] + 0.01 * run,
             )
         )
-    results = BenchmarkResults(rows, "sweep", {"n_runs": 2, "system": {}})
+    results = BenchmarkResults(
+        rows, "sweep", {"n_runs": 2, "system": {}, "metrics_version": METRICS_VERSION}
+    )
     return build_bundle(results, submitter={"name": submitter})
 
 

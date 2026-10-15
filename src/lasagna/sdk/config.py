@@ -82,10 +82,10 @@ class KnowledgeConfig:
     # Storage Paths
     # =========================================================================
     db_path: Optional[str] = None
-    """Where the databases live: a directory, or a file path whose directory is used (the databases in it have fixed names). Applied when the client is first used, if the process has not loaded its configuration yet; otherwise a warning says where they are. Default: RAG_DB_DIR, else ~/.rag_knowledge/dbs"""
+    """Where the databases live: a directory, or a file path whose directory is used (the databases in it have fixed names). Applied when the client is first used, if the process has not loaded its configuration yet; otherwise a warning says where they are. Default: LASAGNA_DB_DIR or RAG_DB_DIR, else ~/.lasagna/dbs"""
 
     upload_dir: Optional[str] = None
-    """Directory for uploaded files, applied the same way as db_path. Default: RAG_UPLOAD_DIR, else ~/.rag_knowledge/uploads"""
+    """Directory for uploaded files, applied the same way as db_path. Default: LASAGNA_UPLOAD_DIR or RAG_UPLOAD_DIR, else ~/.lasagna/uploads"""
 
     # =========================================================================
     # Feature Toggles

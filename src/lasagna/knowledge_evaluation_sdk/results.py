@@ -1560,9 +1560,21 @@ class BenchmarkResults:
         return pd.DataFrame(rows)
 
     def save(self, path: str) -> None:
-        """Persist results to JSON."""
+        """Persist results to JSON.
+
+        The run's provenance lives in ``experiment_config``: the metric
+        definitions and package version it was computed under, the
+        environment (``core.provenance.capture``), the judge, the settings the
+        environment overrode (redacted) and the Hugging Face commit of each
+        model it ran. The two versions are repeated at the top for a reader.
+        They are the run's own: a file loaded without them is saved without
+        them, never stamped with this build's.
+        """
+        meta = self.experiment_config or {}
         data = {
             "experiment_name": self.experiment_name,
+            "metrics_version": meta.get("metrics_version"),
+            "package_version": meta.get("package_version"),
             "experiment_config": self.experiment_config,
             "results": [r.to_dict() for r in self._results],
         }
@@ -1578,10 +1590,14 @@ class BenchmarkResults:
         with open(path) as f:
             data = json.load(f)
         task_results = [TaskResult.from_dict(r) for r in data.get("results", [])]
+        meta = dict(data.get("experiment_config") or {})
+        for name in ("metrics_version", "package_version"):
+            if meta.get(name) is None and data.get(name) is not None:
+                meta[name] = data[name]
         return cls(
             task_results=task_results,
             experiment_name=data.get("experiment_name", ""),
-            experiment_config=data.get("experiment_config", {}),
+            experiment_config=meta,
         )
 
     def compare(self, other: "BenchmarkResults", metric: str = "ndcg@10") -> str:

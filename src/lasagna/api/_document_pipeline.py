@@ -345,6 +345,9 @@ class DocumentPipeline:
                 "expires_at": expires_at,
             },
             file_path,
+            # Each embedding model has its own collection; deleting the
+            # document later must find the one its vectors went to.
+            collection_name=self._get_session_config(document.session_id).collection_name,
         )
 
     # =========================================================================
@@ -1034,7 +1037,8 @@ class DocumentPipeline:
             if not target_backend.is_connected():
                 target_backend.connect()
             target_backend.delete(
-                collection_name=doc.get("collection_name") or rag_config.collection_name,
+                collection_name=doc.get("collection_name")
+                or self._get_session_config(session_id).collection_name,
                 filter_expr=FilterExpression.eq("document_id", document_id),
                 partition_key=partition_key,
             )
@@ -1105,13 +1109,14 @@ class DocumentPipeline:
 
         try:
             backend = self._collection_manager.resolve_backend(session_id)
+            collection = self._get_session_config(session_id).collection_name
 
             filter_expr = FilterExpression.and_(
                 FilterExpression.eq("document_id", document_id),
-                backend.session_filter(rag_config.collection_name, session_id),
+                backend.session_filter(collection, session_id),
             )
             results = backend.query(
-                collection_name=rag_config.collection_name,
+                collection_name=collection,
                 filter_expr=filter_expr,
                 output_fields=["content", "metadata"],
                 limit=limit + offset,

@@ -87,6 +87,12 @@ def _get_secret() -> str:
     return _fallback_secret
 
 
+#: The issuer this server writes into a session token, and the ones it accepts:
+#: tokens minted before 0.1.0 say "rag-knowledge" and stay valid until they expire.
+TOKEN_ISSUER = "lasagna"
+ACCEPTED_ISSUERS = frozenset({TOKEN_ISSUER, "rag-knowledge"})
+
+
 def create_session_token(
     session_id: str,
     user_id: str,
@@ -105,7 +111,7 @@ def create_session_token(
         "sid": session_id,
         "iat": int(now),
         "exp": int(exp),
-        "iss": "rag-knowledge",
+        "iss": TOKEN_ISSUER,
         "typ": "session",
     }
     token = jwt.encode(payload, _get_secret(), algorithm="HS256")
@@ -134,7 +140,7 @@ def decode_session_token(token: str) -> Optional[Tuple[str, str]]:
             algorithms=["HS256"],
             options={"require": ["sub", "sid", "exp", "typ"]},
         )
-        if payload.get("typ") != "session":
+        if payload.get("typ") != "session" or payload.get("iss") not in ACCEPTED_ISSUERS:
             return None
         session_id = payload.get("sid", "")
         user_id = payload.get("sub", "")

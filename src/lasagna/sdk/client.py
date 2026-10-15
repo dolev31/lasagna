@@ -370,12 +370,11 @@ class KnowledgeClient:
         loads. Before that, these two fields choose it. After it they cannot
         move it, and a warning names where the data is going instead. They used
         to be read by nothing, so ``config_for_standalone(db_path=...)`` wrote
-        to ``~/.rag_knowledge`` without a word.
+        to the default data directory without a word.
         """
         cfg = self._config
         if cfg.db_path is None and cfg.upload_dir is None:
             return
-        import os
         import warnings
 
         from .. import providers
@@ -391,12 +390,12 @@ class KnowledgeClient:
         want_up = Path(cfg.upload_dir).expanduser() if cfg.upload_dir else None
 
         if core_config._rag_config is None and providers._config_provider is None:
-            default = Path.home() / ".rag_knowledge"
+            from ..core import paths
+
             providers.set_config_provider(
                 providers.SimpleConfigProvider(
-                    db_dir=want_db or Path(os.environ.get("RAG_DB_DIR", default / "dbs")),
-                    upload_dir=want_up
-                    or Path(os.environ.get("RAG_UPLOAD_DIR", default / "uploads")),
+                    db_dir=want_db or paths.db_dir(),
+                    upload_dir=want_up or paths.upload_dir(),
                     package_root=Path(providers.__file__).parent.parent,
                 )
             )
@@ -413,7 +412,7 @@ class KnowledgeClient:
             warnings.warn(
                 f"KnowledgeConfig {' and '.join(ignored)} could not take effect: this "
                 f"process loaded its configuration before the client was first used, "
-                f"and storage cannot move after that. Set RAG_DB_DIR and RAG_UPLOAD_DIR "
+                f"and storage cannot move after that. Set LASAGNA_DB_DIR and LASAGNA_UPLOAD_DIR "
                 f"before importing lasagna, or make this the first client the process "
                 f"uses.",
                 UserWarning,

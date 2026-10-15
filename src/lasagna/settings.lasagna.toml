@@ -330,6 +330,10 @@ vector_backend = "milvus"
 #   Milvus Standalone: Docker-based, native BM25, production-ready
 #   Milvus Distributed: Kubernetes, native BM25, enterprise-scale
 
+# "rag_documents_v2" means one collection per embedding model, named
+# rag_documents_v2__<model>__<dim>. Any other name is used as given, for every
+# model, and a collection opened with another model than the one that filled it
+# is refused.
 collection_name = "rag_documents_v2"
 metric_type = "COSINE"           # COSINE (normalized) or IP (inner product)
 index_type = "AUTOINDEX"         # AUTOINDEX (auto-select best), FLAT, IVF_FLAT for Milvus Lite; HNSW for Milvus server

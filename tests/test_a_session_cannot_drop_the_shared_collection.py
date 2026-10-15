@@ -145,5 +145,7 @@ def test_a_mismatch_on_an_unreadable_collection_is_refused_not_rebuilt():
         "dropped a collection whose row count could not be read"
     )
     config = SimpleNamespace(collection_name="rag_documents_v2", embedding_dim=768)
-    with pytest.raises(ValueError, match="MISMATCH"):
+    # The refusal's wording changed (0.1.0: no "MISMATCH"/"DELETED" banner);
+    # what it pins is that the collection is refused, not dropped.
+    with pytest.raises(ValueError, match="embedded at 384 dimensions"):
         manager.maybe_reload_embedding_manager(config)

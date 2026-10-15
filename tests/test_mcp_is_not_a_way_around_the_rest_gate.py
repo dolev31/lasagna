@@ -366,9 +366,15 @@ class TestRebuildCollectionIsGuardedLikeWhatItDoes:
         assert "every session" in result
 
     def test_the_collection_really_is_shared(self):
-        """The premise. If collections were ever per-session this guard would
-        be overcautious, and this test should fail rather than the docstring
-        quietly becoming wrong."""
+        """The premise. Since 0.1.0 each embedding model has its own collection,
+        but every session on one model shares it, so a drop still takes other
+        sessions' documents. If collections were ever per-session this guard
+        would be overcautious, and this test should fail rather than the
+        docstring quietly becoming wrong."""
         from lasagna.core.config import rag_config
 
-        assert rag_config.collection_name == "rag_documents_v2"
+        assert (
+            rag_config.with_session("s1").collection_name
+            == rag_config.with_session("s2").collection_name
+            == rag_config.collection_name
+        )
