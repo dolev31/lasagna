@@ -375,20 +375,20 @@ exclude_also = [
 ]
 # Floor, not a target.
 #
-# Measured 2026-08-19 with no external services running, which is what CI sees:
-# 34% combined (statement+branch, the `coverage report` TOTAL). The previous
-# note here said 30.8% and had gone stale, so three different coverage numbers
-# were in circulation across README, this file and the audit report for the same
-# quantity. `branch = true` is on because this package's bugs have
-# overwhelmingly lived in error branches, but the number gated below is the
-# COMBINED total, not branch coverage alone -- branch alone is materially lower,
-# and the README badge used to name it while printing this figure.
+# Measured 2026-10-15 with the pytest line of scripts/ci-local.sh (sockets
+# blocked, no external services, which is what CI sees): 51.3% combined
+# (statement+branch, the `coverage report` TOTAL), 3,437 tests. It was 34% on
+# 2026-08-19 while this floor stayed at 30. `branch = true` is on because this
+# package's bugs have overwhelmingly lived in error branches, but the number
+# gated below is the COMBINED total, not branch coverage alone: branch alone is
+# materially lower, and the README badge used to name it while printing this
+# figure.
 #
-# Set just below the measurement to absorb ordering jitter. This only ever
-# ratchets UP. Lowering it to make a build pass defeats the point: if a change
-# drops coverage, either it added untested code or deleted tested code, and
-# both are worth a conversation.
-fail_under = 30
+# Set two points below the measurement to absorb ordering jitter and the
+# Python-version matrix. This only ever ratchets UP. Lowering it to make a
+# build pass defeats the point: if a change drops coverage, either it added
+# untested code or deleted tested code, and both are worth a conversation.
+fail_under = 49
 
 [tool.ruff]
 line-length = 100

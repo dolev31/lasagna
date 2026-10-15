@@ -46,6 +46,11 @@ UNDECLARED_BY_DESIGN = {
     "browsergym",
     "e2b",
     "tavily",
+    # The agent framework Lasagna was extracted from. Only
+    # integrations/cuga_agent.py uses it, importing cuga.sdk inside each
+    # function so the evaluator can drive a whole CUGA agent; no extra installs
+    # it (the adapter says `pip install cuga`), so a module-level import of it
+    # anywhere would break a clean install.
     "cuga",
 }
 
