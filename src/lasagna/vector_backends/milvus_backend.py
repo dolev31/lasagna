@@ -139,11 +139,10 @@ def _served_by_this_process(db_path: str) -> bool:
     """
     import os
 
-    try:
-        from milvus_lite.server_manager import server_manager_instance
-    except Exception:  # noqa: BLE001 - no milvus_lite, no server of ours
-        return False
-    servers = getattr(server_manager_instance, "_servers", None)
+    # Read, never imported: a process that has not loaded milvus_lite has
+    # started no server (and importing it here would bypass the .env guard).
+    manager = sys.modules.get("milvus_lite.server_manager")
+    servers = getattr(getattr(manager, "server_manager_instance", None), "_servers", None)
     return isinstance(servers, dict) and os.path.abspath(db_path) in servers
 
 
