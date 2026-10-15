@@ -1,7 +1,7 @@
 # Working on Lasagna
 
-Instructions for a coding agent with this repository open. Short on purpose —
-this is what changes your behaviour, not a second README.
+Instructions for a coding agent with this repository open. Short on purpose:
+this is what changes your behavior, not a second README.
 
 Detailed task guides ship as skills. Load them with:
 
@@ -30,7 +30,7 @@ no "should improve recall by ~5%". Run it or say you did not.
 
 **Components must not mutate their inputs.** Deep-copy first. The pipeline may
 hand the same objects to several stages, and in-place edits make results depend
-on execution order — which silently destroys attribution.
+on execution order, which silently destroys attribution.
 
 **A test that passes without the fix is not a test.** After fixing a bug, revert
 the fix and confirm the test fails. Several defects in this repo shipped behind
@@ -39,7 +39,7 @@ tests that never exercised the broken path.
 **Documentation is checked by tests.** `tests/test_documented_claims.py`,
 `tests/test_skills.py` and `tests/test_pypi_readme.py` assert that counts,
 command names and links are real. Changing a CLI command name or a tool count
-means updating the docs in the same commit — the suite will tell you.
+means updating the docs in the same commit; the suite will tell you.
 
 ## Layout
 
@@ -54,7 +54,7 @@ means updating the docs in the same commit — the suite will tell you.
 | `src/lasagna/vector_backends/` | 6 backends behind one adapter interface |
 | `src/lasagna/knowledge_evaluation_sdk/` | benchmarks, metrics, bundles, leaderboard |
 | `src/lasagna/mcp/` | MCP server, 31 tools |
-| `e2e/` | release gate — phases, typed contract, GO/NO-GO |
+| `e2e/` | release gate: phases, typed contract, GO/NO-GO |
 | `hub/` | shared results hub: schema, validator, trust model |
 
 ## Commands
@@ -75,7 +75,7 @@ is an older internal one. New work uses the core registry.
 **Public components need adapting into the pipeline.** The orchestrator calls
 rerankers with an internal signature; `adapt_reranker_for_pipeline` bridges it.
 A component that passes `lasagna component validate` is not thereby proven to
-work in the pipeline — the validator exercises it in isolation.
+work in the pipeline: the validator exercises it in isolation.
 
 **Milvus caps `limit + offset` at 16384.** Never paginate a full scan with
 `query()`. Use `backend.iter_all()`, which uses a native cursor.
@@ -83,8 +83,12 @@ work in the pipeline — the validator exercises it in isolation.
 **Never hard-code a vendor-routed model name** (`Azure/...`, `watsonx/...`) as a
 default. Use `get_default_model_name()`. A test enforces this.
 
-**First run downloads ~5 GB.** Not a hang. `lasagna configure --profile speed`
-uses an 80 MB model instead.
+**First run downloads about 4.5 GB.** Not a hang. `lasagna configure --profile speed`
+uses a 91 MB model instead.
+
+**Retrieval with fixed models is deterministic.** A retrieval-only sweep needs
+`n_runs: 1`; repeat runs only when an LLM stage is in the loop. Configuration
+(which setting wins, where data lives) is in `docs/configuration.md`.
 
 ## Before you commit
 
