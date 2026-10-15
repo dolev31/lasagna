@@ -1722,7 +1722,15 @@ def _run_metadata(cfg: "ExperimentConfig", concurrency: Optional[int] = None) ->
         "rag_overrides": rag_overrides(),
         "max_concurrency": cfg.max_concurrency,
         "benchmarks": [
-            {"name": b.name, "split": b.split, "n_samples": b.n_samples, "filters": b.filters}
+            {
+                "name": b.name,
+                "split": b.split,
+                "n_samples": b.n_samples,
+                "filters": b.filters,
+                # Data of your own: where it was read from. The hash in the
+                # name says what it was; this says which file to open again.
+                **({"path": _recorded_data_path(b.path, cfg.base_dir)} if b.path else {}),
+            }
             for b in cfg.benchmarks
         ],
         # The sweep as resolved, not as a hash. A config_hash is one-way, so a
@@ -1765,6 +1773,25 @@ def _run_metadata(cfg: "ExperimentConfig", concurrency: Optional[int] = None) ->
         "system": _system_under_test(cfg.pipeline.base_profile),
     }
     return redact(meta)
+
+
+def _recorded_data_path(path: str, base_dir: str) -> str:
+    """A local benchmark's ``path`` as the run metadata records it.
+
+    Relative to the sweep file's folder (the working directory for `benchmark
+    run`), however it was written. Never absolute: the run metadata goes into
+    bundles, which are published, and the path redaction only knows the home
+    and temp folders, so ``/data/acme/faq.jsonl`` would have been published as
+    written. A file on another Windows drive is recorded by its name alone.
+    """
+    from .benchmarks.adapters.local_files import resolve_data_path
+
+    full = resolve_data_path(path, base_dir)
+    root = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    try:
+        return Path(os.path.relpath(full, root)).as_posix()
+    except ValueError:  # no relative path between two drives
+        return full.name
 
 
 def _resolve_profile_config(base_profile: Optional[str]) -> Optional[Any]:
