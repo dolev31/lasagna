@@ -1344,6 +1344,28 @@ def _print_leaderboard(results) -> None:
         console.print(results.leaderboard(primary))
     else:
         console.print("[yellow]No metrics computed[/yellow]")
+    cache = _llm_cache_line(getattr(results, "experiment_config", None) or {})
+    if cache:
+        console.print(cache)
+
+
+def _llm_cache_line(meta: Dict[str, Any]) -> str:
+    """``LLM cache: 412 hits, 37 misses (92%)`` for a run that generated answers
+    and looked responses up; "" otherwise, so a retrieval-only run prints nothing.
+
+    A fast run with a high hit rate replayed answers from an earlier run, and
+    says so where its numbers are printed.
+    """
+    cache = meta.get("llm_cache") or {}
+    hits, misses = int(cache.get("hits") or 0), int(cache.get("misses") or 0)
+    if "generation" not in (meta.get("tracks") or []) or not cache.get("enabled"):
+        return ""
+    if not hits + misses:
+        return ""
+    return (
+        f"LLM cache: {hits} {'hit' if hits == 1 else 'hits'}, "
+        f"{misses} {'miss' if misses == 1 else 'misses'} ({hits / (hits + misses):.0%})"
+    )
 
 
 @benchmark_app.command("experiment")
