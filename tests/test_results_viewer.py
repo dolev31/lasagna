@@ -20,6 +20,7 @@ import re
 
 import pytest
 
+from lasagna.knowledge_evaluation_sdk.bundle import METRICS_VERSION
 from lasagna.knowledge_evaluation_sdk.results import BenchmarkResults, verdict_lines
 from lasagna.knowledge_evaluation_sdk.stages import OTHER, STAGES
 from lasagna.knowledge_evaluation_sdk.viewer import render_html
@@ -78,6 +79,8 @@ def _results(tmp_path, tasks, name="viewer test"):
         "tracks": ["retrieval"],
         "pipeline": {"base_profile": "speed"},
         "environment": {"lasagna_version": "0.1.0"},
+        # A 0.1.0 run records the metric definitions it used; a bundle requires it.
+        "metrics_version": METRICS_VERSION,
     }
     path = tmp_path / "results.json"
     path.write_text(
