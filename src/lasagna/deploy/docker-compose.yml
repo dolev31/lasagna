@@ -59,6 +59,9 @@ x-env: &common-env
   # Guards the GC/admin routes and the five MCP tools that mirror them. Unset
   # means those routes return 503, not that they are open.
   RAG_ADMIN_TOKEN: "${RAG_ADMIN_TOKEN:-}"
+  # With RAG_REQUIRE_AUTH on, POST /api/v1/sessions needs one of these in
+  # X-API-Key (comma-separated, each at least 32 characters).
+  RAG_API_KEYS: "${RAG_API_KEYS:-}"
   # Every service here binds 0.0.0.0 on the container network -- it has no other
   # option -- and is published on 127.0.0.1 by the `ports:` entries below. The
   # process cannot see the publish address, so it would otherwise refuse to

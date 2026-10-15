@@ -34,6 +34,7 @@ from ..models import (
     DocumentListResponse,
     DocumentResponse,
     DocumentStatusResponse,
+    ErrorResponse,
     UploadResponse,
     ChunkResponse,
 )
@@ -87,7 +88,15 @@ def _reject_foreign_document_id(backend: RAGBackend, document_id: str, session_i
         )
 
 
-@router.post("", response_model=UploadResponse, status_code=201)
+@router.post(
+    "",
+    response_model=UploadResponse,
+    status_code=201,
+    responses={
+        400: {"model": ErrorResponse, "description": "The file could not be accepted"},
+        404: {"model": ErrorResponse, "description": "document_id belongs to another session"},
+    },
+)
 async def upload_document(
     file: UploadFile = File(...),
     document_id: Optional[str] = Form(None),
@@ -164,7 +173,12 @@ async def upload_document(
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-@router.post("/batch", response_model=BatchUploadResponse, status_code=201)
+@router.post(
+    "/batch",
+    response_model=BatchUploadResponse,
+    status_code=201,
+    responses={400: {"model": ErrorResponse, "description": "More files than RAG_MAX_BATCH_FILES"}},
+)
 async def upload_documents_batch(
     files: List[UploadFile] = File(...),
     session_id: str = Depends(get_session_id),
@@ -176,8 +190,23 @@ async def upload_documents_batch(
     ``max_concurrent_uploads`` limit.  Each file goes through the same
     pipeline as the single-upload endpoint (text extraction, chunking,
     embedding, vector indexing).
+
+    A batch may hold at most ``RAG_MAX_BATCH_FILES`` files (default 20) and
+    ``RAG_MAX_BATCH_BYTES`` in total (default 200 MiB, refused with 413 before
+    the body is read).
     """
+    from lasagna.api.rest.limits import max_batch_files
     from lasagna.core.config import rag_config
+
+    limit = max_batch_files()
+    if len(files) > limit:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{len(files)} files in one batch; the limit is {limit}. Send "
+                f"them in several batches, or raise RAG_MAX_BATCH_FILES."
+            ),
+        )
 
     max_concurrent = getattr(rag_config, "max_concurrent_uploads", 5)
     max_upload_bytes = rag_config.max_file_size
@@ -302,13 +331,18 @@ async def get_document_chunks(
     backend: RAGBackend = Depends(get_backend),
 ):
     """Get chunks from a document (paginated)."""
-    chunks = await run_in_threadpool(
-        backend.get_document_chunks,
-        document_id=document_id,
-        session_id=session_id,
-        limit=limit,
-        offset=offset,
-    )
+    from lasagna.api._document_pipeline import ChunkStoreUnavailable
+
+    try:
+        chunks = await run_in_threadpool(
+            backend.get_document_chunks,
+            document_id=document_id,
+            session_id=session_id,
+            limit=limit,
+            offset=offset,
+        )
+    except ChunkStoreUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     return [
         ChunkResponse(
             chunk_id=c.get("chunk_id", ""),

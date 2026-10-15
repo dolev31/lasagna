@@ -1,9 +1,10 @@
 """FastAPI application factory for the Lasagna REST API.
 
-Creates a production-ready FastAPI app with:
+Creates the FastAPI app with:
 - Versioned API routes (``/api/v1/``)
 - CORS middleware
-- Request-ID middleware
+- Request-ID middleware (the id is on every log line of the request)
+- A request body size limit, enforced before the body is read
 - Request timing middleware
 - Lifespan management (backend init/shutdown)
 - Prometheus ``/metrics`` endpoint (when enabled)
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from time import perf_counter
@@ -66,6 +68,9 @@ async def _lifespan(app: FastAPI):
     """Initialise the RAG backend on startup, clean up on shutdown."""
     # Serving: turn on the package logs the library keeps off by default.
     logger.enable("lasagna")
+    from lasagna.api.rest.limits import apply_log_format
+
+    apply_log_format()
     logger.info("RAG REST API starting — initialising backend...")
     try:
         from lasagna.api.rag_backend import get_rag_backend
@@ -89,7 +94,9 @@ async def _lifespan(app: FastAPI):
         logger.info(f"  Vector backend: {rag_config.vector_backend}")
         logger.info(f"  Cache backend:  {rag_config.cache_backend}")
         if rag_config.cache_backend == "redis":
-            logger.info(f"  Redis:          {rag_config.redis_url}")
+            from lasagna.core.provenance import redact_url
+
+            logger.info(f"  Redis:          {redact_url(rag_config.redis_url)}")
         logger.info(
             f"  Embedding:      {rag_config.embedding_model} (dim={rag_config.embedding_dim})"
         )
@@ -117,11 +124,23 @@ async def _lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 
 
+#: A client-supplied X-Request-ID is kept only if it looks like an id; anything
+#: else would be copied into every log line of the request.
+_REQUEST_ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+
 async def _request_id_middleware(request: Request, call_next):
-    """Attach a unique request ID to every request/response."""
-    request_id = request.headers.get("X-Request-ID", uuid.uuid4().hex[:12])
+    """Attach a request ID to the request, its response, and every log line.
+
+    ``logger.contextualize`` puts it in ``record["extra"]``, so a JSON log line
+    (``LASAGNA_LOG_FORMAT=json``) carries it and one request's lines can be
+    pulled out of a busy server's log.
+    """
+    supplied = request.headers.get("X-Request-ID", "")
+    request_id = supplied if _REQUEST_ID.match(supplied) else uuid.uuid4().hex[:12]
     request.state.request_id = request_id
-    response: Response = await call_next(request)
+    with logger.contextualize(request_id=request_id):
+        response: Response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
     return response
 
@@ -139,8 +158,10 @@ async def _timing_middleware(request: Request, call_next):
     response.headers["X-Response-Time"] = f"{elapsed_ms:.1f}ms"
 
     # Use route template (e.g. "/api/v1/documents/{document_id}") instead
-    # of the actual path to avoid Prometheus label cardinality explosion.
-    route = getattr(request.scope.get("route"), "path", path)
+    # of the actual path to avoid Prometheus label cardinality explosion. A
+    # request no route matched used to be labelled with its raw path, so a
+    # scanner probing random URLs created one time series per URL.
+    route = getattr(request.scope.get("route"), "path", None) or "unmatched"
 
     from lasagna.utils.monitoring import METRICS
 
@@ -150,6 +171,9 @@ async def _timing_middleware(request: Request, call_next):
         tags={
             "method": request.method,
             "path": route,
+            # Without it a dashboard could not tell fast errors from fast
+            # successes: a 503 storm read as a latency improvement.
+            "status": str(response.status_code),
         },
     )
 
@@ -171,13 +195,14 @@ def _extract_session_id(request: Request) -> str:
     """
     token = request.headers.get("X-Session-Token")
     if token:
-        from lasagna.api.rest.session_token import decode_session_token
+        from lasagna.api.rest.session_token import decode_session_claims
 
-        result = decode_session_token(token)
-        if result:
+        claims = decode_session_claims(token)
+        if claims:
             # Cache decoded (session_id, user_id) for later dependencies
-            request.state.decoded_session_token = result
-            return result[0]
+            request.state.decoded_session_token = (claims["sid"], claims["sub"])
+            request.state.session_principal = claims.get("prn")
+            return claims["sid"]
 
     from lasagna.api.rest.session_token import extract_session_id
 
@@ -202,6 +227,10 @@ def _rate_limit_key(request: Request) -> str:
     new sign-up); an unverified request is counted against its client address
     instead. With auth off the server is loopback-only and the asserted id is
     as good as any.
+
+    A token minted with an API key is counted against that key's principal,
+    not its session: one key can mint any number of sessions, so a per-session
+    bucket gave each new session a fresh allowance.
     """
     from lasagna.api.rest.auth_mode import require_auth
 
@@ -209,7 +238,8 @@ def _rate_limit_key(request: Request) -> str:
     if not require_auth():
         return session_id
     if getattr(request.state, "decoded_session_token", None):
-        return f"sid:{session_id}"
+        principal = getattr(request.state, "session_principal", None)
+        return f"prn:{principal}" if principal else f"sid:{session_id}"
     client = request.client.host if request.client else "unknown"
     return f"ip:{client}"
 
@@ -298,8 +328,8 @@ def create_app(
     app = FastAPI(
         title=title,
         description=(
-            "Production-ready REST API for Lasagna. "
-            "Upload documents, search semantically, retrieve citations, "
+            "REST API for Lasagna. "
+            "Upload documents, search them, retrieve citations, "
             "and manage configuration profiles."
         ),
         version=_package_version(),
@@ -345,6 +375,11 @@ def create_app(
     # serving the app passes through.
     _require_a_shared_signing_secret()
 
+    # Invalid limits or log format fail here, at startup, naming the setting.
+    from lasagna.api.rest import limits
+
+    limits.validate()
+
     _cors_env = os.environ.get("RAG_CORS_ORIGINS", "")
     _cors = (
         [o.strip() for o in _cors_env.split(",") if o.strip()]
@@ -377,10 +412,14 @@ def create_app(
     )
 
     # -- Custom middleware (outermost = first executed) ----------------------
-    # Order: request-id → rate-limit → timing → handler
+    # Order: request-id → body limit → rate-limit → timing → handler
     # Rate limiting runs before timing so rejected requests don't skew latency.
+    # The body limit runs before anything reads the body: by the time a route
+    # with an UploadFile parameter runs, Starlette has already spooled the
+    # whole multipart body to disk.
     app.middleware("http")(_timing_middleware)
     app.middleware("http")(_rate_limit_middleware)
+    app.add_middleware(limits.BodySizeLimitMiddleware)
     app.middleware("http")(_request_id_middleware)
 
     # -- Routes -------------------------------------------------------------

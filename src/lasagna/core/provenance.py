@@ -233,6 +233,40 @@ def _any_llm_credentials() -> bool:
     return any(os.environ.get(v) for v in _LLM_CREDENTIAL_VARS)
 
 
+def redact_url(url: Any) -> str:
+    """``url`` with its password replaced by ``***``, for a log line.
+
+    Redis, broker and database URLs carry credentials in the authority
+    (``redis://:secret@host:6379``) and sometimes in the query
+    (``?password=...``). They were logged verbatim at startup.
+    """
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    text = str(url or "")
+    try:
+        parts = urlsplit(text)
+        port = parts.port
+    except ValueError:
+        return "<unparseable url>"
+    netloc = parts.netloc
+    if parts.password is not None:
+        host = parts.hostname or ""
+        if ":" in host:
+            host = f"[{host}]"
+        if port is not None:
+            host = f"{host}:{port}"
+        netloc = f"{parts.username or ''}:***@{host}"
+    secret_keys = {"password", "pass", "pwd", "token", "secret", "api_key", "apikey"}
+    query = parts.query
+    if query:
+        pairs = parse_qsl(query, keep_blank_values=True)
+        if any(k.lower() in secret_keys for k, _ in pairs):
+            query = urlencode(
+                [(k, "***" if k.lower() in secret_keys else v) for k, v in pairs], safe="*"
+            )
+    return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
+
+
 def redact(value: Any) -> Any:
     """Strip machine-local paths from anything destined for a bundle.
 

@@ -68,6 +68,10 @@ def is_dim_mismatch_error(exc: BaseException) -> bool:
     )
 
 
+class ChunkStoreUnavailable(RuntimeError):
+    """The vector store could not be read; REST answers 503."""
+
+
 class DocumentPipeline:
     """Manages document upload, processing, and lifecycle.
 
@@ -245,6 +249,7 @@ class DocumentPipeline:
                 )
             except Exception as e:
                 logger.error(f"Failed to process document {document_id}: {e}")
+                METRICS.counter("lasagna_ingests", 1, tags={"outcome": "error"})
                 try:
                     self._update_document_status(
                         document_id, DocumentStatus.ERROR, error_message=str(e)
@@ -802,6 +807,7 @@ class DocumentPipeline:
             text_length=text_length,
             preview_text=preview_text,
         )
+        METRICS.counter("lasagna_ingests", 1, tags={"outcome": "ready"})
 
         logger.info(
             f"Document processed: {document.document_id} "
@@ -1135,8 +1141,13 @@ class DocumentPipeline:
             ]
 
         except Exception as e:
-            logger.error(f"Failed to get chunks for document {document_id}: {e}")
-            return []
+            # Raised, not answered with []: an empty list reads as "this document
+            # has no chunks", which is a different and alarming claim about the
+            # data, made with a 200 while the store was unreachable.
+            raise ChunkStoreUnavailable(
+                f"The chunks of {document_id} could not be read from the vector store "
+                f"({type(e).__name__}: {e})."
+            ) from e
 
     def get_document_file_path(self, document_id: str, session_id: str) -> Optional[str]:
         """Get the file path for a document."""

@@ -8,8 +8,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from time import perf_counter
-from typing import Dict, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -27,27 +28,29 @@ from ..models import (
 router = APIRouter(tags=["health"])
 
 
-def _run_health_checks(backend) -> Tuple[Dict[str, HealthCheckDetail], str]:
-    """Run all dependency health checks and return (checks_dict, overall_status).
-
-    Shared between readiness and full_health to avoid duplicated logic.
-    """
-    checks: dict[str, HealthCheckDetail] = {}
-    overall = "healthy"
-
-    # Check embedding model
+def _embedding_check(backend) -> HealthCheckDetail:
     try:
         t0 = perf_counter()
         model_name = backend.embedding_manager.model_name
         dim = backend.embedding_manager.dimension
         ms = (perf_counter() - t0) * 1000
-        checks["embedding_model"] = HealthCheckDetail(
-            status="up",
-            latency_ms=round(ms, 2),
-            detail=f"{model_name} (dim={dim})",
+        return HealthCheckDetail(
+            status="up", latency_ms=round(ms, 2), detail=f"{model_name} (dim={dim})"
         )
     except Exception as exc:
-        checks["embedding_model"] = HealthCheckDetail(status="down", detail=str(exc))
+        return HealthCheckDetail(status="down", detail=str(exc))
+
+
+def _run_health_checks(backend) -> Tuple[Dict[str, HealthCheckDetail], str]:
+    """The checks behind ``GET /health``: (checks, overall status).
+
+    Readiness pings the same dependencies with timeouts; see `readiness`.
+    """
+    checks: dict[str, HealthCheckDetail] = {}
+    overall = "healthy"
+
+    checks["embedding_model"] = _embedding_check(backend)
+    if checks["embedding_model"].status != "up":
         overall = "unhealthy"
 
     # Check vector backend
@@ -96,19 +99,99 @@ async def liveness():
     return LivenessResponse(status="alive")
 
 
-@router.get("/health/ready", response_model=HealthResponse)
+#: Seconds each dependency has to answer a readiness ping.
+PING_TIMEOUT_S = 2.0
+
+
+async def _ping(name: str, call: Callable[[], Optional[str]]) -> Tuple[str, HealthCheckDetail]:
+    """Run one blocking ping in a thread, bounded by ``PING_TIMEOUT_S``.
+
+    A dependency that hangs (a Redis behind a dropped connection, a vector
+    store mid-failover) used to hang the probe with it, so the orchestrator's
+    own timeout fired and reported nothing about which one. The thread cannot
+    be cancelled and finishes on its own; the probe answers on time.
+    """
+    t0 = perf_counter()
+    try:
+        detail = await asyncio.wait_for(asyncio.to_thread(call), PING_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        return name, HealthCheckDetail(
+            status="down", detail=f"no answer within {PING_TIMEOUT_S:g} s"
+        )
+    except Exception as exc:
+        return name, HealthCheckDetail(status="down", detail=f"{type(exc).__name__}: {exc}")
+    ms = (perf_counter() - t0) * 1000
+    return name, HealthCheckDetail(status="up", latency_ms=round(ms, 2), detail=detail)
+
+
+def _dependency_pings(backend) -> Dict[str, Callable[[], Optional[str]]]:
+    """A real round trip to each external service this instance is configured to use."""
+    from lasagna.core.config import rag_config
+    from lasagna.core.provenance import redact_url
+
+    def vector_store():
+        vb = backend.get_vector_backend()
+        vb.has_collection(rag_config.collection_name)
+        return vb.backend_name
+
+    pings: Dict[str, Callable[[], Optional[str]]] = {"vector_backend": vector_store}
+
+    if rag_config.cache_backend == "redis" or getattr(rag_config, "celery_enabled", False):
+        url = rag_config.redis_url
+
+        def redis_ping():
+            import redis
+
+            client = redis.Redis.from_url(
+                url, socket_connect_timeout=PING_TIMEOUT_S, socket_timeout=PING_TIMEOUT_S
+            )
+            try:
+                client.ping()
+            finally:
+                client.close()
+            return redact_url(url)
+
+        pings["redis"] = redis_ping
+
+    def database():
+        from lasagna.core.database import get_rag_database
+
+        db = get_rag_database()
+        db.get_documents("__health_check__")
+        return getattr(db, "database_backend", "sqlite")
+
+    # SQLite or Postgres, whichever holds the metadata.
+    pings["database"] = database
+    return pings
+
+
+@router.get(
+    "/health/ready",
+    response_model=HealthResponse,
+    responses={503: {"model": HealthResponse, "description": "A dependency is down"}},
+)
 async def readiness(backend=Depends(get_backend)):
     """Readiness probe — can this instance handle requests?
 
-    Checks that the RAG backend is initialised and core dependencies
-    (vector DB, embedding model) are operational.  Returns 503 if any
-    critical dependency is down so that the load balancer stops routing
-    traffic to this instance.
+    Pings the vector store, the metadata database (Postgres or SQLite) and,
+    when this instance uses it, Redis, each with a 2 s timeout. Returns 503
+    naming every dependency that did not answer in ``failing``, so a load
+    balancer stops routing here and an operator sees which one.
     """
-    checks, overall = _run_health_checks(backend)
-    resp = HealthResponse(status=overall, checks=checks, require_auth=require_auth())
+    checks = {"embedding_model": _embedding_check(backend)}
+    pinged = await asyncio.gather(
+        *(_ping(name, call) for name, call in _dependency_pings(backend).items())
+    )
+    checks.update(dict(pinged))
+    failing = sorted(name for name, check in checks.items() if check.status != "up")
+    resp = HealthResponse(
+        status="healthy" if not failing else "unhealthy",
+        checks=checks,
+        require_auth=require_auth(),
+        failing=failing,
+    )
 
-    if overall != "healthy":
+    if failing:
         return JSONResponse(
             status_code=503,
             content=resp.model_dump(),

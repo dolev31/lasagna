@@ -57,6 +57,8 @@ class _Backend:
 @pytest.fixture
 def call(monkeypatch, tmp_path):
     monkeypatch.setattr(mcp_server, "_get_backend", lambda: _Backend())
+    # A networked transport reads server-side files only inside this root.
+    monkeypatch.setenv("RAG_MCP_UPLOAD_ROOT", str(tmp_path))
 
     def go(tool, arguments):
         async def run():

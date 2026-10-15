@@ -66,6 +66,11 @@ _owns_logging = False
 def _configure_rag_logging(level: str) -> None:
     if not _owns_logging:
         return
+    from lasagna.api.rest.limits import apply_log_format
+
+    # LASAGNA_LOG_FORMAT=json: one JSON object per line, as the REST API does.
+    if apply_log_format(level):
+        return
     logger.remove()
     logger.add(sys.stderr, format=LOG_FORMAT, level=level, colorize=True)
 

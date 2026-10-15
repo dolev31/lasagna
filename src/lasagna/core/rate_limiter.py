@@ -361,7 +361,9 @@ class RedisRateLimiter(RateLimiter):
             self._redis = redis.Redis.from_url(redis_url, decode_responses=True)
             self._redis.ping()
             self._lua_bucket = self._redis.register_script(self._LUA_TOKEN_BUCKET)
-            logger.info(f"RedisRateLimiter connected: {redis_url}")
+            from lasagna.core.provenance import redact_url
+
+            logger.info(f"RedisRateLimiter connected: {redact_url(redis_url)}")
         except Exception as exc:
             logger.warning(f"RedisRateLimiter Redis connect failed, using in-memory: {exc}")
             self._redis = None

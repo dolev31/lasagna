@@ -50,6 +50,12 @@ rather than a straight break, because they invalidate other people's work:
 - **Metric definitions**, which change what published numbers mean. These bump
   `METRICS_VERSION`, so old results drop out of comparison instead of being
   silently mixed with new ones.
+- **The REST API under `/api/v1` and the MCP tool schemas**, which clients and
+  agent configs are written against. A route, parameter, response field or tool
+  is deprecated for at least one minor release (marked in its description and
+  the CHANGELOG) before it is removed or changed incompatibly; additions need no
+  deprecation. `tests/snapshots/openapi.json` and `tests/snapshots/mcp_tools.json`
+  record both surfaces, so a change to either is a reviewed diff.
 
 ## Scope
 

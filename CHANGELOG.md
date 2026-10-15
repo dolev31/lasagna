@@ -93,6 +93,20 @@ Sweeps, validation and metrics:
   `tests/live/test_deployment.py` against it. It also runs `pip-audit` on the
   core dependencies, `mypy` on the SDK, `components.py` and
   `core/base_components.py`, and prints the reason for every skipped test.
+- **Search responses name the stages that fell back.** `degraded_stages` lists
+  `hyde`, `graphrag`, `hybrid`, `query_expansion` or `agentic` when that stage
+  failed and the search carried on with less; each fallback is also counted in
+  `lasagna_degraded_fallbacks_total{stage}`.
+- Prometheus counters `lasagna_llm_calls_total{outcome}` and
+  `lasagna_ingests_total{outcome}`; the request histogram gains a `status`
+  label.
+- Every log line written during a request carries its request id, and
+  `LASAGNA_LOG_FORMAT=json` writes one JSON object per line.
+- `GET /api/v1/health/ready` pings the vector store, the database and Redis,
+  each with a 2 s timeout, and lists what did not answer in `failing`.
+- `/api/v1` and the MCP tool schemas are under the deprecation policy in
+  `GOVERNANCE.md`, recorded in `tests/snapshots/openapi.json` and
+  `tests/snapshots/mcp_tools.json`. Errors are documented as `ErrorResponse`.
 
 ### Changed
 
@@ -147,6 +161,19 @@ Servers and deployment:
   gunicorn with `--preload` and honors `FORWARDED_ALLOW_IPS` (or
   `RAG_FORWARDED_ALLOW_IPS`). The models baked into the image are build
   arguments (`EMBEDDING_MODELS`, `RERANKER_MODELS`, `OPTIONAL_MODELS`).
+- **With `RAG_REQUIRE_AUTH` on, creating a session needs an API key.** Send
+  `X-API-Key` with one of the keys in `RAG_API_KEYS`; with none configured,
+  `POST /api/v1/sessions` returns 503. Rate limits are counted per key rather
+  than per session. With auth off nothing changes.
+- **Request bodies are limited before they are read.** Uploads over
+  `RAG_MAX_FILE_SIZE`, batches over `RAG_MAX_BATCH_BYTES` (200 MiB) and other
+  bodies over 1 MiB get 413; a batch of more than `RAG_MAX_BATCH_FILES` (20)
+  files gets 400.
+- On any networked MCP transport, with or without auth, `upload_document` reads
+  server-side paths only inside `RAG_MCP_UPLOAD_ROOT`.
+- A search whose focused-document list cannot be read returns 503 instead of
+  searching every document in the session, and listing a document's chunks
+  while the vector store is unreachable returns 503 instead of an empty list.
 
 ### Fixed
 
@@ -227,6 +254,14 @@ Servers and deployment:
   not reach the store. Its worker, beat and mcp now exit at once with the reason.
 - The Dockerfile's unquoted `sentence-transformers>=5.1.2` was a shell
   redirection, so the version floors were never applied.
+- A failed native Milvus hybrid search returned no results; it now falls back
+  to the BM25 index.
+- The Redis and broker URLs, password included, were logged at startup.
+- A URL no route matched became its own label value in the request histogram;
+  it is now `unmatched`.
+- Every search logged "SOTA search: ... hybrid" at INFO, also when hybrid
+  search was off. It is now a DEBUG line naming the actual mode. The API
+  description no longer says "Production-ready".
 
 ## 0.1.0a1 — 2026-08-18
 

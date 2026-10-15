@@ -38,6 +38,7 @@ from lasagna.utils.tracing import TRACER
 from lasagna.sdk.config_validation import validate_runtime
 
 from ._validation import is_valid_session_id, is_safe_document_id
+from . import _degraded
 from ._auto_merger import AutoMerger
 from lasagna.core.tenant import get_tenant_manager
 from lasagna.core.quota import get_quota_manager
@@ -45,6 +46,13 @@ from lasagna.core.quota import get_quota_manager
 # Thread-local storage for routing decisions so concurrent requests
 # don't overwrite each other's metadata.
 _routing_local = threading.local()
+
+
+class SearchScopeUnavailable(RuntimeError):
+    """The documents a search is confined to could not be determined.
+
+    Raised instead of searching the whole session; REST answers 503.
+    """
 
 
 #: The arm's components while an agentic pipeline runs. The pipeline issues its
@@ -466,7 +474,14 @@ class SearchOrchestrator:
                 using_focused_docs = True
                 focused_doc_count = len(focused_ids)
         except Exception as e:
-            logger.warning(f"Could not check focused_document_ids: {e}")
+            # Searching on would search every document in the session while the
+            # caller asked for a subset: a silent change of scope, answered 200.
+            raise SearchScopeUnavailable(
+                f"The session's focused documents could not be read ({type(e).__name__}: "
+                f"{e}), so the search was not run: it would have searched every "
+                f"document in the session instead of the focused ones. Retry, or clear "
+                f"the focus (MCP tool set_focused_documents with an empty list)."
+            ) from e
 
         # Use the effective document IDs for filtering
         document_ids = effective_document_ids
@@ -698,6 +713,8 @@ class SearchOrchestrator:
                 logger.warning(f"HyDE failed, using original query: {e}")
             if strict_stages() and hyde_embedding is None and search_query == query:
                 raise RuntimeError("HyDE produced no hypothetical document (is an LLM configured?)")
+            if hyde_embedding is None and search_query == query:
+                _degraded.record("hyde", "no hypothetical document; searched the query")
             hyde_ms = (perf_counter() - hyde_start) * 1000.0
         else:
             logger.debug(
@@ -1038,6 +1055,7 @@ class SearchOrchestrator:
                     logger.debug(f"GraphRAG added {len(graph_hits)} chunks to candidate set")
             except Exception as e:
                 logger.warning(f"GraphRAG expansion failed: {e}")
+                _degraded.record("graphrag", e)
 
         # Apply reranking
         if use_reranking and config.enable_reranking:
@@ -1278,9 +1296,9 @@ class SearchOrchestrator:
         METRICS.histogram("rag.search.total_ms", total_ms)
         METRICS.counter("rag.search.calls", 1)
 
-        logger.info(
-            f"SOTA search: {len(dense_hits)} dense -> "
-            f"{len(hits_for_rerank)} hybrid -> {len(search_results)} final"
+        logger.debug(
+            f"Search: {len(dense_hits)} dense -> {len(hits_for_rerank)} candidates "
+            f"({hybrid_mode}) -> {len(search_results)} final"
         )
 
         # Warn if focused docs caused empty results
@@ -1387,7 +1405,10 @@ class SearchOrchestrator:
             _routing_holder["decision"] = getattr(_routing_local, "last_decision", None)
             return result
 
-        results = await loop.run_in_executor(None, _run)
+        # In the caller's context: the request id on every log line, and the
+        # degraded stages the REST response reports, live in context variables
+        # that run_in_executor alone does not carry into the thread.
+        results = await loop.run_in_executor(None, contextvars.copy_context().run, _run)
         # Relay to instance attribute — safe: no yield between this write
         # and the REST handler's read of _get_routing_info().
         self._last_routing_decision = _routing_holder.get("decision")
@@ -1424,7 +1445,7 @@ class SearchOrchestrator:
             _routing_holder["decision"] = getattr(_routing_local, "last_decision", None)
             return result
 
-        results = await loop.run_in_executor(None, _run)
+        results = await loop.run_in_executor(None, contextvars.copy_context().run, _run)
         self._last_routing_decision = _routing_holder.get("decision")
         return results
 
@@ -1603,6 +1624,7 @@ class SearchOrchestrator:
                 raise RuntimeError(f"Query enhancement failed: {e}") from e
             logger.warning(f"Query expansion failed [{type(e).__name__}]: {e}")
             logger.exception("Query expansion failed; falling back to single query")
+            _degraded.record("query_expansion", e)
             variations = []
         if not variations:
             # Nothing to fuse: the plain search is the answer. Fusing a single
@@ -2092,6 +2114,7 @@ class SearchOrchestrator:
                 # agentic arm's: fail the task with the reason instead.
                 raise RuntimeError(f"Agentic search failed: {e}") from e
             logger.error(f"Comprehensive search failed, falling back to standard: {e}")
+            _degraded.record("agentic", e)
             # Fallback to standard search on transient/runtime failure
             fallback_results = self.search(
                 query=query,

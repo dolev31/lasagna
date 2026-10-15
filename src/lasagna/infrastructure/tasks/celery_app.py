@@ -104,7 +104,9 @@ def create_celery_app() -> "Celery":
     # Auto-discover tasks in this package
     app.autodiscover_tasks(["lasagna.infrastructure.tasks"])
 
-    logger.info(f"Celery app created: broker={broker_url}")
+    from lasagna.core.provenance import redact_url
+
+    logger.info(f"Celery app created: broker={redact_url(broker_url)}")
     return app
 
 

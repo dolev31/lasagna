@@ -506,7 +506,9 @@ class RedisQuotaManager(QuotaManager):
                 self._LUA_CHECK_AND_RESERVE_UPLOAD
             )
             self._lua_release = self._redis.register_script(self._LUA_RELEASE_RESERVATION)
-            logger.info(f"RedisQuotaManager connected: {redis_url}")
+            from lasagna.core.provenance import redact_url
+
+            logger.info(f"RedisQuotaManager connected: {redact_url(redis_url)}")
         except Exception as exc:
             logger.warning(f"RedisQuotaManager Redis connect failed, using in-memory: {exc}")
             self._redis = None

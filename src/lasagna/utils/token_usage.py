@@ -280,6 +280,7 @@ def usage_callback_handler() -> Any:
         raise_error = False
 
         def on_llm_end(self, response: Any, **kwargs: Any) -> None:
+            _count_llm_call("ok")
             meter = _active_meter.get()
             if meter is None:
                 return
@@ -298,7 +299,17 @@ def usage_callback_handler() -> Any:
                         break
             meter.record(usage)
 
+        def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
+            _count_llm_call("error")
+
     return _UsageCallbackHandler()
+
+
+def _count_llm_call(outcome: str) -> None:
+    """``lasagna_llm_calls_total{outcome}`` on a server's /metrics; a no-op otherwise."""
+    from lasagna.utils.monitoring import METRICS
+
+    METRICS.counter("lasagna_llm_calls", 1, tags={"outcome": outcome})
 
 
 def attach_usage_meter(model: Any) -> Any:

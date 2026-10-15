@@ -44,6 +44,14 @@ inputs on an instance you control.
   otherwise, so a multi-replica deployment rejects roughly half of its own
   tokens. The app refuses to start rather than doing that.
 
+  With auth on, **minting a token needs an API key**: send `X-API-Key` with one
+  of the comma-separated keys in `RAG_API_KEYS` (each at least 32 characters;
+  placeholders are ignored). With no usable key configured the endpoint returns
+  503, so an exposed instance cannot be left open by omission. The key's
+  principal (a digest of the key, never the key) is written into the token, and
+  rate limits are counted per principal, so minting more sessions buys no more
+  requests. Storage and document quotas are still counted per session.
+
   `RAG_ADMIN_TOKEN` is a **narrower** thing and is not a password for the API.
   It guards the operations whose blast radius is the whole instance rather than
   one session: `POST /gc/run`, `GET /gc/orphans`, `POST /gc/repair`, `GET` and
@@ -97,7 +105,16 @@ inputs on an instance you control.
 - **MCP over stdio is deliberately not authenticated.** The client launched the
   process and owns its pipes, so the process boundary is the credential. Network
   transports (`--transport sse`, or the `/mcp` mount inside the REST app) are
-  held to the same rules as REST.
+  held to the same rules as REST. On any network transport, with or without
+  auth, `upload_document` reads server-side paths only inside
+  `RAG_MCP_UPLOAD_ROOT`; unset, it reads none.
+- **The MCP server serves no deletion tools by default.** The `safe` tool set
+  leaves out the six tools that delete data or reset configuration; `--tools
+  all` or `LASAGNA_MCP_TOOLS=all` serves them.
+- **Request bodies are limited before they are read.** An upload over
+  `RAG_MAX_FILE_SIZE`, a batch over `RAG_MAX_BATCH_BYTES` (or with more than
+  `RAG_MAX_BATCH_FILES` files) and any other body over 1 MiB is refused with 413
+  from its `Content-Length`, or as soon as a chunked body passes the limit.
 - **Model weights are third-party code** downloaded at runtime and executed in
   your process. Pin versions and use a private mirror for sensitive deployments.
 - **Installed plugins execute on import.** Lasagna discovers components and

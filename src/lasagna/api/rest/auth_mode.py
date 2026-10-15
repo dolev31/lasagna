@@ -218,6 +218,45 @@ def secret_matches(presented: str, expected: str) -> bool:
     return secrets.compare_digest(presented.encode("utf-8"), expected.encode("utf-8"))
 
 
+#: Comma-separated API keys; with auth on, minting a session needs one of them.
+API_KEYS_ENV = "RAG_API_KEYS"
+
+
+def configured_api_keys() -> list:
+    """The usable keys in ``RAG_API_KEYS``, by the same rule as `configured_secret`.
+
+    A placeholder or a key shorter than ``MIN_SECRET_LENGTH`` is dropped, so a
+    template value cannot open the instance.
+    """
+    keys = []
+    for raw in os.environ.get(API_KEYS_ENV, "").split(","):
+        key = raw.strip()
+        if key and key.lower() not in _PLACEHOLDER_SECRETS and len(key) >= MIN_SECRET_LENGTH:
+            keys.append(key)
+    return keys
+
+
+def principal_for_api_key(presented: Optional[str]) -> Optional[str]:
+    """The principal a presented API key belongs to, or ``None``.
+
+    The principal is a short digest of the key, never the key: it goes into
+    session tokens, rate-limit buckets and logs. Every configured key is
+    compared, in constant time, so the time taken does not reveal which
+    position in the list a near miss matched.
+    """
+    if not presented:
+        return None
+    import hashlib
+
+    matched = None
+    for key in configured_api_keys():
+        if secret_matches(presented, key):
+            matched = key
+    if matched is None:
+        return None
+    return "key_" + hashlib.sha256(matched.encode("utf-8")).hexdigest()[:12]
+
+
 def configured_secret(name: str) -> str:
     """The value of a secret env var, or "" when it is unset or unusable.
 

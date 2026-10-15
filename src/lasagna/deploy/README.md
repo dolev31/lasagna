@@ -200,6 +200,10 @@ Session overrides  →  RAG_* env vars  →  TOML file  →  Code defaults
 | Category | Variable | Default | Notes |
 | --- | --- | --- | --- |
 | **Required** | `RAG_JWT_SECRET` | (none) | Generate: `openssl rand -hex 32` |
+| **Auth** | `RAG_API_KEYS` | (none) | With `RAG_REQUIRE_AUTH=true`, the keys (comma-separated, 32+ characters) whose holders may create sessions via `X-API-Key` |
+| **Limits** | `RAG_MAX_FILE_SIZE` | `52428800` | Largest single upload, in bytes; larger bodies get 413 before they are read |
+| **Limits** | `RAG_MAX_BATCH_FILES` / `RAG_MAX_BATCH_BYTES` | `20` / `209715200` | Files in, and total size of, one `POST /documents/batch` |
+| **Observe** | `LASAGNA_LOG_FORMAT` | `text` | `json` writes one JSON object per line, with the request id |
 | **Backend** | `RAG_VECTOR_BACKEND` | — | Set by backend fragment |
 | **Infra** | `RAG_DATABASE_BACKEND` | `sqlite` | `postgresql` in compose/k8s |
 | **Infra** | `RAG_CACHE_BACKEND` | `memory` | `redis` in compose/k8s |
@@ -258,6 +262,17 @@ This enables: larger connection pools, adaptive rate limiting, production embedd
 - Endpoint: `GET /metrics`
 - Multi-worker support: `PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus_multiproc`
 - K8s scrape annotations are preconfigured on the API deployment
+- `rag_http_request_duration_ms{method,path,status}`: `path` is the route
+  template, and `unmatched` for any URL no route matched
+- `lasagna_llm_calls_total{outcome}`, `lasagna_ingests_total{outcome}` and
+  `lasagna_degraded_fallbacks_total{stage}` (a stage that failed and fell back;
+  the search response names it in `degraded_stages`)
+
+### Logs
+
+Every log line written while handling a request carries its `X-Request-ID`
+(generated when the client sends none). Set `LASAGNA_LOG_FORMAT=json` for one
+JSON object per line, with the id under `record.extra.request_id`.
 
 ### Tracing
 
@@ -270,7 +285,7 @@ This enables: larger connection pools, adaptive rate limiting, production embedd
 | Endpoint | Purpose | Used by |
 | --- | --- | --- |
 | `GET /api/v1/health/live` | Process alive? | k8s liveness probe, Docker HEALTHCHECK |
-| `GET /api/v1/health/ready` | Can serve traffic? | k8s readiness probe |
+| `GET /api/v1/health/ready` | Can serve traffic? Pings the vector store, the database and Redis (2 s each); 503 lists the failing ones in `failing` | k8s readiness probe, compose healthcheck |
 | `GET /api/v1/health` | Full status + dependencies | Makefile `health` target, operators |
 
 ## Security Checklist

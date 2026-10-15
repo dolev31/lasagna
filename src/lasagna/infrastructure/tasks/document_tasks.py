@@ -195,6 +195,9 @@ def _process_document_impl(
             raise retry_ctx.retry_fn(exc)
 
         # All retries exhausted — mark ERROR in database and release reservation
+        from lasagna.utils.monitoring import METRICS
+
+        METRICS.counter("lasagna_ingests", 1, tags={"outcome": "error"})
         try:
             from lasagna.core.database import get_rag_database
             from lasagna.core.schema import DocumentStatus
