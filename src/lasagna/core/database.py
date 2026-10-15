@@ -1574,6 +1574,116 @@ class RAGDatabase:
         except Exception:
             return []
 
+    # =========================================================================
+    # COLLECTION IDENTITY (which model embedded each vector collection)
+    # =========================================================================
+    #
+    # Created on first use rather than in _initialize, so a store from any
+    # earlier version gains the table without a schema migration.
+
+    def _collection_meta_conn(self):
+        conn = self._get_connection()
+        if not getattr(self, "_collection_meta_ready", False):
+            conn.execute(CREATE_COLLECTION_META_TABLE)
+            conn.commit()
+            self._collection_meta_ready = True
+        return conn
+
+    def get_collection_meta(
+        self, collection_name: str, vector_backend: str = "milvus"
+    ) -> Optional[Dict[str, Any]]:
+        """The stamp of one collection: the model and size its vectors were made at."""
+        with self._lock:
+            conn = self._collection_meta_conn()
+            try:
+                row = conn.execute(
+                    "SELECT * FROM collection_meta WHERE vector_backend = ? AND collection_name = ?",
+                    (vector_backend, collection_name),
+                ).fetchone()
+                return dict(row) if row else None
+            finally:
+                conn.close()
+
+    def stamp_collection(
+        self,
+        collection_name: str,
+        embedding_model: Optional[str],
+        embedding_dim: int,
+        vector_backend: str = "milvus",
+        lasagna_version: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Record which model a collection holds; an existing stamp is kept.
+
+        Returns the stamp in force, which is the earlier one when there was one:
+        the first model to write a collection decides what it holds.
+        """
+        with self._lock:
+            conn = self._collection_meta_conn()
+            try:
+                conn.execute(
+                    "INSERT OR IGNORE INTO collection_meta "
+                    "(vector_backend, collection_name, embedding_model, embedding_dim, "
+                    "lasagna_version, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        vector_backend,
+                        collection_name,
+                        embedding_model,
+                        int(embedding_dim),
+                        lasagna_version,
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
+                )
+                conn.commit()
+                row = conn.execute(
+                    "SELECT * FROM collection_meta WHERE vector_backend = ? AND collection_name = ?",
+                    (vector_backend, collection_name),
+                ).fetchone()
+                return dict(row)
+            finally:
+                conn.close()
+
+    def forget_collection_meta(self, collection_name: str, vector_backend: str = "milvus") -> bool:
+        """Remove a collection's stamp, after the collection itself was dropped."""
+        with self._lock:
+            conn = self._collection_meta_conn()
+            try:
+                cur = conn.execute(
+                    "DELETE FROM collection_meta WHERE vector_backend = ? AND collection_name = ?",
+                    (vector_backend, collection_name),
+                )
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                conn.close()
+
+    def list_collection_meta(self) -> List[Dict[str, Any]]:
+        """Every stamped collection, oldest first."""
+        with self._lock:
+            conn = self._collection_meta_conn()
+            try:
+                rows = conn.execute(
+                    "SELECT * FROM collection_meta ORDER BY created_at, collection_name"
+                ).fetchall()
+                return [dict(r) for r in rows]
+            finally:
+                conn.close()
+
+
+#: One row per vector collection: the embedding model and size its vectors were
+#: made with, and the version that made it. Two models at the same size (bge-m3
+#: and bge-large are both 1024) are told apart only by this.
+CREATE_COLLECTION_META_TABLE = """
+CREATE TABLE IF NOT EXISTS collection_meta (
+    vector_backend TEXT NOT NULL DEFAULT 'milvus',
+    collection_name TEXT NOT NULL,
+    embedding_model TEXT,
+    embedding_dim INTEGER NOT NULL,
+    lasagna_version TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (vector_backend, collection_name)
+);
+"""
+
 
 # =============================================================================
 # SINGLETON ACCESS

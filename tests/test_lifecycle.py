@@ -493,8 +493,12 @@ class TestDeleteCollectionRouting:
             "delete_document must use per-document collection_name"
         )
 
-    def test_delete_falls_back_to_global_when_doc_has_no_collection(self):
-        """delete_document() falls back to rag_config.collection_name if doc.collection_name is None."""
+    def test_delete_falls_back_to_the_sessions_collection_when_doc_has_no_collection(self):
+        """delete_document() falls back to the session's collection if doc.collection_name is None.
+
+        It fell back to the process-wide collection; since 0.1.0 each embedding
+        model has its own, and the document's session says which one it used.
+        """
         doc_in_db = {
             "document_id": "doc_no_col",
             "session_id": "sess_no_col",
@@ -523,13 +527,15 @@ class TestDeleteCollectionRouting:
             patch("lasagna.api._document_pipeline.rag_config") as mock_rag_config,
         ):
             mock_rag_config.collection_name = "global_collection_v1"
+            mock_rag_config.with_session.return_value.collection_name = "session_collection_v1"
             mock_rag_config.enable_hybrid_search = False
 
             pipeline.delete_document("doc_no_col", "sess_no_col")
 
+        mock_rag_config.with_session.assert_called_with("sess_no_col")
         used_collection = mock_vector_backend.delete.call_args[1]["collection_name"]
-        assert used_collection == "global_collection_v1", (
-            "Should fall back to global collection_name when doc has none"
+        assert used_collection == "session_collection_v1", (
+            "Should fall back to the session's collection when doc has none"
         )
 
 

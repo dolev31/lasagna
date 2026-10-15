@@ -55,7 +55,7 @@ Numeric range validation is applied to known keys (e.g., `default_top_k` must be
 | Property | Type | Default | Env Var | Description |
 |---|---|---|---|---|
 | `vector_backend` | str | `"milvus"` | `RAG_VECTOR_BACKEND` | Vector store backend name |
-| `collection_name` | str | `"rag_documents_v2"` | `RAG_COLLECTION_NAME` | Vector collection name |
+| `collection_name` | str | `"rag_documents_v2"` | `RAG_COLLECTION_NAME` | Vector collection name; the default gives each embedding model its own (`rag_documents_v2__<model>__<dim>`) |
 | `embedding_dim` | int | 1024 | `RAG_EMBEDDING_DIM` | Embedding vector dimension |
 
 A Milvus server address is read from `MILVUS_URI` (and `MILVUS_TOKEN`) by the backend registry; other backend arguments go in `vector_backend_config`.

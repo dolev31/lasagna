@@ -25,6 +25,97 @@ if TYPE_CHECKING:
     from lasagna.providers import ConfigProvider
 
 
+# =============================================================================
+# Collection identity: one vector collection per embedding model
+# =============================================================================
+
+#: The collection every embedding model shared before 0.1.0. The shipped
+#: settings file and every built-in profile still carry it, so it means "not
+#: chosen": a configuration that names it gets its own model's collection
+#: (`collection_name_for`), unless an earlier version's documents in it were
+#: adopted for that model (`adopt_collection`).
+LEGACY_COLLECTION_NAME = "rag_documents_v2"
+
+#: (store, embedding model, dimension) -> the collection that model adopted.
+#: Filled by the collection manager, which reads and writes the stamps; the
+#: config itself never opens a store.
+_adopted_collections: Dict[Tuple[str, str, int], str] = {}
+_adopted_lock = Lock()
+
+
+def collection_name_for(model: Optional[str], dim: Any) -> str:
+    """The collection documents embedded by ``model`` at ``dim`` live in.
+
+    Vectors from two models are not comparable even at the same size
+    (bge-large and bge-m3 are both 1024), so the model is part of the name, not
+    only the dimension. The name keeps to lowercase letters, digits and
+    underscores, which every supported backend accepts, and stays short enough
+    for a Postgres identifier once pgvector prefixes it.
+    """
+    import hashlib
+    import re
+
+    raw = str(model or "default")
+    slug = re.sub(r"[^a-z0-9]+", "_", raw.lower()).strip("_") or "default"
+    if len(slug) > 32:
+        slug = f"{slug[:23]}_{hashlib.sha256(raw.encode()).hexdigest()[:8]}"
+    return f"{LEGACY_COLLECTION_NAME}__{slug}__{int(dim)}"
+
+
+def is_derived_collection_name(name: Optional[str]) -> bool:
+    """Whether ``name`` was derived from a model rather than chosen."""
+    return bool(name) and str(name).startswith(f"{LEGACY_COLLECTION_NAME}__")
+
+
+def resolve_collection_name(
+    name: Optional[str], model: Optional[str], dim: Any, store: Optional[str] = None
+) -> str:
+    """The collection a configuration uses, given the name it carries.
+
+    A name other than the legacy default is the user's choice and is returned
+    unchanged; the evaluation harness names one per arm this way. Otherwise the
+    model's own collection, or the legacy one if this model adopted it.
+    """
+    if name and name != LEGACY_COLLECTION_NAME:
+        return str(name)
+    with _adopted_lock:
+        adopted = _adopted_collections.get((str(store or ""), str(model), int(dim)))
+    return adopted or collection_name_for(model, dim)
+
+
+def adopt_collection(name: str, model: Optional[str], dim: Any, store: Optional[str] = None):
+    """Record that ``model`` at ``dim`` uses the existing collection ``name``."""
+    with _adopted_lock:
+        _adopted_collections[(str(store or ""), str(model), int(dim))] = name
+
+
+def collection_name_for_settings(settings: Dict[str, Any]) -> str:
+    """The collection a session whose resolved settings are ``settings`` uses.
+
+    For checks made before a change is applied (a profile switch), when there
+    is no ``RAGConfig`` for the new settings yet. Keys the settings leave out
+    fall back to the process configuration, as a session's do.
+    """
+    base = get_rag_config()
+    name = settings.get("collection_name")
+    if name is None:
+        name = base._get_knowledge_setting(
+            "rag", "collection_name", default=base._config["collection_name"]
+        )
+    model = settings.get("embedding_model") or base.embedding_model
+    dim = int(settings.get("embedding_dim") or base.embedding_dim)
+    truncate = settings.get("embedding_truncate_dim", base.embedding_truncate_dim)
+    if truncate and int(truncate) < dim:
+        dim = int(truncate)
+    return resolve_collection_name(name, model, dim, store=base._config.get("db_path"))
+
+
+def forget_adopted_collections() -> None:
+    """Drop every adoption recorded in this process (the stamps stay)."""
+    with _adopted_lock:
+        _adopted_collections.clear()
+
+
 class RAGConfig:
     """RAG system configuration manager with SOTA defaults.
 
@@ -784,9 +875,28 @@ class RAGConfig:
 
     @property
     def collection_name(self) -> str:
-        return self._get_knowledge_setting(
-            "rag", "collection_name", default=self._config["collection_name"]
+        """The vector collection this configuration reads and writes.
+
+        One per embedding model, ``rag_documents_v2__<model>__<dim>``, so a
+        session on another profile never meets vectors it cannot compare with.
+        A name other than ``rag_documents_v2`` set in the settings file, the
+        environment or the session is used as given.
+        """
+        return resolve_collection_name(
+            self._get_knowledge_setting(
+                "rag", "collection_name", default=self._config["collection_name"]
+            ),
+            self.embedding_model,
+            self.effective_embedding_dim,
+            store=self._config.get("db_path"),
         )
+
+    @property
+    def effective_embedding_dim(self) -> int:
+        """The size vectors are stored at: the Matryoshka truncation when set."""
+        dim = int(self.embedding_dim)
+        truncate = self.embedding_truncate_dim
+        return int(truncate) if truncate and int(truncate) < dim else dim
 
     @property
     def embedding_dim(self) -> int:

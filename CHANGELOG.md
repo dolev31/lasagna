@@ -91,6 +91,16 @@ Sweeps, validation and metrics:
 
 ### Changed
 
+- **One vector collection per embedding model.** The default collection name is
+  now `rag_documents_v2__<model>__<dim>`, so sessions on different profiles never
+  share vectors. A name set explicitly (settings file, `RAG_COLLECTION_NAME`, a
+  session) is used as given; the evaluation harness's per-arm names are
+  unchanged. Each collection's model is recorded in a new `collection_meta`
+  table, and opening a collection with another model, even at the same size
+  (bge-large and bge-m3 are both 1024), is refused with the command that
+  switches back. An existing `rag_documents_v2` that holds documents is kept
+  under its old name by the first model that opens it at its size; one at
+  another size is left in place and reported by `legacy_collections()`.
 - **Searching on Milvus no longer pays for a JSON filter.** A search was
   confined to its session through `metadata["session_id"]`, which Milvus parses
   row by row; it now uses the `session_id` field every collection has and every
@@ -123,6 +133,16 @@ Sweeps, validation and metrics:
   backend.
 
 ### Fixed
+
+- **Configuring a second profile broke search in every other session.**
+  `lasagna configure --profile speed -s A` and an upload rebuilt the shared
+  collection at 384 dimensions (logging "Dropping vector collection for
+  rebuild"), and the next search in any other session failed with "EMBEDDING
+  DIMENSION MISMATCH", "would be DELETED" and a remedy that was a Python
+  method. Each profile's model now has its own collection, a mismatch message
+  names both models and the command that fixes it, and rebuilding an empty
+  collection is logged as information. Deleting a document, listing its chunks,
+  native hybrid search and the orphan scan use the document's own collection.
 
 Numbers that were wrong:
 

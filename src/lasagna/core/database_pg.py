@@ -191,6 +191,19 @@ CREATE TABLE IF NOT EXISTS rag_quotas (
 );
 """
 
+# Which embedding model made each vector collection (see database.py).
+_CREATE_COLLECTION_META = """
+CREATE TABLE IF NOT EXISTS collection_meta (
+    vector_backend TEXT NOT NULL DEFAULT 'milvus',
+    collection_name TEXT NOT NULL,
+    embedding_model TEXT,
+    embedding_dim INT NOT NULL,
+    lasagna_version TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (vector_backend, collection_name)
+);
+"""
+
 _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_documents_session_id ON rag_documents(session_id);",
     "CREATE INDEX IF NOT EXISTS idx_documents_status ON rag_documents(status);",
@@ -1398,3 +1411,95 @@ class PostgresRAGDatabase:
                 )
             conn.commit()
         return True
+
+    # ------------------------------------------------------------------
+    # Collection identity (mirrors RAGDatabase; created on first use)
+    # ------------------------------------------------------------------
+
+    def _ensure_collection_meta(self, cur) -> None:
+        if not getattr(self, "_collection_meta_ready", False):
+            cur.execute(_CREATE_COLLECTION_META)
+            self._collection_meta_ready = True
+
+    @staticmethod
+    def _collection_meta_row(cur) -> Optional[Dict[str, Any]]:
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return dict(zip([d[0] for d in cur.description], row))
+
+    def get_collection_meta(
+        self, collection_name: str, vector_backend: str = "milvus"
+    ) -> Optional[Dict[str, Any]]:
+        """The stamp of one collection: the model and size its vectors were made at."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                self._ensure_collection_meta(cur)
+                cur.execute(
+                    "SELECT * FROM collection_meta "
+                    "WHERE vector_backend = %s AND collection_name = %s",
+                    (vector_backend, collection_name),
+                )
+                found = self._collection_meta_row(cur)
+            conn.commit()
+        return found
+
+    def stamp_collection(
+        self,
+        collection_name: str,
+        embedding_model: Optional[str],
+        embedding_dim: int,
+        vector_backend: str = "milvus",
+        lasagna_version: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Record which model a collection holds; an existing stamp is kept."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                self._ensure_collection_meta(cur)
+                cur.execute(
+                    "INSERT INTO collection_meta "
+                    "(vector_backend, collection_name, embedding_model, embedding_dim, "
+                    "lasagna_version, created_at) VALUES (%s, %s, %s, %s, %s, %s) "
+                    "ON CONFLICT (vector_backend, collection_name) DO NOTHING",
+                    (
+                        vector_backend,
+                        collection_name,
+                        embedding_model,
+                        int(embedding_dim),
+                        lasagna_version,
+                        datetime.now(timezone.utc),
+                    ),
+                )
+                cur.execute(
+                    "SELECT * FROM collection_meta "
+                    "WHERE vector_backend = %s AND collection_name = %s",
+                    (vector_backend, collection_name),
+                )
+                found = self._collection_meta_row(cur)
+            conn.commit()
+        return found or {}
+
+    def forget_collection_meta(self, collection_name: str, vector_backend: str = "milvus") -> bool:
+        """Remove a collection's stamp, after the collection itself was dropped."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                self._ensure_collection_meta(cur)
+                cur.execute(
+                    "DELETE FROM collection_meta "
+                    "WHERE vector_backend = %s AND collection_name = %s",
+                    (vector_backend, collection_name),
+                )
+                removed = cur.rowcount > 0
+            conn.commit()
+        return removed
+
+    def list_collection_meta(self) -> List[Dict[str, Any]]:
+        """Every stamped collection, oldest first."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                self._ensure_collection_meta(cur)
+                cur.execute("SELECT * FROM collection_meta ORDER BY created_at, collection_name")
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            conn.commit()
+        return rows
