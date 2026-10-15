@@ -180,10 +180,15 @@ def _process_limiters_restored():
     rate_limiter._instance, quota._instance = saved
 
 
-@pytest.fixture(autouse=True, scope="session")
+@pytest.fixture(autouse=True)
 def _lasagna_logs_enabled():
     """The package disables its own logs on import (library default); several
-    tests capture them, so turn them back on once everything is imported."""
+    tests capture them, so turn them back on before every test.
+
+    Once per session was not enough: a test that ended with
+    ``logger.disable("lasagna")`` silenced every test after it in a shuffled
+    order, and one that waits for a warning failed one run in a few.
+    """
     import lasagna  # noqa: F401  - make sure its disable() has already run
     from loguru import logger
 
