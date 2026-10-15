@@ -37,6 +37,17 @@ controls (HOME, inherited vars) and is CRITICAL; step 2 covers credentials a
 *dependency* injects at import time — some ``pymilvus`` releases call
 ``load_dotenv()``, which picks up whatever ``.env`` sits above site-packages —
 and is WARN, since that is not a lasagna release defect.
+
+**The acceptance demo.** The last step runs
+``examples/acceptance/offline_demo.py``, which takes every feature the release
+adds through the CLI end to end (synthesize, validate, wrap a LangChain
+compressor, dry-run, sweep the baseline arms, replay from the LLM cache,
+bundle, view, LaTeX, MCP), with a stub LLM and a stub judge, in the same
+sandbox. Unlike the journey it loads a real embedder, all-MiniLM-L6-v2, from the
+Hugging Face cache the gate itself uses. When that model is not cached and the
+gate is online, it is downloaded first (about 90 MB) in a separate process, so
+the demo still runs with the hub offline; offline and uncached, the demo's
+steps are SKIPPED, never passed. Each demo step is its own CRITICAL check.
 """
 
 from __future__ import annotations
@@ -84,6 +95,15 @@ COMPONENT_NAME = "e2e_wordcount_reranker"
 CONTROL_NAME = "e2e_control_reranker"
 PAPER = "arxiv:0000.00000"
 CLAIMS = {"ndcg@10": 0.4242, "note": "not a real result"}
+
+#: Every feature the release adds, end to end; see the module docstring.
+ACCEPTANCE_DEMO = LASAGNA_ROOT / "examples" / "acceptance" / "offline_demo.py"
+#: The demo's own target. Missing it is a WARN, as for the journey budget.
+ACCEPTANCE_BUDGET_S = 300.0
+#: Past this the demo is killed and the step fails.
+ACCEPTANCE_TIMEOUT_S = 900
+#: The demo's exit status when it cannot start (a missing extra or model).
+_CANNOT_RUN = 2
 
 #: Env vars that would let a component reach a real LLM. Removed from the
 #: driver's environment so the hermeticity claim in the docstring is true
@@ -711,6 +731,197 @@ STEP_TITLES = [
 _STEP_KEYS = {k for k, _, _ in STEP_TITLES}
 
 
+def _hermetic_env(fake_home: str) -> Dict[str, str]:
+    """The gate's environment with credentials removed, HOME replaced and the hub offline."""
+    env = dict(os.environ)
+    for var in _CREDENTIAL_VARS:
+        env.pop(var, None)
+    # Anything else that looks like a secret, so a key this list has never
+    # heard of does not quietly make the journey non-hermetic.
+    for var in [k for k in env if k.endswith(("_API_KEY", "_APIKEY", "_TOKEN", "_SECRET"))]:
+        env.pop(var, None)
+    env.update(
+        {
+            "PYTHONPATH": str(LASAGNA_SRC),
+            "HOME": fake_home,
+            # Fail loudly instead of downloading if anything reaches for a model.
+            "HF_HUB_OFFLINE": "1",
+            "TRANSFORMERS_OFFLINE": "1",
+            "HF_DATASETS_OFFLINE": "1",
+            # MPS compiler crashes have been seen on some Macs; CPU only.
+            "RAG_USE_GPU": "false",
+            "TOKENIZERS_PARALLELISM": "false",
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+    )
+    return env
+
+
+def _hf_home() -> str:
+    """The gate's Hugging Face cache, resolved from its own HOME.
+
+    The demo runs under a throwaway HOME, where the default cache location is
+    empty, so it is handed this one explicitly.
+    """
+    if os.environ.get("HF_HOME"):
+        return os.environ["HF_HOME"]
+    cache = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(cache, "huggingface")
+
+
+def _hub_offline() -> bool:
+    return any(
+        os.environ.get(var, "").strip().lower() in {"1", "true", "yes", "on"}
+        for var in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
+    )
+
+
+def _acceptance_demo(p: PhaseResult) -> None:
+    """Run the acceptance demo in its own sandbox and report each of its steps."""
+    workdir = tempfile.mkdtemp(prefix="lasagna-p4-acceptance-")
+    fake_home = os.path.join(workdir, "home")
+    os.makedirs(fake_home, exist_ok=True)
+    report_path = os.path.join(workdir, "report.json")
+    demo_dir = os.path.join(workdir, "demo")
+    hf_home = _hf_home()
+    env = {**_hermetic_env(fake_home), "HF_HOME": hf_home}
+    repro = (
+        f'cd "$(mktemp -d)" && HOME=$(mktemp -d) PYTHONPATH={LASAGNA_SRC} HF_HOME={hf_home} '
+        f"{sys.executable} {ACCEPTANCE_DEMO}"
+    )
+
+    def launch(*args: str, env: Dict[str, str] = env, timeout: float = ACCEPTANCE_TIMEOUT_S):
+        return subprocess.run(
+            [sys.executable, str(ACCEPTANCE_DEMO), *args],
+            cwd=workdir,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+    clock = timed()
+    report: Optional[Dict[str, Any]] = None
+    harness = ""
+    log_tail = ""
+    try:
+        demo_args = ("--workdir", demo_dir, "--report", report_path)
+        with clock:
+            proc = launch(*demo_args)
+        if proc.returncode == _CANNOT_RUN and not _hub_offline():
+            # Most likely the embedder is not cached. Fetch it with the hub
+            # online, in its own process, then run the demo offline again.
+            online = {k: v for k, v in env.items() if not k.endswith("_OFFLINE")}
+            fetched = launch("--download-models", env=online, timeout=600)
+            if fetched.returncode == 0:
+                with clock:
+                    proc = launch(*demo_args)
+            else:
+                harness = f"downloading the demo's model failed: {_tail(fetched.stderr)}"
+        if os.path.exists(report_path):
+            report = json.loads(Path(report_path).read_text())
+        elif not harness:
+            harness = (
+                f"the demo exited {proc.returncode} without writing its report. "
+                f"stdout: {_tail(proc.stdout)} stderr: {_tail(proc.stderr)}"
+            )
+        log = Path(demo_dir) / "demo.log"
+        if log.exists():
+            log_tail = _tail(log.read_text(errors="replace"), 1500)
+    except subprocess.TimeoutExpired:
+        harness = f"the acceptance demo exceeded {ACCEPTANCE_TIMEOUT_S}s and was killed"
+    except Exception as exc:  # run() must never raise
+        harness = f"could not run the acceptance demo: {exc!r}"
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+    p.measure(
+        "acceptance_demo_wall_time",
+        round(clock.elapsed, 2),
+        "s",
+        note="every 0.1.0 feature end to end: stub LLM and judge, MiniLM embeddings",
+    )
+    if report is None:
+        p.check(
+            "acceptance demo ran and wrote its report",
+            False,
+            detail=_tail(harness, 1200),
+            repro=repro,
+        )
+        return
+
+    planned = [(str(key), str(title)) for key, title in report.get("planned", [])]
+    if report.get("outcome") == "cannot_run":
+        reason = f"not run: {report.get('reason')}" + (f" ({harness})" if harness else "")
+        for _, title in planned:
+            p.skip(f"acceptance demo: {title}", _tail(reason, 1200))
+        return
+
+    recorded = {s.get("key"): s for s in report.get("steps", []) if isinstance(s, dict)}
+    failed = any(s.get("ok") is not True for s in recorded.values())
+    for key, title in planned:
+        name = f"acceptance demo: {title}"
+        rec = recorded.get(key)
+        if rec is None:
+            if failed:
+                p.skip(name, "not reached: an earlier demo step failed")
+            else:
+                p.check(
+                    name,
+                    False,
+                    detail="the demo finished without recording this step",
+                    repro=repro,
+                )
+            continue
+        ok = rec.get("ok") is True
+        detail = str(rec.get("detail", ""))
+        if not ok and log_tail:
+            detail += f"\nend of demo.log:\n{log_tail}"
+        p.check(
+            name,
+            ok,
+            detail=_tail(detail, 2000),
+            repro=repro,
+            duration_s=float(rec.get("seconds") or 0.0),
+        )
+    unknown = sorted(set(recorded) - {key for key, _ in planned})
+    if unknown or not planned:
+        p.check(
+            "every step the acceptance demo ran is reported",
+            False,
+            detail=f"steps {unknown} are not in the demo's plan {planned}",
+            repro=repro,
+        )
+
+    budget = f"acceptance demo completes within {ACCEPTANCE_BUDGET_S:.0f}s"
+    if report.get("outcome") != "passed":
+        p.skip(
+            budget,
+            "not measured: the demo did not pass, so its wall time is not a performance number",
+            severity=Severity.WARN,
+        )
+    else:
+        p.check(
+            budget,
+            clock.elapsed <= ACCEPTANCE_BUDGET_S,
+            severity=Severity.WARN,
+            detail=f"{clock.elapsed:.1f}s (budget {ACCEPTANCE_BUDGET_S:.0f}s, "
+            f"hard timeout {ACCEPTANCE_TIMEOUT_S}s)",
+            repro=f"time ({repro})",
+        )
+        # WARN, like no_credentials: a dependency that tries the network and
+        # falls back is not a lasagna defect, but it does mean "offline" held
+        # only because the demo refused the connection.
+        refused = report.get("refused_hosts") or []
+        p.check(
+            "acceptance demo tried no network connection",
+            not refused,
+            severity=Severity.WARN,
+            detail=f"refused: {refused}" if refused else "no connection attempt was refused",
+            repro=repro,
+        )
+
+
 def _parse_payload(stdout: str) -> Optional[Dict[str, Any]]:
     if _BEGIN not in stdout or _END not in stdout:
         return None
@@ -765,28 +976,7 @@ def run() -> PhaseResult:
 
     try:
         Path(driver_path).write_text(_build_driver(fake_home))
-
-        env = dict(os.environ)
-        for var in _CREDENTIAL_VARS:
-            env.pop(var, None)
-        # Anything else that looks like a secret, so a key this list has never
-        # heard of does not quietly make the journey non-hermetic.
-        for var in [k for k in env if k.endswith(("_API_KEY", "_APIKEY", "_TOKEN", "_SECRET"))]:
-            env.pop(var, None)
-        env.update(
-            {
-                "PYTHONPATH": str(LASAGNA_SRC),
-                "HOME": fake_home,
-                # Fail loudly instead of downloading if anything reaches for a model.
-                "HF_HUB_OFFLINE": "1",
-                "TRANSFORMERS_OFFLINE": "1",
-                "HF_DATASETS_OFFLINE": "1",
-                # MPS compiler crashes have been seen on some Macs; CPU only.
-                "RAG_USE_GPU": "false",
-                "TOKENIZERS_PARALLELISM": "false",
-                "PYTHONDONTWRITEBYTECODE": "1",
-            }
-        )
+        env = _hermetic_env(fake_home)
 
         with timed() as t:
             try:
@@ -993,6 +1183,8 @@ def run() -> PhaseResult:
             "performance number",
             severity=Severity.WARN,
         )
+
+    _acceptance_demo(p)
 
     p.duration_s = elapsed
     return p
