@@ -85,6 +85,9 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "generator": (".components", "generator"),
     "register": (".components", "register"),
     "registry": (".core.registry", "registry"),
+    # A LangChain or LlamaIndex component as a stage.
+    "from_langchain": (".sdk.integrations.inbound", "from_langchain"),
+    "from_llamaindex": (".sdk.integrations.inbound", "from_llamaindex"),
     # Configuration and the SDK client
     "RAGConfig": (".core", "RAGConfig"),
     "KnowledgeClient": (".sdk", "KnowledgeClient"),
@@ -179,6 +182,7 @@ if TYPE_CHECKING:
         generator,
         register,
     )
+    from .sdk.integrations.inbound import from_langchain, from_llamaindex
     from .core.registry import registry
     from .core import RAGConfig
     from .sdk import KnowledgeClient, KnowledgeConfig

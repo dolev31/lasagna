@@ -25,6 +25,9 @@ EXPECTED_LASAGNA = {
     "query_enhancer",
     "reranker",
     "retriever",
+    # LangChain and LlamaIndex components as stages (lasagna.sdk.integrations.inbound)
+    "from_langchain",
+    "from_llamaindex",
     "register",
     "registry",
     "RAGConfig",

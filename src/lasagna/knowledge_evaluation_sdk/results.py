@@ -1700,8 +1700,185 @@ def _aggregate(values: List[float]) -> AggregatedMetrics:
     return AggregatedMetrics(mean=mean, std=std, n_runs=n, values=values)
 
 
+#: What each character LaTeX treats specially becomes in a table cell.
+_LATEX_SPECIAL = {
+    "\\": r"\textbackslash{}",
+    "{": r"\{",
+    "}": r"\}",
+    "_": r"\_",
+    "&": r"\&",
+    "%": r"\%",
+    "#": r"\#",
+    "$": r"\$",
+    "~": r"\textasciitilde{}",
+    "^": r"\textasciicircum{}",
+}
+
+
 def _escape_latex(text: str) -> str:
-    """Minimal LaTeX escaping for table cells."""
-    for char in ["_", "&", "%", "#", "$"]:
-        text = text.replace(char, f"\\{char}")
-    return text
+    """LaTeX escaping for table cells and captions.
+
+    Arm names are free text. Only ``_ & % # $`` were escaped, so a name with a
+    brace, a backslash, ``~`` or ``^`` broke the table it was pasted into.
+    """
+    return "".join(_LATEX_SPECIAL.get(char, char) for char in str(text))
+
+
+# ---------------------------------------------------------------------------
+# The verdict on a significance table, shared by the CLI box and the HTML view
+# ---------------------------------------------------------------------------
+
+
+def format_p(p: float) -> str:
+    """Four decimals, or scientific notation below 0.0001 rather than 0.0000.
+
+    An exact sign-flip p over 25 queries can be 6e-8, and "0.0000" reads as a
+    probability of zero.
+    """
+    return f"{p:.4f}" if p >= 1e-4 else f"{p:.1e}"
+
+
+def format_effect_size(effect: Optional[float]) -> str:
+    """Render Cohen's ``d_z``, including the case where it has no finite value.
+
+    An infinite ``d_z`` means every query moved by the same amount -- the most
+    consistent effect there is. Printing that as a number is the problem this
+    exists to avoid: ``0.00`` reads as "no effect", and the raw float reads as
+    a measurement of twenty quadrillion standard deviations.
+    """
+    import math
+
+    if effect is None:
+        return "—"
+    if math.isinf(effect):
+        return "+∞" if effect > 0 else "-∞"
+    if math.isnan(effect):
+        return "—"
+    return f"{effect:+.2f}"
+
+
+def _plural(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+@dataclass(frozen=True)
+class VerdictLine:
+    """One line of a verdict, as ``(role, text)`` spans.
+
+    ``role`` is ``"text"``, ``"winner"`` (the arm that won) or ``"command"``
+    (a command to run), so each renderer emphasizes them its own way without
+    parsing markup out of the text.
+    """
+
+    spans: Tuple[Tuple[str, str], ...] = ()
+
+    @property
+    def text(self) -> str:
+        return "".join(text for _, text in self.spans)
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """What a Holm-corrected significance table supports, as plain data.
+
+    ``style`` is ``"significant"`` when at least one pair survives the
+    correction and ``"none"`` otherwise.
+    """
+
+    style: str
+    title: str
+    lines: Tuple[VerdictLine, ...]
+
+
+#: How many surviving pairs the verdict names before pointing at the table.
+_VERDICT_SHOWN = 5
+
+
+def verdict_lines(rows: List[Dict[str, Any]], metric: str, benchmark: str, alpha: float) -> Verdict:
+    """The answer a :meth:`BenchmarkResults.pairwise_significance` table supports.
+
+    Names each pair that survives Holm correction, which side won (the lower
+    side for a lower-is-better metric) and by how much. When nothing survives,
+    says so and points at ``lasagna results power``, because "not significant"
+    has two readings (no difference, or too few queries to see one) that call
+    for opposite next steps. ``lasagna results significance`` prints this as a
+    box and ``lasagna results view`` as a panel, so they cannot disagree.
+    """
+    winners = sorted(
+        (r for r in rows if r.get("significant")),
+        key=lambda r: r.get("p_adjusted", r["p_value"]),
+    )
+    family = _plural(len(rows), "pair")
+    if not winners:
+        return Verdict(
+            style="none",
+            title="no significant difference",
+            lines=(
+                VerdictLine(
+                    (
+                        (
+                            "text",
+                            f"No pair survives Holm correction at family-wise alpha={alpha} "
+                            f"(0 of {family}).",
+                        ),
+                    )
+                ),
+                VerdictLine(
+                    (
+                        (
+                            "text",
+                            "Either the arms perform alike or this run has too few queries "
+                            "to tell; ",
+                        ),
+                        ("command", "lasagna results power"),
+                        ("text", " says which."),
+                    )
+                ),
+            ),
+        )
+
+    lower = lower_is_better(metric)
+    lines: List[VerdictLine] = []
+    for row in winners[:_VERDICT_SHOWN]:
+        a, b, diff = str(row["config_a"]), str(row["config_b"]), row["difference"]
+        a_wins = diff < 0 if lower else diff > 0
+        win, lose = (a, b) if a_wins else (b, a)
+        effect = row.get("effect_size")
+        # Names, metric and benchmark are spans of their own: free text that
+        # each renderer escapes, kept apart from the fixed words around it.
+        lines.append(VerdictLine((("winner", win), ("text", " beats "), ("text", lose))))
+        lines.append(
+            VerdictLine(
+                (
+                    ("text", "  "),
+                    ("text", metric),
+                    ("text", f" {'-' if lower else '+'}{abs(diff):.4f} on "),
+                    ("text", benchmark),
+                    (
+                        "text",
+                        f", d_z {format_effect_size(abs(effect) if effect is not None else None)}"
+                        f", p (Holm) {format_p(row.get('p_adjusted', row['p_value']))}, "
+                        f"{row.get('n_paired', '?')} queries",
+                    ),
+                )
+            )
+        )
+    if len(winners) > _VERDICT_SHOWN:
+        more = len(winners) - _VERDICT_SHOWN
+        lines.append(VerdictLine((("text", f"  and {more} more in the table above"),)))
+    lines.append(VerdictLine())
+    survive = "survives" if len(winners) == 1 else "survive"
+    lines.append(
+        VerdictLine(
+            (
+                (
+                    "text",
+                    f"{len(winners)} of {family} {survive} correction at "
+                    f"family-wise alpha={alpha}.",
+                ),
+            )
+        )
+    )
+    return Verdict(
+        style="significant", title="significant after Holm correction", lines=tuple(lines)
+    )

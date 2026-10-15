@@ -178,6 +178,42 @@ registered. A component that registers but does not conform is listed with
 `implements_contract: False`, which is how you find out before your results
 depend on it.
 
+### Already built in LangChain or LlamaIndex?
+
+`lasagna.from_langchain` and `lasagna.from_llamaindex` register an object you
+already have. A document compressor or node postprocessor becomes a reranker,
+embeddings become an embedder, and a retriever becomes a retriever. The listing
+describes the entry as `wrapped: langchain.<Class>`.
+
+```python
+import lasagna
+from langchain_core.embeddings import DeterministicFakeEmbedding
+from lasagna.core.registry import registry
+
+name = lasagna.from_langchain(DeterministicFakeEmbedding(size=64))
+print(name)  # langchain.DeterministicFakeEmbedding
+entry = next(e for e in registry.list_embedders() if e["name"] == name)
+print(entry["description"])  # wrapped: langchain.DeterministicFakeEmbedding
+```
+
+A sweep run from Python names the returned name like any other component. A
+sweep file run with `lasagna benchmark experiment` names the object where you
+defined it instead: with `cohere = CohereRerank(top_n=10)` in
+`my_rerankers.py`, the arm `"my_rerankers:cohere"` is wrapped the same way.
+
+Three things to know:
+
+- **A wrapped retriever brings its own index.** It searches whatever the
+  object was built over, not the corpus Lasagna ingested. For a benchmark, its
+  index must hold that benchmark's corpus with each corpus id in the metadata
+  (`doc_id`, or the key you pass as `id_key=`). A document with no id gets a
+  hash of its text as its id, which matches no relevance judgment.
+- **The object's own limits apply.** A compressor's `top_n` or a retriever's
+  `k` caps how many documents come back; set it at least as high as the
+  pipeline's depth, or the arm is scored on shorter lists than the others.
+- **LlamaIndex is an extra:** `pip install "lasagna-rag[llamaindex]"`.
+  LangChain needs nothing more.
+
 ---
 
 ## 6. Compare it against a baseline
@@ -437,6 +473,8 @@ available datasets, see
 | **Publish a result someone else can check** | `lasagna results bundle` then `validate` |
 | **Ask whether two techniques compose or overlap** | `lasagna results interaction` |
 | **See which queries a config lost, and at which stage** | `lasagna results per-query` |
+| **Hand someone the whole run as one page** | `lasagna results view results.json -o view.html` |
+| **Put a leaderboard in a paper** | `lasagna results leaderboard <dir> --format latex` |
 | **Find out whether a null result was inconclusive** | `lasagna results power` |
 | **Run a leaderboard for those results** | [Results hub](../hub/README.md) |
 | **Know a dataset's terms before publishing** | [Dataset licenses](../src/lasagna/knowledge_evaluation_sdk/research/DATASETS.md) |

@@ -140,6 +140,22 @@ Sweeps, validation and metrics:
 
 - `lasagna component list [stage]` lists every component a sweep can name, with
   its stage, description and paper, without loading any of them.
+- **LangChain and LlamaIndex components as stages.** `lasagna.from_langchain`
+  registers a document compressor as a reranker, embeddings as an embedder and
+  a retriever as a retriever; `lasagna.from_llamaindex` does the same for a node
+  postprocessor, an embedding and a retriever. A sweep file can also name such
+  an object as `module:attr`. The listing describes the entry as
+  `wrapped: langchain.<Class>`. A wrapped retriever searches its own index, not
+  the ingested corpus. New extra: `llamaindex`.
+- **`lasagna results view`** writes a run (a `results.json` or a bundle) as one
+  HTML page: the header with versions and run id, the stage isolation check,
+  and per benchmark the leaderboard, the significance table with the verdict
+  `results significance` prints, every metric per arm, and a per-query diff
+  between two arms (`--diff A B`, default the top two) with what each one
+  retrieved. The page is a single file with no external requests and works
+  offline, in light and dark mode.
+- `lasagna results leaderboard --format latex` prints one booktabs table per
+  comparability group, or writes one `.tex` file per benchmark with `-o`.
 
 ### Changed
 
@@ -473,6 +489,10 @@ Requests to current models:
 - Dateless ids that are snapshots (Claude from 4.6 on, and OpenAI models whose
   only snapshot is the dateless id, such as gpt-6-luna) no longer raise
   `UNRESOLVED_JUDGE_ALIAS` in a bundle.
+- `results leaderboard` ranked latency and token counts highest first: the
+  lower-is-better check read a field no row carried.
+- LaTeX tables escape `\`, `{`, `}`, `~` and `^` in arm names; only `_ & % # $`
+  were escaped, so such a name broke the table.
 
 ## 0.1.0a1 — 2026-08-18
 

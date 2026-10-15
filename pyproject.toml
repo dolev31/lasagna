@@ -241,6 +241,12 @@ ocr = [
 ]
 # Web search fallback for corrective RAG (crag_web_search_fallback)
 web = ["ddgs>=9,<10"]
+# LlamaIndex components as pipeline stages (lasagna.from_llamaindex): the
+# postprocessors, embeddings and retrievers you wrap are built with it. The
+# adapter recognizes them by their methods and imports LlamaIndex only to build
+# the nodes it hands a postprocessor. LangChain needs no extra: langchain-core
+# is a core dependency.
+llamaindex = ["llama-index-core>=0.12,<1"]
 # Local LLM inference
 local = [
     "langchain-huggingface>=0.1",
