@@ -219,12 +219,11 @@ def parse_mix(spec: Any) -> Dict[str, float]:
     mix = {t: 0.0 for t in QUESTION_TYPES}
     for key, value in pairs:
         if key not in mix:
-            import difflib
+            from lasagna.core._text import did_you_mean
 
-            close = difflib.get_close_matches(key, QUESTION_TYPES, n=1)
-            hint = f" (did you mean {close[0]!r}?)" if close else ""
             raise ValueError(
-                f"Unknown question type {key!r} in --mix{hint}. Types: {', '.join(QUESTION_TYPES)}."
+                f"Unknown question type {key!r} in --mix{did_you_mean(key, QUESTION_TYPES)}. "
+                f"Types: {', '.join(QUESTION_TYPES)}."
             )
         try:
             weight = float(value)
