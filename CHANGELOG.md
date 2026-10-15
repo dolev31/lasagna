@@ -174,6 +174,16 @@ Servers and deployment:
 - A search whose focused-document list cannot be read returns 503 instead of
   searching every document in the session, and listing a document's chunks
   while the vector store is unreachable returns 503 instead of an empty list.
+- **Shutdown no longer leaves documents "processing".** The api waits up to
+  `processing_timeout` (`RAG_PROCESSING_TIMEOUT`, 20 s in compose) for its
+  processing threads, then marks unfinished documents failed with the reason.
+  When every thread is busy, a REST upload gets 503 with `Retry-After` instead
+  of being processed inside the request; scripts and the SDK still process
+  inline. A REST search that runs past `RAG_SEARCH_TIMEOUT` (120 s) gets 504.
+- **The metadata store records its version.** SQLite and PostgreSQL refuse a
+  store written by a newer Lasagna, naming both versions. PostgreSQL creates and
+  migrates its schema under an advisory lock and records the version, which it
+  never did.
 
 ### Fixed
 
@@ -256,6 +266,13 @@ Servers and deployment:
   redirection, so the version floors were never applied.
 - A failed native Milvus hybrid search returned no results; it now falls back
   to the BM25 index.
+- Replicas or workers starting together against an empty PostgreSQL raced on
+  schema creation: 35 of 40 concurrent first starts failed with a
+  `UniqueViolation` in a local test, against 0 of 40 now.
+- A backend that could not open a data directory held by another process
+  logged a full traceback; it now logs one line at DEBUG, and other startup
+  failures are logged with their traceback without breaking on braces in the
+  message.
 - The Redis and broker URLs, password included, were logged at startup.
 - A URL no route matched became its own label value in the request histogram;
   it is now `unmatched`.

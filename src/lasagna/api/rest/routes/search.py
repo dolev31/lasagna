@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from starlette.concurrency import run_in_threadpool
@@ -43,6 +45,30 @@ def _missing_llm(exc: BaseException):
 
 
 router = APIRouter(prefix="/search", tags=["search"])
+
+
+async def _within_deadline(call):
+    """Await ``call`` for at most ``RAG_SEARCH_TIMEOUT`` seconds, else answer 504.
+
+    A search that hung (an LLM stage waiting on a provider, a vector store
+    mid-failover) held its request until the proxy or the client gave up,
+    with nothing in the response to say why. The thread running it cannot be
+    stopped and finishes on its own; the client is answered on time.
+    """
+    from lasagna.api.rest.limits import search_timeout
+
+    deadline = search_timeout()
+    try:
+        return await asyncio.wait_for(call, timeout=deadline)
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"The search did not finish within {deadline:g} s (RAG_SEARCH_TIMEOUT). "
+                f"Retry, raise RAG_SEARCH_TIMEOUT, or turn off the slow stages "
+                f"(HyDE, agentic routing) for this session."
+            ),
+        ) from None
 
 
 def _get_routing_info(backend: RAGBackend) -> RoutingInfo | None:
@@ -93,6 +119,7 @@ _SEARCH_ERRORS = {
         "model": ErrorResponse,
         "description": "The session's focused documents could not be read, so nothing was searched",
     },
+    504: {"model": ErrorResponse, "description": "The search ran past RAG_SEARCH_TIMEOUT"},
 }
 
 
@@ -111,15 +138,17 @@ async def search(
     """
     try:
         with _degraded.collecting() as degraded:
-            results = await backend.async_search(
-                query=body.query,
-                session_id=session_id,
-                top_k=body.top_k,
-                min_score=body.min_score,
-                document_ids=body.document_ids,
-                use_hyde=body.use_hyde,
-                use_reranking=body.use_reranking,
-                routing_tier=body.routing_tier,
+            results = await _within_deadline(
+                backend.async_search(
+                    query=body.query,
+                    session_id=session_id,
+                    top_k=body.top_k,
+                    min_score=body.min_score,
+                    document_ids=body.document_ids,
+                    use_hyde=body.use_hyde,
+                    use_reranking=body.use_reranking,
+                    routing_tier=body.routing_tier,
+                )
             )
         routing_info = _get_routing_info(backend)
         return SearchResponse(
@@ -129,6 +158,8 @@ async def search(
             routing=routing_info,
             degraded_stages=degraded,
         )
+    except HTTPException:
+        raise
     except SearchScopeUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
@@ -181,12 +212,14 @@ async def search_with_citations(
     """
     try:
         with _degraded.collecting() as degraded:
-            results, citations, context = await backend.async_search_with_citations(
-                query=body.query,
-                session_id=session_id,
-                top_k=body.top_k,
-                document_ids=body.document_ids,
-                routing_tier=body.routing_tier,
+            results, citations, context = await _within_deadline(
+                backend.async_search_with_citations(
+                    query=body.query,
+                    session_id=session_id,
+                    top_k=body.top_k,
+                    document_ids=body.document_ids,
+                    routing_tier=body.routing_tier,
+                )
             )
         routing_info = _get_routing_info(backend)
         cited = [
@@ -223,6 +256,8 @@ async def search_with_citations(
             routing=routing_info,
             degraded_stages=degraded,
         )
+    except HTTPException:
+        raise
     except SearchScopeUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
@@ -234,7 +269,7 @@ async def search_with_citations(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.post("/multi-query", response_model=SearchResponse)
+@router.post("/multi-query", response_model=SearchResponse, responses=_SEARCH_ERRORS)
 async def multi_query_search(
     body: SearchRequest,
     n_variations: int = 3,
@@ -254,13 +289,15 @@ async def multi_query_search(
         logger.debug("routing_tier ignored for multi-query endpoint")
     try:
         with _degraded.collecting() as degraded:
-            results = await run_in_threadpool(
-                backend.search_multi_query,
-                query=body.query,
-                session_id=session_id,
-                top_k=body.top_k,
-                n_variations=n_variations,
-                document_ids=body.document_ids,
+            results = await _within_deadline(
+                run_in_threadpool(
+                    backend.search_multi_query,
+                    query=body.query,
+                    session_id=session_id,
+                    top_k=body.top_k,
+                    n_variations=n_variations,
+                    document_ids=body.document_ids,
+                )
             )
         return SearchResponse(
             results=[_result_to_response(r) for r in results],
@@ -268,6 +305,8 @@ async def multi_query_search(
             total_results=len(results),
             degraded_stages=degraded,
         )
+    except HTTPException:
+        raise
     except SearchScopeUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
@@ -279,7 +318,7 @@ async def multi_query_search(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.post("/agentic", response_model=SearchWithCitationsResponse)
+@router.post("/agentic", response_model=SearchWithCitationsResponse, responses=_SEARCH_ERRORS)
 async def agentic_search(
     body: SearchRequest,
     session_id: str = Depends(get_session_id),
@@ -298,11 +337,13 @@ async def agentic_search(
     if body.routing_tier:
         logger.debug("routing_tier ignored for agentic endpoint")
     try:
-        result = await backend.async_agentic_search(
-            query=body.query,
-            session_id=session_id,
-            top_k=body.top_k,
-            document_ids=body.document_ids,
+        result = await _within_deadline(
+            backend.async_agentic_search(
+                query=body.query,
+                session_id=session_id,
+                top_k=body.top_k,
+                document_ids=body.document_ids,
+            )
         )
         cited = [
             CitationResponse(
@@ -326,6 +367,8 @@ async def agentic_search(
             query=body.query,
             total_results=len(result.citations),
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except QuotaExceededError as exc:

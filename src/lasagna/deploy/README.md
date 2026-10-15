@@ -130,6 +130,17 @@ returns when the stack can serve or names the service that cannot:
 | celery-beat | the beat schedule file exists |
 | mcp | `GET /health` on port 8005 |
 
+### Shutdown and busy servers
+
+On SIGTERM the api waits up to `RAG_PROCESSING_TIMEOUT` seconds for documents
+still processing in its own threads, then marks the rest failed with the reason,
+so none is left "processing" by a process that is gone. That wait has to end
+before gunicorn's `--graceful-timeout` (30 s in the image), and that before the
+container's `stop_grace_period` (40 s for the api here). When every processing
+thread is busy, an upload gets 503 with `Retry-After` rather than being
+processed inside the request. A search that runs past `RAG_SEARCH_TIMEOUT` gets
+504.
+
 ### MCP tools
 
 The mcp service serves the `safe` tool set, which leaves out the six tools that
@@ -203,6 +214,8 @@ Session overrides  →  RAG_* env vars  →  TOML file  →  Code defaults
 | **Auth** | `RAG_API_KEYS` | (none) | With `RAG_REQUIRE_AUTH=true`, the keys (comma-separated, 32+ characters) whose holders may create sessions via `X-API-Key` |
 | **Limits** | `RAG_MAX_FILE_SIZE` | `52428800` | Largest single upload, in bytes; larger bodies get 413 before they are read |
 | **Limits** | `RAG_MAX_BATCH_FILES` / `RAG_MAX_BATCH_BYTES` | `20` / `209715200` | Files in, and total size of, one `POST /documents/batch` |
+| **Limits** | `RAG_SEARCH_TIMEOUT` | `120` | Seconds a REST search may run before 504 |
+| **Limits** | `RAG_PROCESSING_TIMEOUT` | `300` (`20` in compose) | Seconds shutdown waits for documents still processing in the api, before marking them failed |
 | **Observe** | `LASAGNA_LOG_FORMAT` | `text` | `json` writes one JSON object per line, with the request id |
 | **Backend** | `RAG_VECTOR_BACKEND` | — | Set by backend fragment |
 | **Infra** | `RAG_DATABASE_BACKEND` | `sqlite` | `postgresql` in compose/k8s |

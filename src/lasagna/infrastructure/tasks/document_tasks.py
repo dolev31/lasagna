@@ -9,7 +9,13 @@ Three-tier dispatch for document processing:
    background threads.  The pool size and backpressure limit are controlled
    by ``max_concurrent_uploads`` (default 5).
 3. **Synchronous** — When both async paths are unavailable or at capacity,
-   processing happens inline in the caller's thread.
+   processing happens inline in the caller's thread. A caller that must not
+   block (the REST upload route) passes ``refuse_when_busy=True`` and gets
+   `ProcessingAtCapacity` instead.
+
+On shutdown, `drain_document_processing` waits for the thread pool up to
+``processing_timeout`` and marks what is still unfinished as failed, so no
+document is left in "processing" by a process that no longer exists.
 
 Usage::
 
@@ -28,7 +34,7 @@ import concurrent.futures
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -384,6 +390,19 @@ _doc_executor_lock = threading.Lock()
 _doc_semaphore: Optional[threading.Semaphore] = None
 _doc_semaphore_lock = threading.Lock()
 
+#: Documents submitted to the thread pool and not finished:
+#: document_id -> (future, session_id, reservation_id, reserved_file_size).
+_inflight: Dict[str, Tuple[concurrent.futures.Future, str, str, int]] = {}
+_inflight_lock = threading.Lock()
+
+
+class ProcessingAtCapacity(RuntimeError):
+    """Every document-processing thread is busy and the caller may not wait.
+
+    The REST upload route answers 503 with it. Processing inline instead held
+    the request, and the worker serving it, for as long as the document took.
+    """
+
 
 def _get_doc_executor(max_workers: int = 5) -> concurrent.futures.ThreadPoolExecutor:
     """Get or create the shared document processing thread pool."""
@@ -473,6 +492,7 @@ def dispatch_processing(
     *,
     reservation_id: str = "",
     reserved_file_size: int = 0,
+    refuse_when_busy: bool = False,
 ) -> bool:
     """Dispatch document processing to a background worker.
 
@@ -492,6 +512,8 @@ def dispatch_processing(
         file_path: Path to the stored file on disk.
         reservation_id: Quota reservation token from ``check_and_reserve_upload()``.
         reserved_file_size: File size that was reserved (for rollback on failure).
+        refuse_when_busy: Raise `ProcessingAtCapacity` instead of returning
+            ``False`` when the thread pool is full.
 
     Returns:
         ``True`` if the task was dispatched (Celery or thread pool),
@@ -527,6 +549,11 @@ def dispatch_processing(
     semaphore = _get_doc_semaphore(max_workers)
 
     if not semaphore.acquire(blocking=False):
+        if refuse_when_busy:
+            raise ProcessingAtCapacity(
+                f"All {max_workers} document-processing threads are busy, so the upload "
+                f"was not accepted. Retry shortly, or raise RAG_MAX_CONCURRENT_UPLOADS."
+            )
         logger.warning(
             f"Thread pool at capacity ({max_workers}), document {document_id} "
             f"will be processed synchronously"
@@ -535,7 +562,7 @@ def dispatch_processing(
 
     try:
         executor = _get_doc_executor(max_workers)
-        executor.submit(
+        future = executor.submit(
             _thread_pool_wrapper,
             document_id,
             session_id,
@@ -544,6 +571,9 @@ def dispatch_processing(
             reserved_file_size,
             semaphore,
         )
+        with _inflight_lock:
+            _inflight[document_id] = (future, session_id, reservation_id, reserved_file_size)
+        future.add_done_callback(lambda f, doc=document_id: _forget(doc, f))
         logger.info(f"Document {document_id} dispatched to thread pool for background processing")
         return True
     except Exception as exc:
@@ -552,3 +582,57 @@ def dispatch_processing(
             f"Thread pool dispatch failed for {document_id}, will process synchronously: {exc}"
         )
         return False
+
+
+def _forget(document_id: str, future: concurrent.futures.Future) -> None:
+    with _inflight_lock:
+        entry = _inflight.get(document_id)
+        if entry is not None and entry[0] is future:
+            del _inflight[document_id]
+
+
+def drain_document_processing(timeout: float) -> List[str]:
+    """Wait up to ``timeout`` seconds for in-flight documents; fail the rest.
+
+    Shutdown used to leave every document still in the thread pool in
+    "processing" for good: the process exited, nothing would finish it, and
+    clients polling its status waited forever. A document still running after
+    ``timeout`` is marked failed with the reason, and its quota reservation is
+    released. Returns the ids marked failed.
+    """
+    with _inflight_lock:
+        pending = dict(_inflight)
+    if not pending:
+        return []
+    logger.info(f"Waiting up to {timeout:g} s for {len(pending)} document(s) still processing")
+    futures = {entry[0]: doc_id for doc_id, entry in pending.items()}
+    _done, not_done = concurrent.futures.wait(list(futures), timeout=timeout)
+    unfinished = sorted(futures[f] for f in not_done)
+    if not unfinished:
+        return []
+
+    from lasagna.core.database import get_rag_database
+    from lasagna.core.quota import get_quota_manager
+    from lasagna.core.schema import DocumentStatus
+
+    reason = (
+        f"The server shut down before processing finished (it waited {timeout:g} s, "
+        f"processing_timeout). Upload the document again, or reindex it."
+    )
+    for doc_id in unfinished:
+        _future, session_id, reservation_id, reserved_file_size = pending[doc_id]
+        try:
+            get_rag_database().update_document_status(
+                document_id=doc_id, status=DocumentStatus.ERROR.value, error_message=reason
+            )
+        except Exception as exc:
+            logger.warning(f"Could not mark {doc_id} failed at shutdown: {exc}")
+        if reservation_id:
+            try:
+                get_quota_manager().release_upload_reservation(
+                    session_id, reserved_file_size, reservation_id=reservation_id
+                )
+            except Exception as exc:
+                logger.warning(f"Could not release the quota reservation of {doc_id}: {exc}")
+    logger.warning(f"Marked {len(unfinished)} unfinished document(s) failed at shutdown")
+    return unfinished

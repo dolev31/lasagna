@@ -610,6 +610,18 @@ class TestTheFullStackRuns:
             unquoted = re.sub(r'"[^"]*"', "", line)
             assert not re.search(r"[<>]", unquoted), f"unquoted version spec: {line.strip()}"
 
+    def test_the_shutdown_drain_fits_inside_the_kill_timeouts(self):
+        """Killed before the drain ends, documents stay "processing" for good."""
+        import re
+
+        api = _full_stack("qdrant")["services"]["api"]
+        drain = float(api["environment"]["RAG_PROCESSING_TIMEOUT"])
+        graceful = float(
+            re.search(r"--graceful-timeout (\d+)", (DEPLOY_DIR / "Dockerfile").read_text()).group(1)
+        )
+        grace = float(str(api["stop_grace_period"]).rstrip("s"))
+        assert drain < graceful < grace, (drain, graceful, grace)
+
     def test_gunicorn_preloads_and_passes_the_trusted_proxies(self):
         text = (DEPLOY_DIR / "Dockerfile").read_text()
         assert "--preload" in text

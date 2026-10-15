@@ -37,6 +37,13 @@ x-env: &common-env
   # this same directory. Metadata and session config live in Postgres, so no
   # SQLite directory needs sharing.
   RAG_UPLOAD_DIR: /data/uploads
+  # On shutdown the api waits this long (seconds) for documents still in its
+  # own processing threads, then marks them failed with the reason. It has to
+  # fit inside gunicorn's --graceful-timeout (30 s in the image), which has to
+  # fit inside the api's stop_grace_period below; otherwise the process is
+  # killed first and the documents stay "processing". With the celery profile
+  # the worker processes documents and these threads are a fallback.
+  RAG_PROCESSING_TIMEOUT: "${RAG_PROCESSING_TIMEOUT:-20}"
   RAG_CACHE_BACKEND: redis
   RAG_CELERY_ENABLED: "${RAG_CELERY_ENABLED:-true}"
   RAG_CELERY_BROKER_URL: redis://redis:6379/0
@@ -132,6 +139,8 @@ services:
       FORWARDED_ALLOW_IPS: "${FORWARDED_ALLOW_IPS:-127.0.0.1}"
     volumes:
       - uploads-data:/data/uploads
+    # Longer than gunicorn's 30 s graceful timeout; see RAG_PROCESSING_TIMEOUT.
+    stop_grace_period: 40s
     # Ready, not merely alive: the backend is loaded and the vector store,
     # Redis and Postgres answer. Loading the embedding model takes a while on
     # a cold start, hence the long start period.

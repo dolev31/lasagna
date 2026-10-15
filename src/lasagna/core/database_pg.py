@@ -220,6 +220,49 @@ _CREATE_INDEXES = [
 
 
 # ---------------------------------------------------------------------------
+# Store version
+# ---------------------------------------------------------------------------
+
+#: Key of the transaction-scoped advisory lock that serializes schema creation
+#: and migration ("lasagna" in ASCII, as a bigint).
+_SCHEMA_LOCK_KEY = 0x6C617361676E61
+
+
+def _lock_and_check_store_version(cur, where: str) -> None:
+    """Take the schema lock for this transaction, then refuse a newer store.
+
+    Every replica and worker creates and migrates the schema at startup. Run
+    concurrently, two of them raced on ``CREATE TABLE`` / ``ALTER TABLE`` and one
+    failed its start with a duplicate-object error. The advisory lock is
+    released when the transaction commits or rolls back.
+    """
+    from lasagna.core.database import refuse_newer_store
+
+    cur.execute("SELECT pg_advisory_xact_lock(%s)", (_SCHEMA_LOCK_KEY,))
+    cur.execute(_CREATE_SCHEMA_META)
+    cur.execute("SELECT value FROM schema_meta WHERE key = 'version'")
+    row = cur.fetchone()
+    refuse_newer_store(int(row[0]) if row else 0, where)
+
+
+def _store_version() -> int:
+    from lasagna.core.database import STORE_VERSION
+
+    return STORE_VERSION
+
+
+def _record_store_version(cur) -> None:
+    """Write this code's store version; it was never written on PostgreSQL."""
+    from lasagna.core.database import STORE_VERSION
+
+    cur.execute(
+        "INSERT INTO schema_meta (key, value) VALUES ('version', %s) "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+        (str(STORE_VERSION),),
+    )
+
+
+# ---------------------------------------------------------------------------
 # PostgreSQL RAG Database
 # ---------------------------------------------------------------------------
 
@@ -298,7 +341,9 @@ class PostgresRAGDatabase:
     def _create_schema(self):
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(_CREATE_SCHEMA_META)
+                _lock_and_check_store_version(
+                    cur, self._dsn.split("@")[-1] if "@" in self._dsn else "(local)"
+                )
                 cur.execute(_CREATE_DOCUMENTS)
                 cur.execute(_CREATE_CITATIONS)
                 cur.execute(_CREATE_PARENT_CHUNKS)
@@ -360,6 +405,7 @@ class PostgresRAGDatabase:
                         END IF;
                     END $$;
                 """)
+                _record_store_version(cur)
             conn.commit()
 
     # ------------------------------------------------------------------
@@ -855,7 +901,7 @@ class PostgresRAGDatabase:
                 "expired_pending_cleanup": expired_citations,
                 "sessions": citation_sessions,
             },
-            "schema_version": 4,
+            "schema_version": _store_version(),
             "backend": "postgresql",
             "dsn": self._dsn.split("@")[-1] if "@" in self._dsn else "(local)",
         }

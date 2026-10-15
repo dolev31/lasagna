@@ -44,7 +44,7 @@ from ._validation import (
 )
 from lasagna.core.tenant import get_tenant_manager
 from lasagna.core.quota import get_quota_manager
-from lasagna.infrastructure.tasks.document_tasks import dispatch_processing
+from lasagna.infrastructure.tasks.document_tasks import ProcessingAtCapacity, dispatch_processing
 
 if TYPE_CHECKING:
     from ._collection_manager import CollectionManager
@@ -123,6 +123,7 @@ class DocumentPipeline:
         document_id: Optional[str] = None,
         _chunker_override: Any = None,
         _document_processor_override: Any = None,
+        refuse_when_busy: bool = False,
     ) -> Document:
         """Upload and process a document with SOTA pipeline.
 
@@ -218,13 +219,24 @@ class DocumentPipeline:
         logger.info(f"Document uploaded: {document_id} ({filename})")
 
         # --- Celery async path: dispatch and return immediately ---
-        if dispatch_processing(
-            document_id,
-            session_id,
-            stored_file_path,
-            reservation_id=reservation_id,
-            reserved_file_size=file_size_for_quota,
-        ):
+        try:
+            dispatched = dispatch_processing(
+                document_id,
+                session_id,
+                stored_file_path,
+                reservation_id=reservation_id,
+                reserved_file_size=file_size_for_quota,
+                refuse_when_busy=refuse_when_busy,
+            )
+        except ProcessingAtCapacity:
+            # Refused before any processing: leave nothing behind, so the
+            # caller's retry is a clean upload rather than a duplicate.
+            self._forget_unprocessed_upload(document_id, stored_file_path)
+            quota_mgr.release_upload_reservation(
+                session_id, file_size_for_quota, reservation_id=reservation_id
+            )
+            raise
+        if dispatched:
             METRICS.counter("rag.document.uploads", 1)
             return document  # status=PROCESSING; client polls for completion
 
@@ -293,6 +305,19 @@ class DocumentPipeline:
         )
 
         return document
+
+    def _forget_unprocessed_upload(self, document_id: str, stored_file_path: str) -> None:
+        """Remove the metadata row and stored file of an upload that was refused."""
+        from lasagna.core.database import get_rag_database
+
+        try:
+            get_rag_database().delete_document(document_id)
+        except Exception as exc:
+            logger.warning(f"Could not remove the record of refused upload {document_id}: {exc}")
+        try:
+            self.storage.delete(stored_file_path)
+        except Exception as exc:
+            logger.warning(f"Could not remove the file of refused upload {document_id}: {exc}")
 
     def _store_file(self, source_path: str, document_id: str, filename: str) -> str:
         """Store uploaded file via the pluggable storage backend.

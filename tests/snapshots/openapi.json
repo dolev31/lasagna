@@ -7100,6 +7100,16 @@
               }
             },
             "description": "The session's focused documents could not be read, so nothing was searched"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The search ran past RAG_SEARCH_TIMEOUT"
           }
         },
         "summary": "Search",
@@ -7215,6 +7225,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request was invalid for this session"
+          },
           "401": {
             "content": {
               "application/json": {
@@ -7273,7 +7293,17 @@
                 }
               }
             },
-            "description": "The backend is not ready, or a dependency is down"
+            "description": "The session's focused documents could not be read, so nothing was searched"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The search ran past RAG_SEARCH_TIMEOUT"
           }
         },
         "summary": "Agentic Search",
@@ -7458,6 +7488,16 @@
               }
             },
             "description": "The session's focused documents could not be read, so nothing was searched"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The search ran past RAG_SEARCH_TIMEOUT"
           }
         },
         "summary": "Search With Citations",
@@ -7551,6 +7591,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request was invalid for this session"
+          },
           "401": {
             "content": {
               "application/json": {
@@ -7609,7 +7659,17 @@
                 }
               }
             },
-            "description": "The backend is not ready, or a dependency is down"
+            "description": "The session's focused documents could not be read, so nothing was searched"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The search ran past RAG_SEARCH_TIMEOUT"
           }
         },
         "summary": "Multi Query Search",

@@ -26,6 +26,7 @@ from loguru import logger
 
 from lasagna.api.rag_backend import RAGBackend
 from lasagna.core.quota import QuotaExceededError
+from lasagna.infrastructure.tasks.document_tasks import ProcessingAtCapacity
 from ..dependencies import get_backend, get_session_id
 from ..models import (
     BatchUploadItemResponse,
@@ -135,6 +136,8 @@ async def upload_document(
             file_path=tmp_path,
             session_id=session_id,
             filename=file.filename,
+            # A full processing pool is a 503, not processing in this request.
+            refuse_when_busy=True,
         )
         if document_id is not None:
             # `document_id` is the GLOBAL primary key of rag_documents, and this
@@ -162,6 +165,8 @@ async def upload_document(
         )
     except HTTPException:
         raise
+    except ProcessingAtCapacity as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "5"})
     except QuotaExceededError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
     except ValueError as exc:
@@ -237,6 +242,7 @@ async def upload_documents_batch(
                     file_path=tmp_path,
                     session_id=session_id,
                     filename=upload_file.filename,
+                    refuse_when_busy=True,
                 )
                 return BatchUploadItemResponse(
                     document_id=doc.document_id,
