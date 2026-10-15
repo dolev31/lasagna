@@ -1818,8 +1818,19 @@ def get_system_status() -> str:
     _log_tool_call("get_system_status", {})
 
     try:
+        from lasagna.knowledge_evaluation_sdk.stages import (
+            CHUNKER_DISPATCH_KEYS,
+            effective_chunking_strategy,
+        )
+
         backend = _get_backend()
         config = _get_config()
+        # The chunker that runs: structural settings decide it, so the presets
+        # that name `structure_aware` or `hierarchical` were reported as not
+        # chunking semantically while their sections were.
+        chunking = effective_chunking_strategy(
+            {k: getattr(config, k, None) for k in CHUNKER_DISPATCH_KEYS}
+        )
 
         # Get collection stats (using session-aware backend - BYOVDB support)
         collection_name = config.collection_name
@@ -1851,6 +1862,7 @@ def get_system_status() -> str:
                 "sqlite": {"db_path": config.db_path, "exists": os.path.exists(config.db_path)},
             },
             "configuration": {
+                "chunking_strategy": chunking,
                 "chunk_size": config.chunk_size,
                 "chunk_overlap": config.chunk_overlap,
                 "default_top_k": config.default_top_k,
@@ -1861,13 +1873,13 @@ def get_system_status() -> str:
                 "use_agentic_rag": config.use_agentic_rag,
                 "chunk_refinement_method": config.chunk_refinement_method,
             },
-            "sota_features": {
+            "features": {
                 "hybrid_search": config.enable_hybrid_search,
                 "reranking": config.enable_reranking,
                 "mmr_diversity": config.enable_mmr,
                 "hyde_expansion": config.enable_hyde,
                 "ocr_enabled": config.enable_ocr,
-                "semantic_chunking": config.chunking_strategy == "semantic",
+                "semantic_chunking": chunking in ("semantic", "structure_aware"),
             },
             "storage": {
                 "upload_dir": config.upload_dir,

@@ -747,11 +747,9 @@ def _ran_system(
 
     # The strategy that ran, not the one requested: structural settings
     # override it at ingest, in the order resolve_effective_strategy applies.
-    chunker = getattr(_ingest("chunking_strategy"), "value", _ingest("chunking_strategy"))
-    if _ingest("enable_hierarchical"):
-        chunker = "hierarchical"
-    elif _ingest("preserve_headers") or _ingest("preserve_tables"):
-        chunker = "structure_aware"
+    from .stages import CHUNKER_DISPATCH_KEYS, effective_chunking_strategy
+
+    chunker = effective_chunking_strategy({k: _ingest(k) for k in CHUNKER_DISPATCH_KEYS})
     try:
         from lasagna.retrieval.search.hybrid import STEMMER_AVAILABLE as bm25_stemming
     except Exception:  # pragma: no cover - hybrid search always importable here
@@ -1817,6 +1815,8 @@ def _system_under_test(base_profile: Optional[str] = None) -> Dict[str, Any]:
     global defaults, because a visible gap is honest and a confident wrong
     value is not.
     """
+    from .stages import CHUNKER_DISPATCH_KEYS, effective_chunking_strategy
+
     profile_config = _resolve_profile_config(base_profile)
 
     try:
@@ -1871,7 +1871,8 @@ def _system_under_test(base_profile: Optional[str] = None) -> Dict[str, Any]:
         "agentic_models": dict(_get("agentic_models") or {}),
         "embedder_model": _get("embedding_model"),
         "embedder_dim": _get("embedding_dim"),
-        "chunker": _get("chunking_strategy"),
+        # What runs, as a task records it: a structural setting decides it.
+        "chunker": effective_chunking_strategy({k: _get(k) for k in CHUNKER_DISPATCH_KEYS}),
         "chunk_size": _get("chunk_size"),
         "chunk_overlap": _get("chunk_overlap"),
         "retriever_top_k": _get("rerank_top_k"),

@@ -697,17 +697,20 @@ def _uses_hybrid(row: Dict[str, Any]) -> Optional[bool]:
 
 
 def _splits_sentences(row: Dict[str, Any]) -> Optional[bool]:
-    """Whether the task's chunking ran the sentence splitter (see
-    ``chunker.semantic.resolve_effective_strategy`` for the dispatch order)."""
+    """Whether the task's chunking ran the sentence splitter.
+
+    Read off the chunker that ran (``stages.effective_chunking_strategy``):
+    hierarchical cuts fixed-size parents and children; structure-aware chunks
+    each section semantically; a structural strategy with its setting off
+    runs semantic, which the declared name hid.
+    """
+    from .stages import effective_chunking_strategy
+
     stages = (row.get("system") or {}).get("stages") or {}
     s = (stages.get("chunker") or {}).get("settings")
     if s is None:
         return None
-    if s.get("enable_hierarchical"):
-        return False  # fixed-size parents and children
-    if s.get("preserve_headers") or s.get("preserve_tables"):
-        return True  # structure-aware chunks each section semantically
-    return str(s.get("chunking_strategy")) in ("semantic", "sentence_window")
+    return effective_chunking_strategy(s) in ("structure_aware", "semantic", "sentence_window")
 
 
 def _could_have_used(rows: List[Dict[str, Any]], probe) -> bool:
