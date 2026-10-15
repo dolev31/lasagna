@@ -8,7 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.1.0] - YYYY-MM-DD
 
-Lasagna now has eight swappable stages and 53 built-in components; each one that
+Lasagna now has eight swappable stages and 55 built-in components; each one that
 implements a published method names its paper. Several fixes below change
 measured numbers, so `METRICS_VERSION` is now 1.5 (it was 1.3), and results from
 before this release do not share a leaderboard group with results after it.
@@ -25,6 +25,14 @@ Components, by stage:
   Sweep it with `pipeline.generators`, run one with
   `lasagna benchmark run --generator`, or call `KnowledgePipeline.generate()`.
   A run that names no generator writes answers exactly as before.
+- **Baseline arms.** The `closed_book` generator answers from the question
+  alone; `long_context` reads all ten retrieved passages where the default
+  reads five, and the judge sees the same ten. An arm with `no_rag: true`
+  retrieves nothing: its retrieval track is skipped, it answers with
+  `closed_book`, and the isolation check files it under the retriever stage.
+  An arm whose generator reads no passages is not judged on faithfulness or
+  the context metrics, and the report and leaderboard say so.
+  `BaseGenerator.needs_context` and `context_k` let a component declare either.
 - **Retriever:** `dense`, `bm25`, `splade`, `hybrid_rrf` and `hybrid_convex`.
   The stage had no built-in component before. `dense` is the default vector
   search as a component, the control for a retriever sweep. New settings:
@@ -73,6 +81,25 @@ Sweeps, validation and metrics:
   (`has_ans`) and unanswerable (`no_ans`) questions, and input tokens, output
   tokens and LLM calls per query. The judge is now also asked for
   `factual_correctness`.
+- **A re-run replays the LLM responses it already has.** Inside an experiment,
+  a request at temperature 0 that an earlier run made with the same seed is
+  answered from `~/.lasagna/cache/llm.sqlite`. Token counts read as in the cold
+  run; `llm_cache_hits` and `llm_cache_misses` on each task and a hit rate in
+  `results.json` and the bundle say what was replayed. Sampled calls are never
+  replayed, which includes the RAGAS judge (it asks for temperature 0.01) unless
+  `llm_cache: {deterministic_only: false}`. Off with `llm_cache: false`,
+  `--no-cache` or `LASAGNA_LLM_CACHE=0`. Nothing is cached outside an
+  experiment, so `lasagna serve` writes no prompt to disk.
+- **`lasagna benchmark experiment --dry-run`** prints the arms, the tasks, the
+  models the run loads and whether each is downloaded, a static token estimate
+  and, unless `--no-probe`, a 3-sample probe per benchmark extrapolated to the
+  whole run in tokens, seconds and (from a price table) dollars. Every number
+  is labelled an estimate, and nothing is written under the results folder.
+- **A dollar estimate, if asked for.** `prices: builtin` (a table dated
+  `builtin-2026-10`) or `prices: {model: {input_per_1m: ..., output_per_1m: ...}}`
+  adds `cost_usd_estimate` to each task whose tokens all have a rate; the run
+  metadata records the table and rates. Without `prices:` a run reports tokens
+  only, as before.
 - `lasagna --version` prints the installed version.
 - **`lasagna results significance` ends in a verdict.** A green box names each
   pair that survives Holm correction, which side won (lower-is-better metrics

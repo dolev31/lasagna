@@ -20,7 +20,14 @@ number: prices change, they differ by tier, region and commitment, and a reader
 in a year cannot tell a stale rate from a real measurement. Tokens are what was
 actually observed; anyone who wants a cost multiplies by the rate they actually
 pay. This is why ``_get_cost_rates`` and ``_DEFAULT_COST_TABLE`` are gone rather
-than fixed.
+than fixed. A sweep can still ask for a dollar figure (``prices:``): it is
+computed from these counts in ``knowledge_evaluation_sdk/cost.py``, named
+``cost_usd_estimate``, and recorded with the table and rates it came from, so
+the counts here remain the record and the dollars a labelled estimate.
+
+**A replayed response counts as it did cold.** A call the experiment's LLM
+cache serves carries the usage of the call that produced it, so a warm run
+reports the tokens the system spends, not the zero it paid this time.
 
 **Zero and unmeasured are different.** ``llm_calls == 0`` means no call was seen,
 which for a retrieval-only arm is the truth and for an uninstrumented client is

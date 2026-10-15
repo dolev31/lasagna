@@ -47,6 +47,8 @@ from .benchmarks._base import BaseBenchmarkAdapter as _BaseBenchmarkAdapter
 from .checkpoint import CheckpointManager
 from .results import BenchmarkResults
 from .runner import HARNESS_KEYS, BenchmarkRunner, BenchmarkTask, TaskResult
+from ..utils.llm_cache import CacheStats, LLMCacheSettings, llm_cache_scope
+from .cost import PriceTable
 
 #: The unoverridden ``load_corpus``. An adapter still pointing at it ships no
 #: corpus of its own, whatever else it can do.
@@ -151,7 +153,9 @@ from lasagna.utils.token_usage import EVAL, SYSTEM, TokenUsage, UsageMeter  # no
 # the work. Prices are also not a property of a run: they change, they differ by
 # tier and commitment, and a rate frozen into a published bundle is
 # indistinguishable from a measurement to anyone reading it later. Tokens are
-# reported; multiply by what you actually pay.
+# reported; multiply by what you actually pay. A sweep that asks for a dollar
+# figure (`prices:`) gets `cost_usd_estimate` from `cost.py`, labelled as an
+# estimate, with the table and rates recorded beside it.
 
 
 def _is_abstention_answer(text: str) -> bool:
@@ -580,6 +584,14 @@ class ExperimentConfig:
     #: Evaluation tracks to run: "retrieval", "generation", or both (the
     #: default). A component sweep scored on retrieval needs no LLM or RAGAS.
     tracks: List[str] = field(default_factory=lambda: ["retrieval", "generation"])
+    #: The LLM response cache (``llm_cache:``): on unless set false, the CLI
+    #: passes ``--no-cache`` or ``LASAGNA_LLM_CACHE=0``. Replays deterministic
+    #: calls only; see :mod:`lasagna.utils.llm_cache`.
+    llm_cache: LLMCacheSettings = field(default_factory=LLMCacheSettings)
+    #: Rates for a dollar estimate (``prices:``, opt-in): ``builtin`` or a
+    #: mapping of model to rates over the built-in table. None, the default,
+    #: reports tokens only. See :mod:`lasagna.knowledge_evaluation_sdk.cost`.
+    prices: Optional[PriceTable] = None
     #: Folder of the sweep file, where `module:function` components are found.
     #: Set by `Experiment.from_file`; not a YAML key.
     base_dir: str = ""
@@ -934,6 +946,25 @@ def _check_components_conform(pipeline_configs: List[Dict[str, Any]]) -> None:
         raise ValueError("These components cannot be measured: " + " | ".join(problems))
 
 
+def _check_no_rag_arms(pipeline_configs: List[Dict[str, Any]], tracks: List[str]) -> None:
+    """A ``no_rag`` arm needs a generator that reads no passages and a
+    generation track to be scored on; refused before anything is ingested."""
+    for pc in pipeline_configs:
+        overrides = pc["overrides"]
+        if not overrides.get("no_rag"):
+            continue
+        if "generation" not in tracks:
+            raise ValueError(
+                f"Arm {pc['name']!r} sets no_rag: true, which is scored on generation "
+                f"only, and this sweep runs tracks: {list(tracks)}. Add generation to "
+                f"tracks:, or remove the arm."
+            )
+        if overrides.get("generator"):
+            from lasagna.core.registry import registry
+
+            _no_rag_generator(registry.get("generator", overrides["generator"]), overrides)
+
+
 def _fix_retrieval_depth(task_config: Dict[str, Any], depth: int) -> None:
     """Make retrieval evaluation return ``depth`` uncached, untruncated results.
 
@@ -1022,6 +1053,8 @@ _TOP_LEVEL_KEYS = frozenset(
         "ingestion_per_config",
         "max_corpus_docs",
         "tracks",
+        "llm_cache",
+        "prices",
     }
 )
 _PIPELINE_KEYS = frozenset(
@@ -1190,6 +1223,8 @@ def _parse_config(data: Dict[str, Any]) -> ExperimentConfig:
         ingestion_per_config=data.get("ingestion_per_config", False),
         max_corpus_docs=data.get("max_corpus_docs", 0),
         tracks=_parse_tracks(data.get("tracks")),
+        llm_cache=LLMCacheSettings.parse(data.get("llm_cache")),
+        prices=PriceTable.parse(data.get("prices")),
     )
 
 
@@ -1404,6 +1439,7 @@ class Experiment:
         _load_component_references(pipeline_configs, [cfg.base_dir] if cfg.base_dir else [])
         _check_components_exist(pipeline_configs)
         _check_components_conform(pipeline_configs)
+        _check_no_rag_arms(pipeline_configs, cfg.tracks)
 
         # What a checkpoint depends on beyond its task: metric definitions,
         # package version, judge and environment settings. In every task key,
@@ -1486,6 +1522,14 @@ class Experiment:
 
         # Select eval function
         eval_fn = self._eval_fn or _default_eval_fn
+        cache_settings = LLMCacheSettings.parse(cfg.llm_cache).resolved()
+        cache_totals = CacheStats()
+        eval_fn = _with_llm_cache(eval_fn, cache_settings, cache_totals)
+        prices = PriceTable.parse(cfg.prices)
+        if prices is not None:
+            from .cost import with_cost_estimate
+
+            eval_fn = with_cost_estimate(eval_fn, prices)
 
         # Agentic search reads part of its settings from the corpus session,
         # which the arms of a sweep share, so two agentic arms running at once
@@ -1524,6 +1568,15 @@ class Experiment:
         results.experiment_config["model_revisions"] = model_revisions(
             models_used([r.to_dict() for r in task_results], results.experiment_config)
         )
+        # How much of this run was replayed, so a fast run can be read as one.
+        results.experiment_config["llm_cache"] = cache_settings.record(cache_totals)
+        if prices is not None:
+            # The table and the rates behind every cost_usd_estimate.
+            from .cost import generator_model_name, judge_model_name
+
+            results.experiment_config["cost_estimate"] = prices.record(
+                [generator_model_name(), judge_model_name()]
+            )
 
         # Save outputs
         _save_outputs(results, output_dir, cfg.output_formats)
@@ -1930,11 +1983,15 @@ def _build_judge_llm(model_name: Optional[str] = None):
         # LangChain provider, so without this wrapper the entire cost of
         # *measuring* -- often larger than the cost of the pipeline -- was
         # invisible, and `eval_cost_usd` had no producer at all.
+        #
+        # The cache goes on first, so the meter sees a replayed response too
+        # and counts it at its cold-run usage.
+        from lasagna.utils.llm_cache import cache_openai_client
         from lasagna.utils.token_usage import EVAL, instrument_openai_client
 
         judge = llm_factory(
             resolved_model,
-            client=instrument_openai_client(OpenAI(**client_kwargs), EVAL),
+            client=instrument_openai_client(cache_openai_client(OpenAI(**client_kwargs)), EVAL),
         )
         logger.info(f"RAGAS judge using model: {resolved_model}")
         return judge
@@ -1980,6 +2037,29 @@ async def _default_eval_fn(
 
     with strict():
         return await _eval_live(task, samples)
+
+
+def _with_llm_cache(eval_fn: Callable, settings: LLMCacheSettings, totals: CacheStats) -> Callable:
+    """Run each task in a cache scope of its own, and record what it replayed.
+
+    The scope's seed is the task's process seed (``seed + run_index``, what
+    ``seed_everything`` sets), so each run of an arm keeps its own responses.
+    The counts land beside ``generations_failed``, and only on a task that
+    looked something up: a task that made no LLM call, or ran with the cache
+    off, carries no cache field at all. They are task metrics only, never
+    per-query scores, so no significance test or comparability key sees them.
+    """
+
+    async def run(task: BenchmarkTask, samples: List[BenchmarkSample]) -> TaskResult:
+        with llm_cache_scope(settings, seed=task.seed + task.run_index) as scope:
+            result = await eval_fn(task, samples)
+        totals.add(scope)
+        if scope.lookups:
+            result.metrics["llm_cache_hits"] = float(scope.hits)
+            result.metrics["llm_cache_misses"] = float(scope.misses)
+        return result
+
+    return run
 
 
 # Component override keys that should use pipeline.replace() rather than
@@ -2151,6 +2231,28 @@ def _apply_overrides_to_pipeline(
         raise ValueError(f"Could not apply this arm's settings: {exc}") from exc
 
 
+def _no_rag(task: BenchmarkTask) -> bool:
+    """Whether the arm answers with no retrieval at all (``no_rag: true``)."""
+    return bool((task.config_overrides or {}).get("no_rag"))
+
+
+def _no_rag_generator(generator: Any, overrides: Dict[str, Any]) -> Any:
+    """The generator a ``no_rag`` arm answers with: ``closed_book`` unless it
+    names one that reads no passages. One that reads them would be handed none,
+    so that arm is refused rather than scored on empty context."""
+    if generator is None:
+        from lasagna.core.registry import registry
+
+        return registry.get("generator", "closed_book")
+    if getattr(generator, "needs_context", True):
+        raise ValueError(
+            f"no_rag: true gives the generator no passages, but generator "
+            f"{overrides.get('generator')!r} writes its answer from them. Use "
+            f"generator: closed_book, or remove no_rag from this arm."
+        )
+    return generator
+
+
 async def _eval_offline(
     task: BenchmarkTask,
     samples: List[BenchmarkSample],
@@ -2237,10 +2339,27 @@ async def _eval_offline(
             ),
         )
 
+    # A named generator writes the answers; with none, the prompt below does.
+    _gen_name = (task.config_overrides or {}).get("generator")
+    _offline_generator = None
+    if _gen_name:
+        from lasagna.core.registry import registry as _registry
+
+        _offline_generator = _registry.get("generator", _gen_name)
+    if _no_rag(task):
+        _offline_generator = _no_rag_generator(_offline_generator, task.config_overrides)
+    # A generator that reads no passages (closed_book, a no_rag arm) is handed
+    # no gold context and scored without it, so it needs none to be scored.
+    _needs_context = getattr(_offline_generator, "needs_context", True)
+
     # Filter to samples with both ground_truth and context (required for
     # RAGAS metrics like faithfulness, context_recall, context_precision).
     # Samples without gold context need live-mode retrieval.
-    eval_samples = [s for s in samples if (s.ground_truth or _is_unanswerable(s)) and s.context]
+    eval_samples = [
+        s
+        for s in samples
+        if (s.ground_truth or _is_unanswerable(s)) and (s.context or not _needs_context)
+    ]
     if not eval_samples:
         # Fall back to samples with just ground_truth + factual_correctness
         eval_samples = [s for s in samples if s.ground_truth]
@@ -2287,13 +2406,6 @@ async def _eval_offline(
     per_sample_usage: List[TokenUsage] = []
     _has_unanswerable = any(_is_unanswerable(s) for s in eval_samples)
     _abstain = _ABSTAIN_INSTRUCTION if _has_unanswerable else ""
-    # A named generator writes the answers; with none, the prompt below does.
-    _gen_name = (task.config_overrides or {}).get("generator")
-    _offline_generator = None
-    if _gen_name:
-        from lasagna.core.registry import registry as _registry
-
-        _offline_generator = _registry.get("generator", _gen_name)
     # The judge needs a reference answer, so RAGAS scores the answerable ones.
     _ans_idx = [i for i, s in enumerate(eval_samples) if not _is_unanswerable(s)]
 
@@ -2302,12 +2414,12 @@ async def _eval_offline(
         ground_truths.append(sample.ground_truth)
 
         # Use gold context if available
-        ctx = [sample.context] if sample.context else []
+        ctx = [sample.context] if sample.context and _needs_context else []
         contexts.append(ctx)
 
         # Generate answer from context using LLM
         sample_meter = UsageMeter()
-        if (answer_llm or _offline_generator) and ctx:
+        if (answer_llm or _offline_generator) and (ctx or not _needs_context):
             q_start = time.monotonic()
             try:
                 if _offline_generator is not None:
@@ -2500,6 +2612,9 @@ async def _eval_offline(
         duration_seconds=time.monotonic() - start,
         n_samples=len(eval_samples),
     )
+    if not _needs_context:
+        # Read by the reports, which say why this arm has no faithfulness.
+        result.system = {"generator_context": "none"}
     _offline_failures: List[str] = []
     if getattr(detailed, "failed_metrics", None):
         _offline_failures.append(
@@ -3540,6 +3655,8 @@ async def _eval_live(
     total_dropped = 0
     #: The judge's spend, accumulated across every RAGAS pass in this task.
     eval_meter = UsageMeter()
+    #: Set when the generator read no passages, for the reports' footnote.
+    _context_free = False
 
     # The cutoff the IR metrics are reported at. Was hard-coded to 10 in six
     # places, so NDCG@100 and Recall@1000 -- the cutoffs much of the retrieval
@@ -3587,6 +3704,16 @@ async def _eval_live(
     # Generation keeps its answer-time policies (they are the system under
     # test), but every run must execute rather than replay the cache.
     gen_config["enable_search_cache"] = False
+
+    # Dropped only here, after the retrieval settings above, so the arm's
+    # recorded configuration matches its control's in every stage but the
+    # retriever, which is the one it names.
+    if _no_rag(task) and ir_samples:
+        logger.info(
+            f"[{task.benchmark_name}] arm '{task.config_name}' sets no_rag: retrieval "
+            f"track skipped, since the arm retrieves nothing"
+        )
+        ir_samples = []
 
     try:
         # ── IR path ─────────────────────────────────────────────────────────
@@ -3784,6 +3911,16 @@ async def _eval_live(
                 if pipeline._component_names.get("generator")
                 else None
             )
+            if _no_rag(task):
+                _generator = _no_rag_generator(_generator, task.config_overrides)
+            # A generator that reads no passages skips retrieval here: nothing
+            # it would return reaches the answer, and an agentic profile would
+            # bill this arm for a search it never used. One that reads more
+            # (long_context) gets that many, and the judge sees the same ones;
+            # with none named, the default stays the first five.
+            _needs_context = getattr(_generator, "needs_context", True)
+            _context_k = getattr(_generator, "context_k", None) or 5
+            _context_free = not _needs_context
             # One meter for the whole generation phase, read as a delta at the
             # end of each sample. Re-entered around each region that can spend
             # tokens rather than wrapping the loop body, so the accounting does
@@ -3806,27 +3943,29 @@ async def _eval_live(
 
             for gen_sample in gen_samples:
                 query_start = time.monotonic()
-                try:
-                    # 5-min per-sample timeout: guards against silent LLM gateway
-                    # hangs where the TCP connection is established but the server
-                    # never sends a response (no exception, just indefinite block).
-                    with gen_meter, gen_meter.scope(SYSTEM):
-                        search_results = await asyncio.wait_for(
-                            asyncio.to_thread(
-                                pipeline.query,
-                                gen_sample.question,
-                                10,
-                                shared_session_id,
-                                gen_config,
-                            ),
-                            timeout=300,  # 5 min
+                search_results = []
+                if _needs_context:
+                    try:
+                        # 5-min per-sample timeout: guards against silent LLM gateway
+                        # hangs where the TCP connection is established but the server
+                        # never sends a response (no exception, just indefinite block).
+                        with gen_meter, gen_meter.scope(SYSTEM):
+                            search_results = await asyncio.wait_for(
+                                asyncio.to_thread(
+                                    pipeline.query,
+                                    gen_sample.question,
+                                    10,
+                                    shared_session_id,
+                                    gen_config,
+                                ),
+                                timeout=300,  # 5 min
+                            )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            f"Query timed out after 5 min for "
+                            f"'{gen_sample.question[:50]}': skipping sample."
                         )
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        f"Query timed out after 5 min for "
-                        f"'{gen_sample.question[:50]}': skipping sample."
-                    )
-                    search_results = []
+                        search_results = []
                 query_latency_ms = (time.monotonic() - query_start) * 1000
 
                 # Extract text from retrieved chunks.
@@ -3907,8 +4046,12 @@ async def _eval_live(
                     if _speculative and not answer.strip():
                         _speculative = False
 
-                if not _speculative and (answer_llm or _generator) and contexts:
-                    ctx_text = "\n\n".join(contexts[:5])
+                if (
+                    not _speculative
+                    and (answer_llm or _generator)
+                    and (contexts or not _needs_context)
+                ):
+                    ctx_text = "\n\n".join(contexts[:_context_k])
                     prompt = (
                         "Answer the following question in ONE concise sentence "
                         "based only on the provided context. "
@@ -3930,7 +4073,7 @@ async def _eval_live(
                                         asyncio.to_thread(
                                             _generator.generate,
                                             gen_sample.question,
-                                            list(contexts[:5]),
+                                            list(contexts[:_context_k]),
                                             llm=answer_llm,
                                             instructions=_abstain,
                                         ),
@@ -3995,9 +4138,10 @@ async def _eval_live(
                 gen_questions.append(gen_sample.question)
                 gen_answers.append(answer)
                 # Pass the SAME contexts used for generation to RAGAS.
-                # Standard generation uses top 5; speculative RAG uses top 10.
+                # Standard generation uses the generator's context_k (top 5
+                # unless it says otherwise); speculative RAG uses top 10.
                 # Must match to avoid faithfulness metric mismatch.
-                _ctx_k = 10 if _speculative else 5
+                _ctx_k = 10 if _speculative else _context_k
                 gen_contexts.append(contexts[:_ctx_k])
                 gen_ground_truths.append(gen_sample.ground_truth)
                 gen_answerable.append(not _is_unanswerable(gen_sample))
@@ -4065,7 +4209,9 @@ async def _eval_live(
                 _save_traj = (task.config_overrides or {}).get("save_trajectories", "minimal")
                 if _save_traj == "full":
                     _gen_sample_metrics["_generated_answer"] = answer[:2000]
-                    _gen_sample_metrics["_retrieved_contexts"] = [c[:500] for c in contexts[:5]]
+                    _gen_sample_metrics["_retrieved_contexts"] = [
+                        c[:500] for c in contexts[:_context_k]
+                    ]
                     _gen_sample_metrics["_ground_truth"] = _gt[:500]
                     _gen_sample_metrics["_question"] = gen_sample.question[:500]
                 elif _save_traj == "minimal":
@@ -4093,8 +4239,9 @@ async def _eval_live(
                     from .ragas_evaluator import RAGASEvaluator, harness_metrics
 
                     # RAG_EVAL_JUDGE_METRICS or the harness set, for both the
-                    # regenerated and the agentic answers.
-                    _judged_names = harness_metrics()
+                    # regenerated and the agentic answers; without passages,
+                    # only the metrics that do not judge them.
+                    _judged_names = harness_metrics(has_context=_needs_context)
 
                     # RAGAS runs in its own thread (see below), so the judge is
                     # built per call via the module-level _build_judge_llm()
@@ -4325,10 +4472,19 @@ async def _eval_live(
                 for k, v in (task.config_overrides or {}).items()
                 if k in _COMPONENT_KEYS and isinstance(v, str)
             },
-            harness={"metric_k": _metric_k, "retrieval_chunk_overfetch": _chunk_overfetch},
+            harness={
+                "metric_k": _metric_k,
+                "retrieval_chunk_overfetch": _chunk_overfetch,
+                # Only when set, so every other arm's retriever digest is the
+                # one it always had.
+                **({"no_rag": True} if _no_rag(task) else {}),
+            },
         )
     except Exception as exc:  # the manifest must never cost a result
         logger.warning(f"Could not record the stage manifest: {exc}")
+    if _context_free:
+        # Read by the reports, which say why this arm has no faithfulness.
+        _system["generator_context"] = "none"
 
     result = TaskResult(
         task_key=task.task_key,

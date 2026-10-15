@@ -245,10 +245,13 @@ _PREFIXES: Tuple[Tuple[str, str], ...] = (
 
 
 #: Harness settings: the IR cutoff and the over-fetch set how deep retrieval
-#: goes, so they count as retriever changes; the rest only steer recording.
+#: goes, so they count as retriever changes, and ``no_rag`` replaces retrieval
+#: with nothing, so it is the retriever's change too; the rest only steer
+#: recording.
 _HARNESS_STAGES: Dict[str, Optional[str]] = {
     "metric_k": "retriever",
     "retrieval_chunk_overfetch": "retriever",
+    "no_rag": "retriever",
     "allow_inert_overrides": None,
     "save_trajectories": None,
 }

@@ -277,6 +277,16 @@ class BaseGenerator(ABC):
     unanswerable questions.
     """
 
+    #: Whether the answer is written from the retrieved passages. A generator
+    #: that sets this False (a closed-book baseline) is handed none, and the
+    #: judged metrics that read a context (faithfulness, context precision and
+    #: recall) are not requested for it, rather than scored against passages
+    #: it never saw.
+    needs_context: bool = True
+    #: How many passages, best first, the harness hands the generator; None is
+    #: the harness default (5). Faithfulness is judged against the same ones.
+    context_k: Optional[int] = None
+
     @abstractmethod
     def generate(
         self, query: str, contexts: List[str], *, llm: Any = None, instructions: str = "", **kwargs

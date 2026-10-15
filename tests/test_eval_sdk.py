@@ -1524,11 +1524,19 @@ class TestContextTruncationConsistency:
     """
 
     def test_truncation_in_source(self):
-        """Both generation and RAGAS paths use [:5] truncation."""
+        """Both generation and RAGAS paths truncate to the same k, 5 by default.
+
+        The k was the literal 5; it is now the generator's ``context_k`` (so
+        ``long_context`` can read ten), defaulting to 5.
+        tests/test_baseline_arms.py checks the same at run time.
+        """
         source = (_EVAL_SDK_DIR / "experiment.py").read_text()
-        assert "contexts[:5]" in source
-        # Must appear at least twice (generation prompt + RAGAS append)
-        assert source.count("contexts[:5]") >= 2
+        assert 'getattr(_generator, "context_k", None) or 5' in source
+        # Must appear at least twice (generation prompt + generator input)
+        assert source.count("contexts[:_context_k]") >= 2
+        # ...and RAGAS is handed the same slice.
+        assert "_ctx_k = 10 if _speculative else _context_k" in source
+        assert "gen_contexts.append(contexts[:_ctx_k])" in source
 
     def test_truncation_behavior(self):
         """[:5] correctly truncates and leaves short lists unchanged."""

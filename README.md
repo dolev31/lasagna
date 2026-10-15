@@ -143,7 +143,7 @@ proven absent.
 | Significance tests | Paired sign-flip test, Holm, power | Not found | Not found | Paired permutation, no correction | Not found | Yes, IR runs only |
 | Interaction between components | 2×2 test with CI | Not found | Not found | Not found | Greedy search assumes none | Not found |
 | Result provenance | Bundles with a validator | Saved configs and scores | Experiment folders | Not found | Trial folders | Not found |
-| Published methods | 53 components | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
+| Published methods | 55 components | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
 | Ready corpora and indexes | Benchmark loaders, no prebuilt index | Wikipedia + prebuilt index | KILT + prebuilt index | Not found | Not found | Via ir_datasets |
 | License | Apache-2.0 | MIT | CC BY-NC-SA 4.0 | Apache-2.0 | MIT (badge) | MPL-2.0 / MIT |
 
@@ -547,7 +547,7 @@ boolean setting, before the first corpus is ingested.
 | `reranker` | 10 | cross-encoder (any Hugging Face reranker, e.g. bge-reranker-v2-m3), ColBERT, monoT5, RankGPT listwise, LLM pointwise, FlashRank, Cohere Rerank, MMR, ensemble, combined |
 | `query_enhancer` | 8 | HyDE, Query2doc, step-back, Rewrite-Retrieve-Read, RAG-Fusion multi-query, expansion, least-to-most decomposition, combined |
 | `agentic_pipeline` | 7 | default graph (CRAG grading, Self-RAG-style gates, multi-hop planning), Self-Ask, IRCoT, FLARE, Adaptive-RAG, Self-RAG, legacy ReAct |
-| `generator` | 4 | concise, cited (ALCE), chain-of-thought, chain-of-note |
+| `generator` | 6 | concise, cited (ALCE), chain-of-thought, chain-of-note, closed-book, long-context |
 | `chunker` | 9 | fixed (characters, words or tokens), recursive, sentence window, Markdown header, semantic (Kamradt breakpoints), hierarchical, structure-aware, propositions (Dense X), contextual (Contextual Retrieval) |
 | `embedder` | 6 | any sentence-transformers model with its model card's prefixes, BGE-M3, OpenAI, Cohere, Voyage, and the configured default |
 | `document_processor` | 4 | built-in (pypdf, pdfplumber, OCR), Docling, MarkItDown, PyMuPDF4LLM |
