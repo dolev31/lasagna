@@ -458,8 +458,9 @@ class RAGConfig:
         try:
             from lasagna.providers import get_session_provider
 
-            session_provider = get_session_provider()
-            resolved = session_provider.get_resolved_config(self._session_id)
+            resolved = getattr(self, "_resolved_once", None)
+            if resolved is None:
+                resolved = get_session_provider().get_resolved_config(self._session_id)
 
             # Navigate nested keys
             value, ok = _lookup(resolved, keys)
@@ -1087,14 +1088,27 @@ class RAGConfig:
         A name other than ``rag_documents_v2`` set in the settings file, the
         environment or the session is used as given.
         """
-        return resolve_collection_name(
-            self._get_knowledge_setting(
-                "rag", "collection_name", default=self._config["collection_name"]
-            ),
-            self.embedding_model,
-            self.effective_embedding_dim,
-            store=self._config.get("db_path"),
-        )
+        # Four settings from one resolution of the session's config: this is
+        # read several times per search.
+        self._resolved_once = None
+        if self._session_id:
+            try:
+                from lasagna.providers import get_session_provider
+
+                self._resolved_once = get_session_provider().get_resolved_config(self._session_id)
+            except Exception:  # noqa: BLE001 - each lookup then resolves (and logs) itself
+                self._resolved_once = None
+        try:
+            return resolve_collection_name(
+                self._get_knowledge_setting(
+                    "rag", "collection_name", default=self._config["collection_name"]
+                ),
+                self.embedding_model,
+                self.effective_embedding_dim,
+                store=self._config.get("db_path"),
+            )
+        finally:
+            self._resolved_once = None
 
     @property
     def effective_embedding_dim(self) -> int:

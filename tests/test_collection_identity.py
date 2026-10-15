@@ -399,3 +399,22 @@ def test_hybrid_search_is_pointed_at_the_sessions_own_collection(monkeypatch):
     )
     o.search("q", "s1", top_k=5, query_config_overrides=arm)
     assert registered == [speed.collection_name]
+
+
+def test_the_collection_name_resolves_the_session_once(monkeypatch):
+    """It is read several times per search; three resolutions per read added
+    about 2 ms to a search on the persistent session store."""
+    import lasagna.providers as providers
+
+    calls = []
+
+    class _Sessions:
+        def get_resolved_config(self, session_id):
+            calls.append(session_id)
+            return dict(MINILM)
+
+    get_rag_config()  # the provider is configured before it is replaced
+    monkeypatch.setattr(providers, "_session_provider", _Sessions())
+    config = get_rag_config().with_session("s1")
+    assert config.collection_name == "rag_documents_v2__all_minilm_l6_v2__384"
+    assert calls == ["s1"]
