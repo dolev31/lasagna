@@ -54,7 +54,9 @@ def test_the_benchmark_count_matches_the_public_catalogue(readme):
     public = [
         name
         for name in benchmark_registry.list_benchmarks()
-        if name != "smoke" and not name.startswith("private_eval/")
+        if name != "smoke"
+        and benchmark_registry.is_builtin(name)
+        and not name.startswith("private_eval/")
     ]
     stated = {int(n) for n in re.findall(r"\b(\d+) benchmarks\b", readme)}
     assert stated == {len(public)}, f"README states {stated}; the catalogue has {len(public)}"
