@@ -1717,26 +1717,16 @@ def results_power(
 
 
 def _format_effect_size(effect: Optional[float]) -> str:
-    """Render Cohen's ``d_z``, including the case where it has no finite value.
-
-    An infinite ``d_z`` means every query moved by the same amount -- the most
-    consistent effect there is. Printing that as a number is the problem this
-    exists to avoid: ``0.00`` reads as "no effect", and the raw float reads as
-    a measurement of twenty quadrillion standard deviations.
+    """Cohen's ``d_z``, with ``+∞``/``-∞`` for an effect with no spread
+    (`results.format_effect_size`, shared with the HTML view).
 
     A standalone function rather than a branch inline, because as a branch only
     one of its two signs was reachable from the test fixtures and disabling the
     other changed nothing.
     """
-    import math
+    from .knowledge_evaluation_sdk.results import format_effect_size
 
-    if effect is None:
-        return "—"
-    if math.isinf(effect):
-        return "+∞" if effect > 0 else "-∞"
-    if math.isnan(effect):
-        return "—"
-    return f"{effect:+.2f}"
+    return format_effect_size(effect)
 
 
 @results_app.command("significance")
@@ -1894,68 +1884,32 @@ def _significance_verdict(rows: list, metric: str, benchmark: str, alpha: float)
     A green box names each pair that survives Holm correction, which side won and
     by how much. When nothing survives, the box says so and points at
     `results power`, because "not significant" has two readings (no difference,
-    or too few queries to see one) that call for opposite next steps.
+    or too few queries to see one) that call for opposite next steps. The words
+    come from `results.verdict_lines`, which `results view` renders too.
     """
-    from .knowledge_evaluation_sdk.results import lower_is_better
+    from .knowledge_evaluation_sdk.results import verdict_lines
 
-    winners = sorted(
-        (r for r in rows if r.get("significant")),
-        key=lambda r: r.get("p_adjusted", r["p_value"]),
+    verdict = verdict_lines(rows, metric, benchmark, alpha)
+    markup = {"text": "{}", "winner": "[bold green]{}[/bold green]", "command": "[bold]{}[/bold]"}
+    body = "\n".join(
+        "".join(markup[role].format(escape(text)) for role, text in line.spans)
+        for line in verdict.lines
     )
-    family = _count(len(rows), "pair")
-    if not winners:
-        body = (
-            f"No pair survives Holm correction at family-wise alpha={alpha} "
-            f"(0 of {family}).\n"
-            "Either the arms perform alike or this run has too few queries to tell; "
-            "[bold]lasagna results power[/bold] says which."
-        )
-        return Panel(
-            body,
-            title="no significant difference",
-            title_align="left",
-            border_style="yellow",
-            expand=False,
-        )
-
-    shown = 5
-    lines = []
-    for row in winners[:shown]:
-        a, b, diff = str(row["config_a"]), str(row["config_b"]), row["difference"]
-        a_wins = diff < 0 if lower_is_better(metric) else diff > 0
-        win, lose = (a, b) if a_wins else (b, a)
-        sign = "-" if lower_is_better(metric) else "+"
-        effect = row.get("effect_size")
-        lines.append(f"[bold green]{escape(win)}[/bold green] beats {escape(lose)}")
-        lines.append(
-            f"  {escape(metric)} {sign}{abs(diff):.4f} on {escape(benchmark)}, "
-            f"d_z {_format_effect_size(abs(effect) if effect is not None else None)}, "
-            f"p (Holm) {_format_p(row.get('p_adjusted', row['p_value']))}, "
-            f"{row.get('n_paired', '?')} queries"
-        )
-    if len(winners) > shown:
-        lines.append(f"  and {len(winners) - shown} more in the table above")
-    lines.append("")
-    lines.append(
-        f"{len(winners)} of {family} {'survives' if len(winners) == 1 else 'survive'} "
-        f"correction at family-wise alpha={alpha}."
-    )
+    significant = verdict.style == "significant"
     return Panel(
-        "\n".join(lines),
-        title="[bold]significant after Holm correction[/bold]",
+        body,
+        title=f"[bold]{verdict.title}[/bold]" if significant else verdict.title,
         title_align="left",
-        border_style="green",
+        border_style="green" if significant else "yellow",
         expand=False,
     )
 
 
 def _format_p(p: float) -> str:
-    """Four decimals, or scientific notation below 0.0001 rather than 0.0000.
+    """Four decimals, or scientific notation below 0.0001 (`results.format_p`)."""
+    from .knowledge_evaluation_sdk.results import format_p
 
-    An exact sign-flip p over 25 queries can be 6e-8, and "0.0000" reads as a
-    probability of zero.
-    """
-    return f"{p:.4f}" if p >= 1e-4 else f"{p:.1e}"
+    return format_p(p)
 
 
 @results_app.command("per-query")
@@ -2385,6 +2339,12 @@ def results_leaderboard(
     directory: str = typer.Argument(..., help="Directory of validated bundles"),
     metric: str = typer.Option("ndcg@10", "--metric", "-m"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Write markdown here"),
+    fmt: str = typer.Option(
+        "markdown",
+        "--format",
+        help="markdown, or latex: one booktabs table per comparability group, printed "
+        "when no --output is given",
+    ),
 ):
     """Render bundles as leaderboards, grouped by comparability key.
 
@@ -2392,9 +2352,22 @@ def results_leaderboard(
     comparable by construction. Rows in different groups are not, and are never
     put in the same table.
     """
-    from .knowledge_evaluation_sdk.leaderboard import build
+    from .knowledge_evaluation_sdk.leaderboard import FORMATS, build, grouped_rows, render_latex
 
-    index = build(directory, metric=metric, output=output)
+    if fmt not in FORMATS:
+        _error(f"Unknown format {fmt!r}. Use --format markdown or --format latex.")
+    if fmt == "latex" and not output:
+        # The tables alone and unwrapped, so `> tables.tex` captures valid LaTeX.
+        console.print(
+            render_latex(grouped_rows(directory, metric), metric),
+            markup=False,
+            highlight=False,
+            soft_wrap=True,
+            end="",
+        )
+        return
+
+    index = build(directory, metric=metric, output=output, fmt=fmt)
     console.print(
         f"[green]{index['n_rows']} row(s)[/green] from {index['n_bundles']} bundle(s) "
         f"across {len(index['benchmarks'])} benchmark(s)"
@@ -2406,6 +2379,57 @@ def results_leaderboard(
         )
     if output:
         console.print(f"[green]Wrote {escape(output)}[/green]")
+
+
+@results_app.command("view")
+def results_view(
+    results_path: str = typer.Argument(
+        ..., help="results.json from a run (or its folder), or a bundle from `results bundle`"
+    ),
+    metric: Optional[str] = typer.Option(
+        None,
+        "--metric",
+        "-m",
+        help="Metric to rank, test and compare queries by (default: ndcg@10 when recorded)",
+    ),
+    benchmark: str = typer.Option("", "--benchmark", help="Show one benchmark only"),
+    diff: Optional[tuple[str, str]] = typer.Option(
+        None,
+        "--diff",
+        metavar="A B",
+        help="The two arms the per-query table compares (default: the top two)",
+    ),
+    output: str = typer.Option("view.html", "--output", "-o", help="HTML file to write"),
+    open_page: bool = typer.Option(False, "--open", help="Open the page in your browser"),
+):
+    """Write one HTML page with everything a run measured.
+
+    The header names the experiment, its date and versions; then the stage
+    isolation check, and per benchmark the leaderboard, the Holm-corrected
+    significance table with its verdict, every metric per arm, and a per-query
+    diff between two arms with what each retrieved. The page is one file with
+    no external requests, so it opens offline and can be attached anywhere.
+    """
+    from .knowledge_evaluation_sdk.viewer import render_html
+
+    path = Path(results_path)
+    if not path.exists():
+        _error(f"No such file: {results_path}")
+    try:
+        page = render_html(path, metric=metric, benchmark=benchmark or None, diff=diff)
+    except json.JSONDecodeError as exc:
+        _error(f"{results_path} is not valid JSON ({exc}). Pass a results.json or a bundle.")
+    except ValueError as exc:
+        _error(str(exc))
+
+    out = Path(output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(page, encoding="utf-8")
+    console.print(f"[green]Wrote[/green] {escape(str(out))} ({len(page.encode()) / 1024:.0f} KB)")
+    if open_page:
+        import webbrowser
+
+        webbrowser.open(out.resolve().as_uri())
 
 
 @results_app.command("schema")

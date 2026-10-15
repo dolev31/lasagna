@@ -473,6 +473,8 @@ available datasets, see
 | **Publish a result someone else can check** | `lasagna results bundle` then `validate` |
 | **Ask whether two techniques compose or overlap** | `lasagna results interaction` |
 | **See which queries a config lost, and at which stage** | `lasagna results per-query` |
+| **Hand someone the whole run as one page** | `lasagna results view results.json -o view.html` |
+| **Put a leaderboard in a paper** | `lasagna results leaderboard <dir> --format latex` |
 | **Find out whether a null result was inconclusive** | `lasagna results power` |
 | **Run a leaderboard for those results** | [Results hub](../hub/README.md) |
 | **Know a dataset's terms before publishing** | [Dataset licenses](../src/lasagna/knowledge_evaluation_sdk/research/DATASETS.md) |
