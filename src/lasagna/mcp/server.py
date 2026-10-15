@@ -43,7 +43,6 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse
 from loguru import logger
 
-from lasagna.api.rag_backend import get_rag_backend
 from lasagna.api.rest.auth_mode import (
     UnsafeBindError,
     require_auth_or_refuse_to_start,
@@ -51,6 +50,14 @@ from lasagna.api.rest.auth_mode import (
 )
 from lasagna.mcp import transport_guard
 from lasagna.utils.monitoring import hash_text
+
+
+def get_rag_backend():
+    """The shared backend, imported on first use so `lasagna-mcp --help` stays light."""
+    from lasagna.api.rag_backend import get_rag_backend as _get_rag_backend
+
+    return _get_rag_backend()
+
 
 # Configure comprehensive logging for the MCP server
 LOG_FORMAT = (

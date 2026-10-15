@@ -121,6 +121,17 @@ Sweeps, validation and metrics:
 - BGE-M3 no longer gets the BGE v1.5 query instruction, which it was not
   trained with. This changes BGE-M3 query vectors on the sentence-transformers
   backend.
+- **`lasagna.__all__` is the public API: 20 names.** The component decorators,
+  `register`, `registry`, `RAGConfig`, `KnowledgeClient`, `KnowledgeConfig`,
+  `Experiment`, `ExperimentConfig`, `RAGBackend`, `get_rag_backend`,
+  `create_rag_backend`, `VectorStoreAdapter`, `register_backend` and
+  `__version__`. The 56 other names it exported still import from `lasagna`
+  until 0.2.0, each with a `DeprecationWarning` naming the module to import it
+  from.
+- Listing components no longer imports them: built-ins declare that they
+  implement their stage's interface. `registry.list_*()` and
+  `lasagna plugins list` load no model code, and `lasagna-mcp --help` takes
+  under half a second (it took 8).
 - `lasagna serve` logs warnings only (`-v` or `LASAGNA_LOG_LEVEL=INFO` for
   more), prints the default session's profile, embedding model, vector store
   and data directory, and opens a browser only with `--open`.

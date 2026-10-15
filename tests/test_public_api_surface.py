@@ -25,6 +25,24 @@ EXPECTED_LASAGNA = {
     "query_enhancer",
     "reranker",
     "retriever",
+    "register",
+    "registry",
+    "RAGConfig",
+    "KnowledgeClient",
+    "KnowledgeConfig",
+    "Experiment",
+    "ExperimentConfig",
+    "RAGBackend",
+    "get_rag_backend",
+    "create_rag_backend",
+    "VectorStoreAdapter",
+    "register_backend",
+    "__version__",
+}
+
+#: Exported from `lasagna` before 0.1.0. Still importable for one release, each
+#: with a DeprecationWarning naming the module to import it from instead.
+DEPRECATED_LASAGNA = {
     "AgenticRAG",
     "AgenticRAGMetrics",
     "AgenticRAGResult",
@@ -48,18 +66,14 @@ EXPECTED_LASAGNA = {
     "OCRProcessor",
     "QueryClassifier",
     "QueryEnhancer",
-    "RAGBackend",
-    "RAGConfig",
     "RetrievedChunkData",
     "SearchCache",
     "SemanticChunker",
     "TRACER",
-    "VectorStoreAdapter",
     "chunk_document",
     "configure_metrics",
     "configure_tracing",
     "create_agentic_rag",
-    "create_rag_backend",
     "estimate_tokens",
     "get_available_backends",
     "get_citation_manager",
@@ -71,7 +85,6 @@ EXPECTED_LASAGNA = {
     "get_ocr_processor",
     "get_query_classifier",
     "get_query_enhancer",
-    "get_rag_backend",
     "get_rag_config",
     "get_reranker",
     "get_search_cache",
@@ -82,7 +95,6 @@ EXPECTED_LASAGNA = {
     "log_json",
     "mark_chunk_for_citation",
     "refine_chunk",
-    "register_backend",
     "reset_instance",
     "resolve_model_settings",
     "search_knowledge_base",
@@ -272,3 +284,38 @@ class TestExportsResolve:
     @pytest.mark.parametrize("name", sorted(lasagna.sdk.__all__))
     def test_sdk_export_resolves(self, name):
         assert getattr(lasagna.sdk, name) is not None or True
+
+
+class TestDeprecatedExports:
+    """The names dropped from `lasagna.__all__` in 0.1.0 keep working for a release.
+
+    Fifty-six of them were internals (a chunker class, a tracer, a token
+    estimator) presented as top-level API. Each still resolves, to the same
+    object, and says which module to import it from.
+    """
+
+    def test_the_list_is_the_one_written_here(self):
+        assert set(lasagna._DEPRECATED_IMPORTS) == DEPRECATED_LASAGNA
+        assert not DEPRECATED_LASAGNA & set(lasagna.__all__)
+
+    @pytest.mark.parametrize("name", sorted(DEPRECATED_LASAGNA))
+    def test_it_resolves_and_names_its_module(self, name):
+        import importlib
+
+        module, attr = lasagna._DEPRECATED_IMPORTS[name]
+        home = importlib.import_module(module, "lasagna")
+        with pytest.warns(DeprecationWarning) as caught:
+            value = getattr(lasagna, name)
+        assert value is getattr(home, attr)
+        assert f"from {home.__name__} import {attr}" in str(caught[0].message)
+        assert name not in dir(lasagna)
+
+    def test_the_warning_points_at_the_importing_line(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from lasagna import Document  # noqa: F401
+
+        # Two lookups (import's hasattr, then the binding); both name this file.
+        assert caught and {w.filename for w in caught} == {__file__}

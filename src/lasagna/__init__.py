@@ -58,6 +58,7 @@ package from your own code, call ``loguru.logger.enable("lasagna")``.
 
 import importlib as _importlib
 import os as _os
+import warnings as _warnings
 from typing import TYPE_CHECKING
 
 from loguru import logger as _logger
@@ -71,7 +72,8 @@ _logger.disable("lasagna")
 # RAGAS_DO_NOT_TRACK=false before importing lasagna to turn it back on.
 _os.environ.setdefault("RAGAS_DO_NOT_TRACK", "true")
 
-# Mapping: public_name -> (submodule, attribute)
+# The public surface: public_name -> (submodule, attribute). Everything here is
+# in __all__ and in the TYPE_CHECKING block below.
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     # One-line components: @lasagna.reranker above a plain function.
     "reranker": (".components", "reranker"),
@@ -81,8 +83,29 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "retriever": (".components", "retriever"),
     "document_processor": (".components", "document_processor"),
     "generator": (".components", "generator"),
-    # Core
+    "register": (".components", "register"),
+    "registry": (".core.registry", "registry"),
+    # Configuration and the SDK client
     "RAGConfig": (".core", "RAGConfig"),
+    "KnowledgeClient": (".sdk", "KnowledgeClient"),
+    "KnowledgeConfig": (".sdk", "KnowledgeConfig"),
+    # Evaluation
+    "Experiment": (".knowledge_evaluation_sdk.experiment", "Experiment"),
+    "ExperimentConfig": (".knowledge_evaluation_sdk.experiment", "ExperimentConfig"),
+    # Serving
+    "RAGBackend": (".api", "RAGBackend"),
+    "get_rag_backend": (".api", "get_rag_backend"),
+    "create_rag_backend": (".standalone", "create_rag_backend"),
+    # Vector stores
+    "VectorStoreAdapter": (".vector_backends", "VectorStoreAdapter"),
+    "register_backend": (".vector_backends", "register_backend"),
+}
+
+# Exported from here before 0.1.0 and still importable for one release, with a
+# DeprecationWarning that names the module to import each one from. Most are
+# internals (a chunker class, a tracer, a token estimator) that a top-level
+# export presented as API.
+_DEPRECATED_IMPORTS: dict[str, tuple[str, str]] = {
     "get_rag_config": (".core", "get_rag_config"),
     "Document": (".core", "Document"),
     "DocumentChunk": (".core", "DocumentChunk"),
@@ -90,42 +113,31 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DocumentMetadata": (".core", "DocumentMetadata"),
     "KnowledgeConfigManager": (".core", "KnowledgeConfigManager"),
     "get_knowledge_config_manager": (".core", "get_knowledge_config_manager"),
-    # API
-    "RAGBackend": (".api", "RAGBackend"),
-    "get_rag_backend": (".api", "get_rag_backend"),
     "initialize": (".api", "initialize"),
     "reset_instance": (".api", "reset_instance"),
-    # Processing
     "DocumentProcessor": (".processing", "DocumentProcessor"),
     "OCRProcessor": (".processing", "OCRProcessor"),
     "get_ocr_processor": (".processing", "get_ocr_processor"),
     "is_scanned_pdf": (".processing", "is_scanned_pdf"),
     "SemanticChunker": (".processing", "SemanticChunker"),
     "chunk_document": (".processing", "chunk_document"),
-    # Retrieval - Search
     "HybridSearcher": (".retrieval.search", "HybridSearcher"),
     "get_hybrid_searcher": (".retrieval.search", "get_hybrid_searcher"),
     "CombinedReranker": (".retrieval.search", "CombinedReranker"),
     "get_reranker": (".retrieval.search", "get_reranker"),
-    # Retrieval - Enhancement
     "QueryEnhancer": (".retrieval.enhancement", "QueryEnhancer"),
     "get_query_enhancer": (".retrieval.enhancement", "get_query_enhancer"),
     "QueryClassifier": (".retrieval.enhancement", "QueryClassifier"),
     "get_query_classifier": (".retrieval.enhancement", "get_query_classifier"),
     "CoverageScorer": (".retrieval.enhancement", "CoverageScorer"),
     "get_coverage_scorer": (".retrieval.enhancement", "get_coverage_scorer"),
-    # Infrastructure
     "EmbeddingManager": (".infrastructure.embedding", "EmbeddingManager"),
     "get_embedding_manager": (".infrastructure.embedding", "get_embedding_manager"),
     "SearchCache": (".infrastructure.cache", "SearchCache"),
     "get_search_cache": (".infrastructure.cache", "get_search_cache"),
-    # Storage
-    "VectorStoreAdapter": (".vector_backends", "VectorStoreAdapter"),
     "FilterExpression": (".vector_backends", "FilterExpression"),
     "get_vector_backend": (".vector_backends", "get_backend"),
     "get_available_backends": (".vector_backends", "get_available_backends"),
-    "register_backend": (".vector_backends", "register_backend"),
-    # Agentic
     "AgenticRAG": (".agentic", "AgenticRAG"),
     "AgenticRAGResult": (".agentic", "AgenticRAGResult"),
     "AgenticRAGMetrics": (".agentic", "AgenticRAGMetrics"),
@@ -141,10 +153,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "DocumentInfo": (".agentic", "DocumentInfo"),
     "DocumentSnippet": (".agentic", "DocumentSnippet"),
     "get_document_awareness_context": (".agentic", "get_document_awareness_context"),
-    # Standalone
-    "create_rag_backend": (".standalone", "create_rag_backend"),
     "create_agentic_rag": (".standalone", "create_agentic_rag"),
-    # Utilities & Observability
     "METRICS": (".utils", "METRICS"),
     "TRACER": (".utils", "TRACER"),
     "configure_metrics": (".utils", "configure_metrics"),
@@ -158,7 +167,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 # The same names, imported for type checkers only (never at runtime). Resolved
 # lazily through __getattr__, every one of them was `Any` to a user's type
 # checker. tests/test_lazy_names_are_typed.py keeps this block in step with
-# _LAZY_IMPORTS.
+# _LAZY_IMPORTS. The deprecated names are left out, so a type checker flags them.
 if TYPE_CHECKING:
     from .components import (
         reranker,
@@ -168,91 +177,15 @@ if TYPE_CHECKING:
         retriever,
         document_processor,
         generator,
+        register,
     )
-    from .core import (
-        RAGConfig,
-        get_rag_config,
-        Document,
-        DocumentChunk,
-        DocumentStatus,
-        DocumentMetadata,
-        KnowledgeConfigManager,
-        get_knowledge_config_manager,
-    )
-    from .api import (
-        RAGBackend,
-        get_rag_backend,
-        initialize,
-        reset_instance,
-    )
-    from .processing import (
-        DocumentProcessor,
-        OCRProcessor,
-        get_ocr_processor,
-        is_scanned_pdf,
-        SemanticChunker,
-        chunk_document,
-    )
-    from .retrieval.search import (
-        HybridSearcher,
-        get_hybrid_searcher,
-        CombinedReranker,
-        get_reranker,
-    )
-    from .retrieval.enhancement import (
-        QueryEnhancer,
-        get_query_enhancer,
-        QueryClassifier,
-        get_query_classifier,
-        CoverageScorer,
-        get_coverage_scorer,
-    )
-    from .infrastructure.embedding import (
-        EmbeddingManager,
-        get_embedding_manager,
-    )
-    from .infrastructure.cache import (
-        SearchCache,
-        get_search_cache,
-    )
-    from .vector_backends import (
-        VectorStoreAdapter,
-        FilterExpression,
-        get_backend as get_vector_backend,
-        get_available_backends,
-        register_backend,
-    )
-    from .agentic import (
-        AgenticRAG,
-        AgenticRAGResult,
-        AgenticRAGMetrics,
-        HopData,
-        RetrievedChunkData,
-        search_knowledge_base,
-        mark_chunk_for_citation,
-        estimate_tokens,
-        refine_chunk,
-        CitationManager,
-        Citation,
-        get_citation_manager,
-        DocumentInfo,
-        DocumentSnippet,
-        get_document_awareness_context,
-    )
-    from .standalone import (
-        create_rag_backend,
-        create_agentic_rag,
-    )
-    from .utils import (
-        METRICS,
-        TRACER,
-        configure_metrics,
-        configure_tracing,
-        log_json,
-        hash_text,
-        trunc_text,
-        resolve_model_settings,
-    )
+    from .core.registry import registry
+    from .core import RAGConfig
+    from .sdk import KnowledgeClient, KnowledgeConfig
+    from .knowledge_evaluation_sdk.experiment import Experiment, ExperimentConfig
+    from .api import RAGBackend, get_rag_backend
+    from .standalone import create_rag_backend
+    from .vector_backends import VectorStoreAdapter, register_backend
 
 
 def __getattr__(name: str):
@@ -262,6 +195,18 @@ def __getattr__(name: str):
         val = getattr(mod, attr_name)
         globals()[name] = val  # cache for subsequent access
         return val
+    if name in _DEPRECATED_IMPORTS:
+        module_path, attr_name = _DEPRECATED_IMPORTS[name]
+        mod = _importlib.import_module(module_path, __name__)
+        # Not cached, so every use is reported. stacklevel=2 is the user's line
+        # for `from lasagna import X` too: warn() skips importlib's frames.
+        _warnings.warn(
+            f"`lasagna.{name}` is deprecated and will be removed in 0.2.0. "
+            f"Use `from {mod.__name__} import {attr_name}`.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return getattr(mod, attr_name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -273,88 +218,8 @@ def __dir__():
 # PUBLIC API
 # =============================================================================
 
-__all__ = [
-    # One-line components
-    "reranker",
-    "query_enhancer",
-    "chunker",
-    "embedder",
-    "retriever",
-    "document_processor",
-    "generator",
-    # Core
-    "RAGConfig",
-    "get_rag_config",
-    "Document",
-    "DocumentChunk",
-    "DocumentStatus",
-    "DocumentMetadata",
-    "KnowledgeConfigManager",
-    "get_knowledge_config_manager",
-    # API
-    "RAGBackend",
-    "get_rag_backend",
-    "initialize",
-    "reset_instance",
-    # Processing
-    "DocumentProcessor",
-    "OCRProcessor",
-    "get_ocr_processor",
-    "is_scanned_pdf",
-    "SemanticChunker",
-    "chunk_document",
-    # Retrieval - Search
-    "HybridSearcher",
-    "get_hybrid_searcher",
-    "CombinedReranker",
-    "get_reranker",
-    # Retrieval - Enhancement
-    "QueryEnhancer",
-    "get_query_enhancer",
-    "QueryClassifier",
-    "get_query_classifier",
-    "CoverageScorer",
-    "get_coverage_scorer",
-    # Infrastructure
-    "EmbeddingManager",
-    "get_embedding_manager",
-    "SearchCache",
-    "get_search_cache",
-    # Storage
-    "VectorStoreAdapter",
-    "FilterExpression",
-    "get_vector_backend",
-    "get_available_backends",
-    "register_backend",
-    # Agentic
-    "AgenticRAG",
-    "AgenticRAGResult",
-    "AgenticRAGMetrics",
-    "HopData",
-    "RetrievedChunkData",
-    "search_knowledge_base",
-    "mark_chunk_for_citation",
-    "estimate_tokens",
-    "refine_chunk",
-    "CitationManager",
-    "Citation",
-    "get_citation_manager",
-    "DocumentInfo",
-    "DocumentSnippet",
-    "get_document_awareness_context",
-    # Standalone
-    "create_rag_backend",
-    "create_agentic_rag",
-    # Utilities & Observability
-    "METRICS",
-    "TRACER",
-    "configure_metrics",
-    "configure_tracing",
-    "log_json",
-    "hash_text",
-    "trunc_text",
-    "resolve_model_settings",
-]
+__all__ = [*_LAZY_IMPORTS, "__version__"]
+
 # The version, at the import path everyone tries first.
 #
 # `lasagna.__version__` raised AttributeError while `lasagna.sdk.__version__`

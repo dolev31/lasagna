@@ -160,9 +160,22 @@ class _Registration:
     Supports deferred resolution via ``_factory``: when ``cls`` is None
     and ``_factory`` is a ``"module:ClassName"`` string, the class is
     resolved on first access to avoid heavy imports at registry init.
+
+    ``implements_contract`` is declared by built-ins, which are known to
+    implement their stage's interface, so listing one never imports it. For
+    everything else it is ``None`` and derived from the class.
     """
 
-    __slots__ = ("cls", "description", "paper", "claims", "version", "_factory", "hidden")
+    __slots__ = (
+        "cls",
+        "description",
+        "paper",
+        "claims",
+        "version",
+        "_factory",
+        "hidden",
+        "implements_contract",
+    )
 
     def __init__(
         self,
@@ -173,6 +186,7 @@ class _Registration:
         version: Optional[str] = None,
         _factory: Optional[str] = None,
         hidden: bool = False,
+        implements_contract: Optional[bool] = None,
     ):
         self.hidden = hidden
         self.cls = cls
@@ -181,6 +195,7 @@ class _Registration:
         self.claims = claims
         self.version = version
         self._factory = _factory
+        self.implements_contract = implements_contract
 
     def resolve(self) -> Type:
         """Return the class, lazily resolving from factory if needed."""
@@ -642,19 +657,28 @@ class ComponentRegistry:
                 [],
             ),
         ]
+        # Deferred, like the agentic pipelines below. Resolving each factory
+        # here imported torch, transformers and pymilvus (6.6 s) for anything
+        # that touched the registry, `lasagna doctor` and listing included.
+        # The modules import nothing optional at module scope, so a deferred
+        # built-in is as available as it was when resolved eagerly;
+        # tests/test_registry_listing_is_lazy.py resolves each one to check
+        # its declared contract.
         for stage, name, factory, description, paper, aliases in builtins:
-            try:
-                cls = _resolve_factory(factory)
-            except (ImportError, AttributeError) as exc:
-                logger.warning(f"Built-in {stage} '{name}' unavailable: {exc}")
-                continue
             self._components[stage][name] = _Registration(
-                cls=cls, description=description, paper=paper
+                description=description,
+                paper=paper,
+                _factory=factory,
+                implements_contract=True,
             )
             self._builtin_names.add((stage, name))
             for alias in aliases:
                 self._components[stage][alias] = _Registration(
-                    cls=cls, description=f"alias of {name}", paper=paper, hidden=True
+                    description=f"alias of {name}",
+                    paper=paper,
+                    _factory=factory,
+                    hidden=True,
+                    implements_contract=True,
                 )
                 self._builtin_names.add((stage, alias))
 
@@ -662,10 +686,12 @@ class ComponentRegistry:
         self._components["agentic_pipeline"]["default"] = _Registration(
             description="Built-in structured RAG graph (13 nodes, CRAG, quality gates)",
             _factory="lasagna.agentic.graph_builder:BuiltinStructuredPipeline",
+            implements_contract=True,
         )
         self._components["agentic_pipeline"]["legacy_react"] = _Registration(
             description="Legacy ReAct agent with monolithic search tool",
             _factory="lasagna.agentic.agentic_rag:LegacyReActPipeline",
+            implements_contract=True,
         )
         self._builtin_names.update(
             {("agentic_pipeline", "default"), ("agentic_pipeline", "legacy_react")}
@@ -704,7 +730,7 @@ class ComponentRegistry:
             ),
         ]:
             self._components["agentic_pipeline"][name] = _Registration(
-                description=description, paper=paper, _factory=factory
+                description=description, paper=paper, _factory=factory, implements_contract=True
             )
             self._builtin_names.add(("agentic_pipeline", name))
 
@@ -1389,16 +1415,17 @@ class ComponentRegistry:
             # component is not like-for-like. Surfacing it lets a caller tell
             # the difference instead of finding out from a TypeError.
             if expected_abc is not None:
-                # A deferred entry is resolved here: the answer used to be
-                # missing until something else happened to load the class,
-                # so a listing depended on what had run before it.
-                try:
-                    cls = reg.cls if reg.cls is not None else reg.resolve()
-                except (ImportError, AttributeError):
-                    cls = None
-                entry["implements_contract"] = (
-                    issubclass(cls, expected_abc) if isinstance(cls, type) else False
-                )
+                # Never resolved here: importing every deferred factory to ask
+                # `issubclass` pulled in torch for a listing. Built-ins declare
+                # the answer; a registered class is already loaded. A deferred
+                # entry that declares nothing is not claimed.
+                if reg.implements_contract is not None:
+                    entry["implements_contract"] = reg.implements_contract
+                else:
+                    cls = reg.cls
+                    entry["implements_contract"] = (
+                        issubclass(cls, expected_abc) if isinstance(cls, type) else False
+                    )
             # Research provenance, included only when the component declared it,
             # so listings of built-in components stay uncluttered. This is what
             # lets a results table put a paper's claimed metric next to the one
