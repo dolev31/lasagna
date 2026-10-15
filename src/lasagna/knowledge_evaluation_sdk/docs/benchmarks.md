@@ -205,7 +205,9 @@ benchmark with no code: `benchmarks: [{path: data/my.jsonl}]` in a sweep, or
 `lasagna benchmark run ./my.jsonl`. `lasagna benchmark validate-data <path>`
 checks it and says which tracks it supports. The file registers as
 `local/<file name>@<12 hex digits of its sha256>`, so an edited file is a new
-benchmark with its own checkpoints, corpus and comparability key. Formats and details: [docs/own-data.md](../../../../docs/own-data.md).
+benchmark with its own checkpoints, corpus and comparability key.
+`lasagna benchmark synthesize ./docs` writes a development set from your
+documents with an LLM. Formats and details: [docs/own-data.md](../../../../docs/own-data.md).
 
 ---
 

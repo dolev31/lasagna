@@ -1,7 +1,8 @@
 # Your own data
 
 Run a sweep on your own questions with no adapter to write: a JSONL or CSV file,
-or a folder in the BEIR layout.
+or a folder in the BEIR layout. You can also have an LLM write a development set
+from your documents (see [Synthetic questions](#synthetic-questions-from-your-documents)).
 
 ```bash
 lasagna benchmark validate-data my_data.jsonl              # check it, see what it supports
@@ -103,3 +104,67 @@ recorded as the dataset revision. Because the hash is in the benchmark name:
 - the same bytes under the same name are the same benchmark, on any machine.
 
 `lasagna benchmark validate-data` prints the name a file will run under.
+
+## Synthetic questions from your documents
+
+```bash
+lasagna benchmark synthesize ./docs --n 200 --out my_bench.jsonl \
+    --mix factoid=0.6,multihop=0.3,unanswerable=0.1 --seed 42 --dry-run
+```
+
+This reads every supported file under `./docs` (`.md` and `.txt` as plain text,
+PDF, DOCX and HTML through the same extractor as an upload), cuts each into
+200-word passages with the `fixed` chunker, and asks an LLM for three kinds of
+question:
+
+- `factoid`: answered by a short fact in one passage;
+- `multihop`: needs a fact from each of two passages in two different
+  documents (the second passage is the one sharing the most words with the
+  first);
+- `unanswerable`: on the subject of a passage, but not answered by it.
+
+A second call checks each question. An answer must be supported by its source
+passages; an unanswerable question must not be answered by its passage or by the
+three passages sharing the most words with it. Rows that fail are dropped and
+counted, so the file can hold fewer than `--n` rows; the summary says how many
+and why.
+
+`--dry-run` prints the plan (documents, passages, questions of each type, LLM
+calls) and a token estimate, calls no LLM and writes nothing. Without
+`--dry-run` an LLM is needed: set an API key variable such as `OPENAI_API_KEY` or
+`ANTHROPIC_API_KEY` (without one, the error lists every variable read), and
+`MODEL_NAME` or `--model` to choose the model. Calls are made at temperature 0. The same folder, seed and model give the same plan and the same
+prompts.
+
+The output is the JSONL format above. Each row records how it was made:
+
+```json
+{"id": "synth-0001", "question": "...", "answer": "...", "contexts": ["..."],
+ "metadata": {"question_type": "factoid", "source_doc_ids": ["guide.md"],
+              "prompt_id": "factoid-v1", "prompt_sha256": "...", "model": "...",
+              "seed": 42, "synthetic": true, "unanswerable": false}}
+```
+
+`filters: {question_type: multihop}` on the benchmark entry scores one type.
+
+From Python:
+
+```python
+from lasagna.knowledge_evaluation_sdk.synthesize import synthesize, write_jsonl
+
+rows = synthesize("docs", n=200, mix="factoid=0.6,multihop=0.3,unanswerable=0.1", seed=42)
+write_jsonl(rows, "my_bench.jsonl")
+```
+
+### Synthetic sets are for development, not for claims
+
+A question an LLM wrote from a passage tends to reuse that passage's words and
+the model's own phrasing. A retriever finds such questions easier than the ones
+your users ask, and a pipeline built on the same family of models finds them
+easier still, so scores on a synthetic set read high, and favor the systems
+most like the model that wrote it. The answerability check is made by that same
+model and inherits its mistakes.
+
+Use a synthetic set to compare configurations on your own documents while you
+build. Report results on human-written questions: a public benchmark, or a set
+your users or annotators wrote.

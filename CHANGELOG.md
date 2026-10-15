@@ -95,6 +95,11 @@ Sweeps, validation and metrics:
   resumes the old file's checkpoints or shares its leaderboard group.
   `lasagna benchmark validate-data` names each bad row and field and says which
   tracks the data supports. See `docs/own-data.md`.
+- **`lasagna benchmark synthesize`** writes factoid, multi-hop and unanswerable
+  questions from your documents with the configured LLM, checks each one with a
+  second call and drops those that fail. Each row records its prompt's sha256,
+  the model and the seed; `--dry-run` prints the plan and a token estimate
+  without calling the LLM. For development, not for reported results.
 
 ### Changed
 

@@ -1405,6 +1405,105 @@ def benchmark_validate_data(
     )
 
 
+@benchmark_app.command("synthesize")
+def benchmark_synthesize(
+    corpus: str = typer.Argument(
+        ..., help="A folder of your documents (.md, .txt, .pdf, .docx, .html, ...), or one file"
+    ),
+    n: int = typer.Option(100, "--n", help="Number of questions to write"),
+    out: str = typer.Option("synthetic_qa.jsonl", "--out", help="JSONL file to write"),
+    mix: str = typer.Option(
+        "factoid=0.6,multihop=0.3,unanswerable=0.1",
+        "--mix",
+        help="Share of each question type: factoid, multihop, unanswerable",
+    ),
+    seed: int = typer.Option(42, "--seed", help="Seed for choosing the source passages"),
+    model: Optional[str] = typer.Option(
+        None, "--model", help="LLM that writes and checks the questions (default: MODEL_NAME)"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Print the plan and a token estimate; call no LLM, write nothing"
+    ),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Replace --out if it exists"),
+):
+    """Write a question set from your own documents with an LLM, for development.
+
+    Each question is checked by a second call, and rows that fail are dropped.
+    The output runs with `lasagna benchmark run <out>`. Synthetic questions favor
+    the phrasing of the model that wrote them: report results on human-written
+    benchmarks (docs/own-data.md).
+    """
+    from .knowledge_evaluation_sdk import synthesize as synth
+    from .providers import LLMProviderNotConfigured
+
+    try:
+        plan = synth.plan_synthesis(corpus, n, mix, seed)
+    except ValueError as exc:
+        _error(str(exc))
+
+    counts = ", ".join(f"{t} {plan.counts[t]}" for t in synth.QUESTION_TYPES)
+    tokens_in, tokens_out = plan.token_estimate()
+    console.print(f"Plan for {escape(corpus)}:", soft_wrap=True)
+    console.print(f"  Documents:  {len(plan.documents)}")
+    for rel, reason in plan.skipped:
+        console.print(f"    skipped {escape(rel)}: {escape(reason)}", soft_wrap=True)
+    console.print(
+        f"  Passages:   {len(plan.passages)} (fixed chunker, {plan.chunk_words} words, "
+        f"no overlap; shorter than {synth.MIN_PASSAGE_WORDS} words dropped)",
+        soft_wrap=True,
+    )
+    console.print(f"  Questions:  {len(plan.items)} ({counts})")
+    console.print(
+        f"  LLM calls:  {plan.llm_calls} (one writes each question, one checks it)",
+        soft_wrap=True,
+    )
+    console.print(
+        f"  Tokens:     about {tokens_in:,} in and {tokens_out:,} out (an estimate at "
+        f"4 characters per token)",
+        soft_wrap=True,
+    )
+    if dry_run:
+        console.print("Dry run: no LLM was called and nothing was written.")
+        return
+
+    if Path(out).exists() and not overwrite:
+        _error(f"{out} exists. Choose another --out, or pass --overwrite to replace it.")
+    try:
+        llm = synth.default_llm(model)
+    except LLMProviderNotConfigured as exc:
+        _error(str(exc))
+
+    step = max(1, len(plan.items) // 10)
+
+    def _progress(done: int, total: int) -> None:
+        if done and (done % step == 0 or done == total):
+            console.print(f"  {done}/{total} written and checked")
+
+    try:
+        result = synth.run_synthesis(plan, llm, model=model, progress=_progress)
+    except RuntimeError as exc:
+        _error(str(exc))
+    dropped = ", ".join(f"{k} {v}" for k, v in result.dropped.items() if v) or "none"
+    if not result.rows:
+        _error(f"No question passed the check (dropped: {dropped}); nothing was written.")
+    synth.write_jsonl(result.rows, out)
+
+    kept = ", ".join(f"{t} {result.kept[t]}" for t in synth.QUESTION_TYPES)
+    console.print(
+        f"[green]Wrote {_count(len(result.rows), 'question')}[/green] to {escape(out)} "
+        f"({kept}; model {escape(result.model)})",
+        soft_wrap=True,
+    )
+    console.print(f"  Dropped: {dropped}")
+    console.print(
+        "  Synthetic questions are for development: report results on human-written benchmarks.",
+        soft_wrap=True,
+    )
+    console.print(
+        f"Next:  lasagna benchmark validate-data {escape(shlex.quote(out))}", soft_wrap=True
+    )
+
+
 # ---------------------------------------------------------------------------
 # Component / plugin sub-apps — for people extending Lasagna
 # ---------------------------------------------------------------------------

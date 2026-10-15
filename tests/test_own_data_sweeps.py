@@ -533,7 +533,7 @@ def test_the_documented_commands_exist():
 
     commands = {c.name for c in benchmark_app.registered_commands}
     named = set(re.findall(r"lasagna benchmark ([a-z][a-z-]*)", OWN_DATA_DOC.read_text()))
-    assert {"validate-data", "run"} <= named
+    assert {"validate-data", "synthesize", "run"} <= named
     assert named <= commands, sorted(named - commands)
 
 
