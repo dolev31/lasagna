@@ -3,7 +3,7 @@
 #   lasagna benchmark experiment hyde_x_reranking.yaml
 #   lasagna results interaction <output>/results.json --metric ndcg@10
 #
-# A 2x2. Four arms — neither, HyDE only, reranking only, both — so the
+# A 2x2. Four arms (neither, HyDE only, reranking only, both), so the
 # interaction can be estimated:
 #
 #   interaction = (both - neither) - (hyde - neither) - (reranking - neither)
@@ -18,8 +18,10 @@
 # two results can be added after all.
 #
 # Factors are boolean flags, not component names. Swapping the `query_enhancer`
-# component does not enable HyDE — the orchestrator gates on `enable_hyde` — and
+# component does not enable HyDE (the orchestrator gates on `enable_hyde`), and
 # a component slot has no "off" level for the `neither` cell to use.
+#
+# HyDE writes a hypothetical document with an LLM, so this needs an API key.
 
 name: "HyDE x Reranking"
 description: "2x2 interaction between HyDE and reranking on BEIR"
@@ -40,8 +42,8 @@ pipeline:
       enable_query_classification: false
 
 mode: live
-# Three runs, so the spread reported alongside the interaction is real
-# run-to-run variance rather than a single draw.
+# Repeat runs when an LLM stage is in the loop: HyDE's documents vary from run
+# to run, and three runs measure that spread.
 n_runs: 3
 seed: 42
 max_concurrency: 4

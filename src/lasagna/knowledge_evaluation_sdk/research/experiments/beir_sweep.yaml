@@ -1,22 +1,16 @@
-# BEIR Reranker Sweep — multi-benchmark component sweep
-# Usage: python -m lasagna benchmark experiment beir_sweep.yaml
+# BEIR reranker sweep: three rerankers across three BEIR benchmarks.
 #
-# This file used to end with:
+# Usage:  lasagna benchmark experiment beir_sweep.yaml
 #
-#   query_enhancers:
-#     - hyde
-#     - null
+# Runs the `standard` profile on both tracks, so it downloads BGE-M3 and a large
+# reranker (3.1 GB), and needs an LLM API key and the eval extra to write and
+# judge answers.
 #
-# which measured nothing. `null` in a dimension list is not "the feature off";
-# it means "leave the profile alone". And swapping the `query_enhancer`
-# component does not set `enable_hyde` — the orchestrator gates on
-# `use_hyde and config.enable_hyde`, and the `standard` profile ships
-# `enable_hyde: False`. So both arms ran with HyDE off and produced identical
-# numbers, and the sweep looked like evidence that HyDE does not help.
-#
-# A feature is turned on by its flag. To ask whether HyDE helps — and whether it
-# still helps once reranking is on — see `hyde_x_reranking.yaml`, which is a 2x2
-# and reports the interaction.
+# A dimension list holds components, not "off": `null` in it leaves the profile
+# alone rather than turning a feature off, and swapping the `query_enhancer`
+# component does not set `enable_hyde`. A feature is turned on by its flag. To
+# ask whether HyDE helps, and whether it still helps once reranking is on, see
+# `hyde_x_reranking.yaml`, which is a 2x2 and reports the interaction.
 
 name: "BEIR Reranker Sweep"
 description: "Compare reranker variants across BEIR benchmarks"
@@ -37,6 +31,8 @@ pipeline:
     - ensemble
 
 mode: live
+# Repeat runs when an LLM stage is in the loop: this sweep writes and judges
+# answers, and the standard profile can route a query to agentic retrieval.
 n_runs: 3
 seed: 42
 max_concurrency: 4

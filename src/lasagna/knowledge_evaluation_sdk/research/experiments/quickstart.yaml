@@ -1,18 +1,15 @@
-# Quickstart — verify the setup works, end to end, in under a minute.
+# Quickstart: check the setup works, end to end, in about a minute.
 #
 # Usage:  lasagna benchmark experiment quickstart.yaml
 #
 # Uses the `smoke` benchmark: 24 documents and 12 queries held in the package
-# itself. No download, no API key, no corpus to fetch. It runs the real live
-# pipeline — ingest, embed, retrieve, rerank — so a green run here means the
-# stack is genuinely wired up.
+# itself, on the `speed` profile (all-MiniLM-L6-v2, 91 MB on first use). No
+# dataset download and no API key. It runs the real live pipeline (ingest,
+# embed, retrieve), so a green run here means the stack is wired up.
 #
 # It is a smoke test, not a measurement. The corpus is tiny and the queries are
 # easy by design, so scores near the top are expected and mean nothing about
 # retrieval quality. For that, see beir_sweep.yaml.
-#
-# This file used to pair beir/nfcorpus with a mode that cannot score retrieval,
-# so the config named "quickstart" failed every time it was run.
 
 name: "Quickstart Evaluation"
 description: "Hermetic end-to-end check that the pipeline runs and retrieves"
@@ -20,9 +17,17 @@ description: "Hermetic end-to-end check that the pipeline runs and retrieves"
 benchmarks:
   - name: smoke
 
+# Retrieval only: the generation track needs an LLM API key and the eval extra.
+tracks: [retrieval]
+
+pipeline:
+  base_profile: speed
+
 # `auto` resolves to live here, because `smoke` ships a corpus. Leaving it
 # unset would do the same; it is spelled out so the intent is visible.
 mode: auto
+# Retrieval with fixed models returns the same lists on every run, so one run
+# is the whole answer. Repeat runs when an LLM stage is in the loop.
 n_runs: 1
 seed: 42
 

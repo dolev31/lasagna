@@ -267,8 +267,13 @@ class TestThePluginTemplateEndsSomewhereReal:
             n_runs=raw["n_runs"],
             variance_source=raw["variance_source"],
             mode=raw["mode"],
+            tracks=raw["tracks"],
         )
-        assert config.n_runs >= 2, "one run cannot separate a gap from noise"
+        # Retrieval-only on `speed`: the arms are deterministic, the sweep
+        # itself says repeated runs were identical, and the significance test
+        # pairs by query. tests/test_documented_claims.py holds every example
+        # sweep to that rule.
+        assert config.tracks == ["retrieval"] and config.n_runs == 1
 
     def test_the_readme_runs_the_sweep_not_a_single_arm(self):
         text = (self.TEMPLATE / "README.md").read_text()
