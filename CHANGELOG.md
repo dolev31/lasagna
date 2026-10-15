@@ -285,6 +285,17 @@ Numbers that were wrong:
 
 First run:
 
+- The `lasagna` command prints a bad setting as one message and exits 2;
+  it was a traceback around the message.
+- `lasagna doctor` names the session, profile, settings file and data
+  directory in force, reports a bad setting as a failed check instead of
+  crashing on it, and no longer checks for the GitHub CLI. `doctor --json`
+  printed invalid JSON when piped: long lines were folded inside strings.
+- `lasagna status` names a pre-0.1.0 collection that no configured model
+  reads, and how to search it again.
+- `lasagna init` states what each profile downloads (91 MB for `speed`,
+  3.1 GB for `standard`), asks again for an empty or broken API key, and no
+  longer cuts its title box off.
 - **Another project's credentials leaked in.** pymilvus loads the nearest
   `.env` when imported: from a virtualenv inside a project, that project's
   keys appeared in `os.environ` and provider auto-detection used them. Lasagna

@@ -264,7 +264,7 @@ Documentation = "https://github.com/dolev31/lasagna/blob/main/docs/guide.md"
 Changelog = "https://github.com/dolev31/lasagna/blob/main/CHANGELOG.md"
 
 [project.scripts]
-lasagna = "lasagna.cli:app"
+lasagna = "lasagna.cli:main"
 # Point at server:main, not mcp.__main__ — that module calls main() at import
 # time, so a console script targeting it would start the server twice.
 lasagna-mcp = "lasagna.mcp.server:main"

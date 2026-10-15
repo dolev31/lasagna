@@ -93,7 +93,9 @@ def test_other_results_commands_print_names_literally(tmp_path, command):
 def _bundle_with_fallbacks(tmp_path, fallbacks):
     from lasagna.knowledge_evaluation_sdk.bundle import _content_hash
 
+    # A current bundle: `results validate` refuses one with no metrics_version.
     bundle = {
+        "metrics_version": METRICS_VERSION,
         "schema_version": "1.0",
         "experiment": {"environment": {"lasagna_version": "x", "python": "3", "platform": "p"}},
         "configs": [],

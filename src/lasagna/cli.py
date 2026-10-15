@@ -27,7 +27,7 @@ from rich.table import Table
 
 console = Console()
 app = typer.Typer(
-    name="rag-knowledge",
+    name="lasagna",
     help="Lasagna: upload and search documents, benchmark pipeline changes, configure, and serve.",
     no_args_is_help=True,
 )
@@ -243,10 +243,46 @@ def _error(msg: str, exit_code: int = 1, exc: Optional[BaseException] = None):
     """Print error and exit.
 
     Pass the exception behind ``msg`` as ``exc`` when there is one: a failure
-    with one known fix is then reported as that fix instead.
+    with one known fix is then reported as that fix instead, and a bad setting
+    exits 2, as :func:`main` does.
     """
+    config_error = _in_cause_chain(exc, "ConfigError")
+    if config_error is not None:
+        console.print(f"[red]Error: {escape(str(config_error))}[/red]")
+        raise typer.Exit(2)
     console.print(f"[red]Error: {escape(_known_failure(exc) or msg)}[/red]")
     raise typer.Exit(exit_code)
+
+
+def _in_cause_chain(exc: Optional[BaseException], class_name: str) -> Optional[BaseException]:
+    """The first exception named ``class_name`` in ``exc``'s cause chain.
+
+    Matched by name, so the CLI does not import the module that defines it
+    (the vector backend, the config) just to check.
+    """
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if type(exc).__name__ == class_name:
+            return exc
+        exc = exc.__cause__ or exc.__context__
+    return None
+
+
+def main() -> None:
+    """The `lasagna` command: the app, with a bad setting reported in one message.
+
+    A ConfigError names the setting, its value and the fix. Raised from a
+    command that does not catch it, it arrived inside a 40-line traceback.
+    """
+    try:
+        app()
+    except Exception as exc:
+        config_error = _in_cause_chain(exc, "ConfigError")
+        if config_error is None:
+            raise
+        console.print(f"[red]Error: {escape(str(config_error))}[/red]")
+        raise SystemExit(2) from None
 
 
 def _home(path: str) -> str:
@@ -261,25 +297,22 @@ def _home(path: str) -> str:
 def _known_failure(exc: Optional[BaseException]) -> Optional[str]:
     """The one-sentence explanation and fix for a failure we can name.
 
-    Recognized by class name anywhere in the cause chain, so the CLI does not
-    import the vector backend to check, and a wrapper that re-raises keeps the
-    cause. A store held by `lasagna serve` was reported as "Failed to get
-    status:" plus a 300-character message wrapped across five lines.
+    Recognized by class name anywhere in the cause chain, so a wrapper that
+    re-raises keeps the cause. A store held by `lasagna serve` was reported as
+    "Failed to get status:" plus a 300-character message wrapped across five
+    lines.
     """
-    seen = set()
-    while exc is not None and id(exc) not in seen:
-        seen.add(id(exc))
-        if type(exc).__name__ == "DataDirLockedError":
-            path = getattr(exc, "db_path", None)
-            where = f" at {_home(path)}" if path else ""
-            return (
-                f"Another process is using the local store{where} (a running "
-                f"`lasagna serve`, MCP server or benchmark). Stop it and run this "
-                f"again, or give one of them its own store with "
-                f"RAG_DB_DIR=<another directory>."
-            )
-        exc = exc.__cause__ or exc.__context__
-    return None
+    locked = _in_cause_chain(exc, "DataDirLockedError")
+    if locked is None:
+        return None
+    path = getattr(locked, "db_path", None)
+    where = f" at {_home(path)}" if path else ""
+    return (
+        f"Another process is using the local store{where} (a running "
+        f"`lasagna serve`, MCP server or benchmark). Stop it and run this "
+        f"again, or give one of them its own store with "
+        f"RAG_DB_DIR=<another directory>."
+    )
 
 
 def _require_known(kind: str, name: str, known, listing: str) -> None:
@@ -346,13 +379,11 @@ def init():
         console.print("Install with: pip install questionary")
         raise typer.Exit(1)
 
+    from lasagna.core.setup_text import api_key_problem, profile_download_text
+
     console.print()
-    console.print(
-        Panel.fit(
-            "[bold cyan]Lasagna Setup[/bold cyan]",
-            subtitle="Configure your knowledge base",
-        )
-    )
+    # The subtitle sat on the border, wider than the title: the box cut it off.
+    console.print(Panel.fit("[bold cyan]Lasagna setup[/bold cyan]\nConfigure your knowledge base"))
     console.print()
 
     # 1. Embedding mode
@@ -360,11 +391,11 @@ def init():
         "Where should embeddings run?",
         choices=[
             questionary.Choice(
-                "Cloud API (OpenAI/Cohere) — lightweight, no GPU needed",
+                "Cloud API (OpenAI/Cohere): no model download, no GPU needed",
                 value="cloud",
             ),
             questionary.Choice(
-                "Local (sentence-transformers) — private, needs ~2GB disk",
+                "Local (sentence-transformers): private; the profile sets the download",
                 value="local",
             ),
         ],
@@ -394,7 +425,7 @@ def init():
             questionary.Choice("Anthropic (Claude)", value="anthropic"),
             questionary.Choice("Groq (fast inference)", value="groq"),
             questionary.Choice("IBM watsonx", value="watsonx"),
-            questionary.Choice("None — search only, no LLM features", value="none"),
+            questionary.Choice("None, search only (no LLM features)", value="none"),
         ],
     ).ask()
     if llm_provider is None:
@@ -404,12 +435,13 @@ def init():
     profile = questionary.select(
         "Quality profile?",
         choices=[
-            questionary.Choice("Speed — pure vector search, fastest", value="speed"),
-            questionary.Choice(
-                "Standard — recommended (reranking + hybrid search)", value="standard"
-            ),
-            questionary.Choice("Balanced — best quality/speed tradeoff", value="balanced"),
-            questionary.Choice("Max Quality — all features enabled", value="max_quality"),
+            questionary.Choice(f"{label} ({profile_download_text(value)})", value=value)
+            for label, value in (
+                ("Speed: vector search only, fastest", "speed"),
+                ("Standard: hybrid search and reranking, recommended", "standard"),
+                ("Balanced: standard plus hierarchical chunking", "balanced"),
+                ("Max quality: every retrieval feature on", "max_quality"),
+            )
         ],
         default="standard",
     ).ask()
@@ -445,9 +477,17 @@ def init():
     if llm_provider in api_key_env:
         key_name = api_key_env[llm_provider]
         if not os.environ.get(key_name):
-            api_key = questionary.password(f"Enter your {key_name}:").ask()
-            if api_key:
-                env_vars[key_name] = api_key
+            # An empty or pasted-with-a-newline key was saved without a word,
+            # and the first LLM call failed instead.
+            while True:
+                api_key = questionary.password(f"Enter your {key_name}:").ask()
+                if api_key is None:  # Ctrl-C
+                    raise typer.Exit(0)
+                problem = api_key_problem(key_name, api_key)
+                if problem is None:
+                    env_vars[key_name] = api_key.strip()
+                    break
+                console.print(f"  [yellow]{escape(problem)}[/yellow]")
 
     # Write .env file
     try:
@@ -657,12 +697,12 @@ def status(
         try:
             docs = await client.list_documents()
             config = client.get_config_dict()
-            return docs, config
+            return docs, config, await _unused_collections(client)
         finally:
             await client.close()
 
     try:
-        docs, config = _run(_status())
+        docs, config, unused = _run(_status())
     except Exception as exc:
         _error(f"Failed to get status: {exc}", exc=exc)
 
@@ -681,6 +721,16 @@ def status(
         console.print(table)
     else:
         console.print("[dim]No documents uploaded yet.[/dim]")
+    for collection in unused:
+        dim = collection.get("embedding_dim")
+        size = f"{dim} dimensions" if dim else "an unknown size"
+        console.print(
+            f"[yellow]Unused: collection {escape(collection['name'])} holds "
+            f"{collection['rows']:,} chunks at {size} from before 0.1.0, and no configured "
+            f"model reads it. To search it again, set "
+            f"RAG_COLLECTION_NAME={escape(collection['name'])} with the embedding model "
+            f"that wrote it.[/yellow]"
+        )
 
     # Config summary
     console.print()
@@ -706,6 +756,23 @@ def status(
             title="Configuration",
         )
     )
+
+
+async def _unused_collections(client) -> List[Dict[str, Any]]:
+    """Collections from before 0.1.0 that no configured model reads.
+
+    A listing for `status`: it never fails the command.
+    """
+    try:
+        from lasagna.api._collection_manager import legacy_collections
+
+        backend = await client._get_backend()
+        return legacy_collections(backend._vector_backend)
+    except Exception as exc:  # noqa: BLE001
+        from loguru import logger
+
+        logger.debug(f"Could not list unused collections: {exc}")
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -1804,11 +1871,15 @@ def results_bundle(
     affiliation: str = typer.Option("", "--affiliation", help="Submitter affiliation"),
 ):
     """Package a run into a self-contained, publishable bundle."""
+    from .knowledge_evaluation_sdk.bundle import MetricsVersionError
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
     results = BenchmarkResults.load(results_path)
     submitter = {k: v for k, v in {"name": name, "affiliation": affiliation}.items() if v}
-    bundle = results.to_bundle(submitter=submitter or None)
+    try:
+        bundle = results.to_bundle(submitter=submitter or None)
+    except MetricsVersionError as exc:
+        _error(str(exc))
 
     Path(output).write_text(json.dumps(bundle, indent=2, default=str))
     console.print(f"[green]Wrote[/green] {escape(output)}")
@@ -1835,6 +1906,7 @@ def results_validate(
         _content_hash,
         aggregate_mismatches,
         comparability_key,
+        metrics_version_problems,
         ranked_list_mismatches,
     )
 
@@ -1862,6 +1934,7 @@ def results_validate(
                 f"held_fixed block ({cfg.get('comparability_key')} vs {recomputed})"
             )
 
+    problems.extend(metrics_version_problems(bundle))
     problems.extend(
         f"aggregate disagrees with per-query scores: {m}"
         for m in aggregate_mismatches(bundle.get("results") or [])
@@ -2595,10 +2668,40 @@ def skills_install(
         console.print("[dim]Restart the agent, or start a new session, to pick them up.[/dim]")
 
 
+def _diagnose_or_report_the_setting(diagnose):
+    """Run doctor's checks; a bad setting becomes a failed check, not a traceback.
+
+    Every other command stops at an invalid setting, so this is where a user
+    looks next, and it crashed on the same error.
+    """
+    from .core.diagnostics import Check, Diagnosis
+
+    try:
+        return diagnose(check_gh=False)
+    except Exception as exc:
+        config_error = _in_cause_chain(exc, "ConfigError")
+        if config_error is None:
+            raise
+    from .core.provenance import redact
+
+    try:
+        from .core.provenance import capture
+
+        environment = redact(capture())
+    except Exception:  # noqa: BLE001 - the setting may break this too
+        environment = {}
+    return Diagnosis(
+        checks=[Check("config", "error", redact(str(config_error)))], environment=environment
+    )
+
+
 @app.command("doctor")
 def doctor(
     json_output: bool = typer.Option(False, "--json", help="Machine-readable output"),
     issue: bool = typer.Option(False, "--issue", help="Print a block to paste into a bug report"),
+    session_id: str = typer.Option(
+        "default", "--session", "-s", help="Session whose profile to report."
+    ),
 ):
     """Check this installation and say what to fix.
 
@@ -2613,14 +2716,23 @@ def doctor(
 
     from .core.diagnostics import diagnose, format_issue_body
 
-    d = diagnose()
+    d = _diagnose_or_report_the_setting(diagnose)
+    try:
+        from .core.setup_text import doctor_context
+
+        context = doctor_context(session_id)
+    except Exception as exc:  # noqa: BLE001 - doctor reports, it does not fail
+        context = [("session", session_id), ("setup", f"could not be read ({exc})")]
 
     if json_output:
-        console.print(_json.dumps(d.to_dict(), indent=2), markup=False, highlight=False)
+        payload = {**d.to_dict(), "context": dict(context)}
+        # soft_wrap: Rich folded long lines at the terminal width, newlines
+        # inside JSON strings included, so a long advice line made it invalid.
+        console.print(_json.dumps(payload, indent=2), markup=False, highlight=False, soft_wrap=True)
         raise typer.Exit(1 if d.worst == "error" else 0)
 
     if issue:
-        console.print(format_issue_body(d), markup=False, highlight=False)
+        console.print(format_issue_body(d, context), markup=False, highlight=False, soft_wrap=True)
         raise typer.Exit(1 if d.worst == "error" else 0)
 
     env = d.environment
@@ -2629,6 +2741,7 @@ def doctor(
         f"({env.get('installed_from', '?')}) · python {env.get('python', '?')} · "
         f"{env.get('platform', '?')}"
     )
+    console.print(" · ".join(f"{name} {escape(value)}" for name, value in context))
     console.print()
 
     style = {"ok": "green", "warning": "yellow", "error": "red"}
