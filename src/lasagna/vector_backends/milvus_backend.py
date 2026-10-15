@@ -129,6 +129,38 @@ def _lite_store_locked(db_path: str) -> bool:
         os.close(fd)
 
 
+def _served_by_this_process(db_path: str) -> bool:
+    """Whether this process's own Milvus Lite server holds the store.
+
+    milvus_lite runs its server as a child of the process that opened the store,
+    and the child holds the lock. A failure to connect while our own server is
+    up is some other failure (a gRPC error, a crashed child), not another
+    program holding the store, and must not be reported as one.
+    """
+    import os
+
+    try:
+        from milvus_lite.server_manager import server_manager_instance
+    except Exception:  # noqa: BLE001 - no milvus_lite, no server of ours
+        return False
+    servers = getattr(server_manager_instance, "_servers", None)
+    return isinstance(servers, dict) and os.path.abspath(db_path) in servers
+
+
+#: gRPC keepalive for a local Milvus Lite store. pymilvus pings every 10 s, idle
+#: or not; the Lite server enforces gRPC's default (at most one ping per five
+#: minutes without data) and closes an idle connection with GOAWAY
+#: "too_many_pings" after about 20 s. The client then printed an error line on
+#: every idle period, and a request that arrived as the connection closed
+#: failed. A server deployment (Milvus standalone) allows the pings, so these
+#: apply to Lite only. pymilvus before 3.0 ignores the argument.
+_LITE_GRPC_OPTIONS = {
+    "grpc.keepalive_permit_without_calls": False,
+    "grpc.keepalive_time_ms": 300_000,
+    "grpc.keepalive_timeout_ms": 20_000,
+}
+
+
 def _hit_primary_key(hit: Dict[str, Any]) -> str:
     """The primary key of a search hit, whatever pymilvus calls it.
 
@@ -295,7 +327,9 @@ class MilvusBackend(VectorStoreAdapter):
                 if self._db_path:
                     # Milvus Lite (local file)
                     logger.info(f"Connecting to Milvus Lite: {self._db_path}")
-                    self._client = MilvusClient(self._db_path, timeout=self._timeout)
+                    self._client = MilvusClient(
+                        self._db_path, timeout=self._timeout, grpc_options=dict(_LITE_GRPC_OPTIONS)
+                    )
                 elif self._uri:
                     # Milvus Standalone/Distributed
                     logger.info(f"Connecting to Milvus: {self._uri}")
@@ -308,7 +342,11 @@ class MilvusBackend(VectorStoreAdapter):
                         "Either db_path (for Lite) or uri (for Standalone) is required"
                     )
             except Exception as e:
-                if self._db_path and _lite_store_locked(self._db_path):
+                if (
+                    self._db_path
+                    and _lite_store_locked(self._db_path)
+                    and not _served_by_this_process(self._db_path)
+                ):
                     # pymilvus reports only "Open local milvus failed"; the
                     # cause was in a traceback logged above it.
                     raise DataDirLockedError(self._db_path) from e
