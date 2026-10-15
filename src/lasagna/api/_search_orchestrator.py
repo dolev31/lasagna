@@ -757,8 +757,13 @@ class SearchOrchestrator:
         if partition_key:
             tenant_mgr.ensure_partition(backend, config.collection_name, partition_key)
 
-        # Register session backend with hybrid searcher if it differs from default
-        if backend is not self._default_backend:
+        # Register the session's backend and collection with the hybrid searcher
+        # when either differs from the default: each embedding model has its
+        # own collection, and native hybrid search otherwise read the default's.
+        default_collection = getattr(self.hybrid_searcher, "_collection_name", None)
+        if backend is not self._default_backend or (
+            default_collection is not None and config.collection_name != default_collection
+        ):
             self.hybrid_searcher.set_session_backend(session_id, backend, config.collection_name)
 
         # Build filter using backend-agnostic FilterExpression

@@ -50,6 +50,32 @@ class OrphanDetector:
         self._db = db
         self._backend = backend
 
+    def _recorded_in(self, doc_ids: set, collection_name: str) -> set:
+        """The documents among ``doc_ids`` whose vectors belong in ``collection_name``.
+
+        Each embedding model has its own collection, so a document missing from
+        this one is an orphan only if it was written here. A record with no
+        collection predates the field and counts as this one's.
+        """
+        if not doc_ids:
+            return doc_ids
+        ordered = sorted(doc_ids)
+        try:
+            rows = [
+                row
+                for start in range(0, len(ordered), 500)
+                for row in self._db.get_documents_batch(ordered[start : start + 500]) or []
+            ]
+        except Exception as exc:  # noqa: BLE001 - keep the old, wider answer
+            logger.debug(f"OrphanDetector: could not read document collections: {exc}")
+            return doc_ids
+        elsewhere = {
+            r.get("document_id")
+            for r in rows
+            if r.get("collection_name") and r.get("collection_name") != collection_name
+        }
+        return doc_ids - elsewhere
+
     # =========================================================================
     # Public API
     # =========================================================================
@@ -107,7 +133,7 @@ class OrphanDetector:
                 "Results may be incomplete. Increase vector_scan_limit or scope by session_id."
             )
 
-        db_only = db_ids - vec_ids
+        db_only = self._recorded_in(db_ids - vec_ids, collection_name)
         vector_only = vec_ids - db_ids
 
         orphans = [

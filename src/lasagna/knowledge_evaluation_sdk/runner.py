@@ -107,6 +107,10 @@ class BenchmarkTask:
     #: from the metrics afterwards, and the two modes measure different things.
     resolved_mode: str = ""
     mode_resolution_reason: str = ""
+    #: A hash of what the result depends on beyond the task itself: the metric
+    #: definitions, the package version, the judge and the environment's
+    #: settings (``run_provenance.resume_fingerprint``). Set by the experiment.
+    resume_fingerprint: str = ""
 
     @property
     def task_key(self) -> str:
@@ -116,12 +120,15 @@ class BenchmarkTask:
         sampling_hash so that tasks with different sampling parameters
         (split, n_samples, seed, filters) get distinct checkpoint keys.
         This prevents ``--resume`` from silently restoring stale results
-        when sampling parameters change.
+        when sampling parameters change. The resume fingerprint does the same
+        for a new metrics version, package version, judge or environment
+        setting: a checkpoint from before such a change is never restored.
         """
-        return (
+        key = (
             f"{self.benchmark_name}|{self.config_name}|{self.config_hash}"
             f"|{self.sampling_hash}|{self.mode}|run_{self.run_index}"
         )
+        return f"{key}|env_{self.resume_fingerprint}" if self.resume_fingerprint else key
 
     @property
     def sampling_hash(self) -> str:

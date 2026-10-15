@@ -92,7 +92,9 @@ class KnowledgeConfigManager(
         except (RuntimeError, Exception):
             pass
 
-        return str(Path.home() / ".rag_knowledge" / "dbs")
+        from lasagna.core.paths import db_dir
+
+        return str(db_dir())
 
     def __init__(
         self,

@@ -1,0 +1,172 @@
+"""What a run was computed under, beyond the environment ``core.provenance`` captures.
+
+``core.provenance.capture()`` records the machine and the package versions.
+A number also depends on the metric definitions (``METRICS_VERSION``), the
+settings the environment overrode, the judge, and the exact weights of the
+models that ran, which a model *name* does not pin: ``all-MiniLM-L6-v2`` is
+whatever commit the local Hugging Face cache holds. These are recorded in
+``results.json``, and the resume key hashes the ones that can move a number, so
+``--resume`` never restores a result computed under different ones.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+from typing import Any, Dict, Iterable, List, Mapping, Optional
+
+#: Setting names whose value is a credential, a host or a connection string.
+_SENSITIVE_NAME = re.compile(
+    r"(key|token|secret|password|passwd|dsn|uri|url|endpoint|host|broker|backend_config)",
+    re.IGNORECASE,
+)
+_REDACTED = "<redacted>"
+
+#: Evaluation variables that change a number: which models judge and write.
+_EVAL_MODEL_ENV = ("RAG_EVAL_JUDGE_MODEL", "RAG_EVAL_GENERATOR_MODEL", "RAG_EVAL_SIMILARITY_MODEL")
+
+
+def package_version() -> Optional[str]:
+    try:
+        from lasagna.sdk._version import __version__
+
+        return __version__
+    except ImportError:  # pragma: no cover - the version module always ships
+        return None
+
+
+def _setting_names() -> set:
+    try:
+        from lasagna.core.config import get_rag_config
+
+        names = set(get_rag_config()._config)
+    except Exception:  # noqa: BLE001 - provenance must never fail a run
+        return set()
+    return names - {"upload_dir", "db_path", "citation_db_path"}
+
+
+def _redact_value(name: str, raw: str) -> Any:
+    from lasagna.core.provenance import redact
+
+    if _SENSITIVE_NAME.search(name) or "://" in raw:
+        if raw.strip()[:1] == "{":
+            try:
+                parsed = json.loads(raw)
+            except ValueError:
+                return _REDACTED
+            if isinstance(parsed, dict):
+                return {
+                    k: _REDACTED if _SENSITIVE_NAME.search(str(k)) else redact(v)
+                    for k, v in parsed.items()
+                }
+        return _REDACTED
+    return redact(raw)
+
+
+def rag_overrides(environ: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
+    """The settings this run's environment overrode, with secrets and paths hidden.
+
+    ``RAG_<SETTING>`` and ``LASAGNA_<SETTING>`` for every setting, and the
+    evaluation model variables. Credentials, hosts and connection strings show
+    as ``<redacted>``: a results file is meant to be published.
+    """
+    from lasagna.core.config import LASAGNA_RESERVED_ENV
+
+    env = os.environ if environ is None else environ
+    names = _setting_names()
+    out: Dict[str, Any] = {}
+    for var in sorted(env):
+        if var in LASAGNA_RESERVED_ENV:
+            continue
+        for prefix in ("RAG_", "LASAGNA_"):
+            if var.startswith(prefix) and var[len(prefix) :].lower() in names:
+                out[var] = _redact_value(var, env[var])
+        if var in _EVAL_MODEL_ENV:
+            out[var] = _redact_value(var, env[var])
+    return out
+
+
+def resume_fingerprint(
+    judge_model: Optional[str],
+    environ: Optional[Mapping[str, str]] = None,
+    metrics_version: Optional[str] = None,
+) -> str:
+    """A hash of what a checkpointed result depends on beyond its task.
+
+    The metric definitions, the package version, the judge and the overridden
+    settings. A checkpoint written under any other value of these is not
+    restored; it would carry numbers computed some other way.
+    """
+    if metrics_version is None:
+        from .bundle import METRICS_VERSION as metrics_version
+    blob = json.dumps(
+        {
+            "metrics_version": metrics_version,
+            "package_version": package_version(),
+            "judge_model": judge_model or None,
+            "overrides": rag_overrides(environ),
+        },
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
+
+
+def model_revision(name: str, cache_dir: Optional[str] = None) -> Optional[str]:
+    """The commit of ``name`` in the local Hugging Face cache, or None.
+
+    Reads the cache only, so it works offline and never downloads. A short
+    sentence-transformers name (``all-MiniLM-L6-v2``) is also looked up under
+    its ``sentence-transformers/`` repository, as the library resolves it.
+    """
+    if not name or ":" in name or os.path.isabs(name):
+        return None
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except ImportError:
+        return None
+    candidates = [name] if "/" in name else [name, f"sentence-transformers/{name}"]
+    for repo in candidates:
+        for filename in ("config.json", "modules.json", "tokenizer_config.json"):
+            try:
+                found = try_to_load_from_cache(repo, filename, cache_dir=cache_dir)
+            except Exception:  # noqa: BLE001 - an odd name is "not cached", not an error
+                found = None
+            if isinstance(found, str):
+                parts = found.replace(os.sep, "/").split("/")
+                if "snapshots" in parts:
+                    return parts[parts.index("snapshots") + 1]
+    return None
+
+
+def models_used(rows: Iterable[Mapping[str, Any]], run_meta: Mapping[str, Any]) -> List[str]:
+    """The model names a run's tasks recorded running with.
+
+    The embedder and reranker each task loaded (``TaskResult.system``) and the
+    answer-similarity embedder. Component references (``module:function``) and
+    API-served models have no Hugging Face commit and are left to the caller.
+    """
+    names = []
+    for row in rows:
+        system = row.get("system") or {}
+        names += [system.get("embedder_model"), system.get("reranker_model")]
+    names.append(run_meta.get("similarity_model"))
+    return sorted({str(n) for n in names if n and ":" not in str(n)})
+
+
+def model_revisions(names: Iterable[str], cache_dir: Optional[str] = None) -> Dict[str, Any]:
+    """``{model: commit or None}``; None means the commit could not be read."""
+    return {name: model_revision(name, cache_dir=cache_dir) for name in sorted(set(names))}
+
+
+def determinism_label(concurrency: int) -> str:
+    """What the seeding guarantees for this run.
+
+    Each task seeds the process-wide generators before it runs. One task at a
+    time, every task's random draws follow from its own seed; with several
+    tasks interleaving on one event loop they share those generators, so a
+    task's draws depend on what else was running.
+    """
+    return "seeded_per_task" if int(concurrency) <= 1 else "seeded_global_concurrent"

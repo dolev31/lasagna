@@ -771,6 +771,7 @@ class TestDegradedPathsAreVisible:
         store = SimpleNamespace(session_filter=lambda c, s: None, query=down)
         p = DocumentPipeline.__new__(DocumentPipeline)
         p._collection_manager = SimpleNamespace(resolve_backend=lambda sid: store)
+        p._get_session_config = lambda sid: SimpleNamespace(collection_name="c")
         with pytest.raises(ChunkStoreUnavailable, match="vector store unreachable"):
             p.get_document_chunks("doc_1", "s1")
 
@@ -812,3 +813,14 @@ class TestTheApiDescribesItself:
         assert all(r["level"].name == "DEBUG" for r in shape)
         assert "hybrid ->" not in shape[0]["message"]
         assert "(dense_only)" in shape[0]["message"]
+
+
+def test_the_server_settings_are_not_reported_as_unknown():
+    """They are read through a table, which the config's own scan cannot see.
+
+    Missing from the list, setting RAG_MAX_BATCH_FILES logged "is not a
+    Lasagna setting and was ignored" while the server used it.
+    """
+    from lasagna.core.config import NON_SETTING_ENV
+
+    assert set(limits._SETTINGS) | {"RAG_API_KEYS"} <= NON_SETTING_ENV

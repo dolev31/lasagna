@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,7 +60,9 @@ class CheckpointManager:
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "result": result,
         }
-        # Atomic write: temp file + rename
+        # Atomic write: temp file + rename. The data reaches the disk before
+        # the rename: renamed first, a crash could leave an empty checkpoint
+        # under the final name, which --resume then read as a finished task.
         with tempfile.NamedTemporaryFile(
             mode="w",
             dir=self._dir,
@@ -67,6 +70,8 @@ class CheckpointManager:
             delete=False,
         ) as tmp:
             json.dump(data, tmp, default=str)
+            tmp.flush()
+            os.fsync(tmp.fileno())
             tmp_path = Path(tmp.name)
         tmp_path.rename(path)
         logger.debug(f"Checkpoint saved: {task_key}")

@@ -1,7 +1,7 @@
 """Configuration management for Lasagna.
 
-This module provides comprehensive configuration for the SOTA RAG implementation
-including embedding models, chunking strategies, hybrid search, reranking, and more.
+Settings for every stage: embedding models, chunking, hybrid search, reranking
+and the rest, with their defaults, environment variables and validation.
 
 The configuration supports session-scoped overrides that allow users to modify
 RAG settings via the UI without permanently altering the settings.lasagna.toml file.
@@ -25,8 +25,304 @@ if TYPE_CHECKING:
     from lasagna.providers import ConfigProvider
 
 
+# =============================================================================
+# Collection identity: one vector collection per embedding model
+# =============================================================================
+
+#: The collection every embedding model shared before 0.1.0. The shipped
+#: settings file and every built-in profile still carry it, so it means "not
+#: chosen": a configuration that names it gets its own model's collection
+#: (`collection_name_for`), unless an earlier version's documents in it were
+#: adopted for that model (`adopt_collection`).
+LEGACY_COLLECTION_NAME = "rag_documents_v2"
+
+#: (store, embedding model, dimension) -> the collection that model adopted.
+#: Filled by the collection manager, which reads and writes the stamps; the
+#: config itself never opens a store.
+_adopted_collections: Dict[Tuple[str, str, int], str] = {}
+_adopted_lock = Lock()
+
+
+def collection_name_for(model: Optional[str], dim: Any) -> str:
+    """The collection documents embedded by ``model`` at ``dim`` live in.
+
+    Vectors from two models are not comparable even at the same size
+    (bge-large and bge-m3 are both 1024), so the model is part of the name, not
+    only the dimension. The name keeps to lowercase letters, digits and
+    underscores, which every supported backend accepts, and stays short enough
+    for a Postgres identifier once pgvector prefixes it.
+    """
+    import hashlib
+    import re
+
+    raw = str(model or "default")
+    slug = re.sub(r"[^a-z0-9]+", "_", raw.lower()).strip("_") or "default"
+    if len(slug) > 32:
+        slug = f"{slug[:23]}_{hashlib.sha256(raw.encode()).hexdigest()[:8]}"
+    return f"{LEGACY_COLLECTION_NAME}__{slug}__{int(dim)}"
+
+
+def is_derived_collection_name(name: Optional[str]) -> bool:
+    """Whether ``name`` was derived from a model rather than chosen."""
+    return bool(name) and str(name).startswith(f"{LEGACY_COLLECTION_NAME}__")
+
+
+def resolve_collection_name(
+    name: Optional[str], model: Optional[str], dim: Any, store: Optional[str] = None
+) -> str:
+    """The collection a configuration uses, given the name it carries.
+
+    A name other than the legacy default is the user's choice and is returned
+    unchanged; the evaluation harness names one per arm this way. Otherwise the
+    model's own collection, or the legacy one if this model adopted it.
+    """
+    if name and name != LEGACY_COLLECTION_NAME:
+        return str(name)
+    with _adopted_lock:
+        adopted = _adopted_collections.get((str(store or ""), str(model), int(dim)))
+    return adopted or collection_name_for(model, dim)
+
+
+def adopt_collection(name: str, model: Optional[str], dim: Any, store: Optional[str] = None):
+    """Record that ``model`` at ``dim`` uses the existing collection ``name``."""
+    with _adopted_lock:
+        _adopted_collections[(str(store or ""), str(model), int(dim))] = name
+
+
+def collection_name_for_settings(settings: Dict[str, Any]) -> str:
+    """The collection a session whose resolved settings are ``settings`` uses.
+
+    For checks made before a change is applied (a profile switch), when there
+    is no ``RAGConfig`` for the new settings yet. Keys the settings leave out
+    fall back to the process configuration, as a session's do.
+    """
+    base = get_rag_config()
+    name = settings.get("collection_name")
+    if name is None:
+        name = base._get_knowledge_setting(
+            "rag", "collection_name", default=base._config["collection_name"]
+        )
+    model = settings.get("embedding_model") or base.embedding_model
+    dim = int(settings.get("embedding_dim") or base.embedding_dim)
+    truncate = settings.get("embedding_truncate_dim", base.embedding_truncate_dim)
+    if truncate and int(truncate) < dim:
+        dim = int(truncate)
+    return resolve_collection_name(name, model, dim, store=base._config.get("db_path"))
+
+
+def forget_adopted_collections() -> None:
+    """Drop every adoption recorded in this process (the stamps stay)."""
+    with _adopted_lock:
+        _adopted_collections.clear()
+
+
+# =============================================================================
+# Environment settings: parsing and validation
+# =============================================================================
+
+#: What an environment variable may say for true, and for false. The one set
+#: every on/off variable in the package is read with.
+TRUTHY = frozenset({"1", "true", "yes", "on"})
+FALSY = frozenset({"0", "false", "no", "off"})
+
+
+class ConfigError(ValueError):
+    """A setting has a value it cannot take. The message names it and the fix."""
+
+
+#: Numeric settings with a range; a value outside it is refused.
+_VALID_RANGES: Dict[str, Tuple[float, float]] = {
+    "chunk_size": (50, 100_000),
+    "chunk_overlap": (0, 50_000),
+    "default_top_k": (1, 1000),
+    "rerank_top_k": (1, 1000),
+    "embedding_dim": (32, 8192),
+    "hybrid_alpha": (0.0, 1.0),
+    "mmr_lambda": (0.0, 1.0),
+    "similarity_threshold": (-1.0, 1.0),
+    "connection_pool_size": (1, 500),
+    "routing_confidence_threshold": (0.0, 1.0),
+    "max_concurrent_uploads": (1, 20),
+}
+
+#: Settings whose value is one of a fixed set (compared without case).
+_CHOICES: Dict[str, Tuple[str, ...]] = {
+    "database_backend": ("sqlite", "postgresql"),
+    "cache_backend": ("memory", "redis"),
+    "tenant_isolation": ("none", "partition"),
+    "log_level": ("TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"),
+    "routing_default_tier": ("fast", "standard", "comprehensive"),
+    "routing_strategy": ("rule_based", "adaptive"),
+}
+
+#: Settings whose default is None, with the type a value must have.
+#: "none" or "null" (or an empty value) sets them back to None.
+_NULLABLE_TYPES: Dict[str, type] = {
+    "embedding_truncate_dim": int,
+    "semantic_breakpoint_amount": float,
+    "chunk_tokenizer": str,
+    "proposition_model": str,
+    "contextual_model": str,
+    "contextual_max_document_chars": int,
+}
+
+#: Settings read only through a property default, with a value of their type.
+#: Listed so their environment variables work; they appear in no defaults dict.
+_PROPERTY_ONLY_SETTINGS: Dict[str, Any] = {
+    "agentic_pipeline": "",
+    "refinement_model": "",
+}
+
+#: ``RAG_*`` variables the package reads that are not settings of this file:
+#: storage paths, server security, the evaluation judge, the MCP server. The
+#: ``RAG_GC_``, ``RAG_STORAGE_`` and ``RAG_EVAL_`` families are read by prefix.
+#: ``tests/test_config_fail_fast.py`` checks this against every variable read.
+NON_SETTING_ENV = frozenset(
+    {
+        "RAG_ADMIN_TOKEN",
+        "RAG_ALLOWED_HOSTS",
+        "RAG_ALLOW_ANONYMOUS_SESSION",
+        "RAG_ALLOW_HEADER_IDENTITY",
+        "RAG_API_KEYS",
+        "RAG_BIND_IS_PROTECTED",
+        "RAG_CONFIGURATOR",
+        "RAG_CORS_ORIGINS",
+        "RAG_CRAG_GRADING_CONCURRENCY",
+        "RAG_DATA_DIR",
+        "RAG_DB_DIR",
+        "RAG_EMBED_MCP",
+        "RAG_FORWARDED_ALLOW_IPS",
+        "RAG_JWT_SECRET",
+        "RAG_LANGFUSE_TRACING",
+        "RAG_LLM_CACHE_MAX_SIZE",
+        "RAG_MAX_BATCH_BYTES",
+        "RAG_MAX_BATCH_FILES",
+        "RAG_MCP_PORT",
+        "RAG_MCP_UPLOAD_ROOT",
+        "RAG_REQUIRE_AUTH",
+        "RAG_REST_URL",
+        "RAG_SEARCH_TIMEOUT",
+        "RAG_SESSION_BACKEND",
+        "RAG_SESSION_ID",
+        "RAG_SESSION_TOKEN_TTL_SECONDS",
+        "RAG_SETTINGS_FILE",
+        "RAG_UPLOAD_DIR",
+        "RAG_VALIDATE_PAGE_MAP",
+    }
+)
+NON_SETTING_ENV_PREFIXES = ("RAG_GC_", "RAG_STORAGE_", "RAG_EVAL_")
+
+#: ``LASAGNA_*`` names that already meant something else before settings took
+#: the prefix, and keep that meaning. ``LASAGNA_LOG_LEVEL`` is the CLI's console
+#: threshold (tolerant of a typo, so a bad value never stops ``doctor``); the
+#: ``log_level`` setting stays ``RAG_LOG_LEVEL``.
+LASAGNA_RESERVED_ENV = frozenset({"LASAGNA_LOG_LEVEL"})
+
+_UNSET = object()
+_warned_unknown_env: set = set()
+
+
+def _type_phrase(template: Any, key: str) -> str:
+    if key in _NULLABLE_TYPES:
+        kind = _NULLABLE_TYPES[key]
+        base = {int: "a whole number", float: "a number", str: "a string"}[kind]
+        return f"{base}, or none"
+    if isinstance(template, bool):
+        return "true or false (also 1/0, yes/no, on/off)"
+    if isinstance(template, int):
+        return "a whole number"
+    if isinstance(template, float):
+        return "a number"
+    if isinstance(template, list):
+        return 'a JSON list, for example ["en"]'
+    if isinstance(template, dict):
+        return 'a JSON object, for example {"M": 16}'
+    return "a string"
+
+
+def _parse_env_value(key: str, raw: str, template: Any) -> Any:
+    """``raw`` as the setting ``key`` takes it, or ``_UNSET`` for an empty value.
+
+    An empty value of a typed setting is the shape ``${VAR:-}`` leaves in a
+    compose file, so it means "not set" rather than an error.
+    """
+    import json as _json
+
+    text = raw.strip()
+    expected = _type_phrase(template, key)
+    if key in _NULLABLE_TYPES:
+        if text.lower() in ("", "none", "null"):
+            return None
+        try:
+            value: Any = _NULLABLE_TYPES[key](text)
+        except ValueError:
+            raise ConfigError(f"{key} takes {expected}") from None
+    elif isinstance(template, bool):
+        if not text:
+            return _UNSET
+        if text.lower() in TRUTHY:
+            value = True
+        elif text.lower() in FALSY:
+            value = False
+        else:
+            raise ConfigError(f"{key} takes {expected}")
+    elif isinstance(template, (int, float)):
+        if not text:
+            return _UNSET
+        try:
+            value = int(text) if isinstance(template, int) else float(text)
+        except ValueError:
+            raise ConfigError(f"{key} takes {expected} (default {template})") from None
+    elif isinstance(template, (list, dict)):
+        if not text:
+            return _UNSET
+        try:
+            value = _json.loads(text)
+        except ValueError:
+            raise ConfigError(f"{key} takes {expected}; this is not valid JSON") from None
+        if not isinstance(value, type(template)):
+            raise ConfigError(f"{key} takes {expected}")
+    else:
+        value = raw
+
+    if key in _VALID_RANGES and isinstance(value, (int, float)):
+        lo, hi = _VALID_RANGES[key]
+        if not (lo <= value <= hi):
+            raise ConfigError(f"{key} takes {lo} to {hi}")
+    if key in _CHOICES and isinstance(value, str):
+        allowed = _CHOICES[key]
+        if value.lower() not in {a.lower() for a in allowed}:
+            import difflib
+
+            hint = difflib.get_close_matches(value.lower(), [a.lower() for a in allowed], n=1)
+            raise ConfigError(
+                f"{key} takes one of {', '.join(allowed)}"
+                + (f" (did you mean {hint[0]}?)" if hint else "")
+            )
+    return value
+
+
+def _warn_unknown_env(env_key: str, known: Dict[str, Any]) -> None:
+    """Warn once that ``env_key`` is not a setting, naming the closest one."""
+    if (
+        env_key in NON_SETTING_ENV
+        or env_key.startswith(NON_SETTING_ENV_PREFIXES)
+        or env_key in _warned_unknown_env
+    ):
+        return
+    _warned_unknown_env.add(env_key)
+    import difflib
+
+    match = difflib.get_close_matches(env_key[4:].lower(), list(known), n=1, cutoff=0.75)
+    hint = f" Did you mean RAG_{match[0].upper()}?" if match else ""
+    logger.warning(
+        f"{env_key} is not a Lasagna setting and was ignored.{hint} "
+        f"The settings are listed in docs/reference/settings.md."
+    )
+
+
 class RAGConfig:
-    """RAG system configuration manager with SOTA defaults.
+    """RAG system configuration manager.
 
     Supports session-scoped overrides that can be applied via the UI.
     When a session ID is provided, the configuration will include any
@@ -166,8 +462,9 @@ class RAGConfig:
         try:
             from lasagna.providers import get_session_provider
 
-            session_provider = get_session_provider()
-            resolved = session_provider.get_resolved_config(self._session_id)
+            resolved = getattr(self, "_resolved_once", None)
+            if resolved is None:
+                resolved = get_session_provider().get_resolved_config(self._session_id)
 
             # Navigate nested keys
             value, ok = _lookup(resolved, keys)
@@ -190,13 +487,13 @@ class RAGConfig:
             return None
 
     def _load_knowledge_settings(self) -> Dynaconf:
-        """Load settings from settings.lasagna.toml (or RAG_SETTINGS_FILE override).
+        """Load settings from settings.lasagna.toml, or the file the environment names.
 
         The config file is located in the knowledge module folder, making the
         knowledge service self-contained and usable as an external service.
 
-        When the ``RAG_SETTINGS_FILE`` environment variable is set, that file
-        is loaded instead of the default ``settings.lasagna.toml``.  The
+        When ``LASAGNA_SETTINGS_FILE`` (or ``RAG_SETTINGS_FILE``) is set, that
+        file is loaded instead of the default ``settings.lasagna.toml``.  The
         path can be absolute or relative to the knowledge module directory.
 
         Returns:
@@ -205,19 +502,22 @@ class RAGConfig:
         knowledge_module_dir = Path(__file__).parent.parent  # knowledge/ folder
 
         # Allow overriding the settings file via environment variable
-        settings_file_env = os.environ.get("RAG_SETTINGS_FILE")
+        from lasagna.core.paths import env_get
+
+        settings_file_env = env_get("SETTINGS_FILE")
         if settings_file_env:
             override_path = Path(settings_file_env)
             if not override_path.is_absolute():
                 override_path = knowledge_module_dir / override_path
             if override_path.exists():
-                logger.info(f"Loading settings from RAG_SETTINGS_FILE: {override_path}")
+                logger.info(f"Loading settings from {override_path}")
                 return Dynaconf(
                     root_path=str(override_path.parent),
                     settings_files=[str(override_path)],
                 )
             logger.warning(
-                f"RAG_SETTINGS_FILE={settings_file_env} not found, falling back to default"
+                f"Settings file {settings_file_env} (LASAGNA_SETTINGS_FILE or "
+                f"RAG_SETTINGS_FILE) not found; using the packaged settings.lasagna.toml"
             )
 
         knowledge_toml_path = knowledge_module_dir / "settings.lasagna.toml"
@@ -255,7 +555,7 @@ class RAGConfig:
         elif not isinstance(rag_settings, dict):
             rag_settings = {}
 
-        # SOTA Default configuration
+        # Default configuration
         default_config = {
             # =================================================================
             # Vector Database
@@ -263,17 +563,17 @@ class RAGConfig:
             "vector_backend": "milvus",  # Supported: milvus, pinecone, qdrant, weaviate, pgvector, opensearch
             "vector_backend_config": {},  # Backend-specific configuration
             "collection_name": "rag_documents_v2",
-            "embedding_dim": 1024,  # BGE-large
-            "metric_type": "COSINE",
-            "index_type": "HNSW",
-            "index_params": {"M": 16, "efConstruction": 256},
-            "search_params": {"ef": 128},
+            "embedding_dim": 1024,  # must match embedding_model (bge-m3 and bge-large: 1024)
+            "metric_type": "COSINE",  # vector similarity: COSINE, L2 or IP
+            "index_type": "HNSW",  # dense index on servers; Milvus Lite always uses FLAT
+            "index_params": {"M": 16, "efConstruction": 256},  # HNSW build parameters
+            "search_params": {"ef": 128},  # HNSW search breadth
             # =================================================================
             # Embedding Model
             # =================================================================
-            "embedding_provider": "huggingface",
-            "embedding_model": "BAAI/bge-m3",  # SOTA: dense+sparse+ColBERT, 8K context, 100+ languages
-            "embedding_model_fallback": "BAAI/bge-large-en-v1.5",
+            "embedding_provider": "huggingface",  # where embeddings are computed
+            "embedding_model": "BAAI/bge-m3",  # dense+sparse+ColBERT, 8K context, 100+ languages
+            "embedding_model_fallback": "BAAI/bge-large-en-v1.5",  # loaded if the model fails; never during evaluation
             "embedding_backend": "auto",  # 'auto', 'sentence-transformers', 'flag-embedding'
             "normalize_embeddings": True,
             "batch_size": 32,
@@ -326,7 +626,7 @@ class RAGConfig:
             "contextual_max_document_chars": 50000,  # document shown per call; None = all of it
             "preserve_tables": True,
             "preserve_headers": True,
-            "extract_metadata": True,
+            "extract_metadata": True,  # keep page, section and file metadata on each chunk
             "max_file_size": 52428800,  # 50MB
             "max_content_length": 4000,  # Max chars per chunk in storage
             # =================================================================
@@ -418,7 +718,7 @@ class RAGConfig:
             "self_rag_weight_use": 0.5,
             "self_rag_retrieval": "adaptive",  # 'adaptive' (Retrieve judgement) | 'always'
             "enable_mmr": True,
-            "mmr_lambda": 0.5,  # SOTA default (LangChain, LlamaIndex). Pre-MMR filter ensures only relevant items.
+            "mmr_lambda": 0.5,  # LangChain and LlamaIndex default; a pre-MMR filter keeps only relevant items
             "mmr_score_normalization": "sigmoid",  # Options: 'sigmoid', 'minmax', 'sigmoid_minmax', 'none'. Plain sigmoid preserves cross-encoder calibration.
             # =================================================================
             # Query Enhancement
@@ -460,10 +760,10 @@ class RAGConfig:
             "verify_citations": True,
             "track_citations_db": True,
             "show_page_numbers": True,
-            "include_source_preview": True,
+            "include_source_preview": True,  # a short excerpt of the source with each citation
             "citation_db_max_age_hours": 168,  # 1 week
-            "citation_db_max_per_session": 1000,
-            "citation_normalize_scores": True,
+            "citation_db_max_per_session": 1000,  # oldest citations beyond this are removed
+            "citation_normalize_scores": True,  # scale citation scores to 0-1
             "citation_score_method": "minmax",  # 'minmax', 'sigmoid', 'clamp'
             # =================================================================
             # File Types
@@ -485,7 +785,7 @@ class RAGConfig:
             # =================================================================
             # Storage
             # =================================================================
-            "upload_dir_name": "rag_uploads",
+            "upload_dir_name": "rag_uploads",  # folder name for stored uploads
             "db_name": "rag.db",  # Unified database (consolidated from rag_metadata.db + rag_citations.db)
             # =================================================================
             # Parallel Upload
@@ -501,10 +801,10 @@ class RAGConfig:
             # =================================================================
             # Processing
             # =================================================================
-            "extract_images": False,
-            "preserve_formatting": True,
-            "async_processing": True,
-            "processing_timeout": 300,
+            "extract_images": False,  # extract images from documents
+            "preserve_formatting": True,  # keep layout such as lists and line breaks in extracted text
+            "async_processing": True,  # process uploads in the background
+            "processing_timeout": 300,  # seconds a document may take to process
             # =================================================================
             # Docling Document Processing
             # =================================================================
@@ -598,9 +898,17 @@ class RAGConfig:
         elif not isinstance(knowledge_rag, dict):
             knowledge_rag = {}
 
-        # 12-factor: Load overrides from RAG_* environment variables.
-        # Only keys that exist in default_config are accepted.
-        env_overrides = self._load_env_overrides(default_config)
+        # 12-factor: Load overrides from RAG_* environment variables. Every
+        # setting is accepted: the defaults above, the ones only the settings
+        # file defines (typed by its value there), and the property-only ones.
+        # [rag.lifecycle] has its own RAG_GC_* variables.
+        env_overrides = self._load_env_overrides(
+            {
+                **_PROPERTY_ONLY_SETTINGS,
+                **{k: v for k, v in knowledge_rag.items() if k != "lifecycle"},
+                **default_config,
+            }
+        )
         self._env_overrides = env_overrides  # Store for priority lookup in _get_knowledge_setting
 
         # Merge order: defaults < knowledge.toml < settings.memory.rag < env vars
@@ -639,64 +947,57 @@ class RAGConfig:
 
     @staticmethod
     def _load_env_overrides(default_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Load overrides from ``RAG_*`` environment variables (12-factor).
+        """Load overrides from ``LASAGNA_*`` and ``RAG_*`` environment variables (12-factor).
 
-        Only keys that exist in *default_config* are accepted.  Values are
-        coerced to the type of the default (bool, int, float, str, list).
+        ``LASAGNA_<SETTING>`` and ``RAG_<SETTING>`` name the same setting, and
+        ``LASAGNA_`` wins when both are set (and not empty). Keys of
+        *default_config* are accepted, coerced to the type of their
+        default (bool, int, float, str, JSON list or object). A value that does
+        not parse, or is outside its range or its set of choices, raises
+        :class:`ConfigError` naming every bad variable; it used to be logged
+        and ignored, so a typo ran the default without a visible sign. A
+        ``RAG_*`` name that is no setting warns once, with the closest one.
 
         Example:
             ``RAG_DATABASE_BACKEND=postgresql``  →  ``{'database_backend': 'postgresql'}``
             ``RAG_ENABLE_RERANKING=true``         →  ``{'enable_reranking': True}``
         """
         overrides: Dict[str, Any] = {}
-        for env_key, env_value in os.environ.items():
-            if not env_key.startswith("RAG_"):
+        problems: List[str] = []
+        for env_key, env_value in sorted(os.environ.items()):
+            if env_key.startswith("LASAGNA_"):
+                config_key = env_key[len("LASAGNA_") :].lower()
+                if config_key not in default_config or env_key in LASAGNA_RESERVED_ENV:
+                    continue  # LASAGNA_* also names things that are not settings
+            elif env_key.startswith("RAG_"):
+                config_key = env_key[len("RAG_") :].lower()
+                if config_key not in default_config:
+                    _warn_unknown_env(env_key, default_config)
+                    continue
+                alias = f"LASAGNA_{env_key[len('RAG_') :]}"
+                if alias not in LASAGNA_RESERVED_ENV and os.environ.get(alias):
+                    continue  # the LASAGNA_ name of the same setting wins
+            else:
                 continue
-            config_key = env_key[4:].lower()  # Strip RAG_ prefix
-            if config_key not in default_config:
-                continue
-            default_value = default_config[config_key]
             try:
-                if isinstance(default_value, bool):
-                    overrides[config_key] = env_value.lower() in ("true", "1", "yes")
-                elif isinstance(default_value, int):
-                    overrides[config_key] = int(env_value)
-                elif isinstance(default_value, float):
-                    overrides[config_key] = float(env_value)
-                elif isinstance(default_value, (list, dict)):
-                    import json as _json
+                parsed = _parse_env_value(config_key, env_value, default_config[config_key])
+            except ConfigError as exc:
+                problems.append(f"{env_key}={env_value!r}: {exc}")
+                continue
+            if parsed is not _UNSET:
+                overrides[config_key] = parsed
 
-                    overrides[config_key] = _json.loads(env_value)
-                else:
-                    overrides[config_key] = env_value
-            except (ValueError, TypeError) as exc:
-                logger.warning(f"Ignoring invalid env override {env_key}={env_value!r}: {exc}")
-
-        # Validate numeric ranges for known keys
-        _VALID_RANGES: Dict[str, tuple] = {
-            "chunk_size": (50, 100_000),
-            "chunk_overlap": (0, 50_000),
-            "default_top_k": (1, 1000),
-            "rerank_top_k": (1, 1000),
-            "embedding_dim": (32, 8192),
-            "hybrid_alpha": (0.0, 1.0),
-            "mmr_lambda": (0.0, 1.0),
-            "similarity_threshold": (-1.0, 1.0),
-            "connection_pool_size": (1, 500),
-            "routing_confidence_threshold": (0.0, 1.0),
-        }
-        for key, value in list(overrides.items()):
-            if key in _VALID_RANGES and isinstance(value, (int, float)):
-                lo, hi = _VALID_RANGES[key]
-                if not (lo <= value <= hi):
-                    logger.warning(
-                        f"Ignoring out-of-range env override RAG_{key.upper()}={value} "
-                        f"(valid: {lo}–{hi})"
-                    )
-                    del overrides[key]
+        if problems:
+            raise ConfigError(
+                "Invalid environment setting"
+                + ("s" if len(problems) > 1 else "")
+                + ":\n  "
+                + "\n  ".join(problems)
+                + "\nFix the value, or unset the variable to use the default."
+            )
 
         if overrides:
-            logger.info(f"Applied {len(overrides)} RAG_* env overrides: {list(overrides.keys())}")
+            logger.info(f"Applied {len(overrides)} environment overrides: {list(overrides.keys())}")
         return overrides
 
     def _get_knowledge_setting(self, *keys, default=None):
@@ -784,9 +1085,41 @@ class RAGConfig:
 
     @property
     def collection_name(self) -> str:
-        return self._get_knowledge_setting(
-            "rag", "collection_name", default=self._config["collection_name"]
-        )
+        """The vector collection this configuration reads and writes.
+
+        One per embedding model, ``rag_documents_v2__<model>__<dim>``, so a
+        session on another profile never meets vectors it cannot compare with.
+        A name other than ``rag_documents_v2`` set in the settings file, the
+        environment or the session is used as given.
+        """
+        # Four settings from one resolution of the session's config: this is
+        # read several times per search.
+        self._resolved_once = None
+        if self._session_id:
+            try:
+                from lasagna.providers import get_session_provider
+
+                self._resolved_once = get_session_provider().get_resolved_config(self._session_id)
+            except Exception:  # noqa: BLE001 - each lookup then resolves (and logs) itself
+                self._resolved_once = None
+        try:
+            return resolve_collection_name(
+                self._get_knowledge_setting(
+                    "rag", "collection_name", default=self._config["collection_name"]
+                ),
+                self.embedding_model,
+                self.effective_embedding_dim,
+                store=self._config.get("db_path"),
+            )
+        finally:
+            self._resolved_once = None
+
+    @property
+    def effective_embedding_dim(self) -> int:
+        """The size vectors are stored at: the Matryoshka truncation when set."""
+        dim = int(self.embedding_dim)
+        truncate = self.embedding_truncate_dim
+        return int(truncate) if truncate and int(truncate) < dim else dim
 
     @property
     def embedding_dim(self) -> int:
@@ -868,9 +1201,11 @@ class RAGConfig:
         # carry use_gpu from the settings file, so as a per-query override it
         # outranked the operator's RAG_USE_GPU=false and moved models onto a
         # GPU backend the operator had turned off.
-        env = os.environ.get("RAG_USE_GPU", "").strip().lower()
+        from lasagna.core.paths import env_get
+
+        env = (env_get("USE_GPU") or "").strip().lower()
         if env:
-            return env in ("1", "true", "yes", "on")
+            return env in TRUTHY
         return self._get_knowledge_setting("rag", "use_gpu", default=self._config["use_gpu"])
 
     # =========================================================================
@@ -2157,6 +2492,7 @@ class RAGConfig:
 
     @property
     def chunk_cite_retrieval(self) -> Dict[str, Any]:
+        """How many retrieved chunks are kept: a fixed count, or cut at a score gap."""
         ccr = self._get_knowledge_setting("rag", "chunk_cite_retrieval", default=None)
         if ccr:
             if hasattr(ccr, "to_dict"):

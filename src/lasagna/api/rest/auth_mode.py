@@ -35,10 +35,10 @@ from typing import Optional
 
 from loguru import logger
 
+from lasagna.core.config import TRUTHY as _TRUTHY
+
 #: Environment variable turning identity enforcement on.
 REQUIRE_AUTH_ENV = "RAG_REQUIRE_AUTH"
-
-_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 
 def require_auth() -> bool:

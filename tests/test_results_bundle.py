@@ -336,6 +336,7 @@ class TestTheValidatorRejectsBlockedBundles:
             ]
             experiment_config = {
                 "n_runs": 3,
+                "metrics_version": METRICS_VERSION,
                 "determinism": "seeded",
                 "environment": {
                     "lasagna_version": "0.1.0",

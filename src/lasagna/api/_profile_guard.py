@@ -111,9 +111,11 @@ def refuse_embedding_change(
     wanted, current = _effective_dim(after), _effective_dim(before)
     if wanted == current:
         return
-    from lasagna.core.config import get_rag_config
+    from lasagna.core.config import collection_name_for_settings
 
-    collection = after.get("collection_name") or get_rag_config().collection_name
+    # The collection the session would use after the change: each embedding
+    # model has its own, so this is usually not the one it uses now.
+    collection = collection_name_for_settings(after)
     remedy = (
         "Nothing was changed; profile {kept!r} is still active. To embed at "
         "{wanted}, give it its own store (point RAG_DB_DIR at a new directory) "

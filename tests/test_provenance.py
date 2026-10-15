@@ -159,6 +159,7 @@ class TestResultsCarryTheirOwnProvenance:
         meta = _run_metadata(cfg)
         assert meta["pipeline"]["rerankers"] == ["a", "b"]
         assert meta["variance_source"] == "run"
-        assert meta["determinism"] == "seeded", "never claim bit-reproducibility"
+        # seeded_per_task or seeded_global_concurrent: never "reproducible".
+        assert meta["determinism"].startswith("seeded"), "never claim bit-reproducibility"
         assert "environment" in meta
         assert os.path.expanduser("~") not in json.dumps(meta)
