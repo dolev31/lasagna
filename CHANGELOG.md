@@ -184,6 +184,13 @@ Numbers that were wrong:
   `retrieval_chunk_overfetch` even when BM25 had simply run out of documents
   matching a one- or two-word query; it now names the cause.
 - `results significance` and the isolation summary said "1 pairs".
+- **Markdown chunking cut code blocks at comments.** The structure-aware
+  chunker, which every built-in profile runs, read a `#` comment inside a
+  fenced code block as a header and split the block there. Fenced code is now
+  skipped when headers are found, and a chunk that is only a horizontal rule
+  or table border (`---`, `|---|---|`) is dropped: searching the README
+  returned `---` first, at score 1.0. Plain-text corpora chunk as before; the
+  BEIR, smoke and plugin-template numbers are unchanged.
 
 First run:
 

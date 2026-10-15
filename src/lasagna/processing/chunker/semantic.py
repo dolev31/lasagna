@@ -578,6 +578,10 @@ class StructureAwareChunker:
     TABLE_PATTERN = re.compile(r"(\|[^\n]+\|\n)+", re.MULTILINE)
     CODE_BLOCK_PATTERN = re.compile(r"```[\s\S]*?```", re.MULTILINE)
     PAGE_MARKER_PATTERN = re.compile(r"\[Page\s+(\d+)\]", re.IGNORECASE)
+    #: A chunk made only of these is a horizontal rule (``---``, ``***``) or a
+    #: table border (``|---|---|``): it carries no text, and alone it matched
+    #: queries about the text around it, ranking first at score 1.0.
+    RULE_ONLY_PATTERN = re.compile(r"[\s\-*_=|]*")
 
     def __init__(self, semantic_chunker: SemanticChunker):
         """Initialize with a base chunker.
@@ -625,14 +629,19 @@ class StructureAwareChunker:
                         section_text, len(chunks), current_header, page_number
                     )
                     for table_chunk in table_chunks:
+                        if self.RULE_ONLY_PATTERN.fullmatch(table_chunk.content):
+                            continue
+                        table_chunk.chunk_index = len(chunks)
                         table_chunk.start_char += section_offset
                         table_chunk.end_char += section_offset
-                    chunks.extend(table_chunks)
+                        chunks.append(table_chunk)
 
                 # Chunk remaining text
                 text_chunks = self.semantic_chunker.chunk_semantic_configured(section_text)
 
                 for chunk in text_chunks:
+                    if self.RULE_ONLY_PATTERN.fullmatch(chunk.content):
+                        continue
                     chunk.chunk_index = len(chunks)
                     chunk.section_header = current_header
                     chunk.page_number = page_number
@@ -644,12 +653,21 @@ class StructureAwareChunker:
         return chunks
 
     def _split_by_headers(self, text: str) -> List[Dict[str, Any]]:
-        """Split text by header markers."""
+        """Split text by header markers outside fenced code.
+
+        A ``#`` line inside a fenced block is a shell or Python comment, and
+        reading it as a header cut the block in two. Headers are looked for in
+        a copy with each block blanked to spaces (newlines kept, so every offset
+        still points into ``text``); sections are cut from ``text`` itself.
+        """
         sections = []
         current_pos = 0
         current_header = None
+        outside_code = self.CODE_BLOCK_PATTERN.sub(
+            lambda block: re.sub(r"[^\n]", " ", block.group(0)), text
+        )
 
-        for match in self.HEADER_PATTERN.finditer(text):
+        for match in self.HEADER_PATTERN.finditer(outside_code):
             # Add content before this header
             if match.start() > current_pos:
                 content = text[current_pos : match.start()].strip()
