@@ -1,8 +1,8 @@
 # MCP Server — Lasagna
 
-MCP server exposing the RAG knowledge base as 31 tools for semantic search, document management, runtime configuration, and document lifecycle management. Compatible with Claude Desktop, custom agents, and any MCP client.
+MCP server exposing the RAG knowledge base as 31 tools for search, document management, runtime configuration, and document lifecycle management. Works with Claude Code, Claude Desktop, Cursor, and any MCP client.
 
-Self-contained within the `knowledge` package — no dependency on the host agent framework.
+By default it serves the **safe** set: every tool except the six that delete data or reset configuration. See [Tool sets](#tool-sets).
 
 ## Architecture
 
@@ -46,9 +46,24 @@ Self-contained within the `knowledge` package — no dependency on the host agen
 
 | Mode | Use Case | Command |
 | ---- | -------- | ------- |
-| **SSE** | Multi-client, behind a proxy | `lasagna-mcp --host 127.0.0.1 --port 8005` |
-| **STDIO** | Claude Desktop, agent frameworks | `python -m lasagna.mcp --transport stdio` |
+| **STDIO** (default) | Claude Code, Claude Desktop, Cursor, agent frameworks | `lasagna-mcp` |
+| **SSE** | Multi-client, behind a proxy | `lasagna-mcp --transport sse --host 127.0.0.1 --port 8005` |
 | **Embedded** | Single-process with REST API | Set env `RAG_EMBED_MCP=true` (mounts at `/mcp/sse`) |
+
+`--host` and `--port` apply only to `--transport sse`; passing them without it is an error rather than a stdio server waiting on input.
+
+## Tool sets
+
+| Set | How to select | What it serves |
+| --- | ------------- | -------------- |
+| `safe` (default) | `--tools safe`, or `LASAGNA_MCP_TOOLS=safe` | Every tool except the six marked *(all only)* below. The two deprecated search aliases still answer but are not listed. |
+| `all` | `--tools all`, or `LASAGNA_MCP_TOOLS=all` | Every tool, including `delete_document`, `clear_session`, `bulk_delete_session`, `rebuild_collection`, `delete_rag_profile` and `reset_rag_config`. |
+
+Under `safe` the six are not registered at all, so neither a client nor the `/api/call` tester can call them. The embedded `/mcp` mount reads `LASAGNA_MCP_TOOLS` the same way.
+
+**Which search tool:** use `search`. `search_knowledge` and `search_with_context` are deprecated aliases that call it; they are listed only under `all`.
+
+The names, descriptions and input schemas of every tool are recorded in `tests/snapshots/mcp_tools.json` and follow the deprecation policy in `GOVERNANCE.md`.
 
 ## Tools
 
@@ -58,9 +73,9 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 
 | Tool | Description |
 | ---- | ----------- |
-| `search` | SOTA retrieval pipeline: hybrid search, reranking, MMR, HyDE, adaptive routing, agentic multi-hop. Returns LLM-ready context with inline citations + `<search_metadata>` JSON block. Retrieval config is session-driven. |
-| `search_knowledge` | **Deprecated** alias for `search` — kept for one release cycle |
-| `search_with_context` | **Deprecated** alias for `search` — kept for one release cycle |
+| `search` | Runs the session's retrieval pipeline (hybrid search, reranking, MMR, HyDE, routing and agentic multi-hop, each as the session config sets it). Returns context with inline citations and a `<search_metadata>` JSON block. |
+| `search_knowledge` | **Deprecated** alias for `search`, kept for one release cycle. Listed only under `all` |
+| `search_with_context` | **Deprecated** alias for `search`, kept for one release cycle. Listed only under `all` |
 | `get_document_context` | Document awareness for agent prompts — describes available docs and gives adaptive search guidance |
 
 ### Documents (6 tools)
@@ -72,7 +87,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | `get_document_info` | Detailed document metadata (JSON) |
 | `get_document_chunks` | Paginated chunk content with metadata |
 | `get_document_status` | Poll indexing status for a document by ID |
-| `delete_document` | Hard-delete a document and all its indexed chunks |
+| `delete_document` | Hard-delete a document and all its indexed chunks *(all only)* |
 
 ### Lifecycle (6 tools)
 
@@ -80,7 +95,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | ---- | ----------- |
 | `archive_document` | Soft-delete a document — recoverable during grace window, excluded from search immediately |
 | `restore_document` | Restore a soft-deleted document to READY state (must be within grace window) |
-| `bulk_delete_session` | Hard-delete all documents in a session; requires `confirm=True` |
+| `bulk_delete_session` | Hard-delete all documents in a session; requires `confirm=True` *(all only)* |
 | `get_gc_status` | Last GC run report — phases, counts, quota sync status |
 | `get_lifecycle_policy` | Read the session's retention policy — grace window, quotas, GC schedule |
 | `set_lifecycle_policy` | Change retention for the session; affects what archive and GC do |
@@ -91,7 +106,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | ---- | ----------- |
 | `set_focused_documents` | Restrict searches to specific document IDs (empty string to clear). An ID not in the session is refused and the focus is left unchanged |
 | `get_focused_documents` | Get currently focused document IDs |
-| `clear_session` | Delete all documents in a session (requires `confirm=True`) |
+| `clear_session` | Delete all documents in a session (requires `confirm=True`) *(all only)* |
 
 ### Config Tools
 
@@ -99,12 +114,12 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | ---- | ----------- |
 | `get_rag_config` | Full resolved config for session (profile + overrides) |
 | `patch_rag_config` | Apply runtime overrides — pass JSON like `{"enable_reranking": false}` |
-| `reset_rag_config` | Reset to defaults. `scope="active"` clears overrides, `"all"` full reset |
+| `reset_rag_config` | Reset to defaults. `scope="active"` clears overrides, `"all"` full reset *(all only)* |
 | `list_profiles` | List built-in + custom profiles |
 | `get_active_profile` | Current active profile name |
 | `set_active_profile` | Switch session to a different profile |
 | `save_rag_profile` | Create or update a named custom profile |
-| `delete_rag_profile` | Delete a custom profile (built-in profiles are protected) |
+| `delete_rag_profile` | Delete a custom profile (built-in profiles are protected) *(all only)* |
 | `get_profile_stats` | Profile and session counts |
 
 ### System
@@ -112,7 +127,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | Tool | Description |
 | ---- | ----------- |
 | `get_system_status` | Health check — vector DB connection, embeddings, features, storage |
-| `rebuild_collection` | Drop and recreate vector collection (needed when embedding dim changes) |
+| `rebuild_collection` | Drop and recreate vector collection (needed when embedding dim changes) *(all only)* |
 | `reindex_document` | Re-process a document with current chunking/embedding settings. `force_rebuild=true` recreates the collection at the configured embedding size only while it is empty; a collection holding documents is never dropped from here |
 
 ## Configuration
@@ -144,7 +159,7 @@ When resolving a config value, the first source that defines it wins:
 | ------- | ----- | ----------- |
 | `settings.lasagna.toml` | Global | Base defaults, loaded at startup |
 | `RAG_SETTINGS_FILE` env | Global | Override TOML file path |
-| CLI args | Server | `--host`, `--port`, `--transport`, `--lazy-init`, `--log-level`, `--config-file` |
+| CLI args | Server | `--transport`, `--tools`, `--host`, `--port`, `--lazy-init`, `--log-level`, `--config-file` |
 | MCP config tools | Per-session | `patch_rag_config`, `set_active_profile`, etc. |
 | REST API | Per-session | `/api/v1/config`, `/api/config/knowledge` |
 | Configurator UI | Per-session | Interactive web UI at `/configurator` |
@@ -163,10 +178,10 @@ When resolving a config value, the first source that defines it wins:
 
 ## Quick Start
 
-Start the server:
+Start the server on a port:
 
 ```bash
-lasagna-mcp --host 127.0.0.1 --port 8005
+lasagna-mcp --transport sse --host 127.0.0.1 --port 8005
 ```
 
 > **Binding to `0.0.0.0` publishes the tool surface.** The server has no

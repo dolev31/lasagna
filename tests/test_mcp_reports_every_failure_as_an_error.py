@@ -60,7 +60,10 @@ def call(monkeypatch, tmp_path):
 
     def go(tool, arguments):
         async def run():
-            srv = mcp_server.create_mcp_server(host="127.0.0.1", port=8999)
+            # "all": delete_document, delete_rag_profile and clear_session are
+            # not in the default safe set, and "Unknown tool" is not the error
+            # under test.
+            srv = mcp_server.create_mcp_server(host="127.0.0.1", port=8999, tools="all")
             async with create_connected_server_and_client_session(srv._mcp_server) as client:
                 return await client.call_tool(tool, arguments)
 

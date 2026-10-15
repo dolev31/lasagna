@@ -85,7 +85,7 @@ Use the **MCP Server** to connect any MCP-compatible client (Claude Desktop, Cur
 
 ```bash
 export OPENAI_API_KEY=sk-...
-python -m lasagna.mcp --port 8005
+python -m lasagna.mcp --transport sse --port 8005
 ```
 
 Connect your client to `http://localhost:8005/sse` -- upload documents, ask questions, and get cited answers through a conversational interface. No code required.
@@ -555,11 +555,11 @@ curl http://localhost:8000/api/v1/health
 Model Context Protocol server for AI agent integration.
 
 ```bash
-# SSE transport (Claude Desktop, Cursor, web clients)
-python -m lasagna.mcp --port 8005
+# stdio transport, the default (Claude Code, Claude Desktop, Cursor)
+python -m lasagna.mcp
 
-# stdio transport (local MCP clients)
-python -m lasagna.mcp --transport stdio
+# SSE transport (web clients, several clients at once)
+python -m lasagna.mcp --transport sse --port 8005
 ```
 
 Any MCP client connects to `http://localhost:8005/sse` and gets access to 31 tools, including these:

@@ -24,7 +24,8 @@ inert rather than failing.
 What actually exists:
 
     lasagna serve                  REST API + configurator on 127.0.0.1:8000
-    python -m lasagna.mcp          MCP over SSE on 127.0.0.1:8005
+    python -m lasagna.mcp --transport sse --tools all
+                                   MCP over SSE on 127.0.0.1:8005
     RAG_EMBED_MCP=true             also mounts MCP at /mcp inside the REST app
 
 Each is a separate fixture below, each probing an endpoint that server really
@@ -166,13 +167,15 @@ def api_server():
 def mcp_server():
     """The standalone MCP server, for tests that connect to ``/sse``.
 
-    Not started by ``lasagna serve``. Run it with ``python -m lasagna.mcp``, or
+    Not started by ``lasagna serve``. Run it with ``python -m lasagna.mcp
+    --transport sse --tools all`` (``test_mcp_tools.py`` calls ``clear_session``), or
     use `embedded_mcp_url` instead if you would rather have one process.
     """
     if not _wait_for_health(f"{MCP_URL}/health"):
         pytest.skip(
             f"MCP server not reachable at {MCP_URL}. Start it with: "
-            f"python -m lasagna.mcp  (or set RAG_EMBED_MCP=true and use "
+            f"python -m lasagna.mcp --transport sse --tools all  (or set "
+            f"RAG_EMBED_MCP=true LASAGNA_MCP_TOOLS=all and use "
             f"the embedded_mcp_url fixture)"
         )
     return MCP_URL

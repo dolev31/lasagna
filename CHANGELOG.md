@@ -122,6 +122,19 @@ Sweeps, validation and metrics:
   trained with. This changes BGE-M3 query vectors on the sentence-transformers
   backend.
 
+Servers and deployment:
+
+- **The MCP server speaks stdio by default and serves no deletion tools.**
+  `lasagna-mcp` with no arguments uses stdio, which is how Claude Code, Claude
+  Desktop and Cursor launch a server; `--transport sse` serves a port, and
+  `--host` or `--port` without it is an error. The default tool set, `safe`,
+  leaves out `delete_document`, `clear_session`, `bulk_delete_session`,
+  `rebuild_collection`, `delete_rag_profile` and `reset_rag_config`;
+  `--tools all` or `LASAGNA_MCP_TOOLS=all` serves them. The deprecated
+  `search_knowledge` and `search_with_context` still answer but are listed only
+  under `all`. Tool names, descriptions and input schemas are recorded in
+  `tests/snapshots/mcp_tools.json`.
+
 ### Fixed
 
 Numbers that were wrong:

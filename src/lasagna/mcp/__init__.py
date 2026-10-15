@@ -1,12 +1,12 @@
 """MCP server for Lasagna.
 
-Run standalone::
+Run it the way an MCP client launches it (stdio, the default)::
 
-    python -m lasagna.mcp --host 0.0.0.0 --port 8005
+    python -m lasagna.mcp
 
-Or via stdio for MCP clients that prefer it::
+Or serve it on a port::
 
-    python -m lasagna.mcp --transport stdio
+    python -m lasagna.mcp --transport sse --host 127.0.0.1 --port 8005
 """
 
 from .server import main, create_mcp_server

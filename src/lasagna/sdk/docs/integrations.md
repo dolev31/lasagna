@@ -84,10 +84,10 @@ The full-featured MCP server runs standalone with 23 tools covering search, docu
 ```bash
 # Set any supported API key and run
 export OPENAI_API_KEY=sk-...
-python -m lasagna.mcp --port 8005
+python -m lasagna.mcp --transport sse --port 8005
 
-# Or via stdio for MCP clients that prefer it
-python -m lasagna.mcp --transport stdio
+# Or stdio, the default, for a client that launches the server itself
+python -m lasagna.mcp
 ```
 
 Any MCP client (Claude Desktop, Cursor, custom agents) connects to `http://localhost:8005/sse`.

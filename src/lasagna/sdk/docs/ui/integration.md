@@ -1035,7 +1035,7 @@ Returns `SearchWithCitationsResponse` with `context`, `citations`, and `total_re
 **Server mode** — two deployment options:
 
 1. **Embedded** in the REST API app: Set `RAG_EMBED_MCP=true` env var. MCP SSE endpoint mounted at `/mcp/sse`.
-2. **Standalone**: Run `python -m lasagna.mcp --host 0.0.0.0 --port 8005`. Provides `/sse` (MCP transport), `/docs` (interactive API docs), `/health`.
+2. **Standalone**: Run `python -m lasagna.mcp --transport sse --host 0.0.0.0 --port 8005`. Provides `/sse` (MCP transport), `/docs` (interactive API docs), `/health`.
 
 **All 29 MCP tools:**
 

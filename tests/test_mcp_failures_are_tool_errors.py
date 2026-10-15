@@ -21,7 +21,8 @@ from lasagna.mcp import server as mcp_server  # noqa: E402
 
 def _call(tool: str, arguments: dict):
     async def go():
-        srv = mcp_server.create_mcp_server(host="127.0.0.1", port=8999)
+        # "all": rebuild_collection is not in the default safe set.
+        srv = mcp_server.create_mcp_server(host="127.0.0.1", port=8999, tools="all")
         async with create_connected_server_and_client_session(srv._mcp_server) as client:
             return await client.call_tool(tool, arguments)
 
