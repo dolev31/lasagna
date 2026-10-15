@@ -578,7 +578,7 @@ class DocumentAwareness:
     include_filename: bool = True
     include_upload_date: bool = True
     include_file_type: bool = True
-    summary_model: str = field(default_factory=lambda: os.environ.get("MODEL_NAME", "gpt-4o-mini"))
+    summary_model: str = field(default_factory=lambda: os.environ.get("MODEL_NAME", "gpt-6-luna"))
     summary_max_tokens: int = 100
     summary_prompt: str = (
         "Summarize this document in 1-2 sentences, focusing on the main topic and key information:"

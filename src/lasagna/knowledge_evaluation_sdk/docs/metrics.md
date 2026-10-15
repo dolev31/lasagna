@@ -367,11 +367,13 @@ whitespace; markers that open a sentence belong to the one before.
   citations still do; on one they do not jointly entail, none counts.
 
 Entailment is judged by the evaluation judge (`judge.entailment_judge`, the
-model `RAG_EVAL_JUDGE_MODEL` names) where ALCE uses the TRUE T5-11B NLI model,
-so absolute values are not comparable with ALCE's tables.
+model `RAG_EVAL_JUDGE_MODEL` or `judge_model:` names, gpt-6-luna when neither
+does) where ALCE uses the TRUE T5-11B NLI model, so absolute values are not
+comparable with ALCE's tables.
 
 Absent, never 0.0, when the answer cites nothing (a generator that does not
-cite), when no judge model is configured, or when the judge could not decide
+cite), when no judge can be built (no judge model and no `OPENAI_API_KEY` or
+`RAG_EVAL_JUDGE_API_KEY`), or when the judge could not decide
 one of the answer's entailments. If answers cite and the judge scored none of
 them, the task fails, as for a RAGAS metric. Function:
 `citation_precision_recall`. Keys: `citation_recall`, `citation_precision`.

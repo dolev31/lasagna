@@ -33,19 +33,38 @@ BUILTIN_TABLE = "builtin-2026-10"
 
 #: USD per million tokens (input, output), standard tier, as each provider
 #: listed them on 2026-10-15. Prices change: check them, and put the rates you
-#: pay under ``prices:`` in the sweep, which wins over this table. Models
-#: priced by prompt length are left out, since one rate would be wrong.
+#: pay under ``prices:`` in the sweep, which wins over this table.
+#: Retired models are not listed. Sources:
+#: https://developers.openai.com/api/docs/models/<id> (OpenAI),
+#: https://platform.claude.com/docs/en/about-claude/pricing (Anthropic),
+#: https://ai.google.dev/gemini-api/docs/pricing (Google).
 _BUILTIN_PRICES: Dict[str, Tuple[float, float]] = {
+    "gpt-6-luna": (0.10, 0.50),
+    "gpt-6-sol": (2.00, 10.00),
+    "gpt-4.1-nano": (0.10, 0.40),
+    # Shut down on 2027-01-14 (https://developers.openai.com/api/docs/deprecations);
+    # priced until then.
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4o": (2.50, 10.00),
     "gpt-4.1": (2.00, 8.00),
     "gpt-4.1-mini": (0.40, 1.60),
-    "gpt-4.1-nano": (0.10, 0.40),
-    "claude-sonnet-4-20250514": (3.00, 15.00),
-    "claude-haiku-4-5": (1.00, 5.00),
-    "claude-sonnet-5-5": (2.00, 10.00),
+    "claude-fable-5-1": (10.00, 50.00),
     "claude-opus-5-5": (4.00, 20.00),
+    "claude-sonnet-5-5": (2.00, 10.00),
+    "claude-haiku-5-5": (0.10, 0.50),
+    "claude-haiku-4-5": (1.00, 5.00),
     "gemini-2.5-flash": (0.30, 2.50),
+}
+
+#: The longest prompt, in input tokens, a rate above covers. Past it the
+#: provider charges more: Claude Haiku 5.5 "for prompts over 100,000 tokens"
+#: ($0.50 / $2.50); gpt-6-luna and gpt-6-sol "Prompts with more than 272K
+#: input tokens are priced at 2x input and cache rates and 1.5x output". A
+#: task whose calls average longer gets no estimate.
+_PROMPT_LIMITS: Dict[str, int] = {
+    "claude-haiku-5-5": 100_000,
+    "gpt-6-luna": 272_000,
+    "gpt-6-sol": 272_000,
 }
 
 
@@ -53,9 +72,22 @@ _BUILTIN_PRICES: Dict[str, Tuple[float, float]] = {
 class Price:
     input_per_1m: float
     output_per_1m: float
+    #: Calls with longer prompts pay more; None for a flat rate.
+    max_prompt_tokens: Optional[int] = None
 
     def of(self, input_tokens: float, output_tokens: float) -> float:
         return (input_tokens * self.input_per_1m + output_tokens * self.output_per_1m) / 1e6
+
+    def covers(self, input_tokens: float, calls: float) -> bool:
+        """Whether the rate holds for ``calls`` calls sending ``input_tokens``.
+
+        Only the total is recorded, so an average past the limit proves a call
+        was priced higher, and an average under it is taken to mean none was:
+        the harness's prompts are a question and a few passages.
+        """
+        if self.max_prompt_tokens is None or not calls:
+            return True
+        return input_tokens / calls <= self.max_prompt_tokens
 
 
 @dataclass(frozen=True)
@@ -99,14 +131,14 @@ class PriceTable:
 
     def price(self, model: Optional[str]) -> Optional[Price]:
         """The rate for ``model``: the sweep's first, then the built-in table.
-        A routed name (``openai/gpt-4o-mini``) is also tried without its prefix."""
+        A routed name (``openai/gpt-6-luna``) is also tried without its prefix."""
         if not model:
             return None
         for name in dict.fromkeys((model, model.rsplit("/", 1)[-1])):
             if name in self.overrides:
                 return self.overrides[name]
             if name in _BUILTIN_PRICES:
-                return Price(*_BUILTIN_PRICES[name])
+                return Price(*_BUILTIN_PRICES[name], _PROMPT_LIMITS.get(name))
         return None
 
     def record(self, models: List[Optional[str]]) -> Dict[str, Any]:
@@ -116,12 +148,18 @@ class PriceTable:
             "price_table": self.name,
             "overrides": sorted(self.overrides),
             "is_estimate": True,
-            "prices": {
-                m: {"input_per_1m": p.input_per_1m, "output_per_1m": p.output_per_1m}
-                for m, p in used.items()
-                if p is not None
-            },
+            "prices": {m: _rates(p) for m, p in used.items() if p is not None},
         }
+
+
+def _rates(price: Price) -> Dict[str, Any]:
+    rates: Dict[str, Any] = {
+        "input_per_1m": price.input_per_1m,
+        "output_per_1m": price.output_per_1m,
+    }
+    if price.max_prompt_tokens is not None:
+        rates["max_prompt_tokens"] = price.max_prompt_tokens
+    return rates
 
 
 def estimate_cost(
@@ -142,14 +180,19 @@ def estimate_cost(
     if not result.tokens_measured:
         return None
     total = 0.0
-    for tokens_in, tokens_out, model in (
-        (result.system_input_tokens, result.system_output_tokens, generator_model),
-        (result.eval_input_tokens, result.eval_output_tokens, judge_model),
+    for tokens_in, tokens_out, calls, model in (
+        (
+            result.system_input_tokens,
+            result.system_output_tokens,
+            result.system_llm_calls,
+            generator_model,
+        ),
+        (result.eval_input_tokens, result.eval_output_tokens, result.eval_llm_calls, judge_model),
     ):
         if not (tokens_in or tokens_out):
             continue
         price = table.price(model)
-        if price is None:
+        if price is None or not price.covers(tokens_in, calls):
             return None
         total += price.of(tokens_in, tokens_out)
     return total
@@ -365,7 +408,10 @@ def dry_run_lines(exp: "Experiment", probe: bool = True) -> List[str]:
         state = {True: "downloaded", False: "not downloaded yet"}.get(cached, "")
         lines.append(f"  {role:18s} {name}  {state}".rstrip())
     gen_model = generator_model_name() if generation else None
-    judge = os.environ.get("RAG_EVAL_JUDGE_MODEL") or cfg.judge_model or None
+    from .experiment import DEFAULT_JUDGE_MODEL
+
+    named_judge = os.environ.get("RAG_EVAL_JUDGE_MODEL") or cfg.judge_model or None
+    judge = named_judge or DEFAULT_JUDGE_MODEL
     if generation:
         platform = _platform()
         lines.append(
@@ -376,8 +422,8 @@ def dry_run_lines(exp: "Experiment", probe: bool = True) -> List[str]:
         )
         lines.append(
             f"  {'judge':18s} {judge}"
-            if judge
-            else f"  {'judge':18s} RAGAS default (set judge_model: or RAG_EVAL_JUDGE_MODEL)"
+            if named_judge
+            else f"  {'judge':18s} {judge} (the default; set judge_model: or RAG_EVAL_JUDGE_MODEL)"
         )
 
     # Static estimate.
@@ -440,13 +486,22 @@ def dry_run_lines(exp: "Experiment", probe: bool = True) -> List[str]:
             f"assumed to spend what this one did): about {seconds:,.0f} s of query time plus "
             f"setup, {sys_in + sys_out:,.0f} system tokens and {ev_in + ev_out:,.0f} judge tokens"
         )
-        for tokens_in, tokens_out, model in ((sys_in, sys_out, gen_model), (ev_in, ev_out, judge)):
+        for tokens_in, tokens_out, calls, model in (
+            (sys_in, sys_out, result.system_llm_calls / n * total_q, gen_model),
+            (ev_in, ev_out, result.eval_llm_calls / n * total_q, judge),
+        ):
             if not (tokens_in or tokens_out):
                 continue
             price = table.price(model)
             if price is None:
                 priced = False
-                lines.append(f"  No price for {model or 'the RAGAS default judge'} in {table.name}")
+                lines.append(f"  No price for {model or 'the generator'} in {table.name}")
+            elif not price.covers(tokens_in, calls):
+                priced = False
+                lines.append(
+                    f"  {model} costs more for prompts over {price.max_prompt_tokens:,} tokens "
+                    f"and these average more; put the rate under prices:"
+                )
             else:
                 total_cost += price.of(tokens_in, tokens_out)
     if priced and total_cost:

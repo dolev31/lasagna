@@ -53,7 +53,7 @@ results = await evaluator.evaluate_with_judge(test_cases)
 
 ```python
 config = EvalConfig(
-    judge_model="gpt-4o",
+    judge_model="gpt-6-luna",
     num_samples=100,
     metrics=["precision", "recall", "f1", "mrr", "ndcg"],
     verbose=True,
@@ -83,7 +83,7 @@ config = EvalConfig(
     document_path="./knowledge_base/quarterly_report.pdf",
     ground_truth_path="./benchmarks/ground_truth.jsonl",
     judge_model_platform="openai",
-    judge_model_name="gpt-4o",
+    judge_model_name="gpt-6-luna",
     output_dir="./eval_results",
     verbose=True,
     max_concurrent=3,

@@ -74,7 +74,7 @@ class EvalConfig:
         temperature: Temperature for judge responses (0 for consistency).
     """
 
-    judge_model: str = field(default_factory=lambda: os.environ.get("MODEL_NAME", "gpt-4o-mini"))
+    judge_model: str = field(default_factory=lambda: os.environ.get("MODEL_NAME", "gpt-6-luna"))
     judge_model_platform: str = "openai"
     answer_model: Optional[str] = None
     answer_model_platform: Optional[str] = None

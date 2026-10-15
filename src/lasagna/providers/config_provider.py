@@ -126,7 +126,7 @@ class SimpleConfigProvider(ConfigProvider):
             llm_settings={
                 "default": {
                     "platform": "openai",
-                    "model_name": "gpt-4o-mini",
+                    "model_name": "gpt-6-luna",
                     "max_tokens": 4096,
                 }
             },

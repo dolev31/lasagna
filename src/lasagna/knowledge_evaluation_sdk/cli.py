@@ -51,7 +51,7 @@ Examples:
       -d ./data/knowledge_base.docx \\
       -g ./data/ground_truth.jsonl \\
       --judge-platform openai \\
-      --judge-model gpt-4o
+      --judge-model gpt-6-luna
         """,
     )
 

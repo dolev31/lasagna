@@ -282,6 +282,26 @@ Servers and deployment:
   migrates its schema under an advisory lock and records the version, which it
   never did.
 
+- **Default models are current.** Defaults the providers retired or closed to
+  new accounts were replaced with the model each provider names: OpenAI
+  `gpt-6-luna`, Anthropic `claude-sonnet-5-5`, Azure `gpt-5.6-luna`, Google
+  `gemini-3.6-flash`, Groq `openai/gpt-oss-120b`, Cohere `command-a-03-2025`,
+  OpenRouter `anthropic/claude-sonnet-5.5`, Together
+  `meta-models/Muse-Glimmer-30B` and DeepSeek `deepseek-flash`. `MODEL_NAME`
+  and explicit settings work as before. The other defaults are still served
+  and did not change.
+- **The judge defaults to gpt-6-luna.** With no `judge_model:` or
+  `RAG_EVAL_JUDGE_MODEL`, RAGAS used to pick GPT-4o mini (shut down on
+  2027-01-14) on a client the harness did not meter. The default judge is now
+  built by the harness, so its tokens are counted, and `judge_model` in the
+  run metadata and the comparability key names it. A retrieval-only run still
+  records no judge.
+- The `builtin-2026-10` price table adds Claude Fable 5.1, Haiku 5.5, gpt-6-luna
+  and gpt-6-sol, and drops the retired Claude Sonnet 4. A rate that holds only
+  for shorter prompts (Haiku 5.5 up to 100,000 tokens, gpt-6-luna and
+  gpt-6-sol up to 272,000) gives no estimate for a task whose calls average
+  longer.
+
 ### Fixed
 
 - **A bundle carried this build's metrics version, not the run's.** `results
@@ -431,6 +451,28 @@ Servers and deployment:
 - Every search logged "SOTA search: ... hybrid" at INFO, also when hybrid
   search was off. It is now a DEBUG line naming the actual mode. The API
   description no longer says "Production-ready".
+
+Requests to current models:
+
+- **Current Claude and OpenAI models rejected every request.** Lasagna sent
+  `temperature=0` on every call. Claude 4.7 and later answer that with HTTP
+  400, and gpt-6-luna rejects a temperature at its default reasoning effort.
+  Each request is now built from one table of what each model accepts
+  (`lasagna.providers.model_capabilities`): Claude 4.7 and later get no
+  `temperature`, `top_p` or `top_k`; OpenAI reasoning models that allow it get
+  `reasoning_effort: "none"` with the temperature; `reasoning_effort` in the
+  model settings wins. Unknown models are sent a temperature as before. The
+  RAGAS judge's requests are rebuilt the same way, so gpt-6-luna judges at
+  RAGAS's 0.01 where RAGAS sent 1.0.
+- **A model that cannot be pinned says so.** `lasagna doctor` and the start of
+  an experiment print one line (`claude-sonnet-5-5 does not accept temperature;
+  answers can vary between runs; repeat runs (n_runs >= 3) to measure that
+  variance`), and the run metadata records `sampling: provider-default` for the
+  generator or judge. The LLM cache replays a call only when temperature 0 was
+  actually sent, which also excludes models whose client drops it.
+- Dateless ids that are snapshots (Claude from 4.6 on, and OpenAI models whose
+  only snapshot is the dateless id, such as gpt-6-luna) no longer raise
+  `UNRESOLVED_JUDGE_ALIAS` in a bundle.
 
 ## 0.1.0a1 — 2026-08-18
 

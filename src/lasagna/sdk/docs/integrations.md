@@ -31,7 +31,7 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
 
 # Setup
-llm = ChatOpenAI(model="gpt-4o-mini")
+llm = ChatOpenAI(model="gpt-6-luna")
 prompt = ChatPromptTemplate.from_template("""
 Answer based on the context below:
 

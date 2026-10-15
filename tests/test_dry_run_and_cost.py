@@ -213,11 +213,16 @@ def test_a_sweep_that_asks_for_prices_gets_an_estimate_and_its_source(tmp_path, 
     assert task.system_input_tokens == 400
     assert task.metrics["cost_usd_estimate"] == pytest.approx(expected)
     saved = json.loads((tmp_path / "out" / "results.json").read_text())
+    # The judge is recorded too: with none named it is the default, gpt-6-luna,
+    # whose rate holds for prompts up to 272K tokens.
     assert saved["experiment_config"]["cost_estimate"] == {
         "price_table": BUILTIN_TABLE,
         "overrides": [],
         "is_estimate": True,
-        "prices": {"gpt-4o-mini": {"input_per_1m": 0.15, "output_per_1m": 0.6}},
+        "prices": {
+            "gpt-4o-mini": {"input_per_1m": 0.15, "output_per_1m": 0.6},
+            "gpt-6-luna": {"input_per_1m": 0.1, "output_per_1m": 0.5, "max_prompt_tokens": 272_000},
+        },
     }
     assert lower_is_better("cost_usd_estimate")
 

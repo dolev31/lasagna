@@ -61,18 +61,18 @@ RAGConfig / AgenticRAG / RAGBackend / SearchOrchestrator
 
 | Platform | Env Var | Default Model | Tier |
 |----------|---------|---------------|------|
-| openai | `OPENAI_API_KEY` | gpt-4o-mini | 1 (native) |
-| anthropic | `ANTHROPIC_API_KEY` | claude-sonnet-4-20250514 | 1 (native) |
-| azure | `AZURE_OPENAI_API_KEY` | gpt-4o-mini | 1 (native) |
-| google | `GOOGLE_API_KEY` | gemini-2.0-flash | 1 (native) |
-| groq | `GROQ_API_KEY` | llama-3.3-70b-versatile | 1 (native) |
+| openai | `OPENAI_API_KEY` | gpt-6-luna | 1 (native) |
+| anthropic | `ANTHROPIC_API_KEY` | claude-sonnet-5-5 | 1 (native) |
+| azure | `AZURE_OPENAI_API_KEY` | gpt-5.6-luna (deployment name) | 1 (native) |
+| google | `GOOGLE_API_KEY` | gemini-3.6-flash | 1 (native) |
+| groq | `GROQ_API_KEY` | openai/gpt-oss-120b | 1 (native) |
 | watsonx | `WATSONX_API_KEY` | llama-4-maverick-17b-128e | 1 (native) |
 | mistral | `MISTRAL_API_KEY` | mistral-large-latest | 1 (native) |
-| cohere | `COHERE_API_KEY` | command-r-plus | 1 (native) |
+| cohere | `COHERE_API_KEY` | command-a-03-2025 | 1 (native) |
 | nvidia | `NVIDIA_API_KEY` | llama-3.1-70b-instruct | 1 (native) |
-| openrouter | `OPENROUTER_API_KEY` | claude-3.5-sonnet | 2 (OpenAI-compat) |
-| together | `TOGETHER_API_KEY` | Llama-3.3-70B-Instruct-Turbo | 2 (OpenAI-compat) |
-| deepseek | `DEEPSEEK_API_KEY` | deepseek-chat | 2 (OpenAI-compat) |
+| openrouter | `OPENROUTER_API_KEY` | anthropic/claude-sonnet-5.5 | 2 (OpenAI-compat) |
+| together | `TOGETHER_API_KEY` | meta-models/Muse-Glimmer-30B | 2 (OpenAI-compat) |
+| deepseek | `DEEPSEEK_API_KEY` | deepseek-flash | 2 (OpenAI-compat) |
 | fireworks | `FIREWORKS_API_KEY` | llama-v3p1-70b-instruct | 2 (OpenAI-compat) |
 | perplexity | `PERPLEXITY_API_KEY` | sonar | 2 (OpenAI-compat) |
 | ollama | `OLLAMA_BASE_URL` | llama3.2 | 3 (local) |
@@ -83,6 +83,20 @@ RAGConfig / AgenticRAG / RAGBackend / SearchOrchestrator
 - **Tier 1** uses dedicated `langchain_*` packages (installed on demand)
 - **Tier 2** uses `ChatOpenAI` with a custom `base_url` -- zero extra dependencies
 - **Tier 3** runs models locally -- no API key needed. Install extras: `pip install lasagna-rag[local]`
+
+Defaults that were retired or closed to new accounts were replaced on 2026-10-15; `llm_provider.py` cites the provider page beside each one.
+
+**Sampling.** `get_chat_model(..., temperature=0)` sends what the model accepts, decided by `model_capabilities.py`:
+
+| Model | Request |
+|-------|---------|
+| Claude 4.7 and later (`claude-sonnet-5-5`, `claude-haiku-5-5`, `claude-opus-4-7`, ...) | no `temperature`, `top_p` or `top_k` (the API answers 400 to any other value) |
+| Claude 4.6 and earlier (`claude-sonnet-4-6`, `claude-haiku-4-5-20251001`, ...) | `temperature` as asked |
+| OpenAI reasoning models with a `none` effort (`gpt-6-luna`, `gpt-6-sol`, `gpt-5.6-luna`, ...) | `reasoning_effort: "none"` and `temperature` |
+| OpenAI reasoning models without one (`gpt-6-astra`, `gpt-6.1-sol`, `gpt-5`) | no `temperature` |
+| Anything else | `temperature` as asked, as before |
+
+Set `reasoning_effort` in `model_settings` to choose an effort yourself; any value but `"none"` means no temperature is sent. A model that is sent no temperature cannot be pinned: the experiment cache does not replay it, `lasagna doctor` and the start of an experiment say so in one line, and the run metadata records `sampling: "provider-default"`.
 
 **InMemorySessionProvider** -- Thread-safe in-memory session store with optional LRU eviction (`max_sessions` parameter). No persistence; data lost on restart.
 

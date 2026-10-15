@@ -113,11 +113,11 @@ def _select_platform() -> Optional[Tuple[str, str, str]]:
             var = "WATSONX_APIKEY" if os.environ.get("WATSONX_APIKEY") else "WATSONX_API_KEY"
             return ("watsonx", WATSONX_MODEL, var)
     if os.environ.get("OPENAI_API_KEY"):
-        return ("openai", "gpt-4o-mini", "OPENAI_API_KEY")
+        return ("openai", "gpt-6-luna", "OPENAI_API_KEY")
     if os.environ.get("ANTHROPIC_API_KEY"):
-        return ("anthropic", "claude-3-5-haiku-latest", "ANTHROPIC_API_KEY")
+        return ("anthropic", "claude-haiku-5-5", "ANTHROPIC_API_KEY")
     if os.environ.get("OPENROUTER_API_KEY"):
-        return ("openrouter", "openai/gpt-4o-mini", "OPENROUTER_API_KEY")
+        return ("openrouter", "openai/gpt-6-luna", "OPENROUTER_API_KEY")
     return None
 
 

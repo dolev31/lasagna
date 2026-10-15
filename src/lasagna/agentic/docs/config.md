@@ -16,7 +16,7 @@ Set via `settings.lasagna.toml`, environment variables, or the session config AP
 | `use_structured_graph` | bool | `false` | *Legacy alias* -- `true` maps to `agentic_pipeline="default"`, `false` maps to `"legacy_react"` |
 | `agentic_hyde_strategy` | str | `"adaptive"` | HyDE strategy: `off`, `always`, `first_hop`, `adaptive` |
 | `chunk_refinement_method` | str | `"auto"` | Refinement mode: `vanilla`, `refined`, `auto` |
-| `refinement_model` | str | `"gpt-4o-mini"` | LLM model for chunk refinement |
+| `refinement_model` | str | `"gpt-6-luna"` | LLM model for chunk refinement |
 | `agent_temperature` | float | `0.1` | Temperature for agent LLM calls |
 | `max_query_length` | int | `12` | Token threshold for HyDE adaptive mode |
 | `enable_crag` | bool | `false` | Enable Corrective RAG document grading |
@@ -98,7 +98,7 @@ These keys are fields on the SDK's `KnowledgeConfig` dataclass and can be set wh
 | `agentic_pipeline` | `agentic_pipeline` | `"legacy_react"` |
 | `max_agent_iterations` | `max_agent_iterations` | `3` |
 | `chunk_refinement_method` | `chunk_refinement_method` | `"auto"` |
-| `refinement_model` | `refinement_model` | `"gpt-4o-mini"` |
+| `refinement_model` | `refinement_model` | `"gpt-6-luna"` |
 | `agent_temperature` | `agent_temperature` | `0.1` |
 | `enable_crag` | `enable_crag` | `False` |
 | `crag_web_search_fallback` | `crag_web_search_fallback` | `False` |

@@ -42,13 +42,13 @@ def message_text(message: Any) -> str:
     return str(content)
 
 
-def get_default_model_name(fallback: str = "gpt-4o-mini") -> str:
+def get_default_model_name(fallback: str = "gpt-6-luna") -> str:
     """Get the default model name from environment or config.
 
     Resolution order:
         1. MODEL_NAME environment variable
         2. Config provider's agent.action.model model_name
-        3. Hardcoded fallback (gpt-4o-mini)
+        3. Hardcoded fallback (gpt-6-luna)
 
     This centralises the model name resolution so that every component
     in the knowledge package picks up the same default.
@@ -150,7 +150,7 @@ def resolve_model_settings(
             - None: Use default_settings
             - str "default", "lasagna_default", "agent_default": Use default_settings
             - str with ".": Path like "agent.action.model" - resolve via provider
-            - str with ":": Platform:model like "openai:gpt-4o-mini"
+            - str with ":": Platform:model like "openai:gpt-6-luna"
             - str (other): Use as model_name override with default_settings
             - dict: Use directly as settings
         default_settings: Fallback settings if model_ref not resolved
@@ -185,7 +185,7 @@ def resolve_model_settings(
         if "." in model_ref:
             model_settings_obj = _resolve_settings_path_via_provider(model_ref)
 
-        # Try platform:model format (e.g., "openai:gpt-4o-mini")
+        # Try platform:model format (e.g., "openai:gpt-6-luna")
         if model_settings_obj is None and ":" in model_ref:
             platform, model_name = model_ref.split(":", 1)
             model_settings_obj = {
@@ -225,7 +225,7 @@ def resolve_model_settings(
                 if "model_name" not in model_settings:
                     model_settings["model_name"] = get_default_model_name(
                         getattr(llm_provider, "SUPPORTED_PLATFORMS", {}).get(
-                            llm_provider.default_provider, "gpt-4o-mini"
+                            llm_provider.default_provider, "gpt-6-luna"
                         )
                     )
                 logger.debug(f"Inferred platform={model_settings['platform']} for {context}")

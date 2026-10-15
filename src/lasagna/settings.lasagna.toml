@@ -474,8 +474,8 @@ chunk_refinement_method = "auto"
 # Model for chunk refinement. Commented out so it falls back to your configured
 # default LLM (see MODEL_NAME / the LLM provider settings). Set it only to pin a
 # specific model, using whatever identifier your provider expects
-# (e.g. "gpt-4o-mini", or a gateway-prefixed name like "openai/gpt-4o-mini").
-# refinement_model = "gpt-4o-mini"
+# (e.g. "gpt-6-luna", or a gateway-prefixed name like "openai/gpt-6-luna").
+# refinement_model = "gpt-6-luna"
 
 # Agent temperature (low for determinism and predictability)
 agent_temperature = 0.1
@@ -566,7 +566,7 @@ include_upload_date = true       # Include when document was uploaded
 include_file_type = true         # Include file type (PDF, DOCX, etc.)
 
 # LLM summary settings (only used when enrichment_strategy = "llm_summary" or "hybrid")
-# summary_model = "gpt-4o-mini"  # Defaults to your configured LLM when unset
+# summary_model = "gpt-6-luna"  # Defaults to your configured LLM when unset
 summary_max_tokens = 100         # Max tokens for each summary
 summary_prompt = "Summarize this document in 1-2 sentences, focusing on the main topic and key information:"
 

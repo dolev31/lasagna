@@ -142,7 +142,7 @@ config = EvalConfig(
     document_path="./data/report.pdf",
     ground_truth_path="./benchmarks/ground_truth.jsonl",
     judge_model_platform="openai",
-    judge_model_name="gpt-4o",
+    judge_model_name="gpt-6-luna",
 )
 evaluator = KnowledgeEvaluator(config)
 metrics = await evaluator.run()
@@ -680,21 +680,29 @@ Auto-detected from environment variables -- first key found wins:
 
 | Tier | Platform | Env Var | Default Model |
 | ---- | -------- | ------- | ------------- |
-| 1 | OpenAI | `OPENAI_API_KEY` | gpt-4o-mini |
-| 1 | Anthropic | `ANTHROPIC_API_KEY` | claude-sonnet-4 |
-| 1 | Azure OpenAI | `AZURE_OPENAI_API_KEY` | gpt-4o-mini |
-| 1 | Google Gemini | `GOOGLE_API_KEY` | gemini-2.0-flash |
-| 1 | Groq | `GROQ_API_KEY` | llama-3.3-70b-versatile |
+| 1 | OpenAI | `OPENAI_API_KEY` | gpt-6-luna |
+| 1 | Anthropic | `ANTHROPIC_API_KEY` | claude-sonnet-5-5 |
+| 1 | Azure OpenAI | `AZURE_OPENAI_API_KEY` | gpt-5.6-luna (deployment name) |
+| 1 | Google Gemini | `GOOGLE_API_KEY` | gemini-3.6-flash |
+| 1 | Groq | `GROQ_API_KEY` | openai/gpt-oss-120b |
 | 1 | WatsonX | `WATSONX_API_KEY` | llama-4-maverick |
 | 1 | Mistral | `MISTRAL_API_KEY` | mistral-large-latest |
-| 1 | Cohere | `COHERE_API_KEY` | command-r-plus |
+| 1 | Cohere | `COHERE_API_KEY` | command-a-03-2025 |
 | 1 | NVIDIA NIM | `NVIDIA_API_KEY` | llama-3.1-70b-instruct |
-| 2 | OpenRouter | `OPENROUTER_API_KEY` | claude-3.5-sonnet |
-| 2 | Together | `TOGETHER_API_KEY` | Llama-3.3-70B |
-| 2 | DeepSeek | `DEEPSEEK_API_KEY` | deepseek-chat |
+| 2 | OpenRouter | `OPENROUTER_API_KEY` | anthropic/claude-sonnet-5.5 |
+| 2 | Together | `TOGETHER_API_KEY` | Muse-Glimmer-30B |
+| 2 | DeepSeek | `DEEPSEEK_API_KEY` | deepseek-flash |
 | 2 | Fireworks | `FIREWORKS_API_KEY` | llama-v3p1-70b |
 | 2 | Perplexity | `PERPLEXITY_API_KEY` | sonar |
 | 2 | Ollama | `OLLAMA_BASE_URL` | llama3.2 (local) |
+
+`MODEL_NAME` picks another model. Claude 4.7 and later reject any temperature,
+and OpenAI's reasoning models take one only with `reasoning_effort: none`, so
+Lasagna builds each request for the model it goes to: gpt-6-luna gets
+`reasoning_effort: none` with temperature 0, and Claude Sonnet 5.5 gets no
+temperature. A model that takes none answers differently from run to run;
+`lasagna doctor` says so, and the run records `sampling: provider-default`.
+Repeat runs (`n_runs: 3` or more) to measure that spread.
 
 ---
 
