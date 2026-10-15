@@ -88,6 +88,13 @@ Sweeps, validation and metrics:
   cross-encoder within 0.004 of the BEIR paper, BM25 within 0.008.
 - A terminal demo, `docs/assets/demo.gif`, regenerated from a real run by
   `docs/assets/demo/record.sh`.
+- **Your own data as a benchmark, with no adapter.** A JSONL or CSV file, or a
+  BEIR folder, runs with `benchmarks: [{path: data/my.jsonl}]` in a sweep or
+  `lasagna benchmark run ./my.jsonl`. It registers as
+  `local/<file name>@<12 hex digits of its sha256>`, so an edited file never
+  resumes the old file's checkpoints or shares its leaderboard group.
+  `lasagna benchmark validate-data` names each bad row and field and says which
+  tracks the data supports. See `docs/own-data.md`.
 
 ### Changed
 

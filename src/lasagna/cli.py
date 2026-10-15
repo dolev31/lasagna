@@ -989,6 +989,7 @@ def benchmark_run(
     ),
 ):
     """Run a single benchmark evaluation."""
+    from .knowledge_evaluation_sdk.benchmarks.adapters.local_files import is_local_data_path
     from .knowledge_evaluation_sdk.experiment import (
         Experiment,
         ExperimentConfig,
@@ -996,6 +997,9 @@ def benchmark_run(
         PipelineSweepSpec,
         _parse_tracks,
     )
+
+    # A .jsonl or .csv file or a BEIR folder of your own (docs/own-data.md).
+    bench = {"path": name} if is_local_data_path(name) else {"name": name}
 
     try:
         track_list = _parse_tracks([t.strip() for t in tracks.split(",") if t.strip()])
@@ -1017,7 +1021,7 @@ def benchmark_run(
     # pipeline, whatever the user had written.
     config = ExperimentConfig(
         name=f"benchmark_{name.replace('/', '_')}",
-        benchmarks=[BenchmarkSpec(name=name, n_samples=samples, split=split)],
+        benchmarks=[BenchmarkSpec(**bench, n_samples=samples, split=split)],
         pipeline=PipelineSweepSpec(
             base_profile=profile,
             rerankers=[reranker] if reranker else [],
@@ -1323,6 +1327,82 @@ def benchmark_leaderboard(
 
     results = BenchmarkResults.load(results_path)
     console.print(results.leaderboard(metric))
+
+
+@benchmark_app.command("validate-data")
+def benchmark_validate_data(
+    path: str = typer.Argument(
+        ...,
+        help="A .jsonl or .csv file, or a BEIR folder (corpus.jsonl, queries.jsonl, "
+        "qrels/test.tsv)",
+    ),
+):
+    """Check your own benchmark data and say which tracks it supports.
+
+    Exits 0 when the data can be run, 1 with every problem listed when not.
+    The formats are in docs/own-data.md.
+    """
+    from .knowledge_evaluation_sdk.benchmarks.adapters.local_files import (
+        DataFileError,
+        read_local_data,
+    )
+
+    try:
+        data = read_local_data(path)
+    except DataFileError as exc:
+        for line in str(exc).splitlines():
+            console.print(f"[red]{escape(line)}[/red]", soft_wrap=True)
+        console.print(f"{_count(len(exc.errors), 'problem')}; fix them and run this again.")
+        raise typer.Exit(1)
+
+    rows = data.rows()
+    lines = [
+        f"[green]{escape(data.label)}: valid {data.kind} data[/green]",
+        f"  Questions:      {len(rows)}",
+    ]
+    if data.kind != "beir":
+        lines += [
+            f"  With answers:   {sum(1 for r in rows if r.answers)}",
+            f"  With contexts:  {sum(1 for r in rows if r.contexts)}",
+            f"  Unanswerable:   {sum(1 for r in rows if r.unanswerable)}",
+        ]
+    else:
+        lines.append(
+            "  Splits:         "
+            + ", ".join(f"{s} ({len(r)} judged)" for s, r in sorted(data.splits.items()))
+        )
+    pooled = " (the rows' contexts, pooled)" if data.corpus and data.kind != "beir" else ""
+    lines.append(f"  Documents:      {len(data.corpus)}{pooled}")
+    lines.append(f"  Benchmark name: {escape(data.benchmark_name())}")
+    for track, why in data.track_support().items():
+        status = "[green]yes[/green]" if why is None else f"[yellow]no[/yellow], {escape(why)}"
+        lines.append(f"  {track.capitalize() + ':':<15} {status}")
+    for line in lines:
+        console.print(line, soft_wrap=True)
+    if data.corpus and data.kind != "beir":
+        console.print(
+            "  Retrieval searches a pool of gold passages only, an easier task than a real "
+            "corpus; results are labeled pooled_gold.",
+            soft_wrap=True,
+        )
+    if data.track_support()["generation"] is None and not data.corpus:
+        console.print(
+            "  With no contexts, generation is closed-book: use the closed_book generator.",
+            soft_wrap=True,
+        )
+    tracks = ",".join(data.supported_tracks())
+    if not tracks:
+        console.print(
+            '[red]Nothing can be measured on this data: add an "answer" or "contexts" '
+            "to the rows.[/red]",
+            soft_wrap=True,
+        )
+        raise typer.Exit(1)
+    console.print(
+        f"Run it:  lasagna benchmark run {escape(shlex.quote(path))} --profile speed "
+        f"--tracks {tracks}",
+        soft_wrap=True,
+    )
 
 
 # ---------------------------------------------------------------------------
