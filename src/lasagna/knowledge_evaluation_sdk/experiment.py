@@ -1597,7 +1597,7 @@ class Experiment:
         logger.info(
             f"Starting experiment '{cfg.name}' "
             f"({len(cfg.benchmarks)} benchmarks, "
-            f"{cfg.n_runs} run(s), mode={cfg.mode})"
+            f"{cfg.n_runs} {'run' if cfg.n_runs == 1 else 'runs'}, mode={cfg.mode})"
         )
 
         # Set judge model for offline eval (module-level so _eval_offline can read it)
@@ -3268,13 +3268,17 @@ async def _ensure_corpus_ingested(
             # would score 1.0 by construction.
             corpus = adapter.build_pooled_gold_corpus(samples)
             corpus_provenance = "pooled_gold"
-            if corpus:
+            from .benchmarks.adapters.local_files import LocalFileAdapter
+
+            # Your own data has no published benchmark to be easier than: its
+            # contexts are the corpus you asked about.
+            if corpus and not isinstance(adapter, LocalFileAdapter):
                 logger.warning(
                     f"'{benchmark_name}' ships no corpus; retrieval will be measured "
                     f"against {len(corpus)} passages pooled from the samples' own gold "
-                    f"context. This is an easier task than the published benchmark -- "
-                    f"the pool holds no hard negatives -- and these numbers are not "
-                    f"comparable with a native-corpus run."
+                    f"context. This is an easier task than the published benchmark (the "
+                    f"pool holds no hard negatives), and these numbers are not comparable "
+                    f"with a native-corpus run."
                 )
         if corpus is None:
             # Wake the waiters before the slot disappears.

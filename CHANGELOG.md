@@ -676,6 +676,15 @@ Results tooling:
   any task, that each benchmark's Hugging Face data is cached when offline
   mode is on, and stops with one error naming the benchmark and the fix. When
   every task fails, the summary box is red, says so, and prints no "Next:".
+- `benchmark run ./my.jsonl` no longer warns that your own file is "an easier
+  task than the published benchmark", names its results folder by the file's
+  stem (`benchmark_my_<time>`, not `benchmark_._my.jsonl_<time>`), and says
+  "1 run", "embedded in 0.4 s" and "latency: 0.42 ms" instead of "1 run(s)",
+  "0.0 min" and "0.0 ms". `validate-data` on data nothing can be measured on
+  is one error with exit 1; it printed "valid jsonl data" first. A factorial
+  with an inert arm prints the isolation verdict before the inert line.
+  `component validate cross_encoder` checks the registered component, with a
+  likely name for a typo; it was refused as not being module:function.
 
 First run:
 

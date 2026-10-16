@@ -288,6 +288,13 @@ def _load_profile_config(session_id: str):
         return KnowledgeConfig()
 
 
+def _milliseconds(ms: float) -> str:
+    """``0.42 ms``, ``12.3 ms``, ``under 0.01 ms``: a reading that is never "0.0 ms"."""
+    if ms < 0.01:
+        return "under 0.01 ms"
+    return f"{ms:.2f} ms" if ms < 10 else f"{ms:.1f} ms"
+
+
 def _count(n: int, noun: str) -> str:
     """``_count(1, "pair")`` -> ``"1 pair"``; ``_count(2, "pair")`` -> ``"2 pairs"``."""
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
@@ -1461,14 +1468,17 @@ def benchmark_run(
             )
 
     console.print(
-        f"Running benchmark [cyan]{name}[/cyan] (up to {samples} samples, {runs} run(s), "
-        f"mode={mode}, split={split}, profile={profile}, tracks={','.join(track_list)})"
+        f"Running benchmark [cyan]{name}[/cyan] (up to {_count(samples, 'sample')}, "
+        f"{_count(runs, 'run')}, mode={mode}, split={split}, profile={profile}, "
+        f"tracks={','.join(track_list)})"
     )
 
     # Without a way to name a component, "check it runs" measured the stock
-    # pipeline, whatever the user had written.
+    # pipeline, whatever the user had written. A file of your own names its
+    # results folder by its stem: ./my.jsonl gave benchmark_._my.jsonl_<time>.
+    label = Path(bench["path"]).stem if "path" in bench else name.replace("/", "_")
     config = ExperimentConfig(
-        name=f"benchmark_{name.replace('/', '_')}",
+        name=f"benchmark_{label}",
         benchmarks=[BenchmarkSpec(**bench, n_samples=samples, split=split)],
         pipeline=PipelineSweepSpec(
             base_profile=profile,
@@ -1702,7 +1712,15 @@ def _print_isolation(results) -> None:
         )
         for line in report["undeclared"]:
             console.print(f"  - {escape(line)}")
-    elif pairs and not report["inert"]:
+    elif pairs and report["inert"]:
+        # Said, not left out: an inert arm printed only its own line, with no
+        # verdict on the rest of the comparison.
+        console.print(
+            f"[yellow]Stage isolation: the configuration that reached each stage differs "
+            f"only in the stages the arms name ({_count(pairs, 'pair')} compared), but "
+            f"{_count(len(report['inert']), 'arm')} changed nothing there:[/yellow]"
+        )
+    elif pairs:
         console.print(
             f"[green]Stage isolation: the configuration that reached each stage differs "
             f"only in the stages the arms name ({_count(pairs, 'pair')} compared).[/green]"
@@ -1898,10 +1916,22 @@ def benchmark_validate_data(
     except DataFileError as exc:
         for line in str(exc).splitlines():
             console.print(f"[red]{escape(line)}[/red]", soft_wrap=True)
-        console.print(f"{_count(len(exc.errors), 'problem')}; fix them and run this again.")
+        them = "it" if len(exc.errors) == 1 else "them"
+        console.print(f"{_count(len(exc.errors), 'problem')}; fix {them} and run this again.")
         raise typer.Exit(1)
 
     rows = data.rows()
+    if not data.supported_tracks():
+        # One verdict: it printed "valid jsonl data" and then exited 1 because
+        # nothing could be measured.
+        why = "; ".join(why for why in data.track_support().values() if why)
+        console.print(
+            f"[red]Nothing can be measured on {escape(data.label)} ({escape(why)}). "
+            f'Add an "answer" or "contexts" to the rows.[/red]',
+            soft_wrap=True,
+        )
+        console.print("1 problem; fix it and run this again.")
+        raise typer.Exit(1)
     lines = [
         f"[green]{escape(data.label)}: valid {data.kind} data[/green]",
         f"  Questions:      {len(rows)}",
@@ -1937,13 +1967,6 @@ def benchmark_validate_data(
             soft_wrap=True,
         )
     tracks = ",".join(data.supported_tracks())
-    if not tracks:
-        console.print(
-            '[red]Nothing can be measured on this data: add an "answer" or "contexts" '
-            "to the rows.[/red]",
-            soft_wrap=True,
-        )
-        raise typer.Exit(1)
     from .knowledge_evaluation_sdk.synthesize import llm_configured
 
     if "generation" in data.supported_tracks() and not llm_configured():
@@ -2138,12 +2161,31 @@ def component_list(
     )
 
 
+def _registered_component(name: str, stage: Optional[str]) -> Any:
+    """The class registered as ``name``, in ``stage`` or the one stage that has it."""
+    from .core._text import did_you_mean
+    from .core.registry import registry
+
+    stages = [stage] if stage else list(_FUNCTION_STAGES)
+    found = [s for s in stages if registry.has(s, name)]
+    if not found:
+        known = sorted({n for s in stages for n in registry.list(s).get(s, [])})
+        _error(
+            f"No component is registered as {name!r}{did_you_mean(name, known)}. Name a "
+            f"registered one (`lasagna component list`), or your own as module:function."
+        )
+    if len(found) > 1:
+        _error(f"{name!r} is registered for {', '.join(found)}; pick one with --stage.")
+    return registry.get_class(found[0], name)
+
+
 @component_app.command("validate")
 def component_validate(
     target: str = typer.Argument(
         ...,
-        help="What a sweep would name: my_ideas:keyword_overlap (a decorated function), "
-        "my_pkg.rerankers:MyReranker (a class) or path/to/file.py:name",
+        help="What a sweep would name: a registered component (cross_encoder), "
+        "my_ideas:keyword_overlap (a decorated function), my_pkg.rerankers:MyReranker "
+        "(a class) or path/to/file.py:name",
     ),
     stage: Optional[str] = typer.Option(
         None,
@@ -2169,18 +2211,21 @@ def component_validate(
     from lasagna.core.testing import ComponentTestHarness
 
     module_path, _, attr = target.rpartition(":")
-    if not module_path or not attr:
-        _error(f"Expected 'module:function' or 'module:Class', got {target!r}")
     if stage is not None and stage not in _FUNCTION_STAGES:
         _error(f"--stage must be one of {', '.join(_FUNCTION_STAGES)}, got {stage!r}")
-
-    try:
-        obj = components.import_reference(target)
-    except Exception as exc:
-        _error(f"Could not import {target}: {type(exc).__name__}: {exc}")
-    # What a sweep names it: a file's module is its stem, so
-    # path/to/my_ideas.py:keyword_overlap is my_ideas:keyword_overlap.
-    name = f"{Path(module_path).stem}:{attr}" if module_path.endswith(".py") else target
+    if not module_path or not attr:
+        # A registered name, as a sweep's arm names one: `component validate
+        # cross_encoder` was refused as not being module:function.
+        obj, attr = _registered_component(target, stage), target
+        name = target
+    else:
+        try:
+            obj = components.import_reference(target)
+        except Exception as exc:
+            _error(f"Could not import {target}: {type(exc).__name__}: {exc}")
+        # What a sweep names it: a file's module is its stem, so
+        # path/to/my_ideas.py:keyword_overlap is my_ideas:keyword_overlap.
+        name = f"{Path(module_path).stem}:{attr}" if module_path.endswith(".py") else target
 
     if not inspect.isclass(obj) and callable(obj):
         tagged = getattr(obj, "__lasagna_component__", None)
@@ -2219,7 +2264,7 @@ def component_validate(
         console.print(f"  [red]FAIL[/red]  {escape(failure)}")
 
     if report.latency_ms is not None:
-        console.print(f"\n  latency: {report.latency_ms:.1f} ms")
+        console.print(f"\n  latency: {_milliseconds(report.latency_ms)}")
 
     if report.passed:
         console.print("\n[green]Contract satisfied.[/green] This component is interchangeable.")

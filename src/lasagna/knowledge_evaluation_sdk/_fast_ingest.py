@@ -262,7 +262,7 @@ class _Progress:
             f"({rate * 60:.0f}/min, about {eta / 60:.0f} min left)"
             if done < self.total
             else f"Ingesting corpus: {done}/{self.total} documents embedded in "
-            f"{elapsed / 60:.1f} min"
+            + (f"{elapsed / 60:.1f} min" if elapsed >= 60 else f"{elapsed:.1f} s")
         )
 
 
