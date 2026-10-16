@@ -355,6 +355,11 @@ Servers and deployment:
   gunicorn with `--preload` and honors `FORWARDED_ALLOW_IPS` (or
   `RAG_FORWARDED_ALLOW_IPS`). The models baked into the image are build
   arguments (`EMBEDDING_MODELS`, `RERANKER_MODELS`, `OPTIONAL_MODELS`).
+- **The Docker image runs torch's CPU-only build.** torch from PyPI brings the
+  CUDA libraries on Linux, so the image the CI stack builds was 11.5 GB; it is
+  3.8 GB. The build argument `TORCH_VARIANT=cuda` (`make build
+  TORCH_VARIANT=cuda`, or `TORCH_VARIANT` in `.env`) builds the CUDA image for
+  a GPU host; see `src/lasagna/deploy/README.md`.
 - **With `RAG_REQUIRE_AUTH` on, creating a session needs an API key.** Send
   `X-API-Key` with one of the keys in `RAG_API_KEYS`; with none configured,
   `POST /api/v1/sessions` returns 503. Rate limits are counted per key rather

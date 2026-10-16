@@ -137,6 +137,32 @@ the volume). celery-beat opens no upload and mounts nothing. The image creates
 `/data/uploads` owned by its `rag` user, so the volume is writable. `make down-v` deletes
 this volume with the others.
 
+## CPU or GPU image
+
+The image runs torch's CPU-only build. The Dockerfile installs it from the PyTorch index
+(`https://download.pytorch.org/whl/cpu`), at the version `constraints/0.1.0.txt` pins,
+before anything that depends on torch, and the rest of the install keeps it; the build
+fails if a later step replaced it. From PyPI, torch on Linux (x86_64 and arm64) brings
+the CUDA libraries. The image the CI stack builds (MiniLM models, qdrant client, arm64)
+is 3.8 GB with the CPU build and was 11.5 GB with torch from PyPI.
+
+For a host with an NVIDIA GPU, build with `TORCH_VARIANT=cuda`, which installs torch from
+PyPI with the CUDA libraries:
+
+```bash
+# From src/lasagna/deploy (or set TORCH_VARIANT=cuda in .env, then make build)
+make build TORCH_VARIANT=cuda
+
+# Without compose, from the repository root
+docker build --build-arg TORCH_VARIANT=cuda -t lasagna -f src/lasagna/deploy/Dockerfile .
+```
+
+`make up` reuses an image that exists, so switching variants needs `make build`. The
+containers that run models (api, celery-worker and mcp) also need GPU access: the NVIDIA
+Container Toolkit on the host and a `gpus: all` entry on those services, for example in a
+compose file of your own added with one more `-f`. With `use_gpu` on (the default;
+`RAG_USE_GPU=false` turns it off), models run on the GPU when torch finds one.
+
 ## Make targets
 
 | Target | What it does |
@@ -145,7 +171,7 @@ this volume with the others.
 | `make validate` | Stops with an error when `VECTOR_BACKEND` is unset; when `backends/<VECTOR_BACKEND>.yml` does not exist (it lists the ones that do); when `RAG_JWT_SECRET` or `POSTGRES_PASSWORD` is empty; when `VECTOR_BACKEND=milvus-lite` is combined with `celery` or `mcp` in `COMPOSE_PROFILES`; when `RAG_CELERY_ENABLED` is true without `celery` in `COMPOSE_PROFILES`; and, for `qdrant`, `weaviate` and `pinecone`, when an image already built for the stack lacks that backend's client. Otherwise prints `Config OK`. It checks that the secrets are set, not how long they are |
 | `make down` | Stop the stack, keep the volumes |
 | `make down-v` | Stop the stack and delete its volumes (documents, metadata, uploads) |
-| `make build` | Rebuild the image |
+| `make build` | Rebuild the image; `make build TORCH_VARIANT=cuda` for a GPU host ([CPU or GPU image](#cpu-or-gpu-image)) |
 | `make logs` | Follow every service's log; `make logs SVC=celery-worker` for one |
 | `make ps` | List the containers |
 | `make health` | `curl` `GET /api/v1/health` on `API_PORT`; prints `API not healthy` when it gets no 2xx answer |
