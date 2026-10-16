@@ -597,6 +597,15 @@ Requests to current models:
 
 Servers and deployment:
 
+- **The top search result always scored 1.00, and each surface returned a
+  different number of results.** Scores were min-max normalized per query, and
+  REST and MCP dropped results below `similarity_threshold` on that relative
+  score: one query returned 5 results from the CLI, 3 from REST at `top_k` 5
+  and 2 from MCP at `top_k` 3. A result's `score` is absolute (the reranker's
+  probability, or (cosine + 1) / 2 for dense search), REST results carry their
+  `rank`, MCP citations report the same score, and no surface applies a
+  threshold unless the request sets `min_score`. The evaluation ranks by order
+  and keeps its thresholds; only the per-document score it records changes.
 - **A stack configured for a Milvus server opened Milvus Lite.** The startup
   backend always passed a local `db_path`, which `MilvusBackend` took over the
   `uri`, so `backends/milvus.yml` and `MILVUS_URI` wrote to a file inside each

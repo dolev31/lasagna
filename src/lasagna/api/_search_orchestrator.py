@@ -242,7 +242,7 @@ class SearchOrchestrator:
         query: str,
         session_id: str,
         top_k: Optional[int] = None,
-        min_score: float = -100.0,
+        min_score: Optional[float] = -100.0,
         document_ids: Optional[List[str]] = None,
         use_hyde: bool = True,
         use_reranking: bool = True,
@@ -264,7 +264,12 @@ class SearchOrchestrator:
             query: Search query
             session_id: Session ID
             top_k: Final number of results
-            min_score: Minimum score threshold (default -100 to allow cross-encoder logits)
+            min_score: Which results to drop. None: none (the serving surfaces'
+                default). A number above -100: results whose reported score is
+                below it. -100, the default for internal callers: the session's
+                similarity_threshold on the per-query normalized score, which the
+                evaluation's generation track and the agentic loop have always
+                used.
             document_ids: Optional document filter. If focused_document_ids are set
                 in the session config, they will override this parameter.
             use_hyde: Whether to use HyDE
@@ -518,12 +523,20 @@ class SearchOrchestrator:
         if top_k is None:
             top_k = config.rerank_top_k
 
-        # Default min_score from config.similarity_threshold when caller
-        # didn't provide an explicit value (-100.0 is the sentinel default).
-        if min_score <= -100.0:
+        # A threshold the caller named applies to the score each result
+        # reports. The session's similarity_threshold (the -100 sentinel) keeps
+        # its old meaning, a cut on the per-query normalized score, for the
+        # internal callers that rely on it; serving passes None and gets no cut,
+        # so the CLI, REST, MCP and SDK return the same results for a query.
+        threshold_on_reported = min_score is not None and min_score > -100.0
+        if min_score is None:
+            min_score = float("-inf")
+        elif min_score <= -100.0:
             _cfg_threshold = getattr(config, "similarity_threshold", None)
             if _cfg_threshold is not None and _cfg_threshold > 0:
                 min_score = _cfg_threshold
+        # Results cut at different thresholds must not share a cache entry.
+        component_fingerprint += f"|min:{min_score}:{threshold_on_reported}"
 
         # Determine query for embedding
         search_query = query
@@ -1129,22 +1142,26 @@ class SearchOrchestrator:
         # Convert to SearchResult format
         postprocess_start = perf_counter()
 
+        # The score a result reports: the reranker's (a cross-encoder's
+        # sigmoid probability), or with no reranking the retrieval score itself
+        # ((cosine similarity + 1) / 2 for dense search, the fused score for hybrid). It
+        # was the per-query min-max of the retrieval scores, so the top hit read
+        # 1.00 even for a query the documents cannot answer.
+        reranked_here = bool(use_reranking and config.enable_reranking)
+
+        def _reported(result: RerankedResult) -> float:
+            return result.normalized_score if reranked_here else result.rerank_score
+
+        def _score_for_filter(result: RerankedResult) -> float:
+            if threshold_on_reported:
+                return _reported(result)
+            # The session threshold: normalized_score when the cut is >= 0, since
+            # raw cross-encoder logits can be negative and 0.0 would drop them.
+            return result.normalized_score if min_score >= 0.0 else result.rerank_score
+
         # OPTIMIZATION: Batch fetch all document metadata in single query
-        # FIX: Use normalized_score for filtering when min_score >= 0.
-        # Raw rerank_score can be negative (cross-encoder logits are unbounded),
-        # so comparing against min_score=0.0 would filter out valid results.
-        # normalized_score is always in [0, 1] and comparable to min_score thresholds.
-        use_normalized_filter = min_score >= 0.0
         document_ids_to_fetch = list(
-            {
-                result.document_id
-                for result in reranked
-                if (
-                    result.normalized_score >= min_score
-                    if use_normalized_filter
-                    else result.rerank_score >= min_score
-                )
-            }
+            {result.document_id for result in reranked if _score_for_filter(result) >= min_score}
         )
         doc_metadata_map = self._document_pipeline.get_documents_metadata_batch(
             document_ids_to_fetch
@@ -1157,10 +1174,7 @@ class SearchOrchestrator:
         # and the caller sees a well-formed empty result either way.
         missing_metadata_ids: List[str] = []
         for result in reranked:
-            score_for_filter = (
-                result.normalized_score if use_normalized_filter else result.rerank_score
-            )
-            if score_for_filter < min_score:
+            if _score_for_filter(result) < min_score:
                 continue
 
             chunk = RecordedDocumentChunk(
@@ -1176,11 +1190,7 @@ class SearchOrchestrator:
             doc_metadata = doc_metadata_map.get(result.document_id)
             if doc_metadata:
                 search_results.append(
-                    SearchResult(
-                        chunk=chunk,
-                        score=result.normalized_score,  # Use normalized score for display
-                        document=doc_metadata,
-                    )
+                    SearchResult(chunk=chunk, score=_reported(result), document=doc_metadata)
                 )
             else:
                 missing_metadata_ids.append(result.document_id)
@@ -1371,7 +1381,7 @@ class SearchOrchestrator:
         query: str,
         session_id: str,
         top_k: Optional[int] = None,
-        min_score: float = -100.0,
+        min_score: Optional[float] = -100.0,
         document_ids: Optional[List[str]] = None,
         use_hyde: bool = True,
         use_reranking: bool = True,
@@ -1430,6 +1440,7 @@ class SearchOrchestrator:
         _reranker_override: Optional[Any] = None,
         _retriever_override: Optional[Any] = None,
         _enhancer_override: Optional[Any] = None,
+        min_score: Optional[float] = None,
     ) -> Tuple[List[SearchResult], List[Citation], str]:
         """Async version of search_with_citations()."""
         loop = asyncio.get_running_loop()
@@ -1441,6 +1452,7 @@ class SearchOrchestrator:
                 query=query,
                 session_id=session_id,
                 top_k=top_k,
+                min_score=min_score,
                 document_ids=document_ids,
                 trace_id=trace_id,
                 routing_tier=routing_tier,
@@ -1469,6 +1481,7 @@ class SearchOrchestrator:
         _reranker_override: Optional[Any] = None,
         _retriever_override: Optional[Any] = None,
         _enhancer_override: Optional[Any] = None,
+        min_score: Optional[float] = None,
     ) -> Tuple[List[SearchResult], List[Citation], str]:
         """Search and return results with citations and formatted context.
 
@@ -1481,6 +1494,7 @@ class SearchOrchestrator:
             routing_tier: Optional forced routing tier.
             _reranker_override: Optional reranker instance override.
             _enhancer_override: Optional query enhancer instance override.
+            min_score: As for :meth:`search`; None, the default here, drops nothing.
 
         Returns:
             Tuple of (results, citations, formatted_context)
@@ -1489,6 +1503,7 @@ class SearchOrchestrator:
             query=query,
             session_id=session_id,
             top_k=top_k,
+            min_score=min_score,
             document_ids=document_ids,
             trace_id=trace_id,
             routing_tier=routing_tier,
@@ -2002,7 +2017,7 @@ class SearchOrchestrator:
         query: str,
         session_id: str,
         top_k: Optional[int],
-        min_score: float,
+        min_score: Optional[float],
         document_ids: Optional[List[str]],
         trace_id: Optional[str],
         routing_decision: Any,

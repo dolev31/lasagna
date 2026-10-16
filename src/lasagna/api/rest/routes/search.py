@@ -96,9 +96,10 @@ def _get_routing_info(backend: RAGBackend) -> RoutingInfo | None:
         return None
 
 
-def _result_to_response(r) -> SearchResultResponse:
+def _result_to_response(r, rank: int = 0) -> SearchResultResponse:
     """Convert internal SearchResult to API response."""
     return SearchResultResponse(
+        rank=rank,
         chunk=ChunkResponse(
             chunk_id=r.chunk.chunk_id,
             content=r.chunk.content,
@@ -152,7 +153,7 @@ async def search(
             )
         routing_info = _get_routing_info(backend)
         return SearchResponse(
-            results=[_result_to_response(r) for r in results],
+            results=[_result_to_response(r, i) for i, r in enumerate(results, 1)],
             query=body.query,
             total_results=len(results),
             routing=routing_info,
@@ -217,6 +218,7 @@ async def search_with_citations(
                     query=body.query,
                     session_id=session_id,
                     top_k=body.top_k,
+                    min_score=body.min_score,
                     document_ids=body.document_ids,
                     routing_tier=body.routing_tier,
                 )
@@ -248,7 +250,7 @@ async def search_with_citations(
         ]
         _remember_citations(session_id, user_id, cited, results)
         return SearchWithCitationsResponse(
-            results=[_result_to_response(r) for r in results],
+            results=[_result_to_response(r, i) for i, r in enumerate(results, 1)],
             citations=cited,
             context=context,
             query=body.query,
@@ -300,7 +302,7 @@ async def multi_query_search(
                 )
             )
         return SearchResponse(
-            results=[_result_to_response(r) for r in results],
+            results=[_result_to_response(r, i) for i, r in enumerate(results, 1)],
             query=body.query,
             total_results=len(results),
             degraded_stages=degraded,

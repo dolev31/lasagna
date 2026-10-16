@@ -326,8 +326,10 @@ class Citation:
             "document_id": self.document_id,
             "document_name": self.document_name,
             "content_preview": self.content_preview,
-            "score": round(self.normalized_score, 3),  # Use normalized for display
-            "raw_score": round(self.score, 4),  # Keep raw for debugging
+            # The score the search reported, as REST and the SDK return it.
+            # This was the min-max over the citations of one search, so the
+            # first always read 1.0 and the last 0.0, whatever their relevance.
+            "score": round(self.score, 4),
             "chunk_index": self.chunk_index,
             "page_number": self.page_number,
             "section_header": self.section_header,

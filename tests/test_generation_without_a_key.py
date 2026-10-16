@@ -119,10 +119,14 @@ def test_retrieval_metrics_survive_when_generation_cannot_run(tmp_path, data):
         f"name: both\nbenchmarks: [{{path: {data}}}]\npipeline: {{base_profile: speed}}\n"
         f"n_runs: 1\noutput_dir: {tmp_path / 'out'}\n"
     )
+    # A new user's process: no key, and none of this suite's settings (its
+    # shared data directory is held open by the test process).
     env = {
         k: v
         for k, v in os.environ.items()
-        if not k.endswith(("_API_KEY", "_APIKEY", "_BASE_URL")) and k not in ("HF_MODEL_ID",)
+        if not k.endswith(("_API_KEY", "_APIKEY", "_BASE_URL"))
+        and not k.startswith(("RAG_", "LASAGNA_"))
+        and k != "HF_MODEL_ID"
     }
     env.update(HOME=str(tmp_path / "home"), PYTHONPATH=str(PACKAGE_DIR.parent), HF_HUB_OFFLINE="1")
     run = subprocess.run(

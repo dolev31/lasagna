@@ -401,7 +401,7 @@ All search endpoints accept the same `SearchRequest` body.
 |-------|------|---------|-------------|-------------|
 | `query` | string | (required) | 1 to 10,000 chars | Search query |
 | `top_k` | int | `5` | 1 to 100 | Number of results to return |
-| `min_score` | float | `-100.0` | | Minimum score threshold |
+| `min_score` | float | `null` | | Drop results whose `score` is below this. `null`: no threshold, as in the CLI, the MCP server and the Python SDK |
 | `document_ids` | list[string] | `null` | | Filter to specific documents |
 | `use_hyde` | bool | `true` | | Enable HyDE query expansion |
 | `use_reranking` | bool | `true` | | Enable cross-encoder reranking |
@@ -412,6 +412,12 @@ All search endpoints accept the same `SearchRequest` body.
 #### `POST /api/v1/search`
 
 Search with the session's retrieval pipeline. Each stage runs as the session config sets it: hybrid dense and BM25 search, cross-encoder reranking, MMR diversity, HyDE query expansion, adaptive-k retrieval, hierarchical auto-merge. A stage that failed and fell back is named in `degraded_stages`, so an empty list means every configured stage ran.
+
+`score` is absolute, so it can be compared across queries: with reranking on
+(every profile but `speed`) it is the cross-encoder's probability that the chunk
+answers the query; with reranking off it is the retrieval score, (cosine
+similarity + 1) / 2 for dense search (`speed`) and the fused rank score for hybrid
+search. `rank` is the position, from 1.
 
 **Response:** `SearchResponse`
 
@@ -428,6 +434,7 @@ Search with the session's retrieval pipeline. Each stage runs as the session con
         "metadata": {}
       },
       "score": 0.92,
+      "rank": 1,
       "document_id": "doc_abc123",
       "filename": "report.pdf"
     }
@@ -1041,7 +1048,7 @@ Request validation failures (422) use FastAPI's own shape, where `detail` is a l
 | `DocumentStatusResponse` | `document_id`, `status`, `chunks_count`, `error_message` |
 | `ChunkResponse` | `chunk_id`, `content`, `document_id`, `chunk_index`, `page_number`, `metadata` |
 | `SearchResponse` | `results: [SearchResultResponse]`, `query`, `total_results`, `routing?`, `degraded_stages` |
-| `SearchResultResponse` | `chunk: ChunkResponse`, `score`, `document_id`, `filename` |
+| `SearchResultResponse` | `chunk: ChunkResponse`, `score`, `rank`, `document_id`, `filename` |
 | `SearchWithCitationsResponse` | `results`, `citations: [CitationResponse]`, `context`, `query`, `total_results`, `routing?`, `degraded_stages` |
 | `CitationResponse` | `citation_id`, `document_id`, `document_name`, `chunk_id`, `chunk_index`, `page_number`, `score`, `content`, `highlight`, `highlights`, `highlight_ranges` |
 | `CitationListResponse` | `citations: [CitationResponse]`, `session_id`, `total` |

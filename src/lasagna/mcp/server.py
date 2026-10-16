@@ -1173,6 +1173,7 @@ async def search(
                 query=query,
                 session_id=session_id,
                 top_k=v1_top_k,
+                min_score=None,  # the same results as the CLI, REST and SDK
                 document_ids=doc_id_filter,
                 trace_id=trace_id,
             )

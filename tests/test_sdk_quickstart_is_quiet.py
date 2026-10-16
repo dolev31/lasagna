@@ -54,8 +54,12 @@ def test_the_quickstart_prints_its_results_and_nothing_else(tmp_path):
     (tmp_path / "quickstart.py").write_text(QUICKSTART)
     # The library sets no environment variable for this, and neither may the test.
     quiet = ("GRPC_VERBOSITY", "GLOG_minloglevel", "TQDM_DELAY", "TQDM_DISABLE")
+    # A new user's process: none of this suite's settings (its shared data
+    # directory is held open by the test process), and no quieting variables.
     env = {
-        k: v for k, v in os.environ.items() if k not in quiet and not k.startswith("HF_HUB_DISABLE")
+        k: v
+        for k, v in os.environ.items()
+        if k not in quiet and not k.startswith(("HF_HUB_DISABLE", "RAG_", "LASAGNA_"))
     }
     env.update(HOME=str(tmp_path / "home"), PYTHONPATH=str(PACKAGE_DIR.parent), HF_HUB_OFFLINE="1")
     run = subprocess.run(
