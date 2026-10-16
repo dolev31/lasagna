@@ -404,6 +404,21 @@ def _require_known(kind: str, name: str, known, listing: str) -> None:
     _error(f"Unknown {kind} {name!r}{did_you_mean(name, known)}. {listing}")
 
 
+def _require_vector_backend() -> None:
+    """Exit with one sentence when RAG_VECTOR_BACKEND names no backend, before anything loads.
+
+    `RAG_VECTOR_BACKEND=milvuss lasagna benchmark run smoke` ran, failed its
+    task, and advised pointing RAG_DB_DIR at a new directory.
+    """
+    from .core.config import rag_config
+    from .core.diagnostics import unknown_vector_backend
+
+    unknown = unknown_vector_backend(rag_config.vector_backend or "milvus")
+    if unknown is not None:
+        what, advice = unknown
+        _error(f"Vector store: {what}. To fix it, {advice}.")
+
+
 def _require_benchmark(name: str) -> None:
     from .knowledge_evaluation_sdk.benchmarks import benchmark_registry
 
@@ -663,6 +678,7 @@ def upload(
         hide=lambda r: _server_only_warning(r) or _reported_document_failure(r),
     )
     paths = _upload_targets(file_paths)
+    _require_vector_backend()
 
     url = _serving_url()
     names = paths[0].name if len(paths) == 1 else _count(len(paths), "file")
@@ -790,6 +806,8 @@ def search(
 ):
     """Search the knowledge base."""
     from lasagna.core.model_downloads import sessions_with_documents
+
+    _require_vector_backend()
 
     # Before any model loads: searching a session with no documents loaded the
     # default model (or failed to, offline) to return nothing.
@@ -1192,6 +1210,7 @@ def serve(
     level = _configure_cli_logging(bool(ctx.find_root().params.get("verbose")), hide=_hide)
     from lasagna.core import local_server
 
+    _require_vector_backend()
     if local_server.local_store_held():
         running = local_server.running_server()
         _error(
@@ -1592,6 +1611,7 @@ def benchmark_run(
     if "name" in bench:
         _require_benchmark(name)
     _require_profile(profile)
+    _require_vector_backend()
     for stage, component in (
         ("reranker", reranker),
         ("query_enhancer", query_enhancer),
@@ -1648,7 +1668,8 @@ def benchmark_run(
     _print_leaderboard(results)
 
     if results.failed_tasks:
-        console.print(f"\n[red]{len(results.failed_tasks)} task(s) failed[/red]")
+        n_failed = len(results.failed_tasks)
+        console.print(f"\n[red]{_count(n_failed, 'task')} failed[/red]")
     console.print(f"Output: {escape(config.effective_output_dir())}", soft_wrap=True)
     _release_backend()
     _exit_if_tasks_failed(results)
@@ -1762,6 +1783,7 @@ def benchmark_experiment(
         exp.config._resolved_output_dir = latest
         console.print(f"Resuming from {escape(latest)}", soft_wrap=True)
 
+    _require_vector_backend()
     cp = CheckpointManager(exp.config.checkpoint_dir or exp.config.effective_output_dir())
     if not resume:
         # When not resuming, clear any stale checkpoints from a previous run
@@ -2487,8 +2509,9 @@ def plugins_list():
     failed = [e for e in entries if not e["ok"]]
     if failed:
         console.print(
-            f"\n[yellow]{len(failed)} plugin(s) failed to load and are silently absent "
-            f"from the registry.[/yellow] Re-run with LASAGNA_STRICT_PLUGINS=1 to raise."
+            f"\n[yellow]{_count(len(failed), 'plugin')} failed to load and "
+            f"{'is' if len(failed) == 1 else 'are'} silently absent from the "
+            f"registry.[/yellow] Re-run with LASAGNA_STRICT_PLUGINS=1 to raise."
         )
         raise typer.Exit(1)
 

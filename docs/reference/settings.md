@@ -441,7 +441,7 @@ environment only: not from the settings file, and not per session.
 | `LASAGNA_DATA_DIR`, `RAG_DATA_DIR` | `~/.lasagna` | Where Lasagna keeps its data. |
 | `LASAGNA_DB_DIR`, `RAG_DB_DIR` | <data dir>/dbs | The databases and the local vector stores. |
 | `LASAGNA_UPLOAD_DIR`, `RAG_UPLOAD_DIR` | <data dir>/uploads | Stored uploads. |
-| `LASAGNA_SETTINGS_FILE`, `RAG_SETTINGS_FILE` | the packaged settings.lasagna.toml | The settings file to read instead of the packaged one. |
+| `LASAGNA_SETTINGS_FILE`, `RAG_SETTINGS_FILE` | the packaged settings.lasagna.toml | The settings file to read instead of the packaged one; a path with no file there stops the process with an error. |
 | `LASAGNA_LLM_CACHE` | `on` | 0, false, no or off turns the LLM response cache off for every run. |
 | `LASAGNA_STRICT_PLUGINS` | unset | Set: a plugin that fails to load raises instead of being reported and skipped. |
 | `RAG_LANGFUSE_TRACING` | `false` | Send LLM traces to Langfuse (needs the langfuse package and its keys). |

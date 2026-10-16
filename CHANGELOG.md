@@ -855,6 +855,13 @@ First run:
   process and one model load per file. It takes several paths and glob
   patterns (`lasagna upload ./docs/*.md -s my-corpus`) through one client,
   reports a row per file, and exits 1 when any failed.
+- `RAG_VECTOR_BACKEND=milvuss lasagna benchmark run smoke` ran, failed its
+  task and advised pointing RAG_DB_DIR at a new directory. `upload`,
+  `search`, `serve`, `benchmark run` and `benchmark experiment` check the
+  backend name first and stop with the likely name and the list, as `doctor`
+  does. `RAG_SETTINGS_FILE` (or `LASAGNA_SETTINGS_FILE`) naming a file that
+  does not exist is an error; it logged a warning and ran on the packaged
+  settings. "1 task(s) failed" and "plugin(s)" are pluralized.
 
 Requests to current models:
 

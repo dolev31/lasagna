@@ -434,7 +434,8 @@ SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
     "LASAGNA_SETTINGS_FILE": (
         "Paths and the process",
         "the packaged settings.lasagna.toml",
-        "The settings file to read instead of the packaged one.",
+        "The settings file to read instead of the packaged one; a path with no file "
+        "there stops the process with an error.",
         ("RAG_SETTINGS_FILE",),
     ),
     "LASAGNA_LLM_CACHE": (
@@ -828,9 +829,17 @@ class RAGConfig:
                     root_path=str(override_path.parent),
                     settings_files=[str(override_path)],
                 )
-            logger.warning(
-                f"Settings file {settings_file_env} (LASAGNA_SETTINGS_FILE or "
-                f"RAG_SETTINGS_FILE) not found; using the packaged settings.lasagna.toml"
+            # It warned and ran on the packaged settings, so a typo in the path
+            # silently ran a different configuration from the one named.
+            name = (
+                "LASAGNA_SETTINGS_FILE"
+                if os.environ.get("LASAGNA_SETTINGS_FILE")
+                else "RAG_SETTINGS_FILE"
+            )
+            raise ConfigError(
+                f"{name} is {settings_file_env}, and no file is there ({override_path}). "
+                f"Point {name} at an existing settings file, or unset it to use the "
+                f"packaged settings.lasagna.toml."
             )
 
         knowledge_toml_path = knowledge_module_dir / "settings.lasagna.toml"
