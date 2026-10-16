@@ -470,8 +470,9 @@ class CollectionManager:
     def needs_schema_migration(self, backend: VectorStoreAdapter, collection_name: str) -> bool:
         """Check if an existing collection has the old INT64 chunk_id schema."""
         try:
-            info = backend.describe_collection(collection_name)
-            for field in info.fields:
+            # The fields alone: a row count that cannot be read must not
+            # hide an old schema.
+            for field in backend.describe_fields(collection_name):
                 name = (
                     field.get("name", "") if isinstance(field, dict) else getattr(field, "name", "")
                 )

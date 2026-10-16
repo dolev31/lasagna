@@ -324,7 +324,11 @@ class OpenSearchBackend(VectorStoreAdapter):
     def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
         client = self._ensure_connected()
         stats = client.indices.stats(index=collection_name)
-        idx_stats = stats.get("indices", {}).get(collection_name, {}).get("primaries", {})
+        idx_stats = (stats.get("indices", {}).get(collection_name) or {}).get("primaries")
+        if not idx_stats or "docs" not in idx_stats:
+            # Not zero rows: a count read as 0 lets an emptiness check drop
+            # the index (see collection_is_empty).
+            raise RuntimeError(f"OpenSearch returned no document count for {collection_name!r}")
         return {
             "row_count": idx_stats.get("docs", {}).get("count", 0),
             "index_size_bytes": idx_stats.get("store", {}).get("size_in_bytes", 0),

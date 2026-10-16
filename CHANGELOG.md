@@ -477,6 +477,11 @@ Server and deployment:
   failure is reported in `degraded_stages` as `routing`. Under evaluation a
   failed agentic search fails the task instead of being scored with standard
   results.
+- **A Milvus collection whose row count cannot be read is no longer treated as
+  empty and dropped.** `get_collection_stats` returned 0 on any error, which
+  the identity check, an insert rebuild and MCP `reindex_document
+  --force_rebuild` took for an empty collection. OpenSearch raises the same
+  way.
 
 Numbers that were wrong:
 
