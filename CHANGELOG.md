@@ -694,8 +694,11 @@ Servers and deployment:
   A process keeps each model it has loaded (up to five) instead of reloading
   one whenever the session changes.
 - The CI lint job failed on its first run (two mypy errors in
-  `sdk/integrations/inbound.py`), and the secret scan on nine false positives
-  missing from `.secrets.baseline`. `scripts/ci-local.sh` now also runs the
+  `sdk/integrations/inbound.py`), the secret scan on nine false positives
+  missing from `.secrets.baseline`, and the step that runs the tests loading
+  real embedding weights on the openai, cohere and voyage embedders, which the
+  conformance test constructed without their package or key (it now passes
+  them a stand-in client). `scripts/ci-local.sh` now also runs the
   license check, the dependency audit and the internal-reference grep as CI
   does, and with `--full` the release build, the distribution check
   (`scripts/check_dist.py`, shared with the release workflow) and the wheel
