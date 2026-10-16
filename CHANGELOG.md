@@ -152,55 +152,6 @@ Results:
 
 Servers and deployment:
 
-- **A process that had read a session never saw later changes to it** with
-  session settings in PostgreSQL, so a profile applied through one api worker
-  missed the other workers, the Celery worker and the MCP server; and the
-  worker indexed with the model it had loaded, not the session's, into a
-  collection nobody had created. Sessions are re-read once a second, and the
-  task makes the session's embedder and collection current before indexing.
-- **No upload ever reached the Celery worker, and the worker ran no task.**
-  The api dispatches from a threadpool thread, where Celery's current app was
-  its unconfigured default (AMQP on localhost), so every `.delay()` failed
-  with "Connection refused" and the api processed the upload itself. And the
-  worker's `autodiscover_tasks` imported a module that does not exist, so it
-  discarded every upload and GC run as an unregistered task while its
-  healthcheck passed. The app is the default for all threads and lists the
-  task module; found running the live tests against the compose stack.
-- **A session's settings overrode the environment with the settings file's.**
-  Search reads a session's settings above the environment, and was handed the
-  active profile's whole configuration, settings file included. With the
-  persistent session backend (the default of `lasagna` and `lasagna-mcp`),
-  every session searched with the file's `vector_backend` and
-  `embedding_model` whatever `RAG_VECTOR_BACKEND` and `RAG_EMBEDDING_MODEL`
-  said; with the in-memory one, any session that applied a profile did. A
-  profile now sets only its own settings. The compose stack and the
-  Kubernetes ConfigMap set `RAG_SESSION_BACKEND=persistent`, so the api's
-  workers, the Celery worker and the MCP server see one session's settings
-  alike; in memory, two requests of a session could get different settings.
-- **`KnowledgeClient.from_url` failed against a server with auth on, and its
-  `close()` raised `AttributeError`.** It never sent `X-Session-Token`, so
-  `RAG_REQUIRE_AUTH=true` answered 401 to every call. With `api_key` (a key
-  from `RAG_API_KEYS`) it mints a session token on the first 401;
-  `session_token=` sends one minted already.
-- **The Docker image had no Qdrant, Weaviate or Pinecone client**, so the
-  stack built with those fragments never passed its readiness check. The
-  Dockerfile's `VECTOR_BACKEND` build argument installs the client (and fails
-  the build if it does not import), the three fragments set it, and `make
-  validate` refuses an existing image built without that client.
-- **Without the `celery` profile, uploads waited for a worker that never
-  ran.** Compose set `RAG_CELERY_ENABLED=true` whatever the profiles, and
-  with Redis reachable the api queued every upload. `make` now derives the
-  setting from `COMPOSE_PROFILES`, `make validate` refuses `true` without the
-  profile, and the api queues an upload only when a worker answers on the
-  broker, otherwise processing it in its own threads and logging why. GC is
-  scheduled inside the api in the same case; it was left to a Beat that was
-  not running.
-- **Orphan repair deleted the vectors of documents it should keep.** Detection
-  counted only `ready` rows, so a document still uploading, processing or
-  indexing, one in `error` and an archived one were vector-only orphans, and a
-  repair (the Celery scan with `dry_run=False`, `POST /admin/gc/repair`)
-  deleted their vectors. A vector is an orphan only when no row in any status
-  owns it, and repair checks again before deleting.
 - **Search responses name the stages that fell back.** `degraded_stages` lists
   `hyde`, `graphrag`, `hybrid`, `query_expansion` or `agentic` when that stage
   failed and the search carried on with less; each fallback is also counted in
@@ -618,6 +569,55 @@ Servers and deployment:
   `uri`, so `backends/milvus.yml` and `MILVUS_URI` wrote to a file inside each
   container. A configured server address wins, the log names the store opened,
   and a `db_path` set together with a server address is an error naming both.
+- **Orphan repair deleted the vectors of documents it should keep.** Detection
+  counted only `ready` rows, so a document still uploading, processing or
+  indexing, one in `error` and an archived one were vector-only orphans, and a
+  repair (the Celery scan with `dry_run=False`, `POST /admin/gc/repair`)
+  deleted their vectors. A vector is an orphan only when no row in any status
+  owns it, and repair checks again before deleting.
+- **Without the `celery` profile, uploads waited for a worker that never
+  ran.** Compose set `RAG_CELERY_ENABLED=true` whatever the profiles, and
+  with Redis reachable the api queued every upload. `make` now derives the
+  setting from `COMPOSE_PROFILES`, `make validate` refuses `true` without the
+  profile, and the api queues an upload only when a worker answers on the
+  broker, otherwise processing it in its own threads and logging why. GC is
+  scheduled inside the api in the same case; it was left to a Beat that was
+  not running.
+- **The Docker image had no Qdrant, Weaviate or Pinecone client**, so the
+  stack built with those fragments never passed its readiness check. The
+  Dockerfile's `VECTOR_BACKEND` build argument installs the client (and fails
+  the build if it does not import), the three fragments set it, and `make
+  validate` refuses an existing image built without that client.
+- **No upload ever reached the Celery worker, and the worker ran no task.**
+  The api dispatches from a threadpool thread, where Celery's current app was
+  its unconfigured default (AMQP on localhost), so every `.delay()` failed
+  with "Connection refused" and the api processed the upload itself. And the
+  worker's `autodiscover_tasks` imported a module that does not exist, so it
+  discarded every upload and GC run as an unregistered task while its
+  healthcheck passed. The app is the default for all threads and lists the
+  task module; found running the live tests against the compose stack.
+- **A session's settings overrode the environment with the settings file's.**
+  Search reads a session's settings above the environment, and was handed the
+  active profile's whole configuration, settings file included. With the
+  persistent session backend (the default of `lasagna` and `lasagna-mcp`),
+  every session searched with the file's `vector_backend` and
+  `embedding_model` whatever `RAG_VECTOR_BACKEND` and `RAG_EMBEDDING_MODEL`
+  said; with the in-memory one, any session that applied a profile did. A
+  profile now sets only its own settings. The compose stack and the
+  Kubernetes ConfigMap set `RAG_SESSION_BACKEND=persistent`, so the api's
+  workers, the Celery worker and the MCP server see one session's settings
+  alike; in memory, two requests of a session could get different settings.
+- **A process that had read a session never saw later changes to it** with
+  session settings in PostgreSQL, so a profile applied through one api worker
+  missed the other workers, the Celery worker and the MCP server; and the
+  worker indexed with the model it had loaded, not the session's, into a
+  collection nobody had created. Sessions are re-read once a second, and the
+  task makes the session's embedder and collection current before indexing.
+- **`KnowledgeClient.from_url` failed against a server with auth on, and its
+  `close()` raised `AttributeError`.** It never sent `X-Session-Token`, so
+  `RAG_REQUIRE_AUTH=true` answered 401 to every call. With `api_key` (a key
+  from `RAG_API_KEYS`) it mints a session token on the first 401;
+  `session_token=` sends one minted already.
 - **Uploads processed by the Celery worker failed.** The api stored a file
   inside its own container and passed the path to the worker, which had no such
   file. The api, worker and mcp share an `uploads-data` volume at
