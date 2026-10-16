@@ -569,8 +569,30 @@ _MARKETING = re.compile(
 _NOT_OUR_PROSE = ("CHANGELOG.md", "DATASETS.md")
 
 
+def _markdown_files():
+    """The repository's Markdown files: tracked ones in a git checkout.
+
+    A plain walk also read git-ignored output, such as the copy of the docs a
+    package build leaves under build/lib, and failed on prose that ships
+    nowhere.
+    """
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "-z", "--", "*.md"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            check=True,
+        ).stdout.decode()
+    except (OSError, subprocess.CalledProcessError):
+        ignored = {"build", "dist", "node_modules"}
+        return [p for p in sorted(REPO_ROOT.rglob("*.md")) if not ignored & set(p.parts)]
+    return [REPO_ROOT / name for name in sorted(filter(None, out.split("\0")))]
+
+
 def _shipped_markdown(skip=_NOT_OUR_PROSE):
-    for path in sorted(REPO_ROOT.rglob("*.md")):
+    for path in _markdown_files():
         rel = path.relative_to(REPO_ROOT)
         if rel.parts[0].startswith(".") or "node_modules" in rel.parts:
             continue
