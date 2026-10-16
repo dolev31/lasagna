@@ -1143,6 +1143,12 @@ Servers and deployment:
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except
   `.env.example`, key files, virtual environments, `.git`, build output,
   caches and test artifacts out of the build.
+- `GET /` advertised `/configurator`, which answered 404 in a source checkout
+  where the page is not built; it now says it is not built and how to build
+  it, as the `serve` banner does. `/docs` loads Swagger UI from a CDN and was
+  blank offline: it serves the `swagger-ui-bundle` package's copy when that
+  is installed, and otherwise shows, when the bundle cannot load, where the
+  schema and the endpoint reference are.
 
 ### Known issues
 

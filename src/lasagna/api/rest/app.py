@@ -407,6 +407,53 @@ def _require_a_shared_signing_secret() -> None:
         raise ValueError(str(exc)) from exc
 
 
+#: Shown on /docs when the browser could not load Swagger UI.
+_DOCS_OFFLINE_NOTE = (
+    "The interactive reference loads Swagger UI from cdn.jsdelivr.net, which this "
+    "browser could not reach. The API's schema is at <a href='/openapi.json'>/openapi.json</a>, "
+    "and every endpoint is described in "
+    "<a href='https://github.com/dolev31/lasagna/blob/main/src/lasagna/api/docs/endpoints.md'>"
+    "endpoints.md</a>. To serve Swagger UI from this server instead: "
+    "pip install swagger-ui-bundle."
+)
+
+
+def _mount_docs(app: FastAPI) -> None:
+    """``/docs``: Swagger UI from the ``swagger-ui-bundle`` package when installed.
+
+    Otherwise from the CDN, as FastAPI does, plus a note that appears when the
+    bundle did not load: offline, /docs was a blank page.
+    """
+    from fastapi.openapi.docs import get_swagger_ui_html
+    from fastapi.responses import HTMLResponse
+
+    urls = {}
+    try:
+        from swagger_ui_bundle import swagger_ui_path
+        from fastapi.staticfiles import StaticFiles
+
+        app.mount("/docs-assets", StaticFiles(directory=swagger_ui_path), name="docs-assets")
+        urls = {
+            "swagger_js_url": "/docs-assets/swagger-ui-bundle.js",
+            "swagger_css_url": "/docs-assets/swagger-ui.css",
+        }
+    except ImportError:
+        pass
+
+    @app.get("/docs", include_in_schema=False)
+    async def docs():
+        page = get_swagger_ui_html(
+            openapi_url=app.openapi_url, title=f"{app.title} - Swagger UI", **urls
+        ).body.decode()
+        note = (
+            "<script>if (typeof SwaggerUIBundle === 'undefined') {"
+            "document.body.insertAdjacentHTML('afterbegin', "
+            f"\"<p style='font-family:sans-serif;max-width:46em;margin:2em'>{_DOCS_OFFLINE_NOTE}</p>\");"
+            "}</script>"
+        )
+        return HTMLResponse(page.replace("</body>", note + "</body>"))
+
+
 def create_app(
     title: str = "Lasagna API",
     cors_origins: Optional[list[str]] = None,
@@ -430,7 +477,9 @@ def create_app(
         ),
         version=_package_version(),
         lifespan=_lifespan,
+        docs_url=None,  # served below, with what to do when Swagger UI cannot load
     )
+    _mount_docs(app)
 
     # -- CORS ---------------------------------------------------------------
     # Explicit origins from RAG_CORS_ORIGINS (comma-separated), then the
@@ -617,14 +666,31 @@ def create_app(
     # -- Root ---------------------------------------------------------------
     @app.get("/", include_in_schema=False)
     async def root():
-        return {
+        page = None
+        note = None
+        if _configurator_enabled:
+            from lasagna.configurator import FRONTEND_DIST
+
+            # From a source checkout the page is not built, and /configurator
+            # answered 404 although this advertised it (as the serve banner did).
+            if FRONTEND_DIST.is_dir():
+                page = "/configurator"
+            else:
+                note = (
+                    "not built in this checkout (cd src/lasagna/configurator/frontend && "
+                    "npm ci && npm run build); its API is at /configurator/api"
+                )
+        body = {
             "service": "Lasagna",
             "version": _package_version(),
             "docs": "/docs",
             "api": "/api/v1",
             "mcp": "/mcp/sse" if _mcp_embedded else None,
-            "configurator": "/configurator" if _configurator_enabled else None,
+            "configurator": page,
         }
+        if note:
+            body["configurator_note"] = note
+        return body
 
     return app
 
