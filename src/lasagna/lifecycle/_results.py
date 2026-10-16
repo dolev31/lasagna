@@ -121,6 +121,14 @@ class ConsistencyReport:
     scan_limited: bool = False
     vector_scan_limit: int = 50_000
     estimated_unscanned: Optional[int] = None
+    # Why the stores could not be compared in full (the vector scan failed or
+    # stopped at the limit). An incomplete report lists no orphans, and repair
+    # refuses it: a document missing from a partial scan is not missing.
+    incomplete_reason: Optional[str] = None
+
+    @property
+    def incomplete(self) -> bool:
+        return self.incomplete_reason is not None or self.scan_limited
 
     @property
     def db_only_count(self) -> int:
@@ -132,7 +140,7 @@ class ConsistencyReport:
 
     @property
     def is_consistent(self) -> bool:
-        return len(self.orphans) == 0
+        return not self.incomplete and len(self.orphans) == 0
 
     def to_dict(self) -> Dict:
         return {
@@ -147,6 +155,8 @@ class ConsistencyReport:
             "scan_limited": self.scan_limited,
             "vector_scan_limit": self.vector_scan_limit,
             "estimated_unscanned": self.estimated_unscanned,
+            "incomplete": self.incomplete,
+            "incomplete_reason": self.incomplete_reason,
             "orphans": [{"document_id": o.document_id, "kind": o.kind} for o in self.orphans],
         }
 
@@ -159,6 +169,9 @@ class RepairReport:
     repaired_db_only: int = 0  # DB-only orphans deleted from DB
     repaired_vector_only: int = 0  # Vector-only orphans deleted from vector backend
     errors: int = 0
+    # Set when repair changed nothing because its report was incomplete.
+    aborted: bool = False
+    abort_reason: Optional[str] = None
 
     def to_dict(self) -> Dict:
         return {
@@ -166,6 +179,8 @@ class RepairReport:
             "repaired_db_only": self.repaired_db_only,
             "repaired_vector_only": self.repaired_vector_only,
             "errors": self.errors,
+            "aborted": self.aborted,
+            "abort_reason": self.abort_reason,
         }
 
 

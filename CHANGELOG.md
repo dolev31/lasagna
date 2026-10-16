@@ -669,6 +669,13 @@ Servers and deployment:
 - `benchmark leaderboard <folder>` failed with "Unknown format".
 - `lasagna serve` and MCP tools on a store another process holds logged an
   ERROR line in addition to the reply that says so.
+- **Orphan repair archived every document when the vector scan failed.** A
+  scan error was read as "no vectors", so every ready document looked
+  orphaned and `POST /admin/gc/repair?dry_run=false` (or the weekly scan)
+  archived all of them; a scan that stopped at its 50,000-document limit did
+  the same past the limit. Such a report is `incomplete`, names the reason
+  and lists no orphans, and repair returns `aborted` without changing
+  anything.
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except

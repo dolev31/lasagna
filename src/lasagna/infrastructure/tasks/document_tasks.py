@@ -351,6 +351,11 @@ if shared_task is not None:
 
             backend = get_rag_backend()
             report = backend.detect_orphans()
+            if report.incomplete:
+                logger.warning(
+                    f"Orphan scan incomplete, nothing repaired: {report.incomplete_reason}"
+                )
+                return {"dry_run": dry_run, "incomplete": report.incomplete_reason}
             db_only_count = report.db_only_count
             vec_only_count = report.vector_only_count
             total = db_only_count + vec_only_count

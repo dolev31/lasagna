@@ -231,8 +231,10 @@ async def detect_orphans(
       (likely a failed ingestion).
     - ``vec_only``: Chunks in the vector store with no DB record
       (likely a leaked vector after a hard-delete failure).
-    - ``scan_limited``: True if the vector scan hit ``vector_scan_limit`` and
-      results may be incomplete.
+    - ``scan_limited``: True if the vector scan hit ``vector_scan_limit``.
+    - ``incomplete``/``incomplete_reason``: the vector scan failed or hit the
+      limit, so no orphans are reported (a document the scan did not reach is
+      not missing) and repair refuses to run.
 
     This endpoint is **read-only**: it does not modify any data.
     Pass the report to ``POST /admin/gc/repair`` to fix the issues.
@@ -246,6 +248,8 @@ async def detect_orphans(
             "scan_limited": report.scan_limited,
             "vector_scan_limit": report.vector_scan_limit,
             "estimated_unscanned": report.estimated_unscanned,
+            "incomplete": report.incomplete,
+            "incomplete_reason": report.incomplete_reason,
             "db_only": [
                 {"document_id": o.document_id, "kind": o.kind}
                 for o in report.orphans
@@ -273,7 +277,9 @@ async def repair_orphans(
 ) -> Dict[str, Any]:
     """Detect and repair orphaned data.
 
-    First runs orphan detection, then repairs found orphans.
+    First runs orphan detection, then repairs found orphans. When the vector
+    scan failed or hit its limit nothing is changed, and ``aborted`` and
+    ``abort_reason`` say why.
 
     Args:
         dry_run: When ``true`` (default), returns the repair plan without
@@ -290,6 +296,8 @@ async def repair_orphans(
             "db_records_deleted": repair.repaired_db_only,
             "vectors_deleted": repair.repaired_vector_only,
             "errors": repair.errors,
+            "aborted": repair.aborted,
+            "abort_reason": repair.abort_reason,
         }
     except Exception as exc:
         logger.error(f"Orphan repair failed: {exc}")

@@ -121,8 +121,13 @@ environment), not from one changed at runtime.
 
 `OrphanDetector.detect()` compares the metadata database with the distinct
 `document_id` values in the collection of the server's default configuration,
-read through the backend's `list_document_ids()`, at most 50,000 of them (past
-that the report sets `scan_limited`).
+read through the backend's `list_document_ids()`, at most 50,000 of them.
+
+When that scan fails or stops at the limit, the report sets `incomplete` and
+`incomplete_reason` and lists no orphans, because a document the scan did not
+reach is not missing its vectors. Repair then changes nothing and returns
+`aborted: true` with the reason. For a larger collection, scan one session at
+a time (`?session_id=...`).
 
 | Kind | Meaning | `repair(dry_run=False)` |
 | --- | --- | --- |
