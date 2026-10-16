@@ -43,7 +43,10 @@ class _Ranked(BaseRetriever):
         docs = ranked(query)[:top_k]
         return [
             ScoredDocument(
-                content=smoke._CORPUS[d], score=1.0 - i / 100, document_id=d, chunk_id=f"c-{d}"
+                content=f"PASSAGE{i}: {smoke._CORPUS[d]}",
+                score=1.0 - i / 100,
+                document_id=d,
+                chunk_id=f"c-{d}",
             )
             for i, d in enumerate(docs)
         ]
@@ -145,13 +148,18 @@ class _Pipeline:
 
     def replace(self, slot, name):
         self._component_names[slot] = name
+        self._instances.pop(slot, None)
         return self
 
     def _apply_session_config(self, session_id):
         pass
 
     def get_component(self, slot):
-        return None
+        if slot not in self._instances and slot in self._component_names:
+            from lasagna.core.registry import registry
+
+            self._instances[slot] = registry.get(slot, self._component_names[slot])
+        return self._instances.get(slot)
 
     def query(self, question, k, session_id, config):
         _Pipeline.configs.append(dict(config))

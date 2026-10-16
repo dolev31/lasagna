@@ -160,7 +160,8 @@ class TestQueryExpansionUsesSyncPath:
 
         from lasagna.api._search_orchestrator import _query_variations
 
-        source = executable_source(SearchOrchestrator.search_multi_query)
+        # The fusion itself; search_multi_query presents what it returns.
+        source = executable_source(SearchOrchestrator._search_multi_query_ranked)
         assert "_query_variations" in source, (
             "search_multi_query should get its variations through _query_variations"
         )

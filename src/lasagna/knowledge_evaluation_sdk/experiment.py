@@ -144,7 +144,12 @@ _CORPUS_ID_MAP: Dict[str, str] = {
 
 
 from lasagna.utils.token_usage import EVAL, SYSTEM, TokenUsage, UsageMeter  # noqa: E402
-from lasagna.core.strict import observe_reranking  # noqa: E402
+from lasagna.core.strict import (  # noqa: E402
+    ContextPresentation,
+    lost_in_the_middle,
+    observe_reranking,
+    present_context_order,
+)
 
 # There was a `_get_cost_rates` here, and a `_DEFAULT_COST_TABLE` behind it,
 # converting token counts to dollars. Both are gone. The token counts they
@@ -4181,12 +4186,21 @@ async def _eval_live(
             for gen_sample in gen_samples:
                 query_start = time.monotonic()
                 search_results = []
+                # The search returns its list in ranked order and says whether
+                # it would have reordered it; the passages kept are reordered
+                # below. Reordered by the search, the first five of its ten
+                # were ranks 1, 3, 5, 7 and 9.
+                _presented = ContextPresentation()
                 if _needs_context:
                     try:
                         # 5-min per-sample timeout: guards against silent LLM gateway
                         # hangs where the TCP connection is established but the server
                         # never sends a response (no exception, just indefinite block).
-                        with gen_meter, gen_meter.scope(SYSTEM):
+                        with (
+                            gen_meter,
+                            gen_meter.scope(SYSTEM),
+                            present_context_order() as _presented,
+                        ):
                             search_results = await asyncio.wait_for(
                                 asyncio.to_thread(
                                     pipeline.query,
@@ -4205,12 +4219,17 @@ async def _eval_live(
                         search_results = []
                 query_latency_ms = (time.monotonic() - query_start) * 1000
 
-                # Extract text from retrieved chunks.
+                # Extract text from retrieved chunks, in ranked order.
                 contexts = [
                     r.chunk.content
                     for r in search_results
                     if hasattr(r, "chunk") and hasattr(r.chunk, "content") and r.chunk.content
                 ]
+
+                def _shown(k: int, _contexts=contexts, _reorder=_presented.reorder) -> List[str]:
+                    """The first k passages, in the order the generator reads them."""
+                    kept = list(_contexts[:k])
+                    return lost_in_the_middle(kept) if _reorder else kept
 
                 # Track agentic fallback. The orchestrator stamps the tier that
                 # actually ran on the first result; a failed agentic run falls
@@ -4269,7 +4288,7 @@ async def _eval_live(
                         with gen_meter, gen_meter.scope(SYSTEM):
                             answer, _drafts = await spec_rag.generate(
                                 query=gen_sample.question,
-                                contexts=contexts[:10],
+                                contexts=_shown(10),
                             )
                         _generation_ms = (time.monotonic() - _attempt_t0) * 1000
                         logger.debug(
@@ -4288,7 +4307,7 @@ async def _eval_live(
                     and (answer_llm or _generator)
                     and (contexts or not _needs_context)
                 ):
-                    ctx_text = "\n\n".join(contexts[:_context_k])
+                    ctx_text = "\n\n".join(_shown(_context_k))
                     prompt = (
                         "Answer the following question in ONE concise sentence "
                         "based only on the provided context. "
@@ -4310,7 +4329,7 @@ async def _eval_live(
                                         asyncio.to_thread(
                                             _generator.generate,
                                             gen_sample.question,
-                                            list(contexts[:_context_k]),
+                                            _shown(_context_k),
                                             llm=answer_llm,
                                             instructions=_abstain,
                                         ),
@@ -4377,7 +4396,9 @@ async def _eval_live(
                 # Pass the SAME contexts used for generation to RAGAS.
                 # Standard generation uses the generator's context_k (top 5
                 # unless it says otherwise); speculative RAG uses top 10.
-                # Must match to avoid faithfulness metric mismatch.
+                # Must match to avoid faithfulness metric mismatch. In ranked
+                # order, whatever order the generator read them in: context
+                # precision weighs each passage by its rank.
                 _ctx_k = 10 if _speculative else _context_k
                 gen_contexts.append(contexts[:_ctx_k])
                 gen_ground_truths.append(gen_sample.ground_truth)
@@ -4447,7 +4468,7 @@ async def _eval_live(
                 if _save_traj == "full":
                     _gen_sample_metrics["_generated_answer"] = answer[:2000]
                     _gen_sample_metrics["_retrieved_contexts"] = [
-                        c[:500] for c in contexts[:_context_k]
+                        c[:500] for c in _shown(_context_k)
                     ]
                     _gen_sample_metrics["_ground_truth"] = _gt[:500]
                     _gen_sample_metrics["_question"] = gen_sample.question[:500]

@@ -270,6 +270,12 @@ Metric definitions and results (`METRICS_VERSION` 1.6):
   ends, so the second-ranked document fell below the cut to `k`. Retrieval
   numbers from those profiles change; the speed profile's do not. The stage
   manifest records the order each track used (`context_order`).
+- Under those profiles the generator reads the top five passages reordered.
+  The search reordered all ten it returned and the harness kept the first
+  five, so the generator read ranks 1, 3, 5, 7 and 9 and never the second
+  best. The judge sees the same five in ranked order. Query fusion
+  (`enable_rag_fusion`, `enable_query_expansion`) fuses each variation's ranked
+  list and reorders the fused list; it read reordered positions as ranks.
 - An answer counts as an abstention only when it opens with one, so a hedge
   later in the answer no longer zeroes exact match and token F1. Answers are
   normalized in the official SQuAD order.

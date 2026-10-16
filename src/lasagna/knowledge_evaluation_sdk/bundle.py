@@ -76,7 +76,12 @@ from typing import Any, Dict, List, Optional
 #: base_profile) it scored the order the generator reads instead: even ranks
 #: first, odd ranks reversed at the end, so rank 2 fell below the cut to k.
 #: Profiles and arms with reordering off (speed) score as before. The stage
-#: manifest records which order each track used (``context_order``).
+#: manifest records which order each track used (``context_order``). In the
+#: generation track the search reordered all ten passages and the harness kept
+#: the first five, so the generator read ranks 1, 3, 5, 7 and 9; it now reads
+#: ranks 1 to 5 reordered, and the judge sees them in ranked order (context
+#: precision weighs each passage by its rank). Query fusion fuses each
+#: variation's ranked list, where it read reordered positions as ranks.
 METRICS_VERSION = "1.6"
 
 #: Bundle schema version. Consumers accept >=1.0,<2.0.

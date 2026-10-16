@@ -31,7 +31,7 @@ from ..retrieval.search.hybrid import HybridSearcher
 from ..retrieval.search.ranker import CombinedReranker, RerankedResult
 from ..retrieval.enhancement.enhancer import QueryEnhancer
 from ..retrieval.routing import get_query_router, RoutingTier
-from ..core.strict import strict_stages
+from ..core.strict import claim_context_presentation, lost_in_the_middle, strict_stages
 from lasagna.agentic.citation_manager import CitationManager, Citation
 from lasagna.utils.monitoring import METRICS, log_json, log_json_debug, hash_text
 from lasagna.utils.tracing import TRACER
@@ -295,6 +295,9 @@ class SearchOrchestrator:
         Returns:
             List of search results
         """
+        # The outermost search of a caller that presents the passages itself
+        # (the evaluation's generation track) returns them in ranked order.
+        presentation = None if (_from_routing or _from_fusion) else claim_context_presentation()
         if _from_routing:
             # A search an agentic pipeline issued: the arm's components, unless
             # the pipeline named its own.
@@ -447,6 +450,8 @@ class SearchOrchestrator:
                 _embedder_override=_embedder_override,
                 _from_routing=True,
                 query_config_overrides=query_config_overrides,
+                _context_reordering=_effective_context_reordering,
+                _presentation=presentation,
             )
 
         # Quota enforcement — early reject if rate limit exceeded
@@ -1136,8 +1141,10 @@ class SearchOrchestrator:
 
         # Lost-in-the-middle reordering: place best results at start and end
         # LLMs attend better to the beginning and end of context (arXiv:2406.16008)
-        if _effective_context_reordering and len(reranked) > 2:
-            reranked = self._reorder_for_context(reranked)
+        # Not for a query variation: fusion reads its list as ranks, and
+        # reorders the fused list instead.
+        if not _from_fusion:
+            reranked = self._present(reranked, _effective_context_reordering, presentation)
 
         # Context compression: reduce chunk content to query-relevant portions
         if getattr(config, "enable_context_compression", False) and reranked:
@@ -1577,8 +1584,57 @@ class SearchOrchestrator:
         _embedder_override: Optional[Any] = None,
         _from_routing: bool = False,
         query_config_overrides: Optional[Dict[str, Any]] = None,
+        _context_reordering: Optional[bool] = None,
+        _presentation: Optional[Any] = None,
     ) -> List[SearchResult]:
-        """Search with query expansion and RRF-based result fusion.
+        """Search with query expansion and RRF-based result fusion, then present the list.
+
+        The variations are searched and fused in ranked order; context
+        reordering, when on, applies to the fused list. Each variation's list
+        used to come back reordered, so the fusion read rank 2 as the last
+        rank, and the fused list was never reordered.
+
+        ``_context_reordering`` is the calling search's effective setting (the
+        routing tier can turn it off); ``_presentation`` is its
+        :class:`~lasagna.core.strict.ContextPresentation`, if any.
+        """
+        if _presentation is None and not _from_routing:
+            _presentation = claim_context_presentation()
+        results = self._search_multi_query_ranked(
+            query=query,
+            session_id=session_id,
+            top_k=top_k,
+            document_ids=document_ids,
+            n_variations=n_variations,
+            trace_id=trace_id,
+            _reranker_override=_reranker_override,
+            _retriever_override=_retriever_override,
+            _enhancer_override=_enhancer_override,
+            _embedder_override=_embedder_override,
+            query_config_overrides=query_config_overrides,
+        )
+        if _context_reordering is None:
+            config = self._get_session_config(session_id)
+            if query_config_overrides:
+                config = config.with_query_overrides(query_config_overrides)
+            _context_reordering = getattr(config, "enable_context_reordering", False)
+        return self._present(results, _context_reordering, _presentation)
+
+    def _search_multi_query_ranked(
+        self,
+        query: str,
+        session_id: str,
+        top_k: Optional[int] = None,
+        document_ids: Optional[List[str]] = None,
+        n_variations: int = 3,
+        trace_id: Optional[str] = None,
+        _reranker_override: Optional[Any] = None,
+        _retriever_override: Optional[Any] = None,
+        _enhancer_override: Optional[Any] = None,
+        _embedder_override: Optional[Any] = None,
+        query_config_overrides: Optional[Dict[str, Any]] = None,
+    ) -> List[SearchResult]:
+        """Search with query expansion and RRF-based result fusion, in ranked order.
 
         This technique:
         1. Generates query variations using the QueryExpander
@@ -2283,6 +2339,21 @@ class SearchOrchestrator:
     # Internal Helpers
     # =========================================================================
 
+    @classmethod
+    def _present(cls, results: List, reorder: bool, presentation: Optional[Any]) -> List:
+        """The list a search returns: reordered for the generator when ``reorder`` is on.
+
+        Inside :func:`~lasagna.core.strict.present_context_order` the caller
+        presents the passages it keeps, so the list stays in ranked order and
+        the record says it would have been reordered.
+        """
+        if not reorder or len(results) <= 2:
+            return results
+        if presentation is not None:
+            presentation.reorder = True
+            return results
+        return cls._reorder_for_context(results)
+
     @staticmethod
     def _reorder_for_context(results: List) -> List:
         """Reorder results to mitigate lost-in-the-middle effect.
@@ -2295,12 +2366,8 @@ class SearchOrchestrator:
 
         Reference: arXiv:2406.16008 (+15 percentage points improvement)
         """
-        start = results[0::2]  # Ranks 0, 2, 4, ... (best at start)
-        end = results[1::2]  # Ranks 1, 3, 5, ... (placed at end, reversed)
-        reordered = start + end[::-1]
-        logger.debug(
-            f"Context reordering: {len(results)} results reordered (start={len(start)}, end={len(end)})"
-        )
+        reordered = lost_in_the_middle(results)
+        logger.debug(f"Context reordering: {len(results)} results reordered")
         return reordered
 
     def _fetch_chunks_by_ids(

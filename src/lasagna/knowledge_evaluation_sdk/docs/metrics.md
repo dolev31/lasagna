@@ -39,6 +39,10 @@ what the generator reads, not a ranking. Before `METRICS_VERSION` 1.6 the
 retrieval track scored the reordered list. The stage manifest records the order
 each track used under the reranker stage's `context_order`.
 
+In the generation track the generator reads the first five passages (or its
+`context_k`), reordered when the arm turns reordering on, and the judge scores
+the same passages in ranked order.
+
 ### NDCG@k (Normalized Discounted Cumulative Gain)
 
 Primary ranking metric. Accounts for both relevance grades and rank position.
