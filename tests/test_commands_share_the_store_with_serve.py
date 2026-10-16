@@ -170,5 +170,13 @@ def test_an_mcp_tool_says_where_to_connect_when_serve_holds_the_store(monkeypatc
     monkeypatch.setattr(
         server, "get_rag_backend", lambda: pytest.fail("models loaded for a held store")
     )
-    out = asyncio.run(server.search("q", session_id="my-corpus"))
+    from loguru import logger
+
+    errors = []
+    sink = logger.add(lambda m: errors.append(m), level="ERROR")
+    try:
+        out = asyncio.run(server.search("q", session_id="my-corpus"))
+    finally:
+        logger.remove(sink)
     assert "http://127.0.0.1:8765/mcp/sse" in out and "lasagna serve --mcp" in out
+    assert not errors, "the reply says it; an ERROR line with a traceback repeated it"

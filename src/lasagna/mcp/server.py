@@ -45,6 +45,7 @@ from lasagna.api.rest.auth_mode import (
     require_auth_or_refuse_to_start,
     warn_once_if_unauthenticated,
 )
+from lasagna.core.local_server import StoreHeld as _StoreHeld
 from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_session
 from lasagna.mcp import transport_guard
 from lasagna.utils.monitoring import hash_text
@@ -338,7 +339,7 @@ def _refuse_a_held_store() -> None:
     if not local_server.local_store_held():
         return
     running = local_server.running_server()
-    raise RuntimeError(
+    raise local_server.StoreHeld(
         f"lasagna serve at {running} holds the local store, and this MCP server cannot "
         f"open it. Register the server's own MCP endpoint by URL instead of "
         f"lasagna-mcp: {running}/mcp/sse (start it with `lasagna serve --mcp`)."
@@ -434,7 +435,7 @@ def _log_tool_failure(what: str, exc: BaseException) -> None:
         held = _is_data_dir_locked(exc)
     except Exception:  # the backend module itself failed to import
         held = False
-    if held:
+    if held or isinstance(exc, (_StoreHeld, ModelNotDownloaded)):
         logger.debug("{}: {}", what, exc)
     else:
         logger.opt(exception=exc).error("{}: {}", what, exc)
@@ -4247,9 +4248,7 @@ def main():
         logger.info("Initializing RAG backend at startup (use --lazy-init to defer)...")
         try:
             _initialize_backend()
-        except RuntimeError as exc:
-            if "holds the local store" not in str(exc) and "using the local store" not in str(exc):
-                raise
+        except _StoreHeld as exc:
             print(exc, file=sys.stderr)
             sys.exit(1)
     else:

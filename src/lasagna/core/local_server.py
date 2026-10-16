@@ -19,6 +19,10 @@ from pathlib import Path
 from typing import Optional
 
 
+class StoreHeld(RuntimeError):
+    """Another process holds the local store; the message says which and the fix."""
+
+
 def _server_file() -> Path:
     from lasagna.core import paths
 
