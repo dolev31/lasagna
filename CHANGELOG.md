@@ -745,6 +745,13 @@ Servers and deployment:
   read the session configuration through a module path that no longer
   existed. It follows the rule the server's startup backend follows (`uri` in
   `vector_backend_config`, else `MILVUS_URI`, else Milvus Lite).
+- `--resume` restored checkpoints made under other library versions (torch,
+  transformers, sentence-transformers, ragas, pymilvus), another settings
+  file, another `variance_source` or another `max_concurrency`. The resume
+  key includes them, so such checkpoints are not restored.
+- `results.json` was written in place, so a crash or a full disk mid-write
+  left a truncated file where the last good one had been. It is written to a
+  temporary file, synced and renamed into place, like checkpoints.
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except

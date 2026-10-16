@@ -1494,7 +1494,9 @@ class Experiment:
         from .run_provenance import resume_fingerprint
 
         fingerprint = resume_fingerprint(
-            os.environ.get("RAG_EVAL_JUDGE_MODEL") or cfg.judge_model or None
+            os.environ.get("RAG_EVAL_JUDGE_MODEL") or cfg.judge_model or None,
+            variance_source=cfg.variance_source,
+            max_concurrency=cfg.max_concurrency,
         )
 
         for bench_spec in cfg.benchmarks:

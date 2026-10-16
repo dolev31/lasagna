@@ -226,16 +226,19 @@ class TestDeterminism:
 
 
 def test_a_checkpoint_reaches_the_disk_before_it_is_renamed_into_place(tmp_path, monkeypatch):
-    from pathlib import Path
-
     from lasagna.knowledge_evaluation_sdk import checkpoint
 
     order = []
-    real_rename = Path.rename
+    real_replace = os.replace
     monkeypatch.setattr(checkpoint.os, "fsync", lambda fd: order.append("fsync"), raising=False)
     monkeypatch.setattr(
-        Path, "rename", lambda self, target: (order.append("rename"), real_rename(self, target))[1]
+        checkpoint.os,
+        "replace",
+        lambda src, dst: (order.append("rename"), real_replace(src, dst))[1],
+        raising=False,
     )
     checkpoint.CheckpointManager(str(tmp_path)).save("k", {"metrics": {}})
-    assert order == ["fsync", "rename"]
+    # The file's data, then the rename, then the directory entry (POSIX).
+    assert order[:2] == ["fsync", "rename"]
+    assert order[2:] in ([], ["fsync"])
     assert os.listdir(tmp_path / ".checkpoints")

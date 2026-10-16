@@ -88,16 +88,52 @@ def rag_overrides(environ: Optional[Mapping[str, str]] = None) -> Dict[str, Any]
     return out
 
 
+#: Libraries whose version can move a number: the models, the judge, the store.
+_FINGERPRINT_LIBRARIES = ("torch", "transformers", "sentence-transformers", "ragas", "pymilvus")
+
+
+def _library_version(distribution: str) -> Optional[str]:
+    """The installed version of ``distribution``, read from its metadata (no import)."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version(distribution)
+    except PackageNotFoundError:
+        return None
+
+
+def _settings_file_digest(path: Optional[str]) -> Optional[str]:
+    """A hash of the settings file's contents (the packaged one when none is named)."""
+    if path is None:
+        try:
+            from lasagna.core.config import get_rag_config
+
+            path = getattr(get_rag_config(), "_settings_path", None)
+        except Exception:  # noqa: BLE001 - provenance must never fail a run
+            return None
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:16]
+    except (OSError, TypeError):
+        return None
+
+
 def resume_fingerprint(
     judge_model: Optional[str],
     environ: Optional[Mapping[str, str]] = None,
     metrics_version: Optional[str] = None,
+    *,
+    variance_source: Optional[str] = None,
+    max_concurrency: Optional[int] = None,
+    settings_file: Optional[str] = None,
 ) -> str:
     """A hash of what a checkpointed result depends on beyond its task.
 
-    The metric definitions, the package version, the judge and the overridden
-    settings. A checkpoint written under any other value of these is not
-    restored; it would carry numbers computed some other way.
+    The metric definitions, the package version, the judge, the overridden
+    settings, the versions of the libraries that compute the numbers, the
+    settings file's contents, ``variance_source`` and ``max_concurrency``. A
+    checkpoint written under any other value of these is not restored; it
+    would carry numbers computed some other way.
     """
     if metrics_version is None:
         from .bundle import METRICS_VERSION as metrics_version
@@ -107,6 +143,10 @@ def resume_fingerprint(
             "package_version": package_version(),
             "judge_model": judge_model or None,
             "overrides": rag_overrides(environ),
+            "libraries": {d: _library_version(d) for d in _FINGERPRINT_LIBRARIES},
+            "settings_file": _settings_file_digest(settings_file),
+            "variance_source": variance_source,
+            "max_concurrency": max_concurrency,
         },
         sort_keys=True,
         default=str,
