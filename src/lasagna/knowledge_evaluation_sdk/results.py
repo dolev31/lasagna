@@ -1020,7 +1020,7 @@ class BenchmarkResults:
                 f"not significant (p={p_value:.4f}), and the observed difference "
                 f"({mean_diff:+.4f}) is below {mde:.4f}: {detects}, and a smaller "
                 "one less often, so a real effect this size could easily go "
-                "undetected -- inconclusive, not evidence of no difference"
+                "undetected: inconclusive, not evidence of no difference"
             )
         else:
             interpretation = (

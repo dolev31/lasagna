@@ -31,7 +31,6 @@ DESTRUCTIVE = {
     "reset_rag_config",
     "set_lifecycle_policy",
 }
-ALIASES = {"search_knowledge", "search_with_context"}
 TOOLS_ENV = "LASAGNA_MCP_TOOLS"
 
 
@@ -66,23 +65,20 @@ class TestTheDefaultSetIsSafe:
         assert result.isError is True
         assert "Unknown tool" in result.content[0].text
 
-    def test_the_deprecated_search_aliases_are_callable_but_not_listed(self):
-        """Existing clients keep working; new agents see one search tool."""
-        listed, result = _call("search_knowledge", {"query": "  ", "session_id": "s1"})
-        assert not listed & ALIASES
+    def test_one_search_tool_is_served(self):
+        """The deprecated aliases are gone from the first release: an agent sees one."""
+        listed = _listed(tools="all")
         assert "search" in listed
-        # The alias ran: the refusal is the search tool's own, not "Unknown tool".
-        assert result.isError is True
-        assert "the query is empty" in result.content[0].text
+        assert not {"search_knowledge", "search_with_context"} & listed
 
     def test_everything_else_is_still_served(self):
-        assert _listed() == _listed(tools="all") - DESTRUCTIVE - ALIASES
+        assert _listed() == _listed(tools="all") - DESTRUCTIVE
 
 
 class TestAllIsOptIn:
     def test_all_lists_every_tool(self):
         listed = _listed(tools="all")
-        assert DESTRUCTIVE | ALIASES <= listed
+        assert DESTRUCTIVE <= listed
         assert listed == {fn.__name__ for fn in mcp_server._TOOLS}
 
     def test_the_environment_selects_the_set(self, monkeypatch):

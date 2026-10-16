@@ -59,7 +59,7 @@ package from your own code, call ``loguru.logger.enable("lasagna")``.
 import importlib as _importlib
 import os as _os
 import warnings as _warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 from loguru import logger as _logger
 
@@ -178,7 +178,7 @@ _DEPRECATED_IMPORTS: dict[str, tuple[str, str]] = {
 # lazily through __getattr__, every one of them was `Any` to a user's type
 # checker. tests/test_lazy_names_are_typed.py keeps this block in step with
 # _LAZY_IMPORTS. The deprecated names are left out, so a type checker flags them.
-if TYPE_CHECKING:
+if _TYPE_CHECKING:
     from .components import (
         reranker,
         query_enhancer,

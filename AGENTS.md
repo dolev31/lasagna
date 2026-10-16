@@ -53,7 +53,7 @@ means updating the docs in the same commit; the suite will tell you.
 | `src/lasagna/agentic/` | multi-step retrieval: the structured graph (CRAG, quality gates) and the published loops (Self-Ask, IRCoT, FLARE, Adaptive-RAG, Self-RAG) |
 | `src/lasagna/vector_backends/` | 6 backends behind one adapter interface |
 | `src/lasagna/knowledge_evaluation_sdk/` | benchmarks, metrics, bundles, leaderboard |
-| `src/lasagna/mcp/` | MCP server, 31 tools |
+| `src/lasagna/mcp/` | MCP server, 29 tools |
 | `e2e/` | release gate: phases, typed contract, GO/NO-GO |
 | `hub/` | shared results hub: schema, validator, trust model |
 

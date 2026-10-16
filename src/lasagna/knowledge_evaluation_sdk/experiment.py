@@ -518,7 +518,7 @@ class FactorialSpec:
                 raise ValueError(
                     f"{role}={name!r} is a component slot, not a boolean flag. A "
                     f"slot has no 'off' level, so the 2x2 cannot be built from "
-                    f"it. Use the flag that disables the stage instead -- for "
+                    f"it. Use the flag that disables the stage instead, for "
                     f"example `enable_reranking` rather than `reranker`."
                 )
             if name not in flags:
@@ -1450,8 +1450,8 @@ def _generate_pipeline_configs(spec: PipelineSweepSpec) -> List[Dict[str, Any]]:
     for key, values in dimensions.items():
         if any(v is None for v in values):
             raise ValueError(
-                f"`{key}` contains a null entry. A null does not disable the stage "
-                f"-- it leaves the profile's default in place, so that arm may be "
+                f"`{key}` contains a null entry. A null does not disable the stage: "
+                f"it leaves the profile's default in place, so that arm may be "
                 f"identical to another one and nothing will say so. To compare "
                 f"on against off, use a `factorial` over the boolean flag "
                 f"(e.g. `enable_reranking`), which records both levels."
@@ -2051,7 +2051,7 @@ def resolve_mode(mode: str, benchmark_name: str) -> tuple[str, str]:
             return (
                 "live",
                 "corpus pooled from the samples' own gold context, so retrieval "
-                "can be measured -- but against gold passages only, which is an "
+                "can be measured, but against gold passages only, which is an "
                 "easier task than the published benchmark",
             )
         return "live", "benchmark provides a corpus, so retrieval can be measured"
@@ -3256,7 +3256,7 @@ async def _ensure_corpus_ingested(
         else:
             logger.info(
                 "No corpus cap (max_corpus_docs=0). Large benchmarks ingest in "
-                "full -- beir/msmarco is 8.8M documents, which is hours of "
+                "full: beir/msmarco is 8.8M documents, which is hours of "
                 "embedding and tens of GB of index. Set max_corpus_docs to cap it."
             )
         corpus = adapter.load_corpus(**load_kwargs)

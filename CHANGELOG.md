@@ -1166,6 +1166,12 @@ Servers and deployment:
   "Known issues" entry that does not exist, and gives the guide's measured
   pip time. The SDK's getting-started page no longer makes an LLM key a
   prerequisite, and the RAG skill says a keyless complex query falls back.
+- Release hygiene: the MCP server no longer registers the deprecated
+  `search_knowledge` and `search_with_context` aliases in a first release (29
+  tools; `--tools safe` still serves 22), `lasagna.TYPE_CHECKING` is no longer
+  importable from the top-level package, and runtime messages (the model
+  license warning, the power verdict, several errors) use plain punctuation
+  instead of " -- ".
 
 ### Known issues
 

@@ -250,7 +250,7 @@ class BEIRBenchmarkAdapter(BaseBenchmarkAdapter):
             _logger.warning(
                 f"BEIR corpus '{self._name}' truncated to {len(corpus):,} docs. "
                 f"A metric computed against part of a corpus is not that "
-                f"benchmark's metric -- it simply comes out lower, and only the "
+                f"benchmark's metric: it simply comes out lower, and only the "
                 f"`corpus_truncated` flag in the bundle records it."
             )
         return corpus if corpus else None

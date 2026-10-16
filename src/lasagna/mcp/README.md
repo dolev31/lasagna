@@ -1,6 +1,6 @@
 # Lasagna MCP server
 
-MCP server exposing the RAG knowledge base as 31 tools for search, document management, runtime configuration, and document lifecycle management. Works with Claude Code, Claude Desktop, Cursor, and any MCP client.
+MCP server exposing the RAG knowledge base as 29 tools for search, document management, runtime configuration, and document lifecycle management. Works with Claude Code, Claude Desktop, Cursor, and any MCP client.
 
 By default it serves the **safe** set: every tool except the seven that delete data, reset configuration or change the server-wide retention policy, so a client lists 22. See [Tool sets](#tool-sets).
 
@@ -67,7 +67,7 @@ endpoint; start the server with `--mcp` and register that URL in the client.
 
 Under `safe` the seven are not registered at all, so neither a client nor the `/api/call` tester can call them. The embedded `/mcp` mount reads `LASAGNA_MCP_TOOLS` the same way.
 
-**Which search tool:** use `search`. `search_knowledge` and `search_with_context` are deprecated aliases that call it; they are listed only under `all`.
+**Which search tool:** use `search`.
 
 The names, descriptions and input schemas of every tool are recorded in `tests/snapshots/mcp_tools.json` and follow the deprecation policy in `GOVERNANCE.md`.
 
@@ -80,8 +80,6 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | Tool | Description |
 | ---- | ----------- |
 | `search` | Runs the session's retrieval pipeline (hybrid search, reranking, MMR, HyDE, routing and agentic multi-hop, each as the session config sets it). Returns context with inline citations and a `<search_metadata>` JSON block. With no LLM configured, a session set to agentic retrieval runs its standard pipeline, and the metadata's `degraded_stages` names `agentic`. |
-| `search_knowledge` | **Deprecated** alias for `search`, kept for one release cycle. Listed only under `all` |
-| `search_with_context` | **Deprecated** alias for `search`, kept for one release cycle. Listed only under `all` |
 | `get_document_context` | Document awareness for agent prompts: describes available docs and gives adaptive search guidance |
 
 ### Documents (6 tools)

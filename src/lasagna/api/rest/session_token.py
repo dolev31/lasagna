@@ -71,8 +71,8 @@ def _get_secret() -> str:
         raise MissingSigningSecret(
             f"{REQUIRE_AUTH_ENV} is set but RAG_JWT_SECRET is not. Tokens would "
             f"be signed with a secret generated fresh in each process, so any "
-            f"deployment with more than one replica -- including the shipped "
-            f"k8s manifests -- would reject roughly half of its own tokens. "
+            f"deployment with more than one replica (the shipped k8s manifests "
+            f"included) would reject roughly half of its own tokens. "
             f"Generate one with `openssl rand -hex 32` and set it identically "
             f"across every replica."
         )

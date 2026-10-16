@@ -196,7 +196,7 @@ def warn_if_restricted(model_name: str, *, component: str = "model") -> None:
 
         if info.restricted:
             logger.warning(
-                f"LICENSE: {component} '{model_name}' is licensed {info.spdx} -- "
+                f"LICENSE: {component} '{model_name}' is licensed {info.spdx}: "
                 f"research and evaluation only, NOT for commercial use. "
                 f"{info.note} See {redact_url(info.url)}"
             )

@@ -136,11 +136,6 @@ DESTRUCTIVE_TOOLS = frozenset(
     }
 )
 
-#: Deprecated aliases of ``search``. Under ``safe`` they stay callable, so a
-#: client written against them keeps working, but are not listed: an agent
-#: shown three search tools spends a turn choosing between them.
-UNLISTED_UNDER_SAFE = frozenset({"search_knowledge", "search_with_context"})
-
 #: Accepted values of ``--tools`` / ``LASAGNA_MCP_TOOLS``.
 TOOL_SETS = ("safe", "all")
 TOOLS_ENV = "LASAGNA_MCP_TOOLS"
@@ -159,13 +154,10 @@ def resolve_tool_set(value: Optional[str] = None) -> str:
 
 
 class _LasagnaMCP(FastMCP):
-    """FastMCP that can keep a registered tool callable without listing it.
+    """FastMCP that reports Lasagna's version as ``serverInfo.version``.
 
-    It also reports Lasagna's version as ``serverInfo.version``: the MCP SDK
-    reported its own ("1.30.0").
+    The MCP SDK reported its own ("1.30.0").
     """
-
-    unlisted: frozenset = frozenset()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -175,10 +167,7 @@ class _LasagnaMCP(FastMCP):
 
     def listed_tool_count(self) -> int:
         """How many tools ``tools/list`` returns."""
-        return len(set(self._tool_manager._tools) - set(self.unlisted))
-
-    async def list_tools(self):
-        return [tool for tool in await super().list_tools() if tool.name not in self.unlisted]
+        return len(self._tool_manager._tools)
 
     def sse_app(self, *args, **kwargs):
         """FastMCP's SSE app, refusing a foreign ``Host`` with the setting that admits it.
@@ -1162,9 +1151,6 @@ async def search(
 ) -> str:
     """Search the knowledge base with the session's retrieval pipeline.
 
-    Use this tool for every search; ``search_knowledge`` and
-    ``search_with_context`` are deprecated aliases of it.
-
     Returns formatted context with citations ready for LLM injection,
     plus a trailing ``<search_metadata>`` JSON block with structured
     citation data.
@@ -1390,74 +1376,6 @@ def _append_search_metadata(formatted_context: str, citations: list, chunks: lis
         payload["degraded_stages"] = degraded.current()
     metadata = json.dumps(payload, ensure_ascii=False)
     return f"{formatted_context}\n<search_metadata>{metadata}</search_metadata>"
-
-
-# ---------------------------------------------------------------------------
-# Deprecated aliases — kept for one release cycle
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def search_knowledge(
-    query: str,
-    session_id: str = "",
-    top_k: int = 5,
-    min_score: float = 0.0,
-    document_ids: Optional[str] = None,
-    allow_broaden: bool = False,
-    use_reranking: bool = True,
-    use_hyde: bool = False,
-    trace_id: Optional[str] = None,
-    session_token: Optional[str] = None,
-    routing_tier: Optional[str] = None,
-) -> str:
-    """Deprecated: use ``search`` instead.
-
-    Delegates to ``search``. Parameters ``min_score``, ``use_reranking``,
-    ``use_hyde``, and ``routing_tier`` are accepted but ignored.
-    """
-    import warnings
-
-    warnings.warn(
-        "search_knowledge is deprecated; use the 'search' tool", DeprecationWarning, stacklevel=2
-    )
-    return await search(
-        query=query,
-        session_id=session_id,
-        top_k=top_k,
-        document_ids=document_ids,
-        allow_broaden=allow_broaden,
-        trace_id=trace_id,
-        session_token=session_token,
-    )
-
-
-@mcp.tool()
-async def search_with_context(
-    query: str,
-    session_id: str = "",
-    document_ids: Optional[str] = None,
-    allow_broaden: bool = False,
-    trace_id: Optional[str] = None,
-    session_token: Optional[str] = None,
-) -> str:
-    """Deprecated: use ``search`` instead.
-
-    Delegates to ``search`` with default ``top_k`` (session config).
-    """
-    import warnings
-
-    warnings.warn(
-        "search_with_context is deprecated; use the 'search' tool", DeprecationWarning, stacklevel=2
-    )
-    return await search(
-        query=query,
-        session_id=session_id,
-        document_ids=document_ids,
-        allow_broaden=allow_broaden,
-        trace_id=trace_id,
-        session_token=session_token,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -4013,8 +3931,6 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
 _TOOLS = (
     # Search
     search,
-    search_knowledge,  # deprecated alias
-    search_with_context,  # deprecated alias
     list_documents,
     upload_document,
     delete_document,
@@ -4065,8 +3981,7 @@ def create_mcp_server(
 
     ``tools`` is ``"safe"`` or ``"all"``; ``None`` reads ``LASAGNA_MCP_TOOLS``
     and falls back to ``"safe"``. The safe set leaves out ``DESTRUCTIVE_TOOLS``
-    entirely, so ``call_tool`` cannot reach them either, and lists the
-    deprecated search aliases without removing them.
+    entirely, so ``call_tool`` cannot reach them either.
     """
     tool_set = resolve_tool_set(tools)
     # FastMCP sets up the stdlib root logger (a rich handler at INFO) in its
@@ -4082,8 +3997,6 @@ def create_mcp_server(
         if tool_set == "safe" and fn.__name__ in DESTRUCTIVE_TOOLS:
             continue
         server.add_tool(_flag_failures(fn))
-    if tool_set == "safe":
-        server.unlisted = UNLISTED_UNDER_SAFE
 
     # Custom HTTP routes (welcome, docs, health, api/call)
     _register_custom_routes(server, host, port)
