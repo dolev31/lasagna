@@ -534,6 +534,11 @@ Requests to current models:
 
 Servers and deployment:
 
+- **A stack configured for a Milvus server opened Milvus Lite.** The startup
+  backend always passed a local `db_path`, which `MilvusBackend` took over the
+  `uri`, so `backends/milvus.yml` and `MILVUS_URI` wrote to a file inside each
+  container. A configured server address wins, the log names the store opened,
+  and a `db_path` set together with a server address is an error naming both.
 - **Uploads processed by the Celery worker failed.** The api stored a file
   inside its own container and passed the path to the worker, which had no such
   file. The api, worker and mcp share an `uploads-data` volume at

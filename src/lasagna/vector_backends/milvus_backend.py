@@ -33,6 +33,7 @@ from .base import (
     MetricType,
     IndexType,
 )
+from ..core.provenance import redact_url
 from .filters import FilterExpression
 from ._pymilvus import from_pymilvus
 
@@ -230,6 +231,13 @@ class MilvusBackend(VectorStoreAdapter):
             raise ImportError(
                 "pymilvus is required for MilvusBackend. Install it with: pip install pymilvus"
             )
+        if db_path and uri:
+            # connect() used to take db_path and ignore uri, so a backend
+            # configured for a server quietly wrote to a local file.
+            raise ValueError(
+                f"MilvusBackend got both db_path={db_path!r} (Milvus Lite) and "
+                f"uri={redact_url(uri)!r} (a Milvus server). Pass one."
+            )
 
         self._db_path = db_path
         self._uri = uri
@@ -331,7 +339,7 @@ class MilvusBackend(VectorStoreAdapter):
                     )
                 elif self._uri:
                     # Milvus Standalone/Distributed
-                    logger.info(f"Connecting to Milvus: {self._uri}")
+                    logger.info(f"Connecting to Milvus server: {redact_url(self._uri)}")
                     connect_kwargs = {"uri": self._uri, "timeout": self._timeout, **self._kwargs}
                     if self._token:
                         connect_kwargs["token"] = self._token

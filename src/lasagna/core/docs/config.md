@@ -58,7 +58,7 @@ An empty value counts as unset. Numeric range validation is applied to known key
 | `collection_name` | str | `"rag_documents_v2"` | `RAG_COLLECTION_NAME` | Vector collection name; the default gives each embedding model its own (`rag_documents_v2__<model>__<dim>`) |
 | `embedding_dim` | int | 1024 | `RAG_EMBEDDING_DIM` | Embedding vector dimension |
 
-A Milvus server address is read from `MILVUS_URI` (and `MILVUS_TOKEN`) by the backend registry; other backend arguments go in `vector_backend_config`.
+A Milvus server address is `"uri"` in `vector_backend_config`, else `MILVUS_URI` (with `MILVUS_TOKEN`); without one the backend opens Milvus Lite at `"db_path"` or `<db dir>/rag_milvus.db`. Setting both a `"db_path"` and a server address is an error. Other backend arguments go in `vector_backend_config`.
 
 ### Embedding
 
