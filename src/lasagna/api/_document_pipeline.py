@@ -175,6 +175,12 @@ class DocumentPipeline:
                 return existing.model_copy(update={"duplicate_of": existing.document_id})
 
         config = self._get_session_config(session_id)
+        # Before anything is stored: a model set without its size, whose size
+        # cannot be read, would make a collection of the wrong size.
+        unknown = getattr(config, "embedding_size_unknown", None)
+        problem = unknown() if callable(unknown) else None
+        if problem:
+            raise ValueError(problem)
 
         # Quota enforcement — fast-fail before expensive operations (embedding
         # manager reload, file I/O).  The authoritative atomic reservation

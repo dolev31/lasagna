@@ -644,6 +644,14 @@ First run:
   field `allow_duplicates=true` index it again. Uploads with an explicit
   `document_id` (reindex, benchmark corpora) or a component override are
   never deduplicated. Search also returns a chunk at most once.
+- **Setting only `embedding_model` broke ingestion.**
+  `KnowledgeConfig(embedding_model="BAAI/bge-small-en-v1.5")` (or
+  `RAG_EMBEDDING_MODEL` alone) kept the settings file's 1024 dimensions: the
+  store refused the 384-dimension vectors with a pymilvus traceback, the
+  document failed and search returned nothing. A model set without its size
+  takes its own, from a table of common models or its files in the Hugging
+  Face cache; when neither knows it, the upload is refused before anything is
+  stored, naming `embedding_dim`.
 
 Requests to current models:
 

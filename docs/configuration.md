@@ -130,6 +130,11 @@ each model writes to a collection of its own, named
 `rag_documents_v2__<model>__<dimensions>`, for example
 `rag_documents_v2__all_minilm_l6_v2__384` for the `speed` profile.
 
+- Setting `embedding_model` without `embedding_dim` (in the environment, a
+  session or `KnowledgeConfig`) uses that model's own size, read from a table
+  of common models or from the model's files in the Hugging Face cache. When
+  neither has it, an upload is refused before anything is stored, naming the
+  setting to add.
 - Sessions on the same model share its collection, and each session sees only
   its own documents in it.
 - Switching a session to a profile with another model makes it search that
