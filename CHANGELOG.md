@@ -693,6 +693,15 @@ Results tooling:
 - `lasagna doctor` said "ok, 4 model(s) cached" while the profile's own models
   were not downloaded. It checks the session's embedder and reranker (`-s`
   picks the session) and names any that are missing, with their sizes.
+- **Chunks rewrote their text and pointed at the wrong place.** The semantic
+  and structure-aware chunkers joined sentences with single spaces, so
+  "**Is the widget free?** Yes" came back as "**Is the widget free? ** Yes"
+  and paragraph breaks as spaces; spans counted stripped whitespace, ran
+  past the text (0-500 for 233 characters), or were missing for a
+  one-sentence text. A chunk is now the source text at the span it reports.
+  The places where text is split are unchanged, and so is every benchmark
+  number (the BERT-family tokenizers the benchmarks use ignore the
+  whitespace that changed).
 
 First run:
 
