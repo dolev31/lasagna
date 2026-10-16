@@ -89,6 +89,31 @@ def _neural_sparse_enabled() -> bool:
     return env_flag("OPENSEARCH_ENABLE_NEURAL_SPARSE")
 
 
+def _redact_hosts(hosts: Any) -> str:
+    """The hosts for a log line, each with any password replaced by ``***``.
+
+    ``OPENSEARCH_HOSTS`` takes URLs, and opensearch-py reads credentials from
+    one (``https://admin:<password>@search:9200``); they were logged verbatim
+    on every connect.
+    """
+    from lasagna.core.provenance import redact_url
+
+    shown = []
+    for host in hosts if isinstance(hosts, (list, tuple)) else [hosts]:
+        if isinstance(host, dict):
+            host = {
+                k: "***" if "auth" in str(k) or "pass" in str(k) else redact_url(v)
+                for k, v in host.items()
+            }
+            shown.append(str(host))
+        elif "://" not in str(host) and "@" in str(host):
+            # opensearch-py reads "admin:pw@search:9200" as a URL without a scheme.
+            shown.append(redact_url(f"//{host}")[2:])
+        else:
+            shown.append(redact_url(host))
+    return ", ".join(shown)
+
+
 def _get_default_opensearch_config() -> Dict[str, Any]:
     """Resolve OpenSearch configuration from environment variables."""
     hosts_str = os.environ.get("OPENSEARCH_HOSTS", "http://localhost:9200")
@@ -206,7 +231,7 @@ class OpenSearchBackend(VectorStoreAdapter):
                 timeout=self._timeout,
                 connection_class=RequestsHttpConnection,
             )
-            logger.info(f"Connected to OpenSearch: {self._hosts}")
+            logger.info(f"Connected to OpenSearch: {_redact_hosts(self._hosts)}")
 
     def disconnect(self) -> None:
         # Lock ordering: _connection_lock -> _pipeline_lock (same as _ensure_hybrid_pipeline)

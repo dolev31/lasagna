@@ -482,6 +482,7 @@ Server and deployment:
   the identity check, an insert rebuild and MCP `reindex_document
   --force_rebuild` took for an empty collection. OpenSearch raises the same
   way.
+- OpenSearch hosts and the tracing endpoint are logged without their passwords.
 
 Numbers that were wrong:
 

@@ -649,10 +649,11 @@ def _get_default_opensearch_config() -> Dict[str, Any]:
     """
     from .opensearch_backend import (
         _get_default_opensearch_config as _os_config,
+        _redact_hosts,
     )
 
     config = _os_config()
-    logger.debug(f"Using OpenSearch hosts: {config.get('hosts')}")
+    logger.debug(f"Using OpenSearch hosts: {_redact_hosts(config.get('hosts'))}")
     return config
 
 
