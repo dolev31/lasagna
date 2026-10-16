@@ -152,6 +152,11 @@ Results:
 
 Servers and deployment:
 
+- **`KnowledgeClient.from_url` failed against a server with auth on, and its
+  `close()` raised `AttributeError`.** It never sent `X-Session-Token`, so
+  `RAG_REQUIRE_AUTH=true` answered 401 to every call. With `api_key` (a key
+  from `RAG_API_KEYS`) it mints a session token on the first 401;
+  `session_token=` sends one minted already.
 - **The Docker image had no Qdrant, Weaviate or Pinecone client**, so the
   stack built with those fragments never passed its readiness check. The
   Dockerfile's `VECTOR_BACKEND` build argument installs the client (and fails
