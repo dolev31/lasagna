@@ -232,10 +232,10 @@ class KnowledgeConfig:
     """Batch size for reranking. Default: 16"""
 
     mmr_lambda: float = 0.5
-    """MMR diversity weight (0=diversity, 1=relevance). Default: 0.5 (SOTA standard)"""
+    """MMR diversity weight (0=diversity, 1=relevance). Default: 0.5 (the LangChain and LlamaIndex default)"""
 
     # =========================================================================
-    # SOTA Retrieval Features
+    # Retrieval Features
     # =========================================================================
     enable_context_reordering: bool = True
     """Reorder retrieved chunks to place most relevant near top/bottom (lost-in-the-middle mitigation). Default: True"""
@@ -722,14 +722,14 @@ def config_for_speed() -> KnowledgeConfig:
         enable_query_expansion=False,
         enable_query_decomposition=False,
         use_agentic_rag=False,
-        # SOTA features off for speed
+        # Retrieval features off for speed
         docling_enabled=False,
         enable_context_reordering=False,
         enable_contextual_retrieval=False,
         enable_rag_fusion=False,
         enable_crag=False,
         agentic_pipeline="legacy_react",
-        # Routing disabled — can't deliver higher tiers without SOTA features
+        # Routing disabled: higher tiers need the features turned off above
         enable_query_routing=False,
         routing_default_tier="fast",
         enable_query_classification=False,
@@ -754,9 +754,9 @@ def config_for_speed() -> KnowledgeConfig:
 
 
 def config_for_standard() -> KnowledgeConfig:
-    """Standard configuration with SOTA features and BGE-M3 embedding model.
+    """Standard configuration: hybrid search, reranking and agentic retrieval with BGE-M3.
 
-    Enables core SOTA features (hybrid search, cross-encoder reranking, MMR,
+    Enables the core retrieval features (hybrid search, cross-encoder reranking, MMR,
     agentic RAG, context reordering, Docling parsing) with the BGE-M3 model.
     Recommended starter configuration for production quality.
     Target latency: ~200-400ms.
@@ -770,7 +770,7 @@ def config_for_standard() -> KnowledgeConfig:
         ```
     """
     return KnowledgeConfig(
-        # Core SOTA features enabled
+        # Core retrieval features enabled
         enable_reranking=True,
         enable_mmr=True,
         enable_hybrid_search=True,
@@ -779,7 +779,7 @@ def config_for_standard() -> KnowledgeConfig:
         enable_hyde=False,
         enable_query_expansion=False,
         enable_query_decomposition=False,
-        # SOTA features
+        # Retrieval features
         docling_enabled=True,
         enable_context_reordering=True,
         enable_rag_fusion=False,
@@ -800,7 +800,7 @@ def config_for_standard() -> KnowledgeConfig:
         parent_chunk_size=2000,
         child_chunk_size=500,
         auto_merge_threshold=0.5,
-        # SOTA search parameters
+        # Search parameters
         default_top_k=20,
         rerank_top_k=5,
         mmr_lambda=0.5,
@@ -814,9 +814,9 @@ def config_for_standard() -> KnowledgeConfig:
 
 
 def config_for_balanced() -> KnowledgeConfig:
-    """Balanced configuration with SOTA features and BGE-M3 embedding model.
+    """Balanced configuration: standard plus hierarchical chunking, with BGE-M3.
 
-    Enables core SOTA features (hybrid search, cross-encoder reranking, MMR,
+    Enables the core retrieval features (hybrid search, cross-encoder reranking, MMR,
     agentic RAG, context reordering, Docling, hierarchical chunking) with
     the BGE-M3 model. Best quality-to-speed tradeoff for production use.
     Target latency: ~300-600ms.
@@ -830,7 +830,7 @@ def config_for_balanced() -> KnowledgeConfig:
         ```
     """
     return KnowledgeConfig(
-        # Core SOTA features enabled
+        # Core retrieval features enabled
         enable_reranking=True,
         enable_mmr=True,
         enable_hybrid_search=True,
@@ -841,7 +841,7 @@ def config_for_balanced() -> KnowledgeConfig:
         enable_hyde=False,
         enable_query_expansion=False,
         enable_query_decomposition=False,
-        # SOTA features
+        # Retrieval features
         docling_enabled=True,
         enable_context_reordering=True,
         enable_rag_fusion=False,
@@ -863,7 +863,7 @@ def config_for_balanced() -> KnowledgeConfig:
         parent_chunk_size=2000,
         child_chunk_size=500,
         auto_merge_threshold=0.5,
-        # SOTA search parameters
+        # Search parameters
         default_top_k=20,
         rerank_top_k=5,
         mmr_lambda=0.5,
@@ -904,7 +904,7 @@ def config_for_max_quality() -> KnowledgeConfig:
         use_structured_graph=True,
         enable_hallucination_check=True,
         enable_answer_quality_check=True,
-        # All SOTA features enabled
+        # All retrieval features enabled
         docling_enabled=True,
         enable_context_reordering=True,
         enable_rag_fusion=True,
@@ -931,7 +931,7 @@ def config_for_max_quality() -> KnowledgeConfig:
         max_agent_iterations=5,
         # Adaptive HyDE
         hyde_strategy=HyDEStrategy.ADAPTIVE,
-        # SOTA search parameters
+        # Search parameters
         default_top_k=20,
         rerank_top_k=5,
         mmr_lambda=0.5,
@@ -988,7 +988,7 @@ def config_for_standalone(
         embedding_model="BAAI/bge-m3",
         reranker_model="mixedbread-ai/mxbai-rerank-large-v1",
         chunk_overlap=0,
-        # SOTA search parameters
+        # Search parameters
         default_top_k=20,
         rerank_top_k=5,
         mmr_lambda=0.5,
@@ -1006,7 +1006,7 @@ def config_for_production(
     storage_backend_config: Optional[Dict[str, Any]] = None,
     connection_pool_size: int = 10,
 ) -> KnowledgeConfig:
-    """Production-ready configuration for multi-tenant deployment.
+    """Configuration for a multi-tenant server deployment.
 
     Enables all scaling features: PostgreSQL, Redis cache, Celery background
     processing, partition-based tenant isolation, rate limiting, Prometheus

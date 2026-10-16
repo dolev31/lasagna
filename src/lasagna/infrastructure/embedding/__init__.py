@@ -1,6 +1,6 @@
 """Embedding generation and caching subsystem.
 
-This module provides embedding generation using SOTA models
+This module provides embedding generation using sentence-transformers models
 with caching support for improved performance.
 """
 

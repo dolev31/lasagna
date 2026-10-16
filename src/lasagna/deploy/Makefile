@@ -1,5 +1,5 @@
 # =============================================================================
-# Lasagna — Deployment Makefile
+# Lasagna: Deployment Makefile
 # =============================================================================
 # Usage:
 #   make up                         Start with VECTOR_BACKEND from .env
@@ -93,7 +93,7 @@ shell:  ## Open a shell in the API container
 test:  ## Run static deployment tests
 	cd ../../.. && python -m pytest tests/test_unified_deployment.py -v -k "not Live"
 
-# Stress test env — lightweight models for fast CPU execution
+# Stress test env: lightweight models for fast CPU execution
 STRESS_ENV := RAG_EMBEDDING_MODEL=all-MiniLM-L6-v2 \
 	RAG_EMBEDDING_DIM=384 \
 	RAG_RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2 \

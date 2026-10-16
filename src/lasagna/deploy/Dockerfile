@@ -1,5 +1,5 @@
 # ============================================================================
-# Lasagna — Multi-stage Docker Build
+# Lasagna: Multi-stage Docker Build
 #
 # Bakes in embedding + reranker models at build time to eliminate cold-start
 # downloads.  Supports both API-only and Celery worker modes via CMD override.

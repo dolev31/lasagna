@@ -1,4 +1,4 @@
-"""Embedding Manager for RAG System - SOTA Implementation.
+"""Embedding Manager for RAG System.
 
 This module provides a robust embedding manager with:
 - BGE-M3 support via FlagEmbedding (dense+sparse+ColBERT, 8K context, 100+ languages)
@@ -212,7 +212,7 @@ def _config_signature(config: RAGConfig) -> tuple:
 
 
 class EmbeddingManager:
-    """Manages embedding generation with SOTA practices.
+    """Manages embedding generation: batching, caching and device placement.
 
     Features:
     - BGE-M3 via FlagEmbedding (dense+sparse+ColBERT, 8K context, 100+ languages)

@@ -95,7 +95,7 @@ enable_ocr = false
 embedding_model = "BAAI/bge-m3"
 embedding_model_fallback = "BAAI/bge-large-en-v1.5"
 embedding_dim = 1024  # Must match model: MiniLM=384, bge-small=384, bge-base=768, bge-large/bge-m3=1024
-# E5 model variants (uncomment to use — requires reindexing):
+# E5 model variants (uncomment to use; requires reindexing):
 #   "intfloat/e5-large-v2"            - 1024 dim, strong English
 #   "intfloat/e5-base-v2"             - 768 dim, balanced
 #   "intfloat/e5-small-v2"            - 384 dim, lightweight
@@ -115,7 +115,7 @@ use_gpu = true                # MPS enabled for faster embedding
 # Uncomment one block to use a local model instead of a cloud API.
 # No API key needed. Install extras: pip install lasagna-rag[local]
 #
-# --- Ollama (easiest — just run `ollama serve`) ---
+# --- Ollama (easiest: just run `ollama serve`) ---
 # platform = "ollama"
 # model_name = "llama3.2"
 # # Set OLLAMA_BASE_URL env var if not on localhost:11434
@@ -180,7 +180,7 @@ preserve_headers = true    # Track section headers for context
 default_top_k = 20
 
 # How many chunks to return after reranking
-# When strategy = "adaptive", this acts as a ceiling — adaptive-k may return fewer
+# When strategy = "adaptive", this acts as a ceiling: adaptive-k may return fewer
 rerank_top_k = 5
 
 # Lost-in-the-middle reordering: place best results at start and end of context
@@ -199,7 +199,7 @@ bm25_max_sessions = 1000        # Maximum number of session indices to keep in m
 bm25_session_ttl_seconds = 86400  # Idle TTL for session indices (24 hours)
 
 # MMR diversity: 0 = pure diversity, 1 = pure relevance
-# SOTA standard: 0.5 (LangChain, LlamaIndex default)
+# 0.5 is the LangChain and LlamaIndex default
 mmr_lambda = 0.5
 
 # MMR score normalization strategy:
@@ -216,7 +216,7 @@ mmr_score_normalization = "sigmoid"
 #   "cross-encoder/ms-marco-TinyBERT-L-2-v2"           - Fastest, lower quality
 #   "cross-encoder/ms-marco-MiniLM-L-6-v2"             - Fast, decent quality
 #   "cross-encoder/ms-marco-MiniLM-L-12-v2"            - Better quality, slower
-#   "mixedbread-ai/mxbai-rerank-large-v1"              - SOTA (BEIR NDCG@10 = 57.49)
+#   "mixedbread-ai/mxbai-rerank-large-v1"              - Best quality here (BEIR NDCG@10 = 57.49, reported by mixedbread)
 
 reranker_model = "mixedbread-ai/mxbai-rerank-large-v1"
 reranker_batch_size = 16
@@ -249,13 +249,13 @@ crag_web_search_fallback = false
 # Routes each query to the optimal retrieval tier based on complexity:
 #
 #   FAST:          Vector-only search (~50-100ms). For simple factual/navigational lookups.
-#   STANDARD:      Full pipeline — hybrid + reranking + HyDE (~200-400ms). Default.
+#   STANDARD:      Full pipeline: hybrid + reranking + HyDE (~200-400ms). Default.
 #   COMPREHENSIVE: Agentic multi-hop retrieval (~1-5s). For cross-document reasoning.
 #
 # The router classifies queries using lightweight pattern matching (zero LLM overhead)
 # and selects the tier that balances cost, latency, and accuracy.
 #
-# Research: Adaptive-RAG (NAACL 2024) — 30-40% latency reduction, ~28% cost savings,
+# Research: Adaptive-RAG (NAACL 2024) reports 30-40% latency reduction, ~28% cost savings,
 # +8% accuracy on complex queries.
 
 # Enable/disable query routing (when disabled, uses routing_default_tier for all queries)
@@ -327,7 +327,7 @@ vector_backend = "milvus"
 #
 # MILVUS DEPLOYMENT OPTIONS:
 #   Milvus Lite (default): Embedded, local file-based, no BM25 native support
-#   Milvus Standalone: Docker-based, native BM25, production-ready
+#   Milvus Standalone: Docker-based, native BM25, a server several processes share
 #   Milvus Distributed: Kubernetes, native BM25, enterprise-scale
 
 # "rag_documents_v2" means one collection per embedding model, named
@@ -423,7 +423,7 @@ tracing_service_name = "rag-knowledge"
 # for supported formats (PDF, DOCX, PPTX, XLSX, HTML, Markdown, images).
 #
 # INSTALL: pip install "lasagna-rag[docling]"   (or: uv pip install docling)
-# If not installed, the legacy pipeline runs automatically — no error.
+# If not installed, the legacy pipeline runs automatically, with no error.
 #
 # DEPLOYMENT MODES:
 #   "auto"       - Detects GPU → uses "production" if CUDA available, else "local"
@@ -452,7 +452,7 @@ docling_timeout = 300            # Per-document timeout in seconds
 # -----------------------------------------------------------------------------
 # ReAct-style agent that iteratively refines search results.
 # Supports multi-hop reasoning: learns missing entities/constraints from each hop.
-# More powerful but slower and uses more tokens.
+# Handles harder questions, but is slower and uses more tokens.
 
 use_agentic_rag = true           # Agentic RAG with multi-hop reasoning
 use_final_search = false         # Do final search after refinement for complete citations

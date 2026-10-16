@@ -894,7 +894,7 @@ async def _crag_web_search_fallback(query: str, max_results: int = 5) -> List[Re
     """Perform a web search fallback when CRAG determines retrieval is poor.
 
     Uses DuckDuckGo (same as online_rag) to find web results and converts
-    them into RetrievedChunkData for seamless integration with the existing pipeline.
+    them into RetrievedChunkData, the form the existing pipeline takes.
 
     Args:
         query: The search query to use for web search

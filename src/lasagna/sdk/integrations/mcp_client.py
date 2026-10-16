@@ -352,7 +352,7 @@ class MCPKnowledgeClient:
         allow_broaden: bool = False,
         trace_id: Optional[str] = None,
     ) -> str:
-        """Search the knowledge base using SOTA semantic retrieval.
+        """Search the knowledge base with semantic retrieval.
 
         Retrieval behaviour (hybrid search, reranking, HyDE, routing) is
         driven by the session configuration.

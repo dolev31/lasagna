@@ -376,6 +376,14 @@ Documentation:
   under `src/lasagna/` are short notes for contributors that point into
   `docs/`.
 
+- Text a user reads outside the docs says what the code does: the profile
+  lists of `GET /api/v1/config/profiles` and the SDK's `list_profiles` (which
+  said "SOTA features" and named models the profiles do not use) share the
+  profiles' own descriptions, and the configurator, settings files, compose,
+  Makefile, Dockerfile and Kubernetes comments, docstrings and help lose
+  "SOTA", "production-ready", "seamless", "powerful" and their em dashes. A
+  test covers those files and every string in the package.
+
 ### Deprecated
 
 Each of these still works in 0.1.x, says so when used, and is removed in 0.2.0.

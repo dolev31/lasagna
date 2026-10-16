@@ -1,7 +1,7 @@
 # Backend: PgVector (PostgreSQL + pgvector extension)
 #
 # Reuses the PostgreSQL metadata database for vector storage.
-# No additional vector DB container needed — simplest deployment.
+# No additional vector DB container needed: the simplest deployment.
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f backends/pgvector.yml up -d

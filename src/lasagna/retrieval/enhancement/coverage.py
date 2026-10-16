@@ -1,7 +1,7 @@
 """Query Aspect Coverage Scoring for RAG System.
 
 This module tracks how well retrieved chunks cover different aspects
-of complex queries. This is a SOTA technique for:
+of complex queries. It is used for:
 
 1. Confidence scoring - knowing when we have sufficient coverage
 2. Gap identification - knowing what aspects need more retrieval

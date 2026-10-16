@@ -225,7 +225,7 @@ class ConfigResponse(BaseModel):
     routing_strategy: str = "rule_based"
     routing_default_tier: str = "standard"
     routing_confidence_threshold: float = 0.5
-    # SOTA retrieval features
+    # Retrieval features
     enable_context_reordering: bool = True
     enable_contextual_retrieval: bool = False
     enable_rag_fusion: bool = False
@@ -358,7 +358,7 @@ class ConfigPatchRequest(BaseModel):
         default=None, pattern="^(fast|standard|comprehensive)$"
     )
     routing_confidence_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    # SOTA retrieval features
+    # Retrieval features
     enable_context_reordering: Optional[bool] = None
     enable_contextual_retrieval: Optional[bool] = None
     enable_rag_fusion: Optional[bool] = None

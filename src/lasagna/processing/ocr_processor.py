@@ -1,4 +1,4 @@
-"""OCR Processing for RAG System - SOTA Implementation.
+"""OCR Processing for RAG System.
 
 This module provides:
 - OCR for scanned PDFs and images

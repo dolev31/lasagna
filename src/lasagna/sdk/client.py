@@ -776,8 +776,8 @@ class KnowledgeClient:
 
         Example:
             ```python
-            client.use_preset("standard")     # SOTA features + lightweight model
-            client.use_preset("balanced")      # SOTA features + best model
+            client.use_preset("standard")     # hybrid search, reranking, agentic, BGE-M3
+            client.use_preset("balanced")      # standard plus hierarchical chunking
             client.use_preset("max_quality")   # All features enabled
             client.use_preset("speed")         # Pure vector search only
             ```

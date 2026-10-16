@@ -1,7 +1,7 @@
 """Search Result Caching for RAG System.
 
 This module implements TTL-based caching for search results to avoid
-redundant Milvus queries and embedding computations. This is a SOTA
+redundant Milvus queries and embedding computations. This is a
 optimization that significantly reduces latency for repeated queries.
 
 Features:

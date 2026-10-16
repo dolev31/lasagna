@@ -197,32 +197,11 @@ class ConfigManager:
             return manager.list_profiles(include_builtin=include_builtin)
         except ImportError:
             # Return default profiles when backend not available
+            from lasagna.core.session_config._profiles import BUILTIN_PROFILE_DESCRIPTIONS
+
             return [
-                {
-                    "name": "default",
-                    "description": "Default configuration from settings.lasagna.toml",
-                    "builtin": True,
-                },
-                {
-                    "name": "speed",
-                    "description": "Fast, pure vector search - no reranking/MMR/HyDE",
-                    "builtin": True,
-                },
-                {
-                    "name": "standard",
-                    "description": "SOTA features with lightweight embedding model",
-                    "builtin": True,
-                },
-                {
-                    "name": "balanced",
-                    "description": "SOTA features with best embedding model",
-                    "builtin": True,
-                },
-                {
-                    "name": "max_quality",
-                    "description": "All features enabled for maximum quality",
-                    "builtin": True,
-                },
+                {"name": name, "description": description, "builtin": True}
+                for name, description in BUILTIN_PROFILE_DESCRIPTIONS.items()
             ]
         except Exception as e:
             logger.error(f"Could not list profiles: {e}")

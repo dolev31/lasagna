@@ -255,7 +255,7 @@ PARAMETERS: list[ParameterDef] = [
             ),
             EnumOption(
                 "BAAI/bge-m3",
-                "SOTA Multilingual",
+                "Multilingual, dense and sparse",
                 "Dense+sparse+ColBERT, 100+ languages, 8K context (2.3 GB)",
             ),
             EnumOption("intfloat/e5-small-v2", "E5 Small", "Fast E5 model, English only (134MB)"),
@@ -510,8 +510,8 @@ PARAMETERS: list[ParameterDef] = [
             ),
             EnumOption(
                 "mixedbread-ai/mxbai-rerank-large-v1",
-                "SOTA Reranker (recommended)",
-                "Top-ranked reranker, BEIR NDCG@10 = 57.49",
+                "mxbai Large (recommended)",
+                "BEIR NDCG@10 = 57.49 (reported by mixedbread)",
             ),
         ],
     ),

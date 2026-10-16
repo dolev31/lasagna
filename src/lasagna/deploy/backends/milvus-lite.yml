@@ -1,7 +1,7 @@
 # Backend: Milvus Lite (one process, no extra container)
 #
 # Uses embedded Milvus Lite instead of a standalone container.
-# Milvus Lite is single-process — requires:
+# Milvus Lite is single-process, so it requires:
 #   - Single uvicorn worker (--workers=1)
 #   - Celery disabled (cannot share embedded DB across processes)
 #   - MCP server embedded in the API process

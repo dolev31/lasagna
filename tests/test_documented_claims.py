@@ -628,6 +628,105 @@ class TestProseSaysWhatTheCodeDoes:
         assert not found, f"{len(found)} em dash(es):\n" + "\n".join(found[:40])
 
 
+def _tracked(*patterns):
+    """Tracked files matching git pathspecs (all of them under ``src/`` if git is absent)."""
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "-z", "--", *patterns],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            check=True,
+        ).stdout.decode()
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    return [REPO_ROOT / name for name in sorted(filter(None, out.split("\0")))]
+
+
+#: Settings, deployment and hub files a user opens and reads, comments included.
+_CONFIG_PATTERNS = (
+    "src/lasagna/*.toml",
+    "src/lasagna/deploy/*",
+    "hub/*.yml",
+    "hub/*.json",
+)
+
+#: Model input, left as written: rewording a prompt changes what the model
+#: answers and the prompt fingerprint in the comparability key. Self-RAG's
+#: few-shot examples are the paper's own text.
+_PROMPT_CONSTANTS = {("src/lasagna/agentic/loops/self_rag.py", "ISSUP_PROMPT")}
+
+
+def _python_strings():
+    """Every string literal and docstring in the package, with where it is.
+
+    Docstrings count: ``help()``, the MCP tool list and the OpenAPI page show
+    them. Comments do not.
+    """
+    import ast
+
+    for path in _tracked("src/lasagna/*.py"):
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        tree = ast.parse(_read(path))
+        owners = {}
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+                for child in ast.walk(node):
+                    owners[id(child)] = node.targets[0].id
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if (rel, owners.get(id(node))) not in _PROMPT_CONSTANTS:
+                    yield rel, node.lineno, node.value
+
+
+class TestWhatUsersReadOutsideTheDocs:
+    """The same rules for the text that is not Markdown.
+
+    The profile list (`GET /api/v1/config/profiles`, the SDK's
+    ``list_profiles``) described two profiles as "SOTA features with
+    lightweight/best embedding model", the configurator offered "SOTA
+    Multilingual" and "SOTA Reranker", and the settings files, compose files
+    and Makefile a deployer edits were full of em dashes. The Markdown checks
+    above never read any of it.
+    """
+
+    def test_no_marketing_words_in_settings_or_deployment_files(self):
+        found = [
+            f"{path.relative_to(REPO_ROOT)}:{n}: {line.strip()[:90]}"
+            for path in _tracked(*_CONFIG_PATTERNS)
+            for n, line in enumerate(_read(path).splitlines(), 1)
+            if _MARKETING.search(line)
+        ]
+        assert not found, "say what it does instead:\n" + "\n".join(found)
+
+    def test_no_em_dashes_in_settings_or_deployment_files(self):
+        found = [
+            f"{path.relative_to(REPO_ROOT)}:{n}: {line.strip()[:90]}"
+            for path in _tracked(*_CONFIG_PATTERNS)
+            for n, line in enumerate(_read(path).splitlines(), 1)
+            if "—" in line
+        ]
+        assert not found, f"{len(found)} em dash(es):\n" + "\n".join(found[:40])
+
+    def test_no_marketing_words_in_any_string_the_package_shows(self):
+        found = [
+            f"{rel}:{line}: {text.strip()[:80]!r}"
+            for rel, line, text in _python_strings()
+            if _MARKETING.search(text)
+        ]
+        assert not found, "say what it does instead:\n" + "\n".join(found)
+
+    def test_the_profile_lists_describe_what_the_profiles_do(self):
+        from lasagna.api.rest.routes.config import _PROFILES
+        from lasagna.core.session_config._profiles import BUILTIN_PROFILE_DESCRIPTIONS
+
+        assert _PROFILES == {
+            k: v for k, v in BUILTIN_PROFILE_DESCRIPTIONS.items() if k != "default"
+        }
+        assert "BGE-M3" in BUILTIN_PROFILE_DESCRIPTIONS["standard"]
+
+
 #: Settings and components that put an LLM call in the retrieval path.
 _LLM_FLAGS = {
     "enable_hyde",

@@ -1,6 +1,6 @@
 # Backend: Pinecone (cloud / managed)
 #
-# Pinecone is a managed cloud service — no local container needed.
+# Pinecone is a managed cloud service: no local container needed.
 # Set PINECONE_API_KEY and PINECONE_ENVIRONMENT in your .env file.
 #
 # Usage:

@@ -1,5 +1,5 @@
 # ============================================================================
-# Lasagna — Base Compose (shared infrastructure)
+# Lasagna: Base Compose (shared infrastructure)
 #
 # This is the base file.  Combine with a backend fragment:
 #   docker compose -f docker-compose.yml -f backends/pgvector.yml up -d
@@ -8,13 +8,13 @@
 #   VECTOR_BACKEND=pgvector make up
 #
 # Services defined here:
-#   api          — FastAPI + Gunicorn (always starts)
-#   redis        — Cache + message broker (always starts)
-#   postgres     — Metadata database (always starts)
-#   celery-worker — Background processing (profile: celery)
-#   celery-beat  — Periodic GC and orphan scans (profile: celery)
-#   mcp          — Standalone MCP server (profile: mcp)
-#   jaeger       — Distributed tracing (profile: tracing)
+#   api           FastAPI + Gunicorn (always starts)
+#   redis         Cache + message broker (always starts)
+#   postgres      Metadata database (always starts)
+#   celery-worker Background processing (profile: celery)
+#   celery-beat   Periodic GC and orphan scans (profile: celery)
+#   mcp           Standalone MCP server (profile: mcp)
+#   jaeger        Distributed tracing (profile: tracing)
 #
 # Every long-running service has a healthcheck, so
 #   docker compose -f docker-compose.yml -f backends/qdrant.yml up -d --wait
@@ -125,7 +125,7 @@ x-build: &common-build
 
 services:
   # -------------------------------------------------------------------------
-  # API Server (FastAPI + Gunicorn) — always starts
+  # API Server (FastAPI + Gunicorn): always starts
   # -------------------------------------------------------------------------
   api:
     build: *common-build
@@ -170,7 +170,7 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # Celery Worker — opt-in via: --profile celery
+  # Celery Worker: opt in with --profile celery
   # -------------------------------------------------------------------------
   celery-worker:
     build: *common-build
@@ -206,7 +206,7 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # Celery Beat Scheduler — opt-in via: --profile celery
+  # Celery Beat Scheduler: opt in with --profile celery
   # Runs periodic GC and orphan-scan tasks on a cron schedule.
   # Must run alongside celery-worker (one beat instance per cluster).
   # -------------------------------------------------------------------------
@@ -241,7 +241,7 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # MCP Server (standalone) — opt-in via: --profile mcp
+  # MCP Server (standalone): opt in with --profile mcp
   # -------------------------------------------------------------------------
   mcp:
     build: *common-build
@@ -279,7 +279,7 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # Redis (Cache + Message Broker) — always starts
+  # Redis (Cache + Message Broker): always starts
   # -------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
@@ -296,7 +296,7 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # PostgreSQL (Metadata Database) — always starts
+  # PostgreSQL (Metadata Database): always starts
   # Image can be overridden by backend fragments (e.g. pgvector/pgvector:pg16)
   # -------------------------------------------------------------------------
   postgres:
@@ -320,7 +320,7 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # Jaeger (Distributed Tracing) — opt-in via: --profile tracing
+  # Jaeger (Distributed Tracing): opt in with --profile tracing
   # -------------------------------------------------------------------------
   jaeger:
     image: jaegertracing/all-in-one:latest

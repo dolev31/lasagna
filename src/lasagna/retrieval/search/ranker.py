@@ -1,4 +1,4 @@
-"""Cross-Encoder Reranking for RAG System - SOTA Implementation.
+"""Cross-Encoder Reranking for RAG System.
 
 This module provides:
 - Cross-encoder reranking for improved precision
@@ -697,7 +697,7 @@ class CombinedReranker:
             top_k = optimal_k
 
         # Step 3: Pre-MMR relevance filtering
-        # SOTA: Filter irrelevant results BEFORE MMR to prevent diversity selection
+        # Filter irrelevant results BEFORE MMR to prevent diversity selection
         # from promoting genuinely irrelevant items. Uses sigmoid threshold since
         # cross-encoder logits are unbounded and need calibration.
         if apply_mmr and (config.enable_mmr if config else rag_config.enable_mmr):
@@ -746,7 +746,7 @@ class EnsembleReranker:
     """Ensemble of multiple cross-encoder rerankers.
 
     Combines scores from multiple models using weighted average for
-    improved reranking quality. This is a SOTA technique that reduces
+    improved reranking quality. This technique reduces
     model-specific biases and improves robustness.
 
     Example models to ensemble:

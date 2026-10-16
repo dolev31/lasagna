@@ -1,7 +1,7 @@
 """Core layer - Configuration, schemas, and session management.
 
 This layer contains the foundational components:
-- RAGConfig: System configuration with SOTA defaults
+- RAGConfig: System configuration and its defaults
 - Document/DocumentChunk: Data models
 - Session management: Per-session RAG settings
 """
