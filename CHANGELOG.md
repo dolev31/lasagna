@@ -836,7 +836,9 @@ Servers and deployment:
   metadata database keeps a content generation per session, bumped on every
   upload and delete, and a process whose index is behind reads the store
   again on its next search. Keyword-only hits whose chunk is gone from the
-  store are dropped.
+  store are dropped. The search cache, also per process, follows the same
+  generation: on the compose stack another worker served a deleted document
+  from its cache for up to the 300 s TTL.
 - After an upload, the uploading process indexed the chunks for keyword
   search under their position instead of their stored id, held each chunk
   twice once it read the store, and could return the same chunk twice.

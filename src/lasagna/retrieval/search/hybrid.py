@@ -653,19 +653,10 @@ class BM25FallbackIndex:
 
 
 def _stored_generation(session_id: str) -> Optional[int]:
-    """The session's content generation in the metadata database; None if unreadable.
+    """The session's content generation (``core.database.content_generation``)."""
+    from lasagna.core.database import content_generation
 
-    None leaves the index as it is: a database that cannot be read must not
-    empty the keyword index on every search.
-    """
-    try:
-        from lasagna.core.database import get_rag_database
-
-        read = getattr(get_rag_database(), "get_content_generation", None)
-        return None if read is None else int(read(session_id))
-    except Exception as e:
-        logger.debug(f"Could not read the content generation of session {session_id[:8]}: {e}")
-        return None
+    return content_generation(session_id)
 
 
 class HybridSearcher:

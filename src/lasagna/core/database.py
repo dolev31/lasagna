@@ -1828,6 +1828,23 @@ def get_rag_database(db_path: Optional[str] = None):
     return _rag_database
 
 
+def content_generation(session_id: str) -> Optional[int]:
+    """The session's content generation in the metadata database; None if unreadable.
+
+    Bumped on every upload and delete (``bump_content_generation``). A process
+    compares it with the one its in-memory state (the BM25 index, the search
+    cache) was built at, so a change made by another process is noticed. None
+    leaves that state as it is: a database that cannot be read must not empty
+    it on every search.
+    """
+    try:
+        read = getattr(get_rag_database(), "get_content_generation", None)
+        return None if read is None else int(read(session_id))
+    except Exception as e:
+        logger.debug(f"Could not read the content generation of session {session_id[:8]}: {e}")
+        return None
+
+
 def reset_rag_database():
     """Reset the RAG database singleton.
 
