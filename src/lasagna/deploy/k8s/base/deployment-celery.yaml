@@ -36,7 +36,10 @@ spec:
             - lasagna.infrastructure.tasks.celery_app
             - worker
             - --loglevel=info
-            - --concurrency=4
+            # Each worker process loads the embedding model itself (about
+            # 2.4 GiB with the ConfigMap's model), so the memory below holds two.
+            # Without --concurrency Celery forks one per CPU of the node.
+            - --concurrency=2
           envFrom:
             - configMapRef:
                 name: lasagna-config
@@ -48,7 +51,7 @@ spec:
           resources:
             requests:
               cpu: "1"
-              memory: "2Gi"
+              memory: "5Gi"
             limits:
               cpu: "4"
               memory: "8Gi"

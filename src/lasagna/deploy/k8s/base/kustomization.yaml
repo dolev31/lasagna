@@ -8,5 +8,6 @@ resources:
   - pvc-uploads.yaml
   - deployment-api.yaml
   - deployment-celery.yaml
+  - deployment-celery-beat.yaml
   - service.yaml
   - hpa.yaml

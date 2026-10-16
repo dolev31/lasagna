@@ -388,11 +388,12 @@ is documented in [src/lasagna/mcp/README.md](../mcp/README.md).
 ## Kubernetes
 
 `k8s/base` holds the namespace `lasagna`, a ConfigMap and a Secret, the
-`lasagna-api` Deployment (2 replicas, image `lasagna:latest`, port 8000), the
-`lasagna-celery` worker Deployment (2 replicas, `--concurrency=4`), a ClusterIP
-Service on port 80 and two HorizontalPodAutoscalers. Each overlay sets
-`RAG_VECTOR_BACKEND` and its connection: `milvus`, `pgvector`, `pinecone`, `qdrant`,
-`weaviate`. There is no overlay for OpenSearch or Milvus Lite.
+`lasagna-api` Deployment (2 replicas of one gunicorn worker each, image `lasagna:latest`,
+port 8000), the `lasagna-celery` worker Deployment (2 replicas, `--concurrency=2`), the
+`lasagna-celery-beat` Deployment (1 replica), a ClusterIP Service on port 80 and two
+HorizontalPodAutoscalers. Each overlay sets `RAG_VECTOR_BACKEND` and its connection:
+`milvus`, `pgvector`, `pinecone`, `qdrant`, `weaviate`. There is no overlay for OpenSearch
+or Milvus Lite.
 
 ```bash
 # From the repository root: build the image the manifests name, then push it where
@@ -431,19 +432,31 @@ Before you apply:
    `LASAGNA_UPLOAD_DIR`. The claim is ReadWriteMany, so set `storageClassName` to a class
    that offers it (NFS, Amazon EFS, Azure Files, Google Filestore, CephFS). Without one the
    claim stays Pending and the pods do not start; then set `RAG_CELERY_ENABLED: "false"`
-   (the api processes its own uploads) and remove the claim and the `uploads` volume, or
-   use S3 storage (`RAG_STORAGE_BACKEND=s3`). `make validate-k8s K8S_OVERLAY=local`
-   checks a rendered overlay for this.
-4. **Fit the shutdown drain.** The api pods get `terminationGracePeriodSeconds: 45` and
-   gunicorn waits 30 s, but the ConfigMap leaves `RAG_PROCESSING_TIMEOUT` at 300; set it
-   below 30, as compose does.
+   (the api processes its own uploads) and remove the claim, the `uploads` volume and the
+   worker and beat Deployments (garbage collection then runs when asked:
+   `POST /api/v1/admin/gc/run`), or use S3 storage (`RAG_STORAGE_BACKEND=s3`).
+   `make validate-k8s K8S_OVERLAY=local` checks a rendered overlay for this.
+4. **Keep the shutdown drain in order.** On SIGTERM the api waits `RAG_PROCESSING_TIMEOUT`
+   (20 s in the ConfigMap) for documents in its own threads, inside gunicorn's
+   `--graceful-timeout` (30 s in the image), inside `terminationGracePeriodSeconds` (45 s).
+   Raising one means raising the ones after it; `make validate-k8s` refuses an order in
+   which the api is killed mid-drain.
 5. **Check tracing.** The ConfigMap turns tracing on and sends it to
    `http://otel-collector.observability:4317`.
-6. **Size the pods** for your embedding model: the api requests 500m CPU and 2Gi (limit 2
-   CPUs, 6Gi), the worker 1 CPU and 2Gi (limit 4 CPUs, 8Gi).
+6. **Size the pods for your models.** Each gunicorn worker and each Celery worker process
+   loads the models itself, after the fork (the image's `--preload` shares the imports,
+   not the models). With `BAAI/bge-large-en-v1.5` and `mxbai-rerank-large-v1` the api runs
+   one worker per pod (`WEB_CONCURRENCY=1`) and requests 500m CPU and 4Gi (limit 2 CPUs,
+   6Gi); the worker runs two processes and requests 1 CPU and 5Gi (limit 4 CPUs, 8Gi).
+   `make validate-k8s` counts about 1 GiB per process plus its models (`MODEL_GIB` in
+   `k8s/check_manifests.py`) and refuses a memory request or limit below that, or an
+   autoscaler memory target the loaded models alone pass. A session that selects another
+   model loads it as well.
 
-No Celery beat runs in these manifests, so the periodic garbage collection and orphan
-scans that compose schedules do not run. The ConfigMap embeds with
+`lasagna-celery-beat` schedules the garbage collection and orphan scans, as compose's
+celery-beat does; with Celery on, the api leaves them to beat. It runs one replica with
+`strategy: Recreate`, so two never schedule at once, and keeps its schedule on an
+emptyDir, so a new pod starts the intervals over. The ConfigMap embeds with
 `BAAI/bge-large-en-v1.5` (compose uses `BAAI/bge-m3`) and sets `RAG_DEFAULT_TOP_K=75`,
 `RAG_RERANK_TOP_K=10`, partition tenant isolation, quotas and adaptive rate limiting.
 
@@ -453,7 +466,7 @@ liveness on `/api/v1/health/live` every 15 s and readiness on `/api/v1/health/re
 
 | Autoscaler | Replicas | Scales up on |
 | --- | --- | --- |
-| api | 2 to 10 | CPU over 70% or memory over 80% |
+| api | 2 to 10 | CPU over 70% |
 | worker | 1 to 8 | CPU over 75% |
 
 ## Configuration

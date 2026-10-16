@@ -13,21 +13,16 @@ spec:
     name: lasagna-api
   minReplicas: 2
   maxReplicas: 10
+  # CPU only. A pod's memory is mostly its models, loaded on the first request
+  # and held whatever the load, so a memory target says nothing about traffic:
+  # the models alone passed 80% of the 2Gi request, and the api stayed at 10.
   metrics:
-    # Scale on CPU utilisation
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
           averageUtilization: 70
-    # Scale on memory utilisation
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 80
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 60

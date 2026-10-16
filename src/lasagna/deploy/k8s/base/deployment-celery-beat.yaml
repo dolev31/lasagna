@@ -1,0 +1,61 @@
+# Celery beat: schedules the periodic garbage collection and orphan scans
+# (every gc_cycle_hours and orphan_scan_hours; lifecycle/README.md) for the
+# workers to run. With Celery on, the api schedules neither itself, so without
+# this pod they never ran.
+#
+# Exactly one: each beat schedules every task, so two would run each cycle
+# twice. Recreate stops the old pod before the new one starts, which a rolling
+# update does not. The schedule file is on an emptyDir, so it survives a
+# container restart; a new pod starts the intervals over.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lasagna-celery-beat
+  namespace: lasagna
+  labels:
+    app.kubernetes.io/name: lasagna
+    app.kubernetes.io/component: celery-beat
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lasagna
+      app.kubernetes.io/component: celery-beat
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lasagna
+        app.kubernetes.io/component: celery-beat
+    spec:
+      volumes:
+        - name: schedule
+          emptyDir: {}
+      containers:
+        - name: beat
+          image: lasagna:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - celery
+            - -A
+            - lasagna.infrastructure.tasks.celery_app
+            - beat
+            - --loglevel=info
+            - --schedule=/var/lib/celerybeat/schedule
+          envFrom:
+            - configMapRef:
+                name: lasagna-config
+            - secretRef:
+                name: lasagna-secrets
+          volumeMounts:
+            - name: schedule
+              mountPath: /var/lib/celerybeat
+          # Beat imports the package but loads no model.
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "768Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"

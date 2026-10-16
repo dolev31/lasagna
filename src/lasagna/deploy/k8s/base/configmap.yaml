@@ -31,7 +31,7 @@ data:
   # ones; in memory, each process kept its own.
   RAG_SESSION_BACKEND: "persistent"
   # RAG_VECTOR_BACKEND is set per overlay (milvus, pgvector, qdrant, etc.)
-  # Pool size should be >= gunicorn workers x 2 (default 4 workers -> 10)
+  # Connections to the vector store per process.
   RAG_CONNECTION_POOL_SIZE: "10"
 
   # --- Celery ---
@@ -40,6 +40,13 @@ data:
   # the api and the worker pods (pvc-uploads.yaml), so a worker can open a file
   # an api pod stored. The LASAGNA_ name wins over a RAG_UPLOAD_DIR elsewhere.
   LASAGNA_UPLOAD_DIR: "/data/uploads"
+  # On shutdown the api waits this long (seconds) for documents still in its
+  # own processing threads (the fallback when no worker answers), then marks
+  # them failed with the reason. It has to end inside gunicorn's
+  # --graceful-timeout (30 s in the image), inside the api pod's
+  # terminationGracePeriodSeconds (45); the code default of 300 outlived both,
+  # and the documents stayed "processing".
+  RAG_PROCESSING_TIMEOUT: "20"
 
   # --- Embedded services ---
   RAG_EMBED_MCP: "false"

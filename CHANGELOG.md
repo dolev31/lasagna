@@ -494,6 +494,14 @@ Server and deployment:
   context and the package data both included. The build context leaves out
   `src/lasagna/deploy/k8s/`, and secrets go in a git-ignored `overlays/local/`
   (copied from `overlays/local.example`) that the wheel and sdist exclude.
+- **The Kubernetes defaults fit their models.** Each gunicorn worker and Celery
+  process loads its own models after the fork (about 3 GiB), so the api runs
+  one worker per pod and requests 4Gi, and the worker runs `--concurrency=2`
+  and requests 5Gi; the api autoscaler scales on CPU (its memory target was
+  always exceeded and pinned it at 10 replicas); a `lasagna-celery-beat`
+  Deployment runs garbage collection, which never ran;
+  `RAG_PROCESSING_TIMEOUT=20` keeps the shutdown drain inside the grace period,
+  as in compose. `make validate-k8s` checks each of these.
 
 Numbers that were wrong:
 
