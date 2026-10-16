@@ -152,6 +152,12 @@ Results:
 
 Servers and deployment:
 
+- **A process that had read a session never saw later changes to it** with
+  session settings in PostgreSQL, so a profile applied through one api worker
+  missed the other workers, the Celery worker and the MCP server; and the
+  worker indexed with the model it had loaded, not the session's, into a
+  collection nobody had created. Sessions are re-read once a second, and the
+  task makes the session's embedder and collection current before indexing.
 - **No upload ever reached the Celery worker, and the worker ran no task.**
   The api dispatches from a threadpool thread, where Celery's current app was
   its unconfigured default (AMQP on localhost), so every `.delay()` failed

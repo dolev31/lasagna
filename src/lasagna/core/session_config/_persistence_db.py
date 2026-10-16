@@ -256,9 +256,25 @@ class DatabasePersistenceMixin:
         except Exception as exc:
             logger.warning(f"Failed to persist session states to PostgreSQL: {exc}")
 
-    def _read_persisted_session(self, session_id: str) -> None:
-        """Not used here: each request gets a manager that loads its session fresh."""
-        return None
+    def _read_persisted_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """The session as stored, Redis first, then PostgreSQL; None when absent.
+
+        A manager that outlives a request re-reads its sessions through this
+        once a second: the one ``PersistentSessionProvider`` holds for the
+        whole process does. Returning None here (on the theory that every
+        manager is request-scoped) left each process with the first copy of a
+        session it read, so a profile applied through one api worker never
+        reached the other workers, the Celery worker or the MCP server.
+        """
+        cached = self._load_session_from_cache(session_id)
+        if cached:
+            return cached
+        try:
+            row = _get_pg_db().get_session(session_id)
+        except Exception as exc:  # noqa: BLE001 - the cached copy is kept
+            logger.debug(f"Could not read session {session_id} from PostgreSQL: {exc}")
+            return None
+        return self._row_to_state_data(row) if row else None
 
     def _persist_single_session(self, session_id: str) -> None:
         """Persist a single session (more efficient than persisting all)."""

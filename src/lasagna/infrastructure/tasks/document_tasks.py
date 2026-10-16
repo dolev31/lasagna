@@ -136,6 +136,8 @@ def _process_document_impl(
 
         # Get session-scoped config
         config = backend.get_session_config(session_id)
+        # This may be another process than the one that took the upload.
+        backend._document_pipeline.use_embedder_for(config)
 
         # Run the full processing pipeline
         backend._document_pipeline.process_document(doc, file_path, config=config)
