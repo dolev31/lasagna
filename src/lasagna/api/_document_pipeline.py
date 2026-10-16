@@ -72,9 +72,9 @@ class ChunkStoreUnavailable(RuntimeError):
     """The vector store could not be read; REST answers 503."""
 
 
-
 #: Whether the Docling fallback has been logged in this process (once is enough).
 _docling_fallback_said = False
+
 
 class DocumentPipeline:
     """Manages document upload, processing, and lifecycle.

@@ -106,17 +106,8 @@ reranker (`pip install flashrank`), the `cohere` reranker and embedder
 (`pip install voyageai`, `VOYAGE_API_KEY`) and the `openai` embedder
 (`OPENAI_API_KEY`). Each raises naming what is missing.
 
-**`pip` cannot resolve `eval` together with `storage-all`**, and so cannot
-resolve `all` either. The requirement set is satisfiable; pip's resolver just
-fails to find the solution. Use `uv`, or hand pip the versions it misses:
-
-```bash
-uv pip install "lasagna-rag[all]"
-pip install "lasagna-rag[eval,storage-all]" s3fs==2026.6.0 fsspec==2026.6.0
-```
-
-`eval` and `storage-all` each resolve fine on their own; only the combination
-defeats pip.
+`all` is large: pip takes about two minutes to resolve it (measured with pip
+26.2), and `uv pip install "lasagna-rag[all]"` a few seconds.
 
 ### Platform notes
 

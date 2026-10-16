@@ -978,7 +978,8 @@ def _configurator_line(base: str) -> str:
 @app.command()
 def serve(
     ctx: typer.Context,
-    port: int = typer.Option(8000, "--port", "-p", help="Port to listen on."),
+    # No -p: everywhere else it is --profile.
+    port: int = typer.Option(8000, "--port", help="Port to listen on."),
     host: str = typer.Option(
         "127.0.0.1",
         "--host",
@@ -1612,9 +1613,7 @@ def benchmark_experiment(
         # The arm, not the task key: its hashes wrapped every line in two.
         parts = task_key.split("|")
         label = (
-            f"{parts[0]}  {parts[1]}  {parts[5].replace('_', ' ')}"
-            if len(parts) > 5
-            else task_key
+            f"{parts[0]}  {parts[1]}  {parts[5].replace('_', ' ')}" if len(parts) > 5 else task_key
         )
         console.print(f"  [{completed}/{total}] {escape(label)}", soft_wrap=True)
 

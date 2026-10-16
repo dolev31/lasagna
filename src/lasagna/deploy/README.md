@@ -346,9 +346,9 @@ is documented in [src/lasagna/mcp/README.md](../mcp/README.md).
 
 ## Kubernetes
 
-`k8s/base` holds the namespace `rag-knowledge`, a ConfigMap and a Secret, the
-`rag-knowledge-api` Deployment (2 replicas, image `rag-knowledge:latest`, port 8000), the
-`rag-knowledge-celery` worker Deployment (2 replicas, `--concurrency=4`), a ClusterIP
+`k8s/base` holds the namespace `lasagna`, a ConfigMap and a Secret, the
+`lasagna-api` Deployment (2 replicas, image `lasagna:latest`, port 8000), the
+`lasagna-celery` worker Deployment (2 replicas, `--concurrency=4`), a ClusterIP
 Service on port 80 and two HorizontalPodAutoscalers. Each overlay sets
 `RAG_VECTOR_BACKEND` and its connection: `milvus`, `pgvector`, `pinecone`, `qdrant`,
 `weaviate`. There is no overlay for OpenSearch or Milvus Lite.
@@ -356,7 +356,7 @@ Service on port 80 and two HorizontalPodAutoscalers. Each overlay sets
 ```bash
 # From the repository root: build the image the manifests name, then push it where
 # your cluster pulls images from.
-docker build -t rag-knowledge:latest -f src/lasagna/deploy/Dockerfile .
+docker build -t lasagna:latest -f src/lasagna/deploy/Dockerfile .
 
 # From src/lasagna/deploy
 kubectl apply -k k8s/overlays/pgvector/
@@ -371,9 +371,9 @@ Before you apply:
    `POST /api/v1/sessions` answers 503 until `RAG_API_KEYS` is. Prefer sealed-secrets or
    an external secrets operator to a plain manifest.
 2. **Provide PostgreSQL, Redis and the vector store.** The manifests deploy none of them;
-   the Secret and overlays point at `postgres.rag-knowledge:5432`,
-   `redis.rag-knowledge:6379`, `milvus.rag-knowledge:19530`, `qdrant.rag-knowledge:6333`
-   and `weaviate.rag-knowledge:8080`. The `qdrant`, `weaviate` and `pinecone` overlays also
+   the Secret and overlays point at `postgres.lasagna:5432`,
+   `redis.lasagna:6379`, `milvus.lasagna:19530`, `qdrant.lasagna:6333`
+   and `weaviate.lasagna:8080`. The `qdrant`, `weaviate` and `pinecone` overlays also
    need their client in the image: build it with `--build-arg VECTOR_BACKEND=qdrant` (or
    `weaviate`, `pinecone`, `all`; see [Vector backends](#vector-backends)).
 3. **Share the uploads.** The manifests mount no volume and turn Celery on, so a worker
@@ -440,29 +440,23 @@ compose the embedding model, the reranker and the tracing switch stay as
 At runtime, `PATCH /api/v1/config` changes one session's search settings, and with
 `RAG_CONFIGURATOR=true` the api serves a configuration page at `/configurator`.
 
-## Upgrade notes
+## Storage
 
 - **Metadata store version.** SQLite and PostgreSQL record a store version
-  (`STORE_VERSION`, 6) in their `schema_meta` table. An older store is migrated forward at
-  startup; a store recorded by a newer Lasagna is refused with an error rather than read.
-  PostgreSQL creates and migrates its schema inside a transaction holding an advisory
-  lock, so replicas and workers starting together do not race.
+  (`STORE_VERSION`, 6) in their `schema_meta` table. An older store is migrated forward
+  at startup; a store recorded by a newer Lasagna is refused with an error rather than
+  read. PostgreSQL creates its schema
+  inside a transaction holding an advisory lock, so replicas and workers starting
+  together do not race.
 - **Data directory.** Lasagna keeps its data in `~/.lasagna` (`dbs/` and `uploads/`), or
   in `LASAGNA_DATA_DIR`; `LASAGNA_DB_DIR` and `LASAGNA_UPLOAD_DIR` move each part (the
-  `RAG_` names also work). On first use, `~/.rag_knowledge` is renamed to `~/.lasagna`
-  when only it exists; two existing directories are never merged. In the image the home
-  directory is `/home/rag`, which is not on a volume: compose keeps uploads on
-  `uploads-data`, metadata in PostgreSQL (`postgres-data`) and Milvus Lite's file on
-  `milvus-data`.
+  `RAG_` names also work). In the image the home directory is `/home/rag`, which is not
+  on a volume: compose keeps uploads on `uploads-data`, metadata in PostgreSQL
+  (`postgres-data`) and Milvus Lite's file on `milvus-data`.
 - **One vector collection per embedding model.** Each model and dimension writes to
-  `rag_documents_v2__<model>__<dim>`. A collection name other than `rag_documents_v2` is
-  used as given. Before 0.1.0 every model wrote to `rag_documents_v2`: the first model to
-  open it at the dimension it holds, before that model has a collection of its own, keeps
-  using it under that name; other models get their own collections. When no model takes
-  it over, it stays in place and `lasagna status` lists it as unused. A collection whose
-  vectors another model wrote is refused with an error naming that model.
-- **Session tokens** are issued with the issuer `lasagna`. Tokens issued as
-  `rag-knowledge` before 0.1.0 stay valid until they expire.
+  `rag_documents_v2__<model>__<dim>`; a `collection_name` you set is used as given. A
+  collection whose vectors another model wrote is refused with an error naming that
+  model.
 
 ## Stress tests
 

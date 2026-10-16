@@ -1,16 +1,16 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: rag-knowledge-api
-  namespace: rag-knowledge
+  name: lasagna-api
+  namespace: lasagna
   labels:
-    app.kubernetes.io/name: rag-knowledge
+    app.kubernetes.io/name: lasagna
     app.kubernetes.io/component: api
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: rag-knowledge-api
+    name: lasagna-api
   minReplicas: 2
   maxReplicas: 10
   metrics:
@@ -45,16 +45,16 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: rag-knowledge-celery
-  namespace: rag-knowledge
+  name: lasagna-celery
+  namespace: lasagna
   labels:
-    app.kubernetes.io/name: rag-knowledge
+    app.kubernetes.io/name: lasagna
     app.kubernetes.io/component: celery-worker
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: rag-knowledge-celery
+    name: lasagna-celery
   minReplicas: 1
   maxReplicas: 8
   metrics:

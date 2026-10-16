@@ -38,7 +38,7 @@ class UnknownProfileError(ValueError):
     """No profile of that name exists for the caller."""
 
 
-# MEDIUM PRIORITY FIX: Memory limits for session state
+# Memory limits for session state
 # Without these limits, a malicious or buggy client could cause OOM by storing
 # unlimited citations/chunks. These limits are generous for normal use but
 # prevent memory exhaustion attacks.

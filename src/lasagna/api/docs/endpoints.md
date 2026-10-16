@@ -788,6 +788,8 @@ List all registered agentic pipelines. With `RAG_REQUIRE_AUTH=true`, this needs 
 
 These endpoints serve the configurator frontend UI. They provide full profile CRUD, session-scoped configuration, and import/export. All return `KnowledgeConfigFullResponse`.
 
+**Deprecated for other callers:** they are unversioned because the configurator calls them by these paths, and they will move under `/api/v1` in 0.2.0. A program should read and change a session's settings with `GET` and `PATCH /api/v1/config`.
+
 With `RAG_CONFIGURATOR=true`, the UI's own routes are mounted too: `GET /configurator/api/schema` and `POST /configurator/api/validate`. With `RAG_REQUIRE_AUTH=true`, they need a session token like the routes below (401 without one).
 
 | # | Method | Path | Description |

@@ -1093,7 +1093,7 @@ async def search_knowledge_base(query: str, config: RunnableConfig) -> str:
 
         search_latency_ms = (time.time() - search_start) * 1000
 
-        # P0-2 FIX: Coverage scoring for intelligent stopping condition
+        # Coverage scoring for intelligent stopping condition
         # Check how well the retrieved chunks cover the query aspects
         coverage_score = None
         try:
@@ -2034,7 +2034,7 @@ class AgenticRAG:
             MIN_CHUNKS_FOR_SUFFICIENT = 2
             MIN_UNIQUE_DOCS_FOR_SUFFICIENT = 1
 
-            # P0-2 FIX: Use coverage scoring for more intelligent stop reason
+            # Use coverage scoring for more intelligent stop reason
             coverage_sufficient = config.get("configurable", {}).get("coverage_sufficient", False)
             coverage_scores = config.get("configurable", {}).get("coverage_scores", [])
             final_coverage_ratio = coverage_scores[-1]["coverage_ratio"] if coverage_scores else 0.0

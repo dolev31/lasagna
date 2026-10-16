@@ -1068,7 +1068,7 @@ def close_backend() -> None:
 def reset_instance():
     """Reset the RAG backend singleton instance.
 
-    CRITICAL FIX: Uses lock to prevent race condition with get_rag_backend().
+    Uses lock to prevent race condition with get_rag_backend().
     Without the lock, a reset during creation could leave the system in an
     inconsistent state.
 

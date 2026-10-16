@@ -2484,7 +2484,7 @@ class RAGConfig:
     def max_document_ids_filter(self) -> int:
         """Maximum document IDs allowed in filter expressions.
 
-        HIGH PRIORITY FIX: Prevents Milvus filter expression overflow when
+        Prevents Milvus filter expression overflow when
         too many document IDs are passed, which can cause query failures.
         """
         return self._get_knowledge_setting(

@@ -150,7 +150,7 @@ class RerankedResult:
     normalized_score: float = 0.0  # Normalized to [0, 1] for display
     original_rank: int = 0
     final_rank: int = 0
-    # P1-3 FIX: Pre-fetched embedding from Milvus to avoid re-embedding in MMR
+    # Pre-fetched embedding from Milvus to avoid re-embedding in MMR
     embedding: Optional[List[float]] = None
     # Backend highlight fragments (e.g. from OpenSearch BM25)
     highlights: Optional[List[str]] = None
@@ -368,7 +368,7 @@ class CrossEncoderReranker:
                     normalized_score=0.0,  # Will be set after sorting
                     original_rank=i,
                     final_rank=0,  # Will be set after sorting
-                    # P1-3 FIX: Preserve embedding from search result for MMR
+                    # Preserve embedding from search result for MMR
                     embedding=self._extract_embedding(result),
                     highlights=result.get("highlights"),
                 )
@@ -437,7 +437,7 @@ class CrossEncoderReranker:
                     normalized_score=norm_score,
                     original_rank=i,
                     final_rank=i,
-                    # P1-3 FIX: Preserve embedding for MMR
+                    # Preserve embedding for MMR
                     embedding=self._extract_embedding(result),
                     highlights=result.get("highlights"),
                 )
@@ -513,7 +513,7 @@ class MMRReranker:
             logger.debug("No embedding manager for MMR - skipping diversity")
             return results[:top_k]
 
-        # P1-3 FIX: Use pre-fetched embeddings from Milvus when available
+        # Use pre-fetched embeddings from Milvus when available
         # This avoids re-embedding chunks, saving ~50-100ms per search
         embeddings = []
         need_embedding_indices = []
@@ -542,7 +542,7 @@ class MMRReranker:
         else:
             logger.debug(f"MMR: Reused all {len(results)} pre-fetched embeddings (0 re-computed)")
 
-        # CRITICAL FIX: Normalize relevance scores to [0, 1] range
+        # Normalize relevance scores to [0, 1] range
         # This ensures relevance is comparable to cosine similarity (also [0, 1])
         raw_scores = [r.rerank_score for r in results]
         normalized_relevances = _normalize_scores_for_mmr(raw_scores, strategy=mmr_normalization)

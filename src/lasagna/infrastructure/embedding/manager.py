@@ -45,7 +45,7 @@ _PROGRESS_MIN_BATCHES = 8
 class EmbeddingCache:
     """Thread-safe LRU cache for embeddings to avoid recomputation.
 
-    CRITICAL FIX: All cache operations are now protected by RLock to prevent
+    All cache operations are now protected by RLock to prevent
     race conditions in multi-threaded environments (FastAPI, concurrent requests).
     """
 

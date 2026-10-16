@@ -582,8 +582,7 @@ pip install "lasagna-rag[eval]==0.1.0" -c https://raw.githubusercontent.com/dole
 
 `eval` adds the RAGAS metrics, benchmark loaders and statistics; the other
 extras (vector backends, document processors, LLM providers, the production
-stack) and the platform notes (CPU-only torch on Linux, Apple Silicon, a pip
-resolver issue with `all`) are in
+stack) and the platform notes (CPU-only torch on Linux, Apple Silicon) are in
 [the guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md#2-install).
 `pip install lasagna` installs a different project; this one is `lasagna-rag`.
 

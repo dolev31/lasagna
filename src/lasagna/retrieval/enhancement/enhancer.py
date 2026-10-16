@@ -92,7 +92,7 @@ Hypothetical answer:"""
         self.model = model
         self._llm = None
         self._llm_settings: Optional[Dict[str, Any]] = None
-        # CRITICAL FIX: Thread safety for LLM initialization
+        # Thread safety for LLM initialization
         # Prevents race conditions in multi-threaded environments (FastAPI)
         self._llm_lock = threading.Lock()
 
@@ -107,7 +107,7 @@ Hypothetical answer:"""
     def _get_llm(self, model_ref: Optional[str], max_tokens: int) -> Optional[Any]:
         """Lazy load LLM client (thread-safe).
 
-        CRITICAL FIX: Uses lock to prevent race conditions during LLM initialization.
+        Uses lock to prevent race conditions during LLM initialization.
         Without this, concurrent requests could trigger duplicate LLM initializations
         or read stale _llm/_llm_settings values.
         """
@@ -310,7 +310,7 @@ Hypothetical answer:"""
     ) -> List[str]:
         """Synchronous version of batch HyDE generation.
 
-        P1-2 FIX: Uses ThreadPoolExecutor for parallel generation even in async contexts.
+        Uses ThreadPoolExecutor for parallel generation even in async contexts.
         This avoids the 3-5x slowdown from sequential fallback in FastAPI/async servers.
 
         Args:

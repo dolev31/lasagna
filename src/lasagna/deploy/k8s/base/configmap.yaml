@@ -3,10 +3,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: rag-knowledge-config
-  namespace: rag-knowledge
+  name: lasagna-config
+  namespace: lasagna
   labels:
-    app.kubernetes.io/name: rag-knowledge
+    app.kubernetes.io/name: lasagna
 data:
   # --- Authentication ---
   # Without this, `X-Session-ID` is accepted as identity with no credential and

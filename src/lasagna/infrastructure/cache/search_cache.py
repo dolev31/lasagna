@@ -67,7 +67,7 @@ class SearchCache:
         self._lock = threading.RLock()
         self._last_cleanup = time.time()
 
-        # CRITICAL FIX: Track session -> keys mapping for efficient invalidation
+        # Track session -> keys mapping for efficient invalidation
         # This enables O(1) session invalidation instead of iterating all entries
         self._session_keys: Dict[str, set] = {}
 
@@ -124,7 +124,7 @@ class SearchCache:
             "top_k": top_k,
             "use_hyde": use_hyde,
             "use_reranking": use_reranking,
-            # P2-2 FIX: Include config parameters that affect search results
+            # Include config parameters that affect search results
             "hybrid_alpha": round(hybrid_alpha, 3),  # Round to avoid float precision issues
             "mmr_lambda": round(mmr_lambda, 3),
             "hyde_n_docs": hyde_n_docs if use_hyde else 0,
@@ -268,7 +268,7 @@ class SearchCache:
             while len(self._cache) >= self.max_size:
                 evicted_key, evicted_entry = self._cache.popitem(last=False)
                 self._evictions += 1
-                # CRITICAL FIX: Clean up session -> keys mapping on eviction
+                # Clean up session -> keys mapping on eviction
                 if evicted_entry.session_id and evicted_entry.session_id in self._session_keys:
                     self._session_keys[evicted_entry.session_id].discard(evicted_key)
                     if not self._session_keys[evicted_entry.session_id]:
@@ -285,7 +285,7 @@ class SearchCache:
                 query_text=query,
             )
 
-            # CRITICAL FIX: Track session -> keys mapping for efficient invalidation
+            # Track session -> keys mapping for efficient invalidation
             if session_id not in self._session_keys:
                 self._session_keys[session_id] = set()
             self._session_keys[session_id].add(key)
@@ -300,7 +300,7 @@ class SearchCache:
         Called when documents are added/removed to ensure stale results
         are not returned.
 
-        CRITICAL FIX: Now uses O(1) session -> keys mapping instead of
+        Now uses O(1) session -> keys mapping instead of
         clearing the entire cache, preserving entries from other sessions.
 
         Args:
@@ -382,7 +382,7 @@ class SearchCache:
     def _maybe_cleanup(self) -> None:
         """Run periodic cleanup if interval elapsed.
 
-        CRITICAL FIX: Now properly maintains session -> keys mapping when
+        Now properly maintains session -> keys mapping when
         removing expired entries.
         """
         now = time.time()
@@ -399,7 +399,7 @@ class SearchCache:
         for key, session_id in expired:
             del self._cache[key]
             self._expirations += 1
-            # CRITICAL FIX: Clean up session -> keys mapping on expiration
+            # Clean up session -> keys mapping on expiration
             if session_id and session_id in self._session_keys:
                 self._session_keys[session_id].discard(key)
                 if not self._session_keys[session_id]:
@@ -431,7 +431,7 @@ class SearchCache:
         """Clear the cache and reset statistics."""
         with self._lock:
             self._cache.clear()
-            self._session_keys.clear()  # CRITICAL FIX: Also clear session mapping
+            self._session_keys.clear()  # Also clear session mapping
             self._hits = 0
             self._misses = 0
             self._evictions = 0

@@ -303,7 +303,7 @@ def get_query_classifier() -> QueryClassifier:
         QueryClassifier instance
     """
     global _classifier
-    # P2-4 FIX: Add thread safety to singleton initialization
+    # Add thread safety to singleton initialization
     if _classifier is None:
         with _classifier_lock:
             # Double-check locking pattern

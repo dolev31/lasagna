@@ -294,6 +294,17 @@ Metric definitions and results (`METRICS_VERSION` 1.5):
 
 Command line:
 
+- `-p` means `--profile` wherever it exists; `serve --port` has no short flag
+  (it was `-p` there). The Kubernetes manifests are named `lasagna` (namespace,
+  deployments, labels and image), as the project is. The unversioned
+  `/api/config/knowledge` routes are deprecated for any caller but the
+  configurator page and move under `/api/v1` in 0.2.0; programs use
+  `/api/v1/config`. `CITATION.cff` carries the release-date placeholder until
+  the release stamps it with the changelog (it named 2026-08-18). The deploy
+  guide's "Upgrade notes" for versions before this release are gone, and the
+  claim that pip cannot resolve `[all]`: with `storage-all` bounding `fsspec`
+  and `s3fs`, pip 26.2 resolves `[eval,storage-all]` in 31 s and `[all]` in
+  about two minutes.
 - `lasagna evaluate`, an undocumented command from before the benchmark
   harness, is removed: it checked for no API key, retried for 69 s and then
   failed. `lasagna benchmark run <file>` measures your own data
@@ -783,27 +794,6 @@ Servers and deployment:
 - `benchmark leaderboard <folder>` failed with "Unknown format".
 - `lasagna serve` and MCP tools on a store another process holds logged an
   ERROR line in addition to the reply that says so.
-
-### Known issues
-
-- **`pip` cannot resolve `[eval]` together with `[storage-all]`** (and therefore
-  cannot resolve `[all]`). `pip install "lasagna-rag[eval,storage-all]"` exits
-  with `ResolutionImpossible`; `[all]` backtracks for over fifteen minutes
-  without converging. The constraint set is satisfiable: `uv pip compile`
-  solves both in seconds, and `pip` succeeds when handed the versions it fails
-  to find:
-
-  ```bash
-  uv pip install "lasagna-rag[eval,storage-all]"
-  pip install "lasagna-rag[eval,storage-all]" s3fs==2026.6.0 fsspec==2026.6.0
-  ```
-
-  Cause: `s3fs`, `gcsfs` and `adlfs` release in lockstep with `fsspec` and pin
-  it exactly, while `datasets` (via `ragas`) caps `fsspec`. Searching
-  newest-first, pip explores a large `aiobotocore`/`botocore`/`boto3` space and
-  gives up. Not "fixed" by pinning: any upper bound written here is a guess at
-  when `datasets` will raise its own cap, and would strand users on an old
-  `s3fs` once it does.
 
 ### Planned for 0.2.0
 

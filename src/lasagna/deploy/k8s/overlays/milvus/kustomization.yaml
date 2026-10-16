@@ -9,15 +9,15 @@ patches:
       apiVersion: v1
       kind: ConfigMap
       metadata:
-        name: rag-knowledge-config
-        namespace: rag-knowledge
+        name: lasagna-config
+        namespace: lasagna
       data:
         RAG_VECTOR_BACKEND: "milvus"
   - patch: |-
       apiVersion: v1
       kind: Secret
       metadata:
-        name: rag-knowledge-secrets
-        namespace: rag-knowledge
+        name: lasagna-secrets
+        namespace: lasagna
       stringData:
-        RAG_VECTOR_BACKEND_CONFIG: '{"uri": "http://milvus.rag-knowledge:19530"}'
+        RAG_VECTOR_BACKEND_CONFIG: '{"uri": "http://milvus.lasagna:19530"}'

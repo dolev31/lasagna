@@ -9,16 +9,16 @@ patches:
       apiVersion: v1
       kind: ConfigMap
       metadata:
-        name: rag-knowledge-config
-        namespace: rag-knowledge
+        name: lasagna-config
+        namespace: lasagna
       data:
         RAG_VECTOR_BACKEND: "weaviate"
   - patch: |-
       apiVersion: v1
       kind: Secret
       metadata:
-        name: rag-knowledge-secrets
-        namespace: rag-knowledge
+        name: lasagna-secrets
+        namespace: lasagna
       stringData:
-        WEAVIATE_URL: "http://weaviate.rag-knowledge:8080"
+        WEAVIATE_URL: "http://weaviate.lasagna:8080"
         # WEAVIATE_API_KEY: ""  # Set for Weaviate Cloud or authenticated clusters
