@@ -648,6 +648,14 @@ Results tooling:
 - **The short-list warning blamed the wrong setting.** It told users to raise
   `retrieval_chunk_overfetch` even when BM25 had simply run out of documents
   matching a one- or two-word query; it names the cause.
+- **Claimed numbers never reached a results table.** The README and
+  CONTRIBUTING promise that a component's `claims` let a table show the
+  claimed number beside the reproduced one; nothing did, and a sweep naming
+  `my_ideas:longer_first` re-registered the function without the claims its
+  decorator declared. A run records each component's paper and claims
+  (`components` in its metadata and bundle), and the leaderboard
+  `benchmark experiment` prints, `results leaderboard` in markdown and LaTeX,
+  and `results view` show the claim and its paper beside the measured value.
 
 First run:
 

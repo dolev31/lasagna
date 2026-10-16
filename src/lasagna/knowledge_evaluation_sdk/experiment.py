@@ -1670,11 +1670,15 @@ class Experiment:
             experiment_config=_run_metadata(cfg, concurrency=concurrency),
         )
         # The commit of each model the tasks ran, read from the local cache.
-        from .run_provenance import model_revisions, models_used
+        from .run_provenance import component_provenance, model_revisions, models_used
 
+        task_rows = [r.to_dict() for r in task_results]
         results.experiment_config["model_revisions"] = model_revisions(
-            models_used([r.to_dict() for r in task_results], results.experiment_config)
+            models_used(task_rows, results.experiment_config)
         )
+        # The paper and claimed numbers of each component that declared them,
+        # so a results table can show the claim beside what was measured.
+        results.experiment_config["components"] = component_provenance(task_rows)
         # How much of this run was replayed, so a fast run can be read as one.
         results.experiment_config["llm_cache"] = cache_settings.record(cache_totals)
         # Whether one run is the whole answer (see nothing_samples).

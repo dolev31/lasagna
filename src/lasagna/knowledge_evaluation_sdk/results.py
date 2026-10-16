@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
+from .run_provenance import claim_text, claimed
+
 from .runner import TaskResult
 
 
@@ -1256,7 +1258,9 @@ class BenchmarkResults:
                     runs = f"{agg.n_runs} run" + ("s" if agg.n_runs != 1 else "")
                     spread = f" ± {agg.std:.4f}" if agg.n_runs > 1 else ""
                     n_queries = f", {len(queries)} queries" if queries else ""
-                    cell = f"{agg.mean:.4f}{spread} ({runs}{n_queries}){failures}"
+                    claim = claim_text(self.claim_for(config, metric, bench))
+                    claim = f"; claimed {claim}" if claim else ""
+                    cell = f"{agg.mean:.4f}{spread} ({runs}{n_queries}){failures}{claim}"
                     if queries and queries != universe:
                         unranked.append(
                             f"  -  {config:{width}s}  {cell}; scored {len(queries)} of "
@@ -1281,6 +1285,22 @@ class BenchmarkResults:
         if notes:
             lines += [""] + notes
         return "\n".join(lines)
+
+    def claim_for(
+        self, config: str, metric: str, benchmark: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """What the component in ``config`` claims for ``metric``, and its paper.
+
+        From the run's ``components`` record (`run_provenance.component_provenance`)
+        and the config's stage manifest; None when nothing in it claims ``metric``.
+        """
+        components = (self.experiment_config or {}).get("components")
+        for task in self._results:
+            if task.config_name == config and (
+                benchmark is None or task.benchmark_name == benchmark
+            ):
+                return claimed(components, task.system, metric)
+        return None
 
     def _no_context_notes(self) -> List[str]:
         """One line per arm whose generator read no passages (closed_book, a

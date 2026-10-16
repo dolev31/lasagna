@@ -225,8 +225,9 @@ stage's function signature.
 ## 5. Register it, and see it listed
 
 Registration is one decorator. The `paper` and `claims` arguments are optional
-but worth filling in: they are carried through to the listing API, so a results
-table can show a claimed number next to the one you reproduced.
+but worth filling in: they are carried through to the listing API and recorded
+by every run, and the leaderboards and `results view` show a claimed number next
+to the one you reproduced.
 
 ```python
 from lasagna.core.base_components import BaseReranker

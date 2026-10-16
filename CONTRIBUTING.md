@@ -37,8 +37,8 @@ touches your real `~/.lasagna` store. `tests/live/` needs services running
 ## Adding a component
 
 Implement the stage's base class and register it. Declaring `paper` and `claims`
-is encouraged: it lets result tables show the published number beside the
-reproduced one.
+is encouraged: a run records them, and its leaderboards (terminal, markdown,
+LaTeX) and `results view` show the published number beside the reproduced one.
 
 ```python
 from lasagna.core.registry import registry

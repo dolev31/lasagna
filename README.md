@@ -370,8 +370,10 @@ interchangeable: True
 ```
 
 `paper` and `claims` travel with the component and come back out of the
-registry, so a results table can put the claimed number beside the one you
-reproduced. Every stage but the agentic pipeline takes a function the same way:
+registry. A run records them (`components` in its metadata and its bundle),
+and the leaderboard `benchmark experiment` prints, `results leaderboard`
+(markdown and LaTeX) and `results view` put the claimed number and its paper
+beside the one you reproduced. Every stage but the agentic pipeline takes a function the same way:
 `@lasagna.query_enhancer` (`query -> [str]`), `@lasagna.chunker` (`text -> [str]`),
 `@lasagna.embedder` (`texts -> vectors`), `@lasagna.generator`
 (`query, contexts -> answer`), `@lasagna.retriever` and
