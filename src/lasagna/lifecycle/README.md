@@ -121,10 +121,14 @@ environment), not from one changed at runtime.
 ## Orphan detection
 
 `OrphanDetector.detect()` compares the metadata database with the distinct
-`document_id` values in the collection of the server's default configuration,
-read through the backend's `list_document_ids()`, at most 50,000 of them.
+`document_id` values in each collection, read through the backend's
+`list_document_ids()`, at most 50,000 per collection. The scan covers the
+collection of the server's default configuration and every other collection
+`collection_meta` records for the vector backend (each embedding model writes
+its own); each orphan names its `collection`.
 
-When that scan fails or stops at the limit, the report sets `incomplete` and
+When a scan fails or stops at the limit, or the database cannot say which
+collection each document was written to, the report sets `incomplete` and
 `incomplete_reason` and lists no orphans, because a document the scan did not
 reach is not missing its vectors. Repair then changes nothing and returns
 `aborted: true` with the reason. For a larger collection, scan one session at
@@ -139,6 +143,9 @@ A document still uploading, processing or indexing, one in `error` and an
 archived one all own their vectors, so a repair keeps them. Repair reads the
 rows again before deleting, so a document saved after the scan keeps its
 vectors, and when the rows cannot be read no vectors are reported as orphans.
+It also scans each collection again before archiving a `db_only` row, so a
+document whose vectors were written after the report, or that is no longer
+`ready`, is kept.
 Files in storage with no row are not detected, because storage backends cannot
 list their files.
 

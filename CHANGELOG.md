@@ -520,6 +520,10 @@ Server and deployment:
   still processing after twelve times the longest a document may take (the
   Celery task limits with Celery on, else `processing_timeout`; at least an
   hour). A redelivered Celery task skips a finished document.
+- The orphan scan covers every embedding model's collection, not only the
+  default model's. A scan that cannot read which collection a document was
+  written to is marked incomplete and repair refuses it; repair re-checks each
+  database-only orphan before archiving it.
 
 Numbers that were wrong:
 

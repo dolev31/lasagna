@@ -232,6 +232,7 @@ async def detect_orphans(
       (likely a failed ingestion).
     - ``vec_only``: Chunks in the vector store with no DB record
       (likely a leaked vector after a hard-delete failure).
+    - ``collections``: the collections scanned, one per embedding model.
     - ``scan_limited``: True if the vector scan hit ``vector_scan_limit``.
     - ``incomplete``/``incomplete_reason``: the vector scan failed or hit the
       limit, so no orphans are reported (a document the scan did not reach is
@@ -251,13 +252,14 @@ async def detect_orphans(
             "estimated_unscanned": report.estimated_unscanned,
             "incomplete": report.incomplete,
             "incomplete_reason": report.incomplete_reason,
+            "collections": report.collections,
             "db_only": [
-                {"document_id": o.document_id, "kind": o.kind}
+                {"document_id": o.document_id, "kind": o.kind, "collection": o.collection_name}
                 for o in report.orphans
                 if o.kind == "db_only"
             ],
             "vec_only": [
-                {"document_id": o.document_id, "kind": o.kind}
+                {"document_id": o.document_id, "kind": o.kind, "collection": o.collection_name}
                 for o in report.orphans
                 if o.kind == "vector_only"
             ],

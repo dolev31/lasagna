@@ -282,11 +282,31 @@ class DocumentLifecycleManager:
         self,
         session_id: Optional[str] = None,
     ) -> ConsistencyReport:
-        """Run orphan detection and return a consistency report."""
+        """Run orphan detection over every collection, and return a consistency report.
+
+        The default collection and every other one ``collection_meta`` records
+        for this vector backend: each embedding model writes its own.
+        """
         return self._orphan_detector.detect(
             collection_name=self._collection_name,
             session_id=session_id,
+            other_collections=self._recorded_collections(),
         )
+
+    def _recorded_collections(self) -> List[str]:
+        try:
+            rows = list(self._db.list_collection_meta() or [])
+        except Exception as exc:  # noqa: BLE001 - the default collection is still scanned
+            logger.warning(f"Could not list the collections to scan for orphans: {exc}")
+            return []
+        backend = getattr(self._backend, "backend_name", None)
+        return [
+            r["collection_name"]
+            for r in rows
+            if isinstance(r, dict)
+            and r.get("collection_name")
+            and (not isinstance(backend, str) or r.get("vector_backend", backend) == backend)
+        ]
 
     def repair_orphans(
         self,
