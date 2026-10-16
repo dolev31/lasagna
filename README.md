@@ -269,6 +269,19 @@ The OpenAPI reference is at `/docs`, and every endpoint is listed in
 `lasagna serve` binds to loopback and is unauthenticated; for anything shared,
 use the Compose stack.
 
+A local store opens in one process at a time. While `lasagna serve` runs,
+`lasagna status`, `search` and `upload` go through it, and `lasagna-mcp` cannot
+open the store. To give an agent the same store, start the server with the MCP
+endpoint and register it by URL instead of the command:
+
+```bash
+lasagna serve --mcp           # REST API, and MCP over SSE at /mcp/sse
+```
+
+```json
+{ "mcpServers": { "lasagna": { "type": "sse", "url": "http://127.0.0.1:8000/mcp/sse" } } }
+```
+
 ### Docker Compose
 
 [`src/lasagna/deploy/`](https://github.com/dolev31/lasagna/blob/main/src/lasagna/deploy/README.md)

@@ -597,6 +597,14 @@ Requests to current models:
 
 Servers and deployment:
 
+- **Nothing else could use the store while `lasagna serve` ran.** `status`,
+  `search`, `upload` and `lasagna-mcp` loaded their models for about 7 s, then
+  failed with "Another process is using the local store". `serve` records its
+  address in `<data dir>/serve.json`; the CLI then goes through its REST API,
+  and stops at once, naming the fix, when another process holds the store.
+  `lasagna serve --mcp` serves the MCP tools at `/mcp/sse` from the same
+  process, and a `lasagna-mcp` tool call answers at once with that URL. An
+  MCP client disconnecting no longer logs a traceback.
 - **A corpus built from Python could not be searched from anywhere else.**
   After an SDK upload with `config_for_speed()`, `lasagna status` showed
   BGE-M3 and the CLI, REST and MCP searched with it: the client's settings

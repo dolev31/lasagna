@@ -203,6 +203,36 @@ def _get_client(session_id: str = "default"):
     return KnowledgeClient(config=config, session_id=session_id)
 
 
+def _client_for(session_id: str, url: Optional[str]):
+    """A client for ``session_id``: through the running server at ``url``, if any.
+
+    ``url`` comes from :func:`_serving_url`; the client then talks to that
+    `lasagna serve` over its REST API instead of opening the store.
+    """
+    if url:
+        from lasagna.sdk import KnowledgeClient
+
+        return KnowledgeClient.from_url(url, session_id=session_id)
+    return _get_client(session_id)
+
+
+def _serving_url() -> Optional[str]:
+    """The `lasagna serve` to go through when one holds the local store.
+
+    Exits at once, naming the fix, when another process holds it: the command
+    used to load its models for about 7 s and then fail.
+    """
+    from lasagna.core import local_server
+
+    if not local_server.local_store_held():
+        return None
+    url = local_server.running_server()
+    if url is None:
+        _error(local_server.held_store_message("this command"))
+    typer.echo(f"lasagna serve at {url} holds the local store; going through it.", err=True)
+    return url
+
+
 def _load_profile_config(session_id: str):
     """Load the active profile's config for a session as a KnowledgeConfig.
 
@@ -610,10 +640,11 @@ def upload(
     if not path.exists():
         _error(f"File not found: {file_path}")
 
+    url = _serving_url()
     console.print(f"Uploading [cyan]{path.name}[/cyan]...")
 
     async def _upload():
-        client = _get_client(session_id)
+        client = _client_for(session_id, url)
         try:
             result = await client.upload(str(path))
             # Processing runs in the background. Closing the client before it
@@ -683,8 +714,10 @@ def search(
             f"with: lasagna upload <file> -s {session_id}"
         )
 
+    url = _serving_url()
+
     async def _search():
-        client = _get_client(session_id)
+        client = _client_for(session_id, url)
         try:
             if context:
                 return await client.get_context(query, max_chunks=top_k)
@@ -735,11 +768,15 @@ def status(
     session_id: str = typer.Option("default", "--session", "-s", help="Session ID"),
 ):
     """Show knowledge base status."""
+    url = _serving_url()
 
     async def _status():
-        client = _get_client(session_id)
+        client = _client_for(session_id, url)
         try:
             docs = await client.list_documents()
+            if url:
+                # The server's view of the session, not this process's defaults.
+                return docs, await _served_config(url, session_id), []
             config = client.get_config_dict()
             return docs, config, await _unused_collections(client)
         finally:
@@ -800,6 +837,16 @@ def status(
             title="Configuration",
         )
     )
+
+
+async def _served_config(url: str, session_id: str) -> Dict[str, Any]:
+    """The session's configuration as a running server resolves it."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10) as http:
+        resp = await http.get(f"{url}/api/v1/config", headers={"X-Session-ID": session_id})
+        resp.raise_for_status()
+        return resp.json()
 
 
 async def _unused_collections(client) -> List[Dict[str, Any]]:
@@ -878,8 +925,18 @@ def serve(
         "--open/--no-open",
         help="Open the configurator in a browser once the server starts.",
     ),
+    serve_mcp: bool = typer.Option(
+        False,
+        "--mcp",
+        help="Also serve the MCP server (SSE) at /mcp/sse, from this process. Milvus Lite "
+        "admits one process per store, so this is how an agent and the REST API share one.",
+    ),
 ):
-    """Start the REST API server, with the configurator web page."""
+    """Start the REST API server, with the configurator web page.
+
+    While it runs it holds the local store; `lasagna status`, `search` and
+    `upload` go through it.
+    """
 
     def _hide(record) -> bool:
         if not _ephemeral_signing_secret_warning(record):
@@ -894,8 +951,19 @@ def serve(
     # Warnings only by default, as for every other command: the banner below
     # says what the server resolved. -v or LASAGNA_LOG_LEVEL=INFO shows more.
     level = _configure_cli_logging(bool(ctx.find_root().params.get("verbose")), hide=_hide)
+    from lasagna.core import local_server
+
+    if local_server.local_store_held():
+        running = local_server.running_server()
+        _error(
+            f"lasagna serve is already running at {running} and holds the local store."
+            if running
+            else local_server.held_store_message("lasagna serve")
+        )
     if configurator:
         os.environ["RAG_CONFIGURATOR"] = "true"
+    if serve_mcp:
+        os.environ["RAG_EMBED_MCP"] = "true"
 
     # The address a browser can use: 0.0.0.0 and :: are bind-alls, not addresses.
     shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
@@ -908,6 +976,7 @@ def serve(
             f"Health: {base}/api/v1/health\n"
             f"Docs: {base}/docs\n"
             + (f"Configurator: {base}/configurator\n" if configurator else "")
+            + (f"MCP (SSE): {base}/mcp/sse\n" if serve_mcp else "")
             + "\n"
             + "\n".join(escape(line) for line in _session_summary())
             + "\n\n[dim]Press Ctrl+C to stop.[/dim]",
@@ -954,15 +1023,20 @@ def serve(
     # of 40 session mints went through where 35 should have been refused. A
     # proxy on this host and a client on it are indistinguishable by address.
     trusted_proxies = os.environ.get("RAG_FORWARDED_ALLOW_IPS", "").strip()
-    uvicorn.run(
-        "lasagna.api.rest.app:app",
-        host=host,
-        port=port,
-        reload=False,
-        proxy_headers=bool(trusted_proxies),
-        forwarded_allow_ips=trusted_proxies or None,
-        log_level=_UVICORN_LEVELS.get(level, level.lower()),
-    )
+    # Other commands find this server here and go through it (core.local_server).
+    local_server.announce(base)
+    try:
+        uvicorn.run(
+            "lasagna.api.rest.app:app",
+            host=host,
+            port=port,
+            reload=False,
+            proxy_headers=bool(trusted_proxies),
+            forwarded_allow_ips=trusted_proxies or None,
+            log_level=_UVICORN_LEVELS.get(level, level.lower()),
+        )
+    finally:
+        local_server.withdraw()
 
 
 # ---------------------------------------------------------------------------

@@ -294,6 +294,7 @@ def _initialize_backend():
         features.append("ocr")
     logger.info(f"Enabled features: {features or ['basic']}")
 
+    _refuse_a_held_store()
     backend = get_rag_backend()
 
     elapsed = time.time() - start_time
@@ -301,11 +302,33 @@ def _initialize_backend():
     return backend
 
 
+def _refuse_a_held_store() -> None:
+    """Raise at once, with the fix, when another process holds the local store.
+
+    Milvus Lite opens a store in one process. While `lasagna serve` held it, a
+    tool call loaded models for about 7 s and then failed with "Another
+    process is using the local store".
+    """
+    from lasagna.core import local_server
+
+    if not local_server.local_store_held():
+        return
+    running = local_server.running_server()
+    raise RuntimeError(
+        f"lasagna serve at {running} holds the local store, and this MCP server cannot "
+        f"open it. Register the server's own MCP endpoint by URL instead of "
+        f"lasagna-mcp: {running}/mcp/sse (start it with `lasagna serve --mcp`)."
+        if running
+        else local_server.held_store_message("this MCP server")
+    )
+
+
 def _get_backend():
     """Return the RAG backend singleton via the shared factory.
 
     All features are controlled via configuration in settings.lasagna.toml.
     """
+    _refuse_a_held_store()
     return get_rag_backend()
 
 
@@ -4167,7 +4190,13 @@ def main():
 
     if _eager_init:
         logger.info("Initializing RAG backend at startup (use --lazy-init to defer)...")
-        _initialize_backend()
+        try:
+            _initialize_backend()
+        except RuntimeError as exc:
+            if "holds the local store" not in str(exc) and "using the local store" not in str(exc):
+                raise
+            print(exc, file=sys.stderr)
+            sys.exit(1)
     else:
         logger.info(
             "RAG backend will be initialized on the first tool call. A session whose "

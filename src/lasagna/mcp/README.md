@@ -48,9 +48,13 @@ By default it serves the **safe** set: every tool except the six that delete dat
 | ---- | -------- | ------- |
 | **STDIO** (default) | Claude Code, Claude Desktop, Cursor, agent frameworks | `lasagna-mcp` |
 | **SSE** | Multi-client, behind a proxy | `lasagna-mcp --transport sse --host 127.0.0.1 --port 8005` |
-| **Embedded** | Single-process with REST API | Set env `RAG_EMBED_MCP=true` (mounts at `/mcp/sse`) |
+| **Embedded** | Single-process with REST API | `lasagna serve --mcp` (or `RAG_EMBED_MCP=true`), at `/mcp/sse` |
 
 `--host` and `--port` apply only to `--transport sse`; passing them without it is an error rather than a stdio server waiting on input.
+
+A local Milvus Lite store opens in one process at a time. While `lasagna serve`
+runs, a `lasagna-mcp` tool call answers at once with the server's `/mcp/sse`
+endpoint; start the server with `--mcp` and register that URL in the client.
 
 ## Tool sets
 

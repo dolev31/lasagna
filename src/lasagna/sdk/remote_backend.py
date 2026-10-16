@@ -498,6 +498,16 @@ class RemoteRAGBackend:
         """
         return self._run_sync(self._async_get_document_status(document_id, session_id))
 
+    def get_document_by_id(
+        self, document_id: str, session_id: Optional[str] = None
+    ) -> Optional[RemoteDocument]:
+        """``get_document``, under the name the SDK's upload wait polls with.
+
+        Without it ``client.documents.wait_for_processing`` failed on a remote
+        client, so ``lasagna upload`` through a running server could not finish.
+        """
+        return self.get_document(document_id, session_id)
+
     async def _async_get_document_status(
         self,
         document_id: str,
