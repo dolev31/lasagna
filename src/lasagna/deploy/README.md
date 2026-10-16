@@ -328,9 +328,10 @@ The `mcp` profile runs `python -m lasagna.mcp --transport=sse --host=0.0.0.0 --p
 on `127.0.0.1:${MCP_PORT:-8005}`. Clients connect to `http://127.0.0.1:8005/sse`; the
 healthcheck uses `/health`. On SSE the server loads the backend before it serves.
 
-- **Tools.** `LASAGNA_MCP_TOOLS` defaults to `safe`, which leaves out the six tools that
-  delete data or reset configuration (`clear_session`, `bulk_delete_session`,
-  `delete_document`, `delete_rag_profile`, `rebuild_collection`, `reset_rag_config`). Set
+- **Tools.** `LASAGNA_MCP_TOOLS` defaults to `safe`, which leaves out the seven tools that
+  delete data, reset configuration or change the server-wide retention policy
+  (`clear_session`, `bulk_delete_session`, `delete_document`, `delete_rag_profile`,
+  `rebuild_collection`, `reset_rag_config`, `set_lifecycle_policy`). Set
   `LASAGNA_MCP_TOOLS=all` in `.env` to serve them (`--tools all` outside compose).
 - **Auth.** The service runs the bind check above; compose's `RAG_BIND_IS_PROTECTED=true`
   lets it start on 0.0.0.0. If you publish it beyond loopback, set `RAG_REQUIRE_AUTH=true`;

@@ -2,7 +2,7 @@
 
 MCP server exposing the RAG knowledge base as 31 tools for search, document management, runtime configuration, and document lifecycle management. Works with Claude Code, Claude Desktop, Cursor, and any MCP client.
 
-By default it serves the **safe** set: every tool except the six that delete data or reset configuration. See [Tool sets](#tool-sets).
+By default it serves the **safe** set: every tool except the seven that delete data, reset configuration or change the server-wide retention policy, so a client lists 22. See [Tool sets](#tool-sets).
 
 ## Architecture
 
@@ -60,10 +60,12 @@ endpoint; start the server with `--mcp` and register that URL in the client.
 
 | Set | How to select | What it serves |
 | --- | ------------- | -------------- |
-| `safe` (default) | `--tools safe`, or `LASAGNA_MCP_TOOLS=safe` | Every tool except the six marked *(all only)* below. The two deprecated search aliases still answer but are not listed. |
-| `all` | `--tools all`, or `LASAGNA_MCP_TOOLS=all` | Every tool, including `delete_document`, `clear_session`, `bulk_delete_session`, `rebuild_collection`, `delete_rag_profile` and `reset_rag_config`. |
+| `safe` (default) | `--tools safe`, or `LASAGNA_MCP_TOOLS=safe` | Every tool except the seven marked *(all only)* below: 22 listed. The two deprecated search aliases still answer but are not listed. |
+| `all` | `--tools all`, or `LASAGNA_MCP_TOOLS=all` | All 31, including `delete_document`, `clear_session`, `bulk_delete_session`, `rebuild_collection`, `delete_rag_profile`, `reset_rag_config` and `set_lifecycle_policy`. |
 
-Under `safe` the six are not registered at all, so neither a client nor the `/api/call` tester can call them. The embedded `/mcp` mount reads `LASAGNA_MCP_TOOLS` the same way.
+`patch_rag_config` stays in `safe`: it changes only the caller's session, a change can be patched back, and one that would leave stored documents unsearchable is refused. `set_lifecycle_policy` is server-wide: a grace period of zero or a document TTL makes the next garbage collection delete other sessions' documents.
+
+Under `safe` the seven are not registered at all, so neither a client nor the `/api/call` tester can call them. The embedded `/mcp` mount reads `LASAGNA_MCP_TOOLS` the same way.
 
 **Which search tool:** use `search`. `search_knowledge` and `search_with_context` are deprecated aliases that call it; they are listed only under `all`.
 
@@ -101,8 +103,8 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | `restore_document` | Restore a soft-deleted document to READY state (must be within grace window) |
 | `bulk_delete_session` | Hard-delete all documents in a session; requires `confirm=True` *(all only)* |
 | `get_gc_status` | Last GC run report: phases, counts, quota sync status |
-| `get_lifecycle_policy` | Read the session's retention policy: grace window, quotas, GC schedule |
-| `set_lifecycle_policy` | Change retention for the session; affects what archive and GC do |
+| `get_lifecycle_policy` | Read the server's retention policy: grace window, quotas, GC schedule |
+| `set_lifecycle_policy` | Change the server-wide retention policy, which decides what archive and GC delete *(all only)* |
 
 ### Session
 

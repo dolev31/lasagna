@@ -323,8 +323,10 @@ Servers and deployment:
   Desktop and Cursor launch a server; `--transport sse` serves a port, and
   `--host` or `--port` without it is an error. The default tool set, `safe`,
   leaves out `delete_document`, `clear_session`, `bulk_delete_session`,
-  `rebuild_collection`, `delete_rag_profile` and `reset_rag_config`;
-  `--tools all` or `LASAGNA_MCP_TOOLS=all` serves them. Tool names,
+  `rebuild_collection`, `delete_rag_profile`, `reset_rag_config` and
+  `set_lifecycle_policy` (server-wide: it decides what garbage collection
+  deletes in every session); `--tools all` or `LASAGNA_MCP_TOOLS=all` serves
+  them. Tool names,
   descriptions and input schemas are recorded in
   `tests/snapshots/mcp_tools.json`.
 - **The compose stack defaults to a Milvus server.** `.env.example` sets
@@ -597,6 +599,23 @@ Requests to current models:
 
 Servers and deployment:
 
+- **The MCP server over stdio wrote 144 lines to the client's log per
+  search**, at DEBUG, in ANSI color, under the name `rag_knowledge_mcp`, with
+  FastMCP's "Processing request" lines and a "suspicious citations" warning for
+  every Markdown file (only a PDF has pages). It logs at WARNING on stdio (INFO
+  on SSE; `--log-level` or `LASAGNA_LOG_LEVEL` to change), in color only on a
+  terminal, as `lasagna.mcp`, and leaves the stdlib root logger alone, also
+  inside `lasagna serve --mcp`. `serverInfo.version` is Lasagna's, not the MCP
+  SDK's; the startup line counts the tools a client is shown (it said 25 while
+  `tools/list` returned 23); `--help` reads `lasagna-mcp` and names
+  `RAG_SESSION_ID`; tool descriptions name only profiles that exist. Search
+  results no longer carry an invented example sentence ("The cost was $1,370
+  [1]") among their citation instructions.
+- `set_lifecycle_policy` moves out of the default `safe` MCP tool set: it is
+  server-wide, and a grace period of zero or a document TTL makes the next
+  garbage collection delete other sessions' documents. `patch_rag_config`
+  stays: it changes only the caller's session and refuses a change that would
+  leave stored documents unsearchable.
 - `lasagna serve` on a busy port printed its banner and failed 6 s later with
   "[Errno 48] address already in use"; it checks the port first and names
   `--port`. It no longer warns on every start that APScheduler is missing

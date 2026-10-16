@@ -245,9 +245,12 @@ Then register the server. **Claude Code**: `.mcp.json` in your project.
 `lasagna-mcp` speaks stdio, which is how these clients launch a server; if it
 is not on the client's `PATH`, give the absolute path inside your virtualenv.
 The server has 31 tools (search, upload, document lifecycle, profiles and
-configuration). By default it serves the `safe` set, which leaves out the six
-that delete documents, profiles or collections or reset a session's
-configuration; `--tools all` adds them. `--transport sse` serves a port for
+configuration), two of them deprecated aliases of `search`. By default it
+serves the `safe` set, 22 tools: it leaves out the seven that delete documents,
+profiles or collections, reset a session's configuration or change the
+server-wide retention policy, and does not list the aliases; `--tools all`
+serves all 31. A tool acts on the session `RAG_SESSION_ID` names unless its
+`session_id` argument names another. `--transport sse` serves a port for
 several clients at once. The
 [MCP guide](https://github.com/dolev31/lasagna/blob/main/src/lasagna/mcp/README.md)
 lists every tool.
