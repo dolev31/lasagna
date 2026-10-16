@@ -1314,6 +1314,16 @@ def benchmark_run(
     ):
         if component:
             _require_component(stage, component)
+    if "generation" in track_list:
+        from .knowledge_evaluation_sdk.synthesize import llm_configured, missing_llm_message
+
+        if not llm_configured():
+            _error(
+                missing_llm_message(
+                    "The generation track",
+                    "To measure retrieval only, run with --tracks retrieval.",
+                )
+            )
 
     console.print(
         f"Running benchmark [cyan]{name}[/cyan] (up to {samples} samples, {runs} run(s), "
@@ -1579,10 +1589,21 @@ def _exit_if_tasks_failed(results) -> None:
     A failed task's numbers are left out of every aggregate and report; a run
     that printed "Failed: 3" and exited 0 was easy to mistake for a result.
     """
-    if not results.failed_tasks:
+    # Retrieval scored, generation not: the retrieval numbers above stand.
+    partial = [
+        t
+        for t in getattr(results, "_results", [])
+        if not t.error and (t.system or {}).get("generation_failed")
+    ]
+    if not results.failed_tasks and not partial:
         return
     for task in results.failed_tasks:
-        console.print(f"  [red]failed[/red] {task.task_key}: {task.error}")
+        console.print(f"  [red]failed[/red] {escape(task.task_key)}: {escape(str(task.error))}")
+    for task in partial:
+        console.print(
+            f"  [yellow]generation not scored[/yellow] {escape(task.task_key)} (its retrieval "
+            f"metrics are above): {escape(task.system['generation_failed'])}"
+        )
     raise typer.Exit(code=1)
 
 
@@ -1771,6 +1792,19 @@ def benchmark_validate_data(
             soft_wrap=True,
         )
         raise typer.Exit(1)
+    from .knowledge_evaluation_sdk.synthesize import llm_configured
+
+    if "generation" in data.supported_tracks() and not llm_configured():
+        # Suggesting generation with no key ran retrieval, failed every
+        # answer, and threw the retrieval numbers away.
+        tracks = ",".join(t for t in data.supported_tracks() if t != "generation")
+        console.print(
+            "  Generation needs an LLM API key, and none is set (OPENAI_API_KEY, "
+            "ANTHROPIC_API_KEY, ...). With one, add generation to --tracks.",
+            soft_wrap=True,
+        )
+    if not tracks:
+        return
     console.print(
         f"Run it:  lasagna benchmark run {escape(shlex.quote(path))} --profile speed "
         f"--tracks {tracks}",

@@ -301,6 +301,11 @@ Command line:
   3 GB one). A chunking error shared by every document prints once, with a
   count, and a run where every task failed no longer ends in a
   `RuntimeWarning`.
+- Generation without an LLM key is refused before anything is ingested,
+  naming the keys to set and `--tracks retrieval`; `benchmark validate-data`
+  suggests `--tracks retrieval` when no key is set. In a sweep that also
+  measures retrieval, a generation failure no longer discards the retrieval
+  metrics: they are reported, and the run names what failed and exits 1.
   `benchmark experiment` ends with the leaderboard, as `benchmark run` does,
   and says when every run of every arm was identical, so `n_runs: 1` would
   give the same answer.

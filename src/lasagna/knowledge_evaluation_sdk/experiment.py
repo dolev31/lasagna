@@ -3567,6 +3567,29 @@ async def _eval_live(
             f"{list(_ingestion_overrides.keys())}"
         )
 
+    # Generation needs an LLM. Checked before the corpus is ingested: without
+    # one every answer failed after the whole run, with a traceback, and the
+    # task's retrieval numbers were discarded with the generation ones.
+    _generation_skipped: Optional[str] = None
+    if (not task.tracks or "generation" in task.tracks) and any(
+        s.ground_truth or _is_unanswerable(s) for s in samples
+    ):
+        from .synthesize import llm_configured, missing_llm_message
+
+        if not llm_configured():
+            _generation_skipped = missing_llm_message(
+                "The generation track",
+                "To measure retrieval only, run with --tracks retrieval (tracks: [retrieval]).",
+            )
+            if task.tracks and "retrieval" not in task.tracks:
+                return TaskResult(
+                    task_key=task.task_key,
+                    benchmark_name=task.benchmark_name,
+                    config_name=task.config_name,
+                    run_index=task.run_index,
+                    error=_generation_skipped,
+                )
+
     # Ensure corpus is ingested (first caller ingests, rest reuse)
     corpus_info = await _ensure_corpus_ingested(
         task.benchmark_name,
@@ -3631,6 +3654,17 @@ async def _eval_live(
             ir_samples = []
         if "generation" not in task.tracks:
             gen_samples = []
+    if _generation_skipped and gen_samples:
+        gen_samples = []
+        if not ir_samples:
+            await _release_corpus(task.benchmark_name, corpus_key=_corpus_key)
+            return TaskResult(
+                task_key=task.task_key,
+                benchmark_name=task.benchmark_name,
+                config_name=task.config_name,
+                run_index=task.run_index,
+                error=_generation_skipped,
+            )
 
     # Build pipeline from profile and apply task-level overrides.
     pipeline = KnowledgePipeline.from_profile(task.profile)
@@ -4029,6 +4063,10 @@ async def _eval_live(
                     _chunk_overfetch,
                 )
             )
+
+        # What retrieval scored, kept if generation fails below.
+        _retrieval_metric_keys = set(metrics) if ir_samples else None
+        _retrieval_rows = len(per_sample_scores)
 
         # ── Generation path ──────────────────────────────────────────────────
         # Uses gen_config (task overrides + embedding fixes, NOT IR-forced
@@ -4600,6 +4638,16 @@ async def _eval_live(
         task_config,
         reranker_component=(task.config_overrides or {}).get("reranker"),
     )
+    if _generation_skipped:
+        _eval_failures.append(_generation_skipped)
+    if _eval_failures and _retrieval_metric_keys:
+        # Retrieval ran and was scored; only generation failed. Its numbers
+        # would describe the failure, so they go, and the retrieval ones stay
+        # with the reason: the CLI names it and exits non-zero.
+        _system["generation_failed"] = "; ".join(_eval_failures)
+        metrics = {k: v for k, v in metrics.items() if k in _retrieval_metric_keys}
+        per_sample_scores = per_sample_scores[:_retrieval_rows]
+        _eval_failures = []
     # What reached each stage, from the config the search actually resolved
     # (session plus this arm's overrides) and the components it named; the
     # bundle's isolation check compares these across arms.
