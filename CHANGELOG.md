@@ -494,6 +494,12 @@ Numbers that were wrong:
 
 Results tooling:
 
+- **`--strict` and the hub refused single-run bundles while the docs
+  recommend `n_runs: 1` for retrieval.** A run now records `nothing_samples`
+  (only retrieval ran, no task called an LLM, repeats if any were identical);
+  such a run raises no `SINGLE_RUN`, and the leaderboard verifies it when
+  another lab's bundle equals its mean. A run with an LLM stage still needs
+  repeats.
 - Experiment results and the LLM cache ignored `LASAGNA_DATA_DIR` and stayed
   under `~/.lasagna`. They are in `<data dir>/research/results` and
   `<data dir>/cache/llm.sqlite`.

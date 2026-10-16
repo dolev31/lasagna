@@ -213,7 +213,8 @@ lasagna results validate run.json
 ```
 
 `--strict` also fails on integrity warnings that do not block a local run, such
-as `SINGLE_RUN` and `UNRESOLVED_JUDGE_ALIAS`; `lasagna results view
+as `SINGLE_RUN` (raised only when something in the run samples, so the
+retrieval-only `n_runs: 1` above passes) and `UNRESOLVED_JUDGE_ALIAS`; `lasagna results view
 results.json` writes the whole run as one HTML page to attach to a review, and
 `lasagna results leaderboard <dir> --format latex` prints a table for a paper.
 

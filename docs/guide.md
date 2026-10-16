@@ -743,11 +743,14 @@ lasagna results validate run.json
 The bundle carries the library versions, hardware, resolved sweep, corpus
 fingerprint and comparability key, and `validate` recomputes the key, the run
 id and every aggregate from the per-query scores. It also lists integrity
-warnings that do not invalidate a bundle, such as `SINGLE_RUN` (one run) or
-`UNRESOLVED_JUDGE_ALIAS` (a judge named by a floating alias); `--strict` turns
-them into failures. The [results hub](../hub/README.md) runs a public
-leaderboard from such bundles, and marks a row verified only when someone else's
-bundle reproduces it, which needs at least two runs to compare against.
+warnings that do not invalidate a bundle, such as `SINGLE_RUN` (one run of a
+pipeline in which something samples) or `UNRESOLVED_JUDGE_ALIAS` (a judge named
+by a floating alias); `--strict` turns them into failures. A run records
+`nothing_samples` when only retrieval ran and no task called an LLM; one run of
+it is complete and raises no `SINGLE_RUN`. The [results hub](../hub/README.md)
+runs a public leaderboard from such bundles, and marks a row verified only when
+someone else's bundle reproduces it: within its spread, which needs at least two
+runs, or by equalling its mean when nothing in the run samples.
 
 ---
 
