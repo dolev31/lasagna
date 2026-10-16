@@ -557,6 +557,24 @@ This one needs an LLM API key and the `[eval]` extra. `cited` answers carry
 `[n]` markers, and the citation metrics score them. From the shell,
 `lasagna benchmark run <name> --generator cited` runs one generator.
 
+**An ensemble of rerankers.** `ensemble` averages the scores of the
+cross-encoders an arm names in `ensemble_reranker_models` (weights in
+`ensemble_reranker_weights`, equal when left out). An arm with fewer than two
+models, or with one that cannot load, fails instead of scoring as one model:
+
+```yaml
+pipeline:
+  base_profile: speed
+  config_overrides:
+    - {name: minilm, reranker: cross_encoder}       # the control
+    - name: ensemble
+      reranker: ensemble
+      ensemble_reranker_models: [cross-encoder/ms-marco-MiniLM-L-6-v2, cross-encoder/ms-marco-TinyBERT-L-2-v2]
+```
+
+`mmr` and `combined` (the cross-encoder followed by MMR) run MMR whatever
+`enable_mmr` says, since naming them is what turns it on.
+
 **Chunkers and embedders sweep as components too** (`chunkers:`,
 `embedders:`). Each arm's corpus is chunked or embedded by its own component and
 kept apart from the other arms' corpora; an embedder also gets its own

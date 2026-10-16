@@ -472,6 +472,34 @@ def _same_output(entries: List[Tuple[str, Mapping[str, Any]]], bench: str) -> Li
     return lines
 
 
+def _reranker_never_moved(entries: List[Tuple[str, Mapping[str, Any]]], bench: str) -> List[str]:
+    """Arms whose reranker handed back its candidates in the order it got them.
+
+    The pairwise check needs an arm without the change to compare against, and
+    a reranker sweep has none: every arm names a reranker. A pass-through
+    reranker's lists then differ from the other reranker's and nothing flagged
+    it, though they are the base profile's lists under another name. Each
+    query records whether its reranker moved anything; an arm where it never
+    did is inert on its own.
+    """
+    lines: List[str] = []
+    for name, row in entries:
+        component = (row.get("config_overrides") or {}).get("reranker")
+        moved = [
+            s["_reranker_moved"]
+            for s in row.get("per_sample_scores") or []
+            if isinstance(s, Mapping) and "_reranker_moved" in s
+        ]
+        if component and moved and not any(moved):
+            lines.append(
+                f"{bench}: arm {name!r} ran reranker {component!r}, which returned its "
+                f"candidates in the order it was given on all {len(moved)} queries, so its "
+                f"ranked lists are the {row.get('profile') or 'base'} profile's retrieval "
+                f"order, not a reranking"
+            )
+    return lines
+
+
 def compared_pairs(rows: Iterable[Mapping[str, Any]]) -> int:
     """How many pairs of arms the isolation check could compare.
 
@@ -553,4 +581,5 @@ def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
                     )
                 break
         report["inert"].extend(_same_output(entries, bench))
+        report["inert"].extend(_reranker_never_moved(entries, bench))
     return report

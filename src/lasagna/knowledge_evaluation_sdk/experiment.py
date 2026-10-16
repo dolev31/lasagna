@@ -144,6 +144,7 @@ _CORPUS_ID_MAP: Dict[str, str] = {
 
 
 from lasagna.utils.token_usage import EVAL, SYSTEM, TokenUsage, UsageMeter  # noqa: E402
+from lasagna.core.strict import observe_reranking  # noqa: E402
 
 # There was a `_get_cost_rates` here, and a `_DEFAULT_COST_TABLE` behind it,
 # converting token counts to dollars. Both are gone. The token counts they
@@ -724,6 +725,9 @@ def _reranker_that_ran(component: Optional[str], task_config: Dict[str, Any]) ->
     """
     if not component or component in _CROSS_ENCODER_RERANKERS:
         return task_config.get("reranker_model")
+    if component in ("ensemble", "ensemble_adapted"):
+        models = task_config.get("ensemble_reranker_models") or [task_config.get("reranker_model")]
+        return "ensemble:" + "+".join(str(m) for m in models)
     key = _RERANKER_MODEL_KEYS.get(component)
     model = task_config.get(key) if key else None
     return f"{component}:{model}" if model else component
@@ -873,7 +877,11 @@ def _known_override_keys() -> set:
 
     keys = set(getattr(rag_config, "_config", {}) or {})
     keys |= {n for n, v in vars(RAGConfig).items() if isinstance(v, property)}
-    return keys | set(_COMPONENT_KEYS) | set(HARNESS_KEYS)
+    return keys | set(_COMPONENT_KEYS) | set(HARNESS_KEYS) | _COMPONENT_SETTING_KEYS
+
+
+#: Settings read by one component only, with no global default.
+_COMPONENT_SETTING_KEYS = frozenset({"ensemble_reranker_models", "ensemble_reranker_weights"})
 
 
 def _check_override_keys(pipeline_configs: List[Dict[str, Any]]) -> None:
@@ -2297,8 +2305,8 @@ def _apply_overrides_to_pipeline(
     """Apply config overrides to a KnowledgePipeline.
 
     - Component names (reranker, embedder, etc.) → ``pipeline.replace()``
-    - ``ensemble_reranker_models`` → create an EnsembleReranker instance
-      and inject it into pipeline._instances (session-scoped, not per-query)
+    - ``ensemble_reranker_models`` → the ``ensemble`` reranker, which reads
+      them (and ``ensemble_reranker_weights``) from the arm's config
     - Config keys (enable_hybrid_search, chunk_size, etc.) → dict update
       on ``pipeline._config``, then ``_apply_session_config(session_id)``
     """
@@ -2314,40 +2322,12 @@ def _apply_overrides_to_pipeline(
     # one arm's rrf_k changed the next arm's number, and the manifest agreed.
     _complete_stage_settings(pipeline._config)
 
-    # Handle ensemble reranker: create once at task init (not per-query).
-    # Intercept before normal processing so these keys don't leak into config dict.
-    if "ensemble_reranker_models" in overrides:
-        overrides = dict(overrides)  # defensive copy
-        models = overrides.pop("ensemble_reranker_models")
-        weights = overrides.pop("ensemble_reranker_weights", [1.0] * len(models))
-        if len(models) != len(weights):
-            logger.warning(
-                f"ensemble_reranker_models/weights length mismatch: "
-                f"{len(models)} vs {len(weights)}: using equal weights"
-            )
-            weights = [1.0] * len(models)
-        try:
-            from ..retrieval.search.ranker import EnsembleReranker, RerankerModelConfig
-
-            model_configs = [
-                RerankerModelConfig(model_name=m, weight=w) for m, w in zip(models, weights)
-            ]
-            from ..api.rag_backend import get_rag_backend as _get_backend
-
-            _backend = _get_backend()
-            ensemble = EnsembleReranker(
-                model_configs=model_configs,
-                embedding_manager=_backend.embedding_manager,
-            )
-            # Inject directly into the pipeline instance cache — get_component()
-            # checks _instances first, bypassing registry lookup.
-            pipeline._instances["reranker"] = ensemble
-            logger.info(
-                f"Injected EnsembleReranker with {len(ensemble.rerankers)} models: "
-                f"{ensemble.model_name}"
-            )
-        except Exception as exc:
-            logger.warning(f"Failed to create EnsembleReranker: {exc}")
+    # The ensemble reads its members from the arm's config on each call, so
+    # naming them is enough to measure it. They used to build an ensemble here
+    # that `reranker: ensemble` then replaced with one of the settings file's
+    # model, and the YAML refused the keys as unknown anyway.
+    if "ensemble_reranker_models" in overrides and not overrides.get("reranker"):
+        overrides = {**overrides, "reranker": "ensemble"}
 
     config_overrides: Dict[str, Any] = {}
 
@@ -3886,7 +3866,7 @@ async def _eval_live(
             # made deep inside the pipeline -- HyDE, query expansion, the whole
             # agentic graph -- are attributed to this sample.
             sample_meter = UsageMeter()
-            with sample_meter, sample_meter.scope(SYSTEM):
+            with sample_meter, sample_meter.scope(SYSTEM), observe_reranking() as moved:
                 search_results = await asyncio.to_thread(
                     pipeline.query,
                     sample.question,
@@ -4008,6 +3988,11 @@ async def _eval_live(
                 # be read without the dataset alongside it.
                 "_expected_docs": sorted(valid_to_corpus.get(d, d) for d in mapped_expected),
             }
+
+            if moved:
+                # Whether the reranker component changed its candidates' order:
+                # the isolation check flags an arm whose reranker never did.
+                sample_metrics["_reranker_moved"] = any(moved)
 
             # What this query actually spent, measured at the provider rather
             # than read off chunk metadata. The old code summed

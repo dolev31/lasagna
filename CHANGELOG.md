@@ -400,6 +400,16 @@ Each of these still works in 0.1.x, says so when used, and is removed in 0.2.0.
 
 Numbers that were wrong:
 
+- **The `mmr`, `combined` and `ensemble` rerankers ran as something else.** On
+  the speed profile `mmr` and `ensemble` returned the retrieval order and
+  `combined` scored exactly like `cross_encoder`: MMR never received the
+  pipeline's embedder and was skipped with `enable_mmr` off, and the ensemble
+  loaded the settings file's model, which failed offline. MMR now gets the
+  search's embedder and runs when named; `ensemble` ranks with the arm's
+  `ensemble_reranker_models` (and `ensemble_reranker_weights`), records them as
+  what ran, and fails under evaluation with fewer than two models or one that
+  cannot load. A reranker that returns its candidates in retrieval order on
+  every query is flagged inert without a reranker-free control arm.
 - **A bundle carried this build's metrics version, not the run's.** `results
   bundle` stamped the current `METRICS_VERSION` on any results file, so numbers
   computed under older definitions were published as current ones. A bundle
