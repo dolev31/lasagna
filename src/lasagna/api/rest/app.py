@@ -190,6 +190,31 @@ async def _request_id_middleware(request: Request, call_next):
     return response
 
 
+#: Answered whatever the ``Host``: a kubelet probe or a Prometheus scrape names
+#: the pod's address, and these paths return no session data.
+_ANY_HOST_PREFIXES = ("/health", "/api/v1/health", "/metrics")
+
+
+async def _host_middleware(request: Request, call_next):
+    """With auth off, answer only requests that name this machine.
+
+    Auth off means loopback, and a web page the operator visits can still
+    reach loopback by DNS rebinding: it points its own domain at 127.0.0.1 and
+    calls the API as its own origin, so CORS never applies. Its requests carry
+    that domain in ``Host``. The embedded ``/mcp`` and the standalone MCP
+    server refuse it; REST answered 200. With auth on, every request needs a
+    token such a page does not have, so the Host is not checked.
+    """
+    from lasagna.api.rest.auth_mode import foreign_host_message, host_is_allowed, require_auth
+
+    host = request.headers.get("host")
+    if require_auth() or host_is_allowed(host):
+        return await call_next(request)
+    if request.method in ("GET", "HEAD") and request.url.path.startswith(_ANY_HOST_PREFIXES):
+        return await call_next(request)
+    return JSONResponse(status_code=421, content={"detail": foreign_host_message(host)})
+
+
 async def _timing_middleware(request: Request, call_next):
     """Record request duration in the ``X-Response-Time`` header."""
     # Skip timing for exempt paths (SSE connections would skew metrics)
@@ -483,7 +508,8 @@ def create_app(
     )
 
     # -- Custom middleware (outermost = first executed) ----------------------
-    # Order: request-id → body limit → rate-limit → timing → handler
+    # Order: request-id → host → body limit → rate-limit → timing → handler
+    # A foreign Host is refused before it counts against anyone's rate limit.
     # Rate limiting runs before timing so rejected requests don't skew latency.
     # The body limit runs before anything reads the body: by the time a route
     # with an UploadFile parameter runs, Starlette has already spooled the
@@ -491,6 +517,7 @@ def create_app(
     app.middleware("http")(_timing_middleware)
     app.middleware("http")(_rate_limit_middleware)
     app.add_middleware(limits.BodySizeLimitMiddleware)
+    app.middleware("http")(_host_middleware)
     app.middleware("http")(_request_id_middleware)
 
     # -- Routes -------------------------------------------------------------
@@ -561,9 +588,7 @@ def create_app(
             # web page can reach by DNS rebinding: refuse a foreign Host or
             # Origin, as the standalone /sse does. With auth on, every tool
             # needs a token such a page does not have.
-            from lasagna.api.rest.auth_mode import require_auth
-
-            guard = None if require_auth() else transport_guard.loopback_browser_guard()
+            guard = transport_guard.http_transport_security()
 
             # port is unused when mounted as sub-app; routing handled by FastAPI
             _mcp = create_mcp_server(host="0.0.0.0", port=8000, transport_security=guard)

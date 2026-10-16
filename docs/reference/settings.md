@@ -397,6 +397,7 @@ environment only: not from the settings file, and not per session.
 | `RAG_BIND_IS_PROTECTED` | `false` | Says that something outside the process (a loopback port mapping, a NetworkPolicy, a firewall) restricts access, so the server may bind beyond loopback with auth off. |
 | `RAG_ALLOW_HEADER_IDENTITY` | `false` | Accept the X-User-ID header as the user identity; otherwise it is refused with 401. |
 | `RAG_CORS_ORIGINS` | empty | Comma-separated origins allowed cross-origin requests (REST and MCP over HTTP). Empty allows none; * is refused at startup when RAG_REQUIRE_AUTH is on. |
+| `RAG_ALLOWED_HOSTS` | unset | Extra Host names the REST API and MCP over HTTP answer to with auth off, comma-separated (name, or name:* for any port), such as a container's service name. Otherwise only localhost, 127.0.0.1 and [::1]. |
 | `RAG_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxy addresses whose X-Forwarded-For is trusted. The image reads gunicorn's FORWARDED_ALLOW_IPS first. |
 | `RAG_MAX_BATCH_FILES` | `20` | Files in one POST /api/v1/documents/batch; more is refused with 400. |
 | `RAG_MAX_BATCH_BYTES` | `209715200` | Total body of one batch upload (200 MiB); more is refused with 413 before the body is read. |
@@ -414,7 +415,6 @@ environment only: not from the settings file, and not per session.
 | `LASAGNA_ENABLE_DOCS_API` | `false` | Turn on the /api/call tool tester, which calls any tool without authentication. For development only. |
 | `RAG_SESSION_ID` | unset | The session a tool call uses when it names none. |
 | `RAG_MCP_UPLOAD_ROOT` | unset | The directory a networked MCP server may ingest server-side files from; unset, it reads none. |
-| `RAG_ALLOWED_HOSTS` | unset | Extra Host values (host or host:*) a loopback HTTP surface accepts, comma-separated, such as a container's service name. |
 
 ### Vector store connections
 

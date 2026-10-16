@@ -260,6 +260,14 @@ SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
         "Empty allows none; * is refused at startup when RAG_REQUIRE_AUTH is on.",
         (),
     ),
+    "RAG_ALLOWED_HOSTS": (
+        "REST API and authentication",
+        "unset",
+        "Extra Host names the REST API and MCP over HTTP answer to with auth off, "
+        "comma-separated (name, or name:* for any port), such as a container's service "
+        "name. Otherwise only localhost, 127.0.0.1 and [::1].",
+        (),
+    ),
     "RAG_FORWARDED_ALLOW_IPS": (
         "REST API and authentication",
         "127.0.0.1",
@@ -337,13 +345,6 @@ SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
         "unset",
         "The directory a networked MCP server may ingest server-side files from; unset, "
         "it reads none.",
-        (),
-    ),
-    "RAG_ALLOWED_HOSTS": (
-        "MCP server",
-        "unset",
-        "Extra Host values (host or host:*) a loopback HTTP surface accepts, "
-        "comma-separated, such as a container's service name.",
         (),
     ),
     "MILVUS_URI": (

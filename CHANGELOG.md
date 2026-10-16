@@ -457,6 +457,11 @@ Server and deployment:
   upload path, a Redis URL or `reranker_trust_remote_code`. A session now sets
   retrieval and generation settings only; every other key, unknown keys and
   models named by a path or URL are refused with an error naming each key.
+- **A foreign `Host` is refused while auth is off.** With `RAG_REQUIRE_AUTH`
+  off, the REST API and the MCP server over HTTP answer only to localhost,
+  127.0.0.1, [::1] and the names in `RAG_ALLOWED_HOSTS`, and refuse any other
+  `Host` with 421, so a web page cannot reach them by DNS rebinding. Health and
+  metrics paths answer any `Host`. Compose allows `api:*,mcp:*`.
 
 Numbers that were wrong:
 

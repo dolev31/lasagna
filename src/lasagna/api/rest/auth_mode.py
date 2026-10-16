@@ -185,6 +185,56 @@ def reject_unverified_identity(
     )
 
 
+#: Extra ``Host`` values an auth-off HTTP surface accepts, comma-separated:
+#: ``name`` for that name without a port, ``name:*`` for any port.
+ALLOWED_HOSTS_ENV = "RAG_ALLOWED_HOSTS"
+_LOOPBACK_HOST_NAMES = ("127.0.0.1", "localhost", "[::1]")
+
+
+def allowed_hosts() -> list:
+    """The ``Host`` patterns an auth-off server answers to.
+
+    The loopback names, with or without a port, then ``RAG_ALLOWED_HOSTS``.
+    The same list feeds FastMCP's check on the MCP surfaces
+    (`transport_guard.loopback_browser_guard`) and `host_is_allowed` on REST,
+    so one setting governs both.
+    """
+    extra = [v.strip() for v in os.environ.get(ALLOWED_HOSTS_ENV, "").split(",") if v.strip()]
+    return [h for name in _LOOPBACK_HOST_NAMES for h in (name, f"{name}:*")] + extra
+
+
+def host_is_allowed(host: Optional[str], patterns: Optional[list] = None) -> bool:
+    """Whether a request's ``Host`` header matches ``patterns`` (`allowed_hosts`).
+
+    Matched as FastMCP matches it: exactly, or ``name:*`` for ``name:<port>``.
+    A missing header is refused, as there.
+    """
+    if not host:
+        return False
+    host = host.strip().lower()
+    for pattern in allowed_hosts() if patterns is None else patterns:
+        pattern = pattern.lower()
+        if host == pattern:
+            return True
+        if pattern.endswith(":*") and host.startswith(pattern[:-1]):
+            if host[len(pattern) - 1 :].isdigit():
+                return True
+    return False
+
+
+def foreign_host_message(host: Optional[str]) -> str:
+    """Why a request naming ``host`` was refused, and the setting that admits it."""
+    shown = repr((host or "")[:100]) if host else "no Host header"
+    return (
+        f"This server does not answer to {shown}. With {REQUIRE_AUTH_ENV} off it "
+        f"answers only to localhost, 127.0.0.1, [::1] and the names in "
+        f"{ALLOWED_HOSTS_ENV}, so a web page cannot reach it by pointing its own "
+        f"domain at this machine (DNS rebinding). To reach it under this name, add "
+        f"the name to {ALLOWED_HOSTS_ENV} (comma-separated; name:* allows any "
+        f"port), or set {REQUIRE_AUTH_ENV}=true."
+    )
+
+
 def warn_once_if_unauthenticated(host: str) -> None:
     """Say plainly what an auth-off local server exposes."""
     if require_auth():

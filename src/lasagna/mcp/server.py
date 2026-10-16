@@ -171,6 +171,38 @@ class _LasagnaMCP(FastMCP):
     async def list_tools(self):
         return [tool for tool in await super().list_tools() if tool.name not in self.unlisted]
 
+    def sse_app(self, *args, **kwargs):
+        """FastMCP's SSE app, refusing a foreign ``Host`` with the setting that admits it.
+
+        FastMCP's own refusal says only "Invalid Host header", which leaves an
+        operator who exposed the server on purpose guessing. The same list is
+        checked first, on every path but ``/health``, which answers any Host
+        for probes, as on REST.
+        """
+        app = super().sse_app(*args, **kwargs)
+        security = self.settings.transport_security
+        if security is None or not security.enable_dns_rebinding_protection:
+            return app
+        from starlette.datastructures import Headers
+
+        from lasagna.api.rest.auth_mode import foreign_host_message, host_is_allowed
+
+        patterns = list(security.allowed_hosts)
+
+        async def checked(scope, receive, send):
+            path, root = scope.get("path", ""), scope.get("root_path", "")
+            if root and path.startswith(root):
+                path = path[len(root) :]
+            if scope["type"] == "http" and path != "/health":
+                host = Headers(scope=scope).get("host")
+                if not host_is_allowed(host, patterns):
+                    refusal = JSONResponse({"error": foreign_host_message(host)}, status_code=421)
+                    await refusal(scope, receive, send)
+                    return
+            await app(scope, receive, send)
+
+        return checked
+
 
 #: Keys a tool's JSON error reply may carry; any other key makes it a report.
 _ERROR_ONLY_KEYS = frozenset({"error", "hint", "detail"})
@@ -4241,7 +4273,12 @@ def main():
     else:
         _eager_init = args.transport != "stdio"
 
-    mcp = create_mcp_server(host=args.host, port=args.port, tools=tool_set)
+    mcp = create_mcp_server(
+        host=args.host,
+        port=args.port,
+        tools=tool_set,
+        transport_security=transport_guard.http_transport_security(),
+    )
 
     logger.info("=" * 60)
     logger.info("Lasagna MCP Server")

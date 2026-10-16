@@ -253,8 +253,11 @@ collection, deleting a session) and returns 503 for them while unset.
 `RAG_CORS_ORIGINS` lists the browser origins allowed to call the API (none by default).
 `FORWARDED_ALLOW_IPS` names the proxies whose `X-Forwarded-For` gunicorn trusts for the
 client address (compose default `127.0.0.1`); `RAG_FORWARDED_ALLOW_IPS` is the name
-`lasagna serve` reads. `RAG_ALLOWED_HOSTS` adds `Host` values the embedded `/mcp` mount
-accepts, such as a service name.
+`lasagna serve` reads. With auth off, the api and mcp answer only to `localhost`,
+`127.0.0.1`, `[::1]` and the `Host` names in `RAG_ALLOWED_HOSTS` (comma-separated, `name:*`
+for any port), and refuse any other with 421; compose sets `api:*,mcp:*` so containers on
+its network can call them by service name. Add the name a reverse proxy forwards, if you put
+one in front. Health and `/metrics` answer any `Host`.
 
 ## Request limits
 
