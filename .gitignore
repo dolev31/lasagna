@@ -15,6 +15,7 @@ dist/
 .venv/
 .venv-ci/
 .venv-ci-backends/
+.venv-ci-core/
 venv/
 env/
 

@@ -3,9 +3,12 @@
 #
 # The same jobs, in the same order: lint, both secret scans, the hermetic suite
 # with the coverage floor and sockets blocked, the in-process vector-backend
-# conformance, the OpenSearch, pgvector and Docling unit tests, and the plugin
-# template. `--full` adds the E2E release gate's quick subset. Only CI runs the
-# tests that load real embedding weights, which need the network.
+# conformance, the OpenSearch, pgvector and Docling unit tests, the license
+# check, dependency audit and internal-reference grep, and the plugin template.
+# `--full` adds the E2E release gate's quick subset and the release workflow's
+# build and wheel smoke test. Only CI runs the tests that load real embedding
+# weights, which need the network, and the live compose stack (see
+# src/lasagna/deploy/README.md to run it by hand).
 #
 # It builds its own environment in .venv-ci with uv (installed with the `eval`
 # extra and the dev group, as CI does), so the result does not depend on
@@ -61,7 +64,7 @@ run "mypy" uvx --quiet mypy@1.18.2 src/lasagna/sdk src/lasagna/components.py src
 
 step "secret scans"
 if command -v gitleaks >/dev/null; then
-  run "gitleaks history" gitleaks git . --config .gitleaks.toml --redact --no-banner
+  run "gitleaks history" gitleaks detect --source . --config .gitleaks.toml --redact --no-banner
   # CI scans a clean checkout; here, scan only what git tracks, so an ignored
   # local .env is not reported.
   tracked="$(mktemp -d)"
@@ -76,7 +79,8 @@ run "detect-secrets" sh -c 'git ls-files -z | xargs -0 uvx --quiet --from detect
 
 step "tests with coverage floor (test order seed: $SEED)"
 run "pytest" env HOME="$HOME_CI" "$PY" -m pytest tests/ --ignore=tests/live --ignore=tests/stress \
-  -q -rs -p no:cacheprovider "${NO_NETWORK[@]}" --randomly-seed="$SEED" --cov --cov-report=term:skip-covered
+  -q -rs -p no:cacheprovider "${NO_NETWORK[@]}" --randomly-seed="$SEED" \
+  --cov --cov-report=term-missing:skip-covered
 
 step "vector backend conformance"
 run "conformance" env HOME="$(mktemp -d)" \
@@ -94,24 +98,59 @@ run "optional backends" env HOME="$(mktemp -d)" "$VENV_EXTRAS/bin/python" -m pyt
   tests/test_opensearch_backend.py tests/test_pgvector_backend.py tests/test_docling_processor.py \
   tests/test_mock_targets_resolve.py -q -p no:cacheprovider
 
-step "dependency audit"
-# The core closure, as CI's compliance job audits it. This venv also has [eval],
-# so the closure is resolved from pyproject.toml instead of read from the venv.
-# The ignored advisory and its reason are in .github/workflows/tests.yml.
-CORE_REQS="$(mktemp -d)/core.txt"
-uv pip compile pyproject.toml --quiet --python "$PY" -o "$CORE_REQS"
-run "pip-audit" uvx --quiet pip-audit -r "$CORE_REQS" --no-deps --disable-pip \
-  --progress-spinner off --ignore-vuln PYSEC-2026-3740
+step "licenses, dependency audit and internal references"
+# As CI's compliance job: the core closure only (no extras), installed in a venv
+# of its own and read from there. The ignored advisory and its reason are in
+# .github/workflows/tests.yml.
+VENV_CORE=.venv-ci-core
+# --seed: pip-audit reads the environment through its pip.
+[[ -x "$VENV_CORE/bin/pip" ]] || uv venv -q --seed --python 3.12 "$VENV_CORE"
+uv pip install -q --python "$VENV_CORE/bin/python" -e .
+run "licenses" uvx --quiet pip-licenses --python "$VENV_CORE/bin/python" \
+  --partial-match --fail-on="GPL;AGPL;SSPL" --ignore-packages lasagna-rag
+run "pip-audit" env PIPAPI_PYTHON_LOCATION="$VENV_CORE/bin/python" uvx --quiet pip-audit \
+  --skip-editable --progress-spinner off --ignore-vuln PYSEC-2026-3740
+run "internal references" sh -c '! grep -rnIE "[a-z0-9-]+\.ibm\.com|/Users/[a-z]+/|/home/[a-z]+/" \
+  --include="*.py" --include="*.toml" --include="*.yml" --include="*.yaml" --include="*.md" \
+  --include="*.json" src/ tests/ e2e/ docs/ hub/ examples/ README.md CONTRIBUTING.md'
 
 step "plugin template"
 uv pip install -q --python "$PY" --no-deps ./examples/lasagna-plugin-template
 run "template tests" env HOME="$(mktemp -d)" "$PY" -m pytest examples/lasagna-plugin-template/tests -q -p no:cacheprovider
+run "plugins list" env HOME="$(mktemp -d)" "$VENV/bin/lasagna" plugins list
 run "template discovered" env HOME="$(mktemp -d)" "$VENV/bin/lasagna" component validate \
   lasagna_plugin_template.reranker:LengthReranker
+run "discovery log" env HOME="$(mktemp -d)" "$PY" -c '
+from lasagna.core.registry import registry, discovery_log
+registry.list_rerankers()
+names = {e["name"] for e in discovery_log()}
+assert "reranker.template_length" in names, names
+assert all(e["ok"] for e in discovery_log()), discovery_log()
+'
 
 if [[ $FULL == 1 ]]; then
   step "E2E gate (quick subset)"
   run "e2e" "$PY" -m e2e.run --quick
+
+  step "release build and wheel smoke test"
+  # .github/workflows/release.yml, into a temporary folder so a dist/ of your
+  # own is left alone.
+  VERSION="$("$PY" -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+  REL="$(mktemp -d)"
+  run "release check" "$PY" scripts/check_release.py "v$VERSION" --allow-placeholder
+  run "frontend" sh -c 'cd src/lasagna/configurator/frontend && npm ci --silent && npm run build --silent'
+  run "build" uvx --quiet --from build==1.6.1 pyproject-build --installer uv --outdir "$REL/dist" .
+  run "twine check" sh -c 'uvx --quiet twine==7.0.0 check --strict "$1"/dist/*' _ "$REL"
+  run "distribution contents" "$PY" scripts/check_dist.py "$REL/dist" "$VERSION"
+  uv venv -q --python 3.12 "$REL/venv"
+  uv pip install -q --python "$REL/venv/bin/python" "$REL/dist/lasagna_rag-$VERSION-py3-none-any.whl"
+  run "wheel smoke" sh -c '
+    set -e; cd "$1" && mkdir -p smoke home && cd smoke
+    export PATH="$1/venv/bin:$PATH" HOME="$1/home"
+    test "$(lasagna --version)" = "lasagna $2"
+    test "$(python -c "import lasagna; print(lasagna.__version__)")" = "$2"
+    printf "def longer_first(query, text):\n    return len(text.split())\n" > smoke_component.py
+    lasagna component validate smoke_component:longer_first --stage reranker' _ "$REL" "$VERSION"
 fi
 
 echo

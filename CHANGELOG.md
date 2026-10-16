@@ -684,6 +684,13 @@ Servers and deployment:
   other session's model. Each request now holds its own session's embedder.
   A process keeps each model it has loaded (up to five) instead of reloading
   one whenever the session changes.
+- The CI lint job failed on its first run (two mypy errors in
+  `sdk/integrations/inbound.py`), and the secret scan on nine false positives
+  missing from `.secrets.baseline`. `scripts/ci-local.sh` now also runs the
+  license check, the dependency audit and the internal-reference grep as CI
+  does, and with `--full` the release build, the distribution check
+  (`scripts/check_dist.py`, shared with the release workflow) and the wheel
+  smoke test.
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except

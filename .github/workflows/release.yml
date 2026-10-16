@@ -85,29 +85,8 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           ls -l dist/
-          test -f "dist/lasagna_rag-$VERSION-py3-none-any.whl"
-          test -f "dist/lasagna_rag-$VERSION.tar.gz"
-          test "$(ls dist | wc -l)" -eq 2
           python -m twine check --strict dist/*
-          python - <<'PY'
-          import pathlib, re, sys, tarfile, zipfile
-          wheel = next(pathlib.Path("dist").glob("*.whl"))
-          sdist = next(pathlib.Path("dist").glob("*.tar.gz"))
-          names = zipfile.ZipFile(wheel).namelist()
-          required = [
-              "lasagna/settings.lasagna.toml",
-              "lasagna/py.typed",
-              "lasagna/configurator/frontend/dist/index.html",
-          ]
-          missing = [n for n in required if n not in names]
-          missing += [f"*.dist-info/licenses/{f}" for f in ("LICENSE", "NOTICE")
-                      if not any(n.endswith(f".dist-info/licenses/{f}") for n in names)]
-          unwanted = re.compile(r"(^|/)(tests/|conftest\.py|node_modules/|\.env$|\.env\.(?!example))")
-          shipped = [n for n in names + tarfile.open(sdist).getnames() if unwanted.search(n)]
-          print(f"{wheel.name}: {len(names)} files")
-          if missing or shipped:
-              sys.exit(f"::error::missing {missing}, should not ship {shipped[:20]}")
-          PY
+          python scripts/check_dist.py dist "$VERSION"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
