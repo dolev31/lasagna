@@ -502,6 +502,10 @@ Results tooling:
 
 First run:
 
+- `lasagna-mcp` over stdio answered `tools/list` after about 7 s: the
+  `--session-backend` default made every start reset the backend, which
+  imported torch. It answers in under a second; a reset happens only for a
+  flag that was given.
 - A misspelled benchmark, profile, stage or component name is one error with
   the likely name (`did you mean 'smoke'?`), before any model loads. A
   misspelled benchmark ran for seconds and failed inside its task.

@@ -4021,10 +4021,14 @@ def main():
         # Persistent by default: `lasagna configure --profile ...` saves the
         # profile to disk, and an in-memory backend in this new process never
         # saw it, so search ran the defaults (agentic, LLM-only) while every
-        # tool reported the saved profile as active.
-        default=os.environ.get("RAG_SESSION_BACKEND") or "persistent",
+        # tool reported the saved profile as active. The default is applied
+        # below without a reset; a default here made every start reset.
+        default=None,
         choices=["memory", "persistent"],
-        help="Session backend (default: persistent, so profiles saved by the CLI apply)",
+        help=(
+            "Session backend (default: RAG_SESSION_BACKEND, else persistent, so profiles "
+            "saved by the CLI apply)"
+        ),
     )
     args = parser.parse_args()
 
@@ -4046,25 +4050,34 @@ def main():
     # Apply overrides — env vars feed auto-config in the providers layer.
     # NOTE: Module-level imports may have already triggered auto-config with
     # default paths, so we must reset providers + config after setting env vars.
+    #
+    # Only a flag needs that. The default session backend is an environment
+    # default read when the providers configure themselves; a reset on every
+    # start imported the backend module, and with it torch, before the first
+    # message: about 7 s before an MCP client got its tool list.
     _needs_reset = False
     if _apply_path_flags(args.db_dir, args.upload_dir):
         _needs_reset = True
     if args.session_backend:
         os.environ["RAG_SESSION_BACKEND"] = args.session_backend
         _needs_reset = True
+    else:
+        os.environ.setdefault("RAG_SESSION_BACKEND", "persistent")
     if args.config_file:
         os.environ["RAG_SETTINGS_FILE"] = args.config_file
         _needs_reset = True
 
-    # Re-initialize providers and config with the CLI-provided values
+    # Re-initialize providers and config with the CLI-provided values. The
+    # backend exists only once its module is imported, so there is nothing to
+    # reset (and nothing worth importing torch for) before that.
     if _needs_reset:
         from lasagna.providers import reset_providers
         from lasagna.core.config import reset_rag_config
-        from lasagna.api.rag_backend import reset_instance
 
         reset_providers()
         reset_rag_config()
-        reset_instance()
+        if "lasagna.api.rag_backend" in sys.modules:
+            sys.modules["lasagna.api.rag_backend"].reset_instance()
 
     # Apply log level override
     if args.log_level:
