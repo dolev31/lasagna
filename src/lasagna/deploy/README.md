@@ -462,7 +462,8 @@ emptyDir, so a new pod starts the intervals over. The ConfigMap embeds with
 
 Probes: the api has a startup probe on `/api/v1/health/live` (up to 30 tries, 5 s apart),
 liveness on `/api/v1/health/live` every 15 s and readiness on `/api/v1/health/ready` every
-10 s; the worker's liveness runs `celery inspect ping --timeout=5` every 30 s.
+10 s; the worker's liveness runs `celery inspect ping -d celery@$HOSTNAME --timeout 10`
+every 60 s, which only this pod's worker answers.
 
 | Autoscaler | Replicas | Scales up on |
 | --- | --- | --- |

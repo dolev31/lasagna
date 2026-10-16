@@ -502,6 +502,8 @@ Server and deployment:
   Deployment runs garbage collection, which never ran;
   `RAG_PROCESSING_TIMEOUT=20` keeps the shutdown drain inside the grace period,
   as in compose. `make validate-k8s` checks each of these.
+- The Kubernetes worker's liveness probe pings its own pod's worker
+  (`celery@$HOSTNAME`).
 
 Numbers that were wrong:
 

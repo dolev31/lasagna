@@ -55,17 +55,17 @@ spec:
             limits:
               cpu: "4"
               memory: "8Gi"
-          # Workers don't serve HTTP, but a simple exec probe ensures the
-          # process hasn't deadlocked.
+          # Asks this pod's worker whether it answers. Started without -n, its
+          # node name is celery@<pod hostname>; without -d, a reply from any
+          # worker in the cluster passed the probe. Through sh so $HOSTNAME
+          # expands. The probe imports the package (about 5 s) before it waits
+          # up to 10 s for the reply, hence the timeout, and the period.
           livenessProbe:
             exec:
               command:
-                - celery
-                - -A
-                - lasagna.infrastructure.tasks.celery_app
-                - inspect
-                - ping
-                - --timeout=5
-            periodSeconds: 30
-            timeoutSeconds: 10
+                - sh
+                - -c
+                - celery -A lasagna.infrastructure.tasks.celery_app inspect ping -d "celery@$HOSTNAME" --timeout 10 > /dev/null
+            periodSeconds: 60
+            timeoutSeconds: 20
             failureThreshold: 3
