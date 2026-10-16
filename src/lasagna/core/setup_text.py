@@ -154,18 +154,6 @@ def download_text(models: List[str]) -> str:
     return text
 
 
-def api_key_problem(name: str, value: Optional[str]) -> Optional[str]:
-    """Why ``value`` cannot be saved as ``name``, or None when it can."""
-    if not value or not value.strip():
-        return (
-            f"{name} cannot be empty. Paste the key, or choose "
-            f"'None, search only' to set up without an LLM."
-        )
-    if any(ch.isspace() for ch in value.strip()):
-        return f"{name} contains a space or a line break; paste only the key."
-    return None
-
-
 def doctor_context(session_id: str = "default") -> List[Tuple[str, str]]:
     """What ``doctor`` reports about the setup in force: session, profile, files.
 

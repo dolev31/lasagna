@@ -598,8 +598,7 @@ First run:
 - `lasagna status` names a pre-0.1.0 collection that no configured model
   reads, and how to search it again.
 - `lasagna init` states what each profile downloads (91 MB for `speed`,
-  3.1 GB for `standard`), asks again for an empty or broken API key, and no
-  longer cuts its title box off.
+  3.1 GB for `standard`), and no longer cuts its title box off.
 - **Another project's credentials leaked in.** pymilvus loads the nearest
   `.env` when imported: from a virtualenv inside a project, that project's
   keys appeared in `os.environ` and provider auto-detection used them. Lasagna
@@ -660,6 +659,14 @@ First run:
   now resolves session, environment, settings file and defaults in the order
   docs/configuration.md gives, and `status` and the `serve` banner print the
   settings a search on that session runs with.
+- **`lasagna init` wrote an API key Lasagna then did not read.** It saved
+  OPENAI_API_KEY to ./.env (readable by everyone), said Lasagna reads no
+  other key from .env, and `doctor` reported no key. It no longer asks for or
+  writes a key: it says which variable to export, and that `doctor` will see
+  it. The "Cloud API" embedding question is gone (nothing read its answer;
+  the profile chooses the model), the summary names the profile's model,
+  which is what `status` shows, and each provider is labeled with the model
+  Lasagna calls by default (it read "OpenAI (GPT-4o)").
 
 Requests to current models:
 

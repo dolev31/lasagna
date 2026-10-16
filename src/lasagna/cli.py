@@ -435,8 +435,11 @@ def _require_component(stage: str, name: str) -> None:
 def init():
     """Interactive setup wizard for RAG knowledge base.
 
-    Guides you through choosing vector backend, embedding model,
-    LLM provider, and quality profile. Writes a local configuration file.
+    Asks for a vector backend, an LLM provider and a quality profile, writes
+    the backend to ./settings.lasagna.toml and applies the profile to the
+    default session. The profile decides the embedding model. API keys are not
+    asked for or written anywhere: Lasagna reads them from the environment
+    only, so init says which one to export.
     """
     try:
         import questionary
@@ -445,31 +448,18 @@ def init():
         console.print("Install with: pip install questionary")
         raise typer.Exit(1)
 
-    from lasagna.core.setup_text import api_key_problem, profile_download_text
+    from lasagna.core.session_config._profiles import ProfileMixin
+    from lasagna.core.setup_text import profile_download_text
+    from lasagna.providers.llm_provider import SimpleLLMProvider
 
     console.print()
     # The subtitle sat on the border, wider than the title: the box cut it off.
     console.print(Panel.fit("[bold cyan]Lasagna setup[/bold cyan]\nConfigure your knowledge base"))
     console.print()
 
-    # 1. Embedding mode
-    embedding_mode = questionary.select(
-        "Where should embeddings run?",
-        choices=[
-            questionary.Choice(
-                "Cloud API (OpenAI/Cohere): no model download, no GPU needed",
-                value="cloud",
-            ),
-            questionary.Choice(
-                "Local (sentence-transformers): private; the profile sets the download",
-                value="local",
-            ),
-        ],
-    ).ask()
-    if embedding_mode is None:
-        raise typer.Exit(0)
-
-    # 2. Vector backend
+    # 1. Vector backend. (There was an embedding question first, "Cloud API"
+    # or local. Nothing read its answer: the profile chooses the model, and
+    # the summary named text-embedding-3-small while `status` showed MiniLM.)
     vector_backend = questionary.select(
         "Vector database?",
         choices=[
@@ -483,21 +473,28 @@ def init():
     if vector_backend is None:
         raise typer.Exit(0)
 
-    # 3. LLM provider
+    # 2. LLM provider, each named with the model Lasagna calls by default.
+    providers = {
+        "openai": ("OpenAI", "OPENAI_API_KEY"),
+        "anthropic": ("Anthropic", "ANTHROPIC_API_KEY"),
+        "groq": ("Groq", "GROQ_API_KEY"),
+        "watsonx": ("IBM watsonx", "WATSONX_APIKEY"),
+    }
+    default_models = SimpleLLMProvider.SUPPORTED_PLATFORMS
     llm_provider = questionary.select(
         "LLM provider (for HyDE, query expansion, answer generation)?",
         choices=[
-            questionary.Choice("OpenAI (GPT-4o)", value="openai"),
-            questionary.Choice("Anthropic (Claude)", value="anthropic"),
-            questionary.Choice("Groq (fast inference)", value="groq"),
-            questionary.Choice("IBM watsonx", value="watsonx"),
+            *(
+                questionary.Choice(f"{label} ({default_models[name]})", value=name)
+                for name, (label, _key) in providers.items()
+            ),
             questionary.Choice("None, search only (no LLM features)", value="none"),
         ],
     ).ask()
     if llm_provider is None:
         raise typer.Exit(0)
 
-    # 4. Quality profile
+    # 3. Quality profile
     profile = questionary.select(
         "Quality profile?",
         choices=[
@@ -514,60 +511,6 @@ def init():
     if profile is None:
         raise typer.Exit(0)
 
-    # Build config
-    if embedding_mode == "cloud":
-        embedding_config = {
-            "embedding_provider": "openai",
-            "embedding_model": "text-embedding-3-small",
-            "embedding_dim": 1536,
-        }
-    elif profile in ("balanced", "max_quality"):
-        embedding_config = {
-            "embedding_model": "BAAI/bge-large-en-v1.5",
-            "embedding_dim": 1024,
-        }
-    else:
-        embedding_config = {
-            "embedding_model": "all-MiniLM-L6-v2",
-            "embedding_dim": 384,
-        }
-
-    # Determine which env vars to set
-    env_vars = {}
-    api_key_env = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "groq": "GROQ_API_KEY",
-        "watsonx": "WATSONX_APIKEY",
-    }
-    if llm_provider in api_key_env:
-        key_name = api_key_env[llm_provider]
-        if not os.environ.get(key_name):
-            # An empty or pasted-with-a-newline key was saved without a word,
-            # and the first LLM call failed instead.
-            while True:
-                api_key = questionary.password(f"Enter your {key_name}:").ask()
-                if api_key is None:  # Ctrl-C
-                    raise typer.Exit(0)
-                problem = api_key_problem(key_name, api_key)
-                if problem is None:
-                    env_vars[key_name] = api_key.strip()
-                    break
-                console.print(f"  [yellow]{escape(problem)}[/yellow]")
-
-    # Write .env file
-    try:
-        env_path = Path(".env")
-        if env_vars:
-            existing = env_path.read_text() if env_path.exists() else ""
-            with open(env_path, "a") as f:
-                for k, v in env_vars.items():
-                    if k not in existing:
-                        f.write(f"{k}={v}\n")
-            console.print(f"  [green]Updated {env_path}[/green]")
-    except OSError as exc:
-        console.print(f"  [yellow]Warning: could not write .env: {exc}[/yellow]")
-
     # Write settings override.
     #
     # This file used to be written and then never read: the loader looks in the
@@ -576,15 +519,8 @@ def init():
     # naming it, and downloaded 5.4 GB anyway. Pointing RAG_SETTINGS_FILE at the
     # file we just wrote is what makes the wizard's answers take effect.
     try:
-        config_data = {"vector_backend": vector_backend, **embedding_config}
         settings_path = Path("settings.lasagna.toml").resolve()
-        with open(settings_path, "w") as f:
-            f.write("[rag]\n")
-            for k, v in config_data.items():
-                if isinstance(v, str):
-                    f.write(f'{k} = "{v}"\n')
-                else:
-                    f.write(f"{k} = {v}\n")
+        settings_path.write_text(f'[rag]\nvector_backend = "{vector_backend}"\n')
         console.print(f"  [green]Created {settings_path.name}[/green]")
     except OSError as exc:
         _error(f"Could not write settings file: {exc}")
@@ -595,7 +531,7 @@ def init():
         if "RAG_SETTINGS_FILE" not in existing:
             with open(env_path, "a") as f:
                 f.write(f"RAG_SETTINGS_FILE={settings_path}\n")
-            console.print("  [green]Pointed RAG_SETTINGS_FILE at it[/green]")
+            console.print("  [green]Pointed RAG_SETTINGS_FILE at it in ./.env[/green]")
     except OSError as exc:
         console.print(
             f"  [yellow]Warning: could not set RAG_SETTINGS_FILE ({exc}). Set it "
@@ -616,14 +552,30 @@ def init():
             f"Run `lasagna configure --profile {profile}`.[/yellow]"
         )
 
+    # What `lasagna status` will show: the profile's model.
+    embedding = ProfileMixin._PROFILE_SPECS[profile]["embedding_model"]
+    if llm_provider in providers:
+        label, key_name = providers[llm_provider]
+        llm = f"{label}, {default_models[llm_provider]}"
+        key_line = (
+            f"{key_name} is set in this shell."
+            if os.environ.get(key_name, "").strip()
+            else f"Before using LLM features, export {key_name} in your shell:\n"
+            f"  export {key_name}=<your key>\n"
+            f"and add that line to your shell profile (~/.zshrc or ~/.bashrc) to keep it."
+        )
+    else:
+        llm, key_line = "none (search only)", "No API key is needed."
+
     console.print()
     console.print(
         Panel.fit(
             f"[bold green]Setup complete![/bold green]\n\n"
             f"Profile: [cyan]{profile}[/cyan]\n"
             f"Vector DB: [cyan]{vector_backend}[/cyan]\n"
-            f"Embeddings: [cyan]{embedding_config.get('embedding_model', 'cloud')}[/cyan]\n"
-            f"LLM: [cyan]{llm_provider}[/cyan]\n\n"
+            f"Embeddings: [cyan]{embedding}[/cyan] (the {profile} profile's model)\n"
+            f"LLM: [cyan]{escape(llm)}[/cyan]\n"
+            f"{escape(key_line)}\n\n"
             f"[dim]Quick start (from this directory):[/dim]\n"
             f"  lasagna upload ./document.pdf\n"
             f'  lasagna search "your query"\n'
@@ -631,7 +583,7 @@ def init():
             f"[dim]`lasagna` commands run here read RAG_SETTINGS_FILE from ./.env.\n"
             f"Python code and other directories do not: there, first run\n"
             f"  export RAG_SETTINGS_FILE={settings_path}\n"
-            f"Lasagna reads no other key from .env; export API keys in your shell.[/dim]",
+            f"Lasagna reads no other key from .env and never reads API keys from it.[/dim]",
         )
     )
 
