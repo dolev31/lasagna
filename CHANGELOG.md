@@ -817,7 +817,10 @@ Servers and deployment:
   into the other's collection, and a search could embed its query with the
   other session's model. Each request now holds its own session's embedder.
   A process keeps each model it has loaded (up to five) instead of reloading
-  one whenever the session changes.
+  one whenever the session changes. The same held for MMR: each search set its
+  embedder on the reranker all searches share, so a concurrent search on
+  another model could make MMR rank this search's results with that model's
+  embeddings. The embedder now goes with the search's rerank call.
 - The CI lint job failed on its first run (two mypy errors in
   `sdk/integrations/inbound.py`), the secret scan on nine false positives
   missing from `.secrets.baseline`, and the step that runs the tests loading

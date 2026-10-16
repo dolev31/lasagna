@@ -494,9 +494,6 @@ class SearchOrchestrator:
         # the same time on other models.
         session_embedder = self._session_embedder(config)
         effective_embedder = _embedder_override or session_embedder
-        from ..retrieval.search.ranker import bind_embedding_manager
-
-        bind_embedding_manager(reranker, effective_embedder)
 
         # Compute component fingerprint for cache key isolation.
         # This ensures that swapping components (e.g., during ablation studies)
@@ -1091,9 +1088,16 @@ class SearchOrchestrator:
                     adaptive_min_gap_ratio=chunk_cite_cfg.get("min_gap_ratio", 0.15),
                 )
 
-            with TRACER.span(
-                "rerank", attributes={"top_k": top_k, "adaptive": use_adaptive}
-            ) as _rerank_span:
+            from ..retrieval.search.ranker import search_embedder
+
+            # MMR compares passages with this search's embedder. The reranker
+            # is shared by every search, so it is passed for this call only.
+            with (
+                TRACER.span(
+                    "rerank", attributes={"top_k": top_k, "adaptive": use_adaptive}
+                ) as _rerank_span,
+                search_embedder(effective_embedder),
+            ):
                 reranked, rerank_metrics = reranker.rerank(
                     query=query,
                     results=hits_for_rerank,
@@ -1945,12 +1949,9 @@ class SearchOrchestrator:
         )[:top_k]
 
         # Rerank the fused results for quality parity with the threaded path
-        from ..retrieval.search.ranker import adapt_reranker_for_pipeline
+        from ..retrieval.search.ranker import adapt_reranker_for_pipeline, search_embedder
 
         effective_reranker = adapt_reranker_for_pipeline(_reranker_override or self.reranker)
-        from ..retrieval.search.ranker import bind_embedding_manager
-
-        bind_embedding_manager(effective_reranker, session_embedder)
         original_query = all_queries[0]
 
         hits_for_rerank = [
@@ -1968,12 +1969,13 @@ class SearchOrchestrator:
             for fused_score, vsr in fused
         ]
 
-        reranked = effective_reranker.rerank(
-            query=original_query,
-            results=hits_for_rerank,
-            top_k=top_k,
-            config=config,
-        )
+        with search_embedder(session_embedder):
+            reranked = effective_reranker.rerank(
+                query=original_query,
+                results=hits_for_rerank,
+                top_k=top_k,
+                config=config,
+            )
 
         # Convert reranked results to SearchResult objects
         doc_ids = list({r.document_id for r in reranked})
