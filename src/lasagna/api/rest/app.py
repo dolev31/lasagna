@@ -91,19 +91,16 @@ async def _lifespan(app: FastAPI):
     # Log service configuration summary
     try:
         from lasagna.core.config import rag_config
+        from lasagna.core.provenance import redact_url
 
         logger.info("=" * 60)
         logger.info("Lasagna")
         logger.info(f"  Database:       {rag_config.database_backend}")
         if rag_config.database_backend == "postgresql":
-            dsn = rag_config.database_dsn
-            safe_dsn = dsn.split("@")[-1] if "@" in dsn else dsn
-            logger.info(f"  PostgreSQL:     {safe_dsn}")
+            logger.info(f"  PostgreSQL:     {redact_url(rag_config.database_dsn)}")
         logger.info(f"  Vector backend: {rag_config.vector_backend}")
         logger.info(f"  Cache backend:  {rag_config.cache_backend}")
         if rag_config.cache_backend == "redis":
-            from lasagna.core.provenance import redact_url
-
             logger.info(f"  Redis:          {redact_url(rag_config.redis_url)}")
         logger.info(
             f"  Embedding:      {rag_config.embedding_model} (dim={rag_config.embedding_dim})"

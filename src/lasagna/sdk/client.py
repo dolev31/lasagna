@@ -41,6 +41,7 @@ import uuid
 import asyncio
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 from .config import KnowledgeConfig
 from .types import (
@@ -212,7 +213,7 @@ class KnowledgeClient:
             on_session=adopt,
         )
 
-        logger.info(f"KnowledgeClient connected to remote: {url}")
+        logger.info(f"KnowledgeClient connected to remote: {redact_url(url)}")
         return instance
 
     # =========================================================================

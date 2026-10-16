@@ -657,7 +657,11 @@ Servers and deployment:
   logged a full traceback; it logs one line at DEBUG, and other startup
   failures are logged with their traceback without breaking on braces in the
   message.
-- The Redis and broker URLs, password included, were logged at startup.
+- The Redis and broker URLs, password included, were logged at startup. So
+  were the Redis cache and session store URLs on connect, the Milvus, Qdrant
+  and Weaviate URLs, and the SDK's server URL; every logged URL, URI and DSN
+  now has its password replaced by `***`, a PostgreSQL key=value DSN
+  included.
 - A URL no route matched became its own label value in the request histogram;
   it is `unmatched`.
 - Every search logged "SOTA search: ... hybrid" at INFO, also when hybrid

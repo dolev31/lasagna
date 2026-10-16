@@ -26,6 +26,7 @@ import time
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +142,7 @@ class RedisSessionStore:
         self._client = redis.Redis.from_url(url, decode_responses=True)
         try:
             self._client.ping()
-            logger.info(f"Redis session store connected: {url}")
+            logger.info(f"Redis session store connected: {redact_url(url)}")
         except Exception as exc:
             logger.warning(f"Redis session store connection failed: {exc}")
 

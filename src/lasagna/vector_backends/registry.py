@@ -28,6 +28,7 @@ import threading
 from typing import Any, Dict, List, Optional, Type
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 from .base import VectorStoreAdapter
 
@@ -490,7 +491,7 @@ def _get_default_milvus_config() -> Dict[str, Any]:
     uri = os.environ.get("MILVUS_URI") or None
     if uri:
         token = os.environ.get("MILVUS_TOKEN") or None
-        logger.debug(f"Using Milvus URI from environment: {uri}")
+        logger.debug(f"Using Milvus URI from environment: {redact_url(uri)}")
         return {"uri": uri, "token": token}
 
     # Try to get from session config
@@ -508,7 +509,7 @@ def _get_default_milvus_config() -> Dict[str, Any]:
         backend_config = manager.get_vector_backend_config()
         config = backend_config.get("vector_backend_config", {})
         if config.get("uri"):
-            logger.debug(f"Using Milvus URI from session config: {config['uri']}")
+            logger.debug(f"Using Milvus URI from session config: {redact_url(config['uri'])}")
             return {"uri": config["uri"], "token": config.get("token")}
         if config.get("db_path"):
             db_path = config["db_path"]
@@ -551,7 +552,7 @@ def _get_default_qdrant_config() -> Dict[str, Any]:
     url = os.environ.get("QDRANT_URL") or None
     if url:
         api_key = os.environ.get("QDRANT_API_KEY") or None
-        logger.debug(f"Using Qdrant URL from environment: {url}")
+        logger.debug(f"Using Qdrant URL from environment: {redact_url(url)}")
         return {"url": url, "api_key": api_key}
 
     # Use config provider's db_dir for local persistent storage
@@ -585,7 +586,7 @@ def _get_default_weaviate_config() -> Dict[str, Any]:
     url = os.environ.get("WEAVIATE_URL") or None
     if url:
         api_key = os.environ.get("WEAVIATE_API_KEY") or None
-        logger.debug(f"Using Weaviate URL from environment: {url}")
+        logger.debug(f"Using Weaviate URL from environment: {redact_url(url)}")
         return {"url": url, "api_key": api_key}
 
     # Default to embedded mode for zero-config local usage

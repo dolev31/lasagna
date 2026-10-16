@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 from .base import (
     BackendCapabilities,
@@ -296,8 +297,7 @@ class PgVectorBackend(VectorStoreAdapter):
                 return
 
             # Mask password in logs
-            safe_dsn = re.sub(r"://[^@]+@", "://***@", self._dsn)
-            logger.info(f"Connecting to PgVector: {safe_dsn}")
+            logger.info(f"Connecting to PgVector: {redact_url(self._dsn)}")
 
             try:
                 # Ensure pgvector extension exists BEFORE creating the pool.

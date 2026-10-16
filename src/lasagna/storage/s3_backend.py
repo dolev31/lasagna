@@ -25,6 +25,7 @@ import io
 from typing import BinaryIO, Dict, Optional
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 from .base import (
     StorageBackend,
@@ -102,7 +103,7 @@ class S3StorageBackend(StorageBackend):
         self._endpoint_url = endpoint_url
         logger.info(
             f"S3 storage initialized: bucket={bucket}, prefix={prefix}, "
-            f"endpoint={endpoint_url or 'AWS S3'}"
+            f"endpoint={redact_url(endpoint_url) if endpoint_url else 'AWS S3'}"
         )
 
     @property
@@ -173,7 +174,7 @@ class S3StorageBackend(StorageBackend):
             etag = None
 
         uri = self._to_uri(key)
-        logger.info(f"File stored in S3: {uri}")
+        logger.info(f"File stored in S3: {redact_url(uri)}")
         return StorageFileInfo(
             uri=uri,
             size=size,

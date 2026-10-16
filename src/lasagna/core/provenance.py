@@ -238,11 +238,18 @@ def redact_url(url: Any) -> str:
 
     Redis, broker and database URLs carry credentials in the authority
     (``redis://:secret@host:6379``) and sometimes in the query
-    (``?password=...``). They were logged verbatim at startup.
+    (``?password=...``). They were logged verbatim at startup. A PostgreSQL
+    key=value DSN (``host=db user=rag password=...``) is not a URL; its
+    secret values are replaced the same way.
     """
+    import re
     from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+    secret_keys = {"password", "pass", "pwd", "token", "secret", "api_key", "apikey"}
     text = str(url or "")
+    if "://" not in text and "=" in text:
+        names = "|".join(sorted(secret_keys))
+        return re.sub(rf"(?i)\b({names})\s*=\s*(?:'[^']*'|\S+)", r"\1=***", text)
     try:
         parts = urlsplit(text)
         port = parts.port
@@ -256,7 +263,6 @@ def redact_url(url: Any) -> str:
         if port is not None:
             host = f"{host}:{port}"
         netloc = f"{parts.username or ''}:***@{host}"
-    secret_keys = {"password", "pass", "pwd", "token", "secret", "api_key", "apikey"}
     query = parts.query
     if query:
         pairs = parse_qsl(query, keep_blank_values=True)

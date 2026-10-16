@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 # ---------------------------------------------------------------------------
 # Driver import with fallback
@@ -315,9 +316,7 @@ class PostgresRAGDatabase:
             self._setup_pool()
             self._create_schema()
             self._initialized = True
-            logger.info(
-                f"PostgreSQL RAG database initialized: {self._dsn.split('@')[-1] if '@' in self._dsn else '(local)'}"
-            )
+            logger.info(f"PostgreSQL RAG database initialized: {redact_url(self._dsn)}")
 
     def _setup_pool(self):
         if _psycopg is not None:

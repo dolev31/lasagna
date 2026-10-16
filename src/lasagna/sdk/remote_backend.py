@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 try:
     import httpx
@@ -240,7 +241,7 @@ class RemoteRAGBackend:
         )
         self._sync_pool: Optional[concurrent.futures.ThreadPoolExecutor] = None
         self._pool_lock = threading.Lock()
-        logger.debug(f"RemoteRAGBackend connected to {self._base_url}")
+        logger.debug(f"RemoteRAGBackend connected to {redact_url(self._base_url)}")
 
     # =========================================================================
     # Internal helpers

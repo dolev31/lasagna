@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from ..processing.document_processor import DocumentProcessor
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 from lasagna.core.config import rag_config, RAGConfig
 from lasagna.core.schema import (
@@ -330,7 +331,7 @@ class DocumentPipeline:
         with open(source_path, "rb") as f:
             info = self.storage.store(f, document_id, safe_filename)
 
-        logger.info(f"File stored: {info.uri}")
+        logger.info(f"File stored: {redact_url(info.uri)}")
         return info.uri
 
     def _save_document_metadata(
