@@ -895,14 +895,70 @@ def _session_summary(session_id: str = "default") -> List[str]:
         data = os.path.dirname(rag_config.db_path)
         if os.path.dirname(os.path.abspath(rag_config.upload_dir)) == os.path.dirname(data):
             data = os.path.dirname(data)  # dbs/ and uploads/ side by side
+        others = _sessions_with_documents_line(mgr, exclude=session_id)
     except Exception as exc:  # the banner must never stop the server
         return [f"Session config: could not be read ({type(exc).__name__}: {exc})"]
     return [
+        *others,
+        f"Without X-Session-ID, requests use session '{session_id}':",
         f"Profile: {profile} (session '{session_id}')",
         f"Embedding: {model} ({dim} dimensions)",
         f"Vector store: {backend}",
         f"Data: {_home(data)}",
     ]
+
+
+def _sessions_with_documents_line(mgr, exclude: str) -> List[str]:
+    """``Sessions with documents: my-corpus (76; speed, all-MiniLM-L6-v2)``, or nothing.
+
+    The banner described only session 'default', while the README configures
+    and fills `my-corpus`: it named a model none of the user's requests ran.
+    """
+    from lasagna.core.config import rag_config
+    from lasagna.core.model_downloads import sessions_with_documents
+
+    populated = {s: n for s, n in (sessions_with_documents() or {}).items() if s != exclude}
+    parts = []
+    for sid, count in sorted(populated.items())[:5]:
+        chosen = mgr.get_chosen_config(sid)
+        model = chosen.get("embedding_model") or rag_config.embedding_model
+        parts.append(f"{sid} ({count}; {mgr.get_active_profile(session_id=sid)}, {model})")
+    if len(populated) > 5:
+        parts.append(f"and {len(populated) - 5} more")
+    return [f"Sessions with documents: {', '.join(parts)}"] if parts else []
+
+
+def _port_problem(host: str, port: int) -> Optional[str]:
+    """Why ``host:port`` cannot be bound (with uvicorn's socket options), or None."""
+    import errno
+    import socket
+
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host or "0.0.0.0", port))
+        except OSError as exc:
+            if exc.errno == errno.EADDRINUSE:
+                return f"Port {port} on {host} is already in use by another program."
+            return f"Cannot listen on {host}:{port}: {exc.strerror or exc}."
+    return None
+
+
+def _configurator_line(base: str) -> str:
+    """The banner's configurator line: the page, or how to build it.
+
+    From a source checkout the page is not built, and the advertised
+    /configurator answered 404.
+    """
+    from lasagna.configurator import FRONTEND_DIST
+
+    if FRONTEND_DIST.is_dir():
+        return f"Configurator: {base}/configurator"
+    return (
+        "Configurator: not built in this checkout "
+        "(cd src/lasagna/configurator/frontend && npm ci && npm run build)"
+    )
 
 
 @app.command()
@@ -960,6 +1016,11 @@ def serve(
             if running
             else local_server.held_store_message("lasagna serve")
         )
+    problem = _port_problem(host, port)
+    if problem:
+        # Checked before anything loads: the banner used to print, and 6 s later
+        # uvicorn's "[Errno 48] ... address already in use".
+        _error(f"{problem} Start on another port: lasagna serve --port {port + 1}")
     if configurator:
         os.environ["RAG_CONFIGURATOR"] = "true"
     if serve_mcp:
@@ -975,7 +1036,7 @@ def serve(
             f"API: {base}/api/v1\n"
             f"Health: {base}/api/v1/health\n"
             f"Docs: {base}/docs\n"
-            + (f"Configurator: {base}/configurator\n" if configurator else "")
+            + (f"{_configurator_line(base)}\n" if configurator else "")
             + (f"MCP (SSE): {base}/mcp/sse\n" if serve_mcp else "")
             + "\n"
             + "\n".join(escape(line) for line in _session_summary())

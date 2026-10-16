@@ -597,6 +597,15 @@ Requests to current models:
 
 Servers and deployment:
 
+- `lasagna serve` on a busy port printed its banner and failed 6 s later with
+  "[Errno 48] address already in use"; it checks the port first and names
+  `--port`. It no longer warns on every start that APScheduler is missing
+  (garbage collection runs on request; the `lifecycle` extra schedules it),
+  says how to build the configurator page from a source checkout instead of
+  linking a 404, names the sessions that have documents beside the default
+  one, and stops without "1 leaked semaphore" (tqdm's cross-process lock,
+  which it no longer creates). `/docs` loads Swagger UI from a CDN, as FastAPI
+  does; endpoints.md says so and points offline readers at `/openapi.json`.
 - **Nothing else could use the store while `lasagna serve` ran.** `status`,
   `search`, `upload` and `lasagna-mcp` loaded their models for about 7 s, then
   failed with "Another process is using the local store". `serve` records its

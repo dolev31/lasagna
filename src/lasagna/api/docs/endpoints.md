@@ -2,7 +2,7 @@
 
 Lasagna exposes 41 HTTP endpoints across two route groups: 32 versioned endpoints under `/api/v1/` (including 2 document lifecycle and 6 admin routes) and 9 non-versioned endpoints for the configurator UI and bulk reindexing. All endpoints accept and return JSON, except the two document upload routes, which take multipart form data. Session identity is resolved from headers or tokens on every request.
 
-`tests/snapshots/openapi.json` records the full schema of every route, and `GET /openapi.json` on a running server returns the same document. When this page and that schema disagree, the schema is right.
+`tests/snapshots/openapi.json` records the full schema of every route, and `GET /openapi.json` on a running server returns the same document. When this page and that schema disagree, the schema is right. The interactive page at `/docs` loads the Swagger UI scripts and styles from cdn.jsdelivr.net, as FastAPI does, so it needs a network connection; offline, `/openapi.json` and this page have the same reference.
 
 ---
 

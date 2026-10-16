@@ -105,14 +105,17 @@ def test_a_one_shot_command_does_not_warn_about_background_gc(tmp_path):
     assert "APScheduler" not in out.stderr, out.stderr
 
 
-def test_the_server_still_warns_about_it(tmp_path):
-    """`serve` configures logging without that filter; MCP has its own sink."""
+def test_the_server_mentions_it_only_when_asked_for_info(tmp_path):
+    """The scheduler is optional (the `lifecycle` extra): a warning on every
+    `lasagna serve` start was noise. `-v` still says how GC runs without it."""
     code = (
         "from lasagna.cli import _configure_cli_logging\n"
         "from loguru import logger\n"
         "logger.enable('lasagna')\n"
         "_configure_cli_logging()\n" + _SCHEDULER_WARNS
     )
-    out = _python(code, tmp_path)
-    assert out.returncode == 0, out.stderr
-    assert "APScheduler not installed" in out.stderr, out.stderr
+    quiet = _python(code, tmp_path)
+    assert quiet.returncode == 0, quiet.stderr
+    assert "scheduler" not in quiet.stderr.lower(), quiet.stderr
+    told = _python(code, tmp_path, LASAGNA_LOG_LEVEL="INFO")
+    assert "lasagna-rag[lifecycle]" in told.stderr, told.stderr
