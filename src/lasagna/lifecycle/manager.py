@@ -88,7 +88,10 @@ class DocumentLifecycleManager:
         if doc.get("status") == "soft_deleted":
             return doc  # Already archived — idempotent
 
+        # Bumps the session's content generation, so the other processes'
+        # search caches stop serving it too.
         self._db.soft_delete_document(document_id)
+        self._keep_local_keyword_index(session_id)
 
         # Invalidate search cache and session focus list
         try:
@@ -159,6 +162,7 @@ class DocumentLifecycleManager:
                 f"Cannot restore document {document_id}: grace window expired during restore"
             )
 
+        self._keep_local_keyword_index(session_id)
         # Re-add to search cache
         try:
             self._pipeline._invalidate_search_cache(session_id)
@@ -166,6 +170,16 @@ class DocumentLifecycleManager:
             pass
 
         return self._db.get_document(document_id) or {}
+
+    def _keep_local_keyword_index(self, session_id: str) -> None:
+        """Archive and restore leave the chunks in the store, so this process's
+        BM25 index is still current at the generation they bumped; other
+        processes cannot tell and read theirs again."""
+        try:
+            generation = self._db.get_content_generation(session_id)
+            self._pipeline.hybrid_searcher.note_local_change(session_id, generation)
+        except Exception:
+            pass
 
     # =========================================================================
     # Bulk operations

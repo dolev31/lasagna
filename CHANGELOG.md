@@ -512,6 +512,9 @@ Server and deployment:
   now includes the LLM provider and model (`MODEL_NAME`, the detected API key),
   the judge's model and base URL, and the local commit of each model the arm
   loads. Earlier checkpoints are not restored.
+- Archiving, restoring and GC expiry bump the session's content generation, so
+  other workers stop serving an archived document (or keep missing a restored
+  one) from their search cache.
 
 Numbers that were wrong:
 

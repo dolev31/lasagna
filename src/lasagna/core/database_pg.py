@@ -1154,16 +1154,22 @@ class PostgresRAGDatabase:
     # ------------------------------------------------------------------
 
     def soft_delete_document(self, document_id: str) -> bool:
-        """Mark a document as soft-deleted (status=soft_deleted, deleted_at=NOW())."""
+        """Mark a document as soft-deleted (status=soft_deleted, deleted_at=NOW()).
+
+        Bumps the session's content generation (``record_visibility_change``).
+        """
+        from lasagna.core.database import record_visibility_change
+
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE rag_documents SET status = 'soft_deleted', deleted_at = NOW() WHERE document_id = %s AND status != 'soft_deleted'",
+                    "UPDATE rag_documents SET status = 'soft_deleted', deleted_at = NOW() "
+                    "WHERE document_id = %s AND status != 'soft_deleted' RETURNING session_id",
                     (document_id,),
                 )
-                updated = cur.rowcount > 0
+                row = cur.fetchone()
             conn.commit()
-        return updated
+        return record_visibility_change(self, (row[0] or "") if row else None)
 
     def restore_document(self, document_id: str, grace_cutoff: Optional[datetime] = None) -> bool:
         """Restore a soft-deleted document to READY status (clears deleted_at).
@@ -1172,24 +1178,26 @@ class PostgresRAGDatabase:
             grace_cutoff: If provided, only restore if deleted_at >= grace_cutoff
                 (atomic grace-window enforcement — eliminates TOCTOU race).
         """
+        from lasagna.core.database import record_visibility_change
+
         with self._conn() as conn:
             with conn.cursor() as cur:
                 if grace_cutoff is not None:
                     cur.execute(
                         "UPDATE rag_documents SET status = 'ready', deleted_at = NULL"
                         " WHERE document_id = %s AND status = 'soft_deleted'"
-                        " AND (deleted_at IS NULL OR deleted_at >= %s)",
+                        " AND (deleted_at IS NULL OR deleted_at >= %s) RETURNING session_id",
                         (document_id, grace_cutoff),
                     )
                 else:
                     cur.execute(
                         "UPDATE rag_documents SET status = 'ready', deleted_at = NULL"
-                        " WHERE document_id = %s AND status = 'soft_deleted'",
+                        " WHERE document_id = %s AND status = 'soft_deleted' RETURNING session_id",
                         (document_id,),
                     )
-                updated = cur.rowcount > 0
+                row = cur.fetchone()
             conn.commit()
-        return updated
+        return record_visibility_change(self, (row[0] or "") if row else None)
 
     def list_soft_deleted_before(
         self, cutoff: datetime, session_id: Optional[str] = None
