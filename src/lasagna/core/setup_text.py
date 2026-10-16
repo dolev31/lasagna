@@ -21,6 +21,12 @@ MODEL_WEIGHT_BYTES = {
     "mixedbread-ai/mxbai-rerank-large-v1": 870_174_306,
 }
 
+#: What FlagEmbedding adds for BAAI/bge-m3 (the ``flag-embedding`` extra, which
+#: ``all`` includes): it downloads the model's whole repository, ONNX export
+#: included (``onnx/model.onnx_data`` and ``onnx/model.onnx``, read from the Hub
+#: on 2026-10-17). Without it sentence-transformers fetches the PyTorch weights only.
+BGE_M3_ONNX_BYTES = 2_266_820_608 + 724_923
+
 
 def human_size(n_bytes: int) -> str:
     """``91 MB``, ``2.3 GB``: decimal units, as download pages show them."""

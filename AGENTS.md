@@ -83,8 +83,8 @@ work in the pipeline: the validator exercises it in isolation.
 **Never hard-code a vendor-routed model name** (`Azure/...`, `watsonx/...`) as a
 default. Use `get_default_model_name()`. A test enforces this.
 
-**First run downloads about 4.5 GB.** Not a hang. `lasagna configure --profile speed`
-uses a 91 MB model instead.
+**First run downloads about 3.1 GB** (BGE-M3 and its reranker). Not a hang.
+`lasagna configure --profile speed` uses a 91 MB model instead.
 
 **Retrieval with fixed models is deterministic.** A retrieval-only sweep needs
 `n_runs: 1`; repeat runs only when an LLM stage is in the loop. Configuration

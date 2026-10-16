@@ -1157,6 +1157,15 @@ Servers and deployment:
   which the stack builds from, and says why Kubernetes embeds with
   `BAAI/bge-large-en-v1.5` while compose uses `BAAI/bge-m3`, what that means
   for a corpus moved between them, and how to align them.
+- The docs disagreed: the default first-run download was 4.5 GB in the
+  README and the guide, 3.1 GB in docs/configuration.md and `lasagna init`,
+  and 5.4 GB in code comments. Every page states 3.1 GB, the default
+  profile's weights as `core/setup_text.py` records them, and the README and
+  guide add the 2.3 GB the `flag-embedding` extra adds (FlagEmbedding also
+  fetches BGE-M3's ONNX copy). CONTRIBUTING no longer cites a CHANGELOG
+  "Known issues" entry that does not exist, and gives the guide's measured
+  pip time. The SDK's getting-started page no longer makes an LLM key a
+  prerequisite, and the RAG skill says a keyless complex query falls back.
 
 ### Known issues
 

@@ -123,11 +123,11 @@ Work in this order; the first two explain most cases:
 - **Never** put an API key in `.mcp.json` or any committed file. Use the
   environment.
 - The first search downloads a model. On the default profile that is about
-  4.5 GB and 7 to 40 minutes. Say so before a user thinks it has hung.
+  3.1 GB and 7 to 40 minutes. Say so before a user thinks it has hung.
 - **Retrieval itself needs no LLM key, but the shipped default can call one.**
   `use_agentic_rag = true` by default, and the router sends a query it judges
   complex to the agentic path, which calls an LLM; without a key that search
-  fails with "No LLMProvider configured". Run
+  runs the standard pipeline instead and names `agentic` in `degraded_stages`. Run
   `lasagna configure --profile speed` (which turns it off) or set
   `use_agentic_rag = false` for keyless retrieval.
 

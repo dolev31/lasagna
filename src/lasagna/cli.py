@@ -172,7 +172,7 @@ def _settings_file_from_dotenv() -> None:
     """Use the settings file `lasagna init` pointed ./.env at.
 
     `init` writes ``RAG_SETTINGS_FILE=...`` to ./.env, and nothing read it:
-    `lasagna serve` in that directory loaded the 5.4 GB default model the user
+    `lasagna serve` in that directory loaded the 3.1 GB default models the user
     had just declined. Only this key is taken, and only from the working
     directory, never over a value already in the environment: a .env holds
     other projects' credentials, which importing Lasagna must not pick up.
@@ -530,7 +530,7 @@ def init():
     # This file used to be written and then never read: the loader looks in the
     # installed package directory or at $RAG_SETTINGS_FILE, never the working
     # directory. So a user picked the speed profile, saw "Setup complete!"
-    # naming it, and downloaded 5.4 GB anyway. Pointing RAG_SETTINGS_FILE at the
+    # naming it, and downloaded 3.1 GB anyway. Pointing RAG_SETTINGS_FILE at the
     # file we just wrote is what makes the wizard's answers take effect.
     try:
         settings_path = Path("settings.lasagna.toml").resolve()

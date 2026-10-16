@@ -189,9 +189,11 @@ lasagna serve                      # REST API and configuration page on 127.0.0.
 ```
 
 > **The first run downloads models.** The default profile fetches an embedding
-> model and a reranker on first use. Measured on a cold cache on every
-> release-gate run to date: **about 4.5 GB downloaded, and 7–40 minutes to the
-> first search result**; the spread is your connection. After that, a warm
+> model and a reranker on first use: **about 3.1 GB** (BGE-M3, 2.3 GB, and the
+> mxbai reranker, 870 MB), and 2.3 GB more with the `flag-embedding` extra
+> (which `[all]` includes), since FlagEmbedding also fetches BGE-M3's ONNX copy.
+> On release-gate runs the first search result took between 7 and 40 minutes on
+> a cold cache; the spread is the connection. After that, a warm
 > search on the `speed` profile takes tens of milliseconds (median 32 ms over
 > 18,442 chunks on Milvus Lite). Run `python -m e2e.run` to measure on your own
 > machine.
