@@ -504,6 +504,7 @@ Server and deployment:
   as in compose. `make validate-k8s` checks each of these.
 - The Kubernetes worker's liveness probe pings its own pod's worker
   (`celery@$HOSTNAME`).
+- CI pins detect-secrets 1.5.0, the version that wrote `.secrets.baseline`.
 
 Numbers that were wrong:
 
