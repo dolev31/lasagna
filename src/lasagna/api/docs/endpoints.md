@@ -1005,7 +1005,7 @@ Tokens created via `POST /api/v1/sessions` contain:
 | `exp` | Expiry timestamp (default: 7 days, configurable via `RAG_SESSION_TOKEN_TTL_SECONDS`) |
 | `iss` | `"lasagna"` (tokens issued as `"rag-knowledge"` are still accepted) |
 | `typ` | `"session"` |
-| `prn` | The principal that minted it (an API key's digest, or `admin`); present only with `RAG_REQUIRE_AUTH` on |
+| `prn` | The principal that minted it (an API key's digest, or `admin`); present only with `RAG_REQUIRE_AUTH` on. A token whose key is no longer in `RAG_API_KEYS` is refused with 401 |
 
 Tokens are signed with `RAG_JWT_SECRET` (env var). If unset, an ephemeral secret is generated per process, so tokens stop working on restart. With `RAG_REQUIRE_AUTH` on, an unset or placeholder secret is a startup error.
 

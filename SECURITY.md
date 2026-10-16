@@ -57,6 +57,10 @@ inputs on an instance you control.
   principal (a digest of the key, never the key) is written into the token, and
   rate limits are counted per principal, so minting more sessions buys no more
   requests. Storage and document quotas are still counted per session.
+  Removing a key from `RAG_API_KEYS` ends every session it minted: the
+  principal is checked against the configured keys whenever a token is read,
+  on REST and MCP. Tokens minted with `RAG_ADMIN_TOKEN` name no key; changing
+  `RAG_JWT_SECRET` ends those, and every other token.
 
   `RAG_ADMIN_TOKEN` is a **narrower** thing and is not a password for the API.
   It guards the operations whose blast radius is the whole instance rather than

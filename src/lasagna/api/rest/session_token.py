@@ -128,7 +128,10 @@ def create_session_token(
 def decode_session_claims(token: str) -> Optional[dict]:
     """The verified claims of a session token (``sid``, ``sub``, maybe ``prn``).
 
-    ``None`` if the token is invalid, expired, or not a session token.
+    ``None`` if the token is invalid, expired, or not a session token, or if
+    it was minted with an API key that is no longer in ``RAG_API_KEYS``. Every
+    REST and MCP path that reads a token comes through here, so removing a key
+    ends its sessions on both.
 
     The secret is fetched outside the ``try``: the blanket ``except`` below
     exists to turn a bad *token* into ``None``, and a misconfigured *server*
@@ -149,6 +152,13 @@ def decode_session_claims(token: str) -> Optional[dict]:
         if payload.get("typ") != "session" or payload.get("iss") not in ACCEPTED_ISSUERS:
             return None
         if payload.get("sid") and payload.get("sub"):
+            from lasagna.api.rest.auth_mode import principal_is_revoked
+
+            if principal_is_revoked(payload.get("prn")):
+                from loguru import logger
+
+                logger.debug("Session token refused: its API key is no longer configured")
+                return None
             return payload
     except Exception:
         from loguru import logger

@@ -286,6 +286,16 @@ def configured_api_keys() -> list:
     return keys
 
 
+#: How a principal minted from an API key starts; the other principal is ``admin``.
+KEY_PRINCIPAL_PREFIX = "key_"
+
+
+def _key_principal(key: str) -> str:
+    import hashlib
+
+    return KEY_PRINCIPAL_PREFIX + hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+
+
 def principal_for_api_key(presented: Optional[str]) -> Optional[str]:
     """The principal a presented API key belongs to, or ``None``.
 
@@ -296,15 +306,28 @@ def principal_for_api_key(presented: Optional[str]) -> Optional[str]:
     """
     if not presented:
         return None
-    import hashlib
-
     matched = None
     for key in configured_api_keys():
         if secret_matches(presented, key):
             matched = key
     if matched is None:
         return None
-    return "key_" + hashlib.sha256(matched.encode("utf-8")).hexdigest()[:12]
+    return _key_principal(matched)
+
+
+def principal_is_revoked(principal: Optional[str]) -> bool:
+    """Whether a token's principal names an API key no longer in ``RAG_API_KEYS``.
+
+    A token outlives the key that minted it (seven days by default), so
+    removing a leaked key revoked nothing until this was checked on every
+    decode. Only key principals are checked: ``admin`` and tokens minted with
+    auth off name no key. With auth off, keys mint nothing and are not read.
+    """
+    if not require_auth() or not isinstance(principal, str):
+        return False
+    if not principal.startswith(KEY_PRINCIPAL_PREFIX):
+        return False
+    return principal not in {_key_principal(key) for key in configured_api_keys()}
 
 
 def configured_secret(name: str) -> str:

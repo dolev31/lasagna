@@ -462,6 +462,8 @@ Server and deployment:
   127.0.0.1, [::1] and the names in `RAG_ALLOWED_HOSTS`, and refuse any other
   `Host` with 421, so a web page cannot reach them by DNS rebinding. Health and
   metrics paths answer any `Host`. Compose allows `api:*,mcp:*`.
+- **Removing a key from `RAG_API_KEYS` ends the sessions it minted**, on REST
+  and MCP. A token used to stay valid for its seven days.
 
 Numbers that were wrong:
 
