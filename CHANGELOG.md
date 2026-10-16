@@ -740,6 +740,11 @@ Servers and deployment:
   store connections, the paths), generated from one list in
   `core/config.py`. A `RAG_` variable the package reads that is missing from
   the list fails the suite.
+- `get_backend("milvus")` with no arguments ignored `RAG_VECTOR_BACKEND_CONFIG`
+  and the settings file's `vector_backend_config` and opened Milvus Lite: it
+  read the session configuration through a module path that no longer
+  existed. It follows the rule the server's startup backend follows (`uri` in
+  `vector_backend_config`, else `MILVUS_URI`, else Milvus Lite).
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except

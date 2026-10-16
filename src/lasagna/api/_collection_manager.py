@@ -6,7 +6,7 @@ schema migration, index management, and embedding model reload.
 
 import time
 import threading
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
@@ -20,6 +20,7 @@ from lasagna.core.config import (
 from lasagna.core.schema import (
     create_abstract_rag_schema,
 )
+from ..vector_backends.registry import milvus_connection_args
 from ..vector_backends import (
     get_backend,
     VectorStoreAdapter,
@@ -839,50 +840,6 @@ class CollectionManager:
         else:
             logger.info(f"Initializing vector backend: {backend_name}")
             return get_backend(backend_name, **backend_cfg)
-
-
-def milvus_connection_args(
-    backend_cfg: Dict[str, Any],
-    default_db_path: Callable[[], str],
-    environ: Optional[Mapping[str, str]] = None,
-) -> Tuple[Dict[str, Any], str]:
-    """The ``MilvusBackend`` arguments for the startup backend, and a log line.
-
-    A server address wins over the default local file: ``uri`` in
-    ``vector_backend_config`` (``LASAGNA_VECTOR_BACKEND_CONFIG``), else the
-    ``MILVUS_URI`` environment variable, with ``token`` or ``MILVUS_TOKEN``.
-    Without one, ``db_path`` from ``vector_backend_config`` opens Milvus Lite
-    there, and otherwise at ``default_db_path()``. A ``db_path`` set together
-    with a server address is refused: it used to win silently, so the compose
-    stack configured for a Milvus server wrote to a file inside the container.
-    """
-    import os
-    from lasagna.core.config import ConfigError
-    from lasagna.core.provenance import redact_url
-
-    env = os.environ if environ is None else environ
-    rest = {k: v for k, v in backend_cfg.items() if k not in ("uri", "token", "db_path")}
-    db_path = backend_cfg.get("db_path") or None
-    if backend_cfg.get("uri"):
-        uri, source = backend_cfg["uri"], "vector_backend_config"
-    else:
-        uri, source = env.get("MILVUS_URI") or None, "MILVUS_URI"
-
-    if uri and db_path:
-        raise ConfigError(
-            f'Milvus has two stores configured: "db_path" {db_path!r} in vector_backend_config '
-            f"(a Milvus Lite file) and the server {redact_url(uri)} from {source}. Keep one: "
-            f'remove "db_path" from LASAGNA_VECTOR_BACKEND_CONFIG to use the server, or remove '
-            f'"uri" from it and unset MILVUS_URI to use the file.'
-        )
-    if uri:
-        token = backend_cfg.get("token") or env.get("MILVUS_TOKEN") or None
-        kwargs = {**rest, "uri": uri, **({"token": token} if token else {})}
-        return kwargs, f"Milvus server at {redact_url(uri)} (from {source})"
-    if db_path:
-        return {**rest, "db_path": db_path}, f"Milvus Lite at {db_path}"
-    path = default_db_path()
-    return {**rest, "db_path": path}, f"Milvus Lite at {path}"
 
 
 def legacy_collections(backend: VectorStoreAdapter) -> List[Dict[str, Any]]:
