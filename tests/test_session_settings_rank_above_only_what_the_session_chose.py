@@ -25,7 +25,14 @@ from lasagna.core.session_config._profiles import ProfileMixin
 
 @pytest.fixture(params=["memory", "persistent"])
 def sessions(request, monkeypatch, tmp_path):
-    """Fresh providers on each session backend, with the environment a deployment sets."""
+    """Fresh providers on each session backend, with the environment a deployment sets.
+
+    The provider globals are swapped through monkeypatch, so its undo hands
+    the next test exactly the providers it had: resetting them instead let a
+    later test configure itself from whatever ``RAG_SESSION_BACKEND`` the
+    process had by then (the CLI sets it), and a test that writes through its
+    own config manager read another one's.
+    """
     import lasagna.providers as providers
     from lasagna.core.config import reset_rag_config
 
@@ -35,13 +42,12 @@ def sessions(request, monkeypatch, tmp_path):
     monkeypatch.setenv("RAG_VECTOR_BACKEND", "qdrant")
     monkeypatch.setenv("RAG_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
     monkeypatch.setenv("RAG_EMBEDDING_DIM", "384")
-    providers.reset_providers()
+    for name in ("_config_provider", "_llm_provider", "_session_provider"):
+        monkeypatch.setattr(providers, name, None)
+    monkeypatch.setattr(providers, "_auto_config_done", False)
     reset_rag_config()
     yield request.param
-    # The environment first, so the providers and config rebuilt after this
-    # test are the suite's, not this deployment's.
     monkeypatch.undo()
-    providers.reset_providers()
     reset_rag_config()
 
 
