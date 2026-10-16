@@ -108,12 +108,22 @@ def test_secrets_and_local_artifacts_stay_out_of_the_build(rules, path):
 
 
 def _copied_sources() -> list[str]:
-    """The context paths the Dockerfile's COPY lines read (not COPY --from)."""
-    sources = []
+    """The context paths the Dockerfile's COPY lines read (not COPY --from).
+
+    ``${NAME}`` is the ARG's default, as Docker reads it.
+    """
+    sources, args = [], {}
     for line in DOCKERFILE.read_text().splitlines():
         words = line.split()
+        if words[:1] == ["ARG"] and "=" in line:
+            name, _, default = line[4:].partition("=")
+            args[name.strip()] = default.strip().strip('"')
         if words[:1] == ["COPY"] and not any(w.startswith("--from") for w in words):
-            sources += [w for w in words[1:-1] if not w.startswith("--")]
+            sources += [
+                re.sub(r"\$\{(\w+)\}", lambda m: args.get(m[1], m[0]), w)
+                for w in words[1:-1]
+                if not w.startswith("--")
+            ]
     return sources
 
 
@@ -121,6 +131,7 @@ def test_every_file_the_image_copies_is_still_in_the_build(rules):
     """The ignore rules must not drop anything the Dockerfile needs."""
     sources = _copied_sources()
     assert "src/lasagna/" in sources and "pyproject.toml" in sources, sources
+    assert "constraints/0.1.0.txt" in sources, sources
     tracked = subprocess.run(
         ["git", "ls-files", "--", *sources],
         cwd=REPO_ROOT,

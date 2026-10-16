@@ -115,7 +115,7 @@ def test_a_remote_search_passes_on_the_servers_stages():
         return response
 
     backend = RemoteRAGBackend.__new__(RemoteRAGBackend)
-    backend._client = SimpleNamespace(post=post)
+    backend._client = SimpleNamespace(post=post, is_closed=True)
     backend._api = lambda path: path
     backend._parse_json = lambda resp: resp.json()
 
