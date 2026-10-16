@@ -88,7 +88,16 @@ def _configure_rag_logging(level: str) -> None:
         return
     logger.remove()
     # Color only on a terminal: a client launching the server reads a pipe.
-    logger.add(sys.stderr, format=LOG_FORMAT, level=level, colorize=sys.stderr.isatty())
+    # diagnose=False: a failed search's traceback printed every frame's local
+    # variables, the query text among them six times, into the client's log.
+    logger.add(
+        sys.stderr,
+        format=LOG_FORMAT,
+        level=level,
+        colorize=sys.stderr.isatty(),
+        backtrace=False,
+        diagnose=False,
+    )
 
 
 # No-op at import time (_owns_logging is False).
@@ -420,6 +429,17 @@ def _log_tool_result(tool_name: str, success: bool, result_summary: str, duratio
     """Log tool call result."""
     status = "SUCCESS" if success else "FAILED"
     logger.info(f"TOOL RESULT: {tool_name} | {status} | {result_summary} | {duration_ms:.1f}ms")
+
+
+def _llm_configured() -> bool:
+    """Whether an LLM provider can be built from this process's environment."""
+    from lasagna.providers import LLMProviderNotConfigured, get_llm_provider
+
+    try:
+        get_llm_provider()
+    except LLMProviderNotConfigured:
+        return False
+    return True
 
 
 def _log_tool_failure(what: str, exc: BaseException) -> None:
@@ -1166,7 +1186,17 @@ async def search(
         # Resolve top_k: caller override → session config
         effective_top_k = top_k if top_k is not None else config.rerank_top_k
 
-        if config.use_agentic_rag:
+        # Without an LLM the agentic loop cannot run, and every search failed:
+        # run the session's standard pipeline instead and say so, as REST does
+        # for a query it routes to the agentic tier.
+        agentic = bool(config.use_agentic_rag)
+        if agentic and not _llm_configured():
+            from lasagna.utils import degraded
+
+            agentic = False
+            degraded.record("agentic", "no LLM is configured; ran the standard pipeline")
+
+        if agentic:
             from lasagna.agentic.agentic_rag import AgenticRAG
 
             agentic_rag = AgenticRAG.create(

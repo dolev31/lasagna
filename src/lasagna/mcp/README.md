@@ -79,7 +79,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 
 | Tool | Description |
 | ---- | ----------- |
-| `search` | Runs the session's retrieval pipeline (hybrid search, reranking, MMR, HyDE, routing and agentic multi-hop, each as the session config sets it). Returns context with inline citations and a `<search_metadata>` JSON block. |
+| `search` | Runs the session's retrieval pipeline (hybrid search, reranking, MMR, HyDE, routing and agentic multi-hop, each as the session config sets it). Returns context with inline citations and a `<search_metadata>` JSON block. With no LLM configured, a session set to agentic retrieval runs its standard pipeline, and the metadata's `degraded_stages` names `agentic`. |
 | `search_knowledge` | **Deprecated** alias for `search`, kept for one release cycle. Listed only under `all` |
 | `search_with_context` | **Deprecated** alias for `search`, kept for one release cycle. Listed only under `all` |
 | `get_document_context` | Document awareness for agent prompts: describes available docs and gives adaptive search guidance |

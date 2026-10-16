@@ -87,7 +87,10 @@ five: `default`, which is the settings file as it stands, and four presets.
 The sizes are the model weights, which `lasagna init` also prints. With query
 routing on, each query is classified by rules: a short factual one runs vector
 search only, most run the profile's pipeline, and one judged complex goes to the
-agentic loop, which calls an LLM and fails without an API key. `speed` is the
+agentic loop, which calls an LLM. Without an API key such a query runs the
+profile's pipeline instead, and the result names `agentic` in
+`degraded_stages`; the MCP `search` tool does the same for a session that sends
+every query to the agentic loop. `speed` is the
 profile that never calls an LLM and downloads no large model. A benchmark run
 picks its profile with
 `lasagna benchmark run --profile`, or `base_profile:` in a sweep file, and

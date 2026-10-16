@@ -188,8 +188,9 @@ def get_llm_provider() -> LLMProvider:
     if _llm_provider is None:
         supported_keys = ", ".join(env for env, _ in _API_KEY_TO_PLATFORM)
         raise LLMProviderNotConfigured(
-            f"No LLMProvider configured. Set one of these API key env vars: "
-            f"{supported_keys}, or call configure_providers()."
+            f"No LLMProvider configured. Set one of these environment variables where "
+            f"Lasagna runs (for an MCP server, in its env block), then start it again: "
+            f"{supported_keys}."
         )
     return _llm_provider
 

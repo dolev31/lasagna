@@ -32,7 +32,7 @@ def configure_knowledge_logging(level: str) -> None:
         name = record.get("name", "")
         return name.startswith("lasagna")
 
-    _DEBUG_HANDLER_ID = logger.add(sys.stderr, level="DEBUG", filter=_filter)
+    _DEBUG_HANDLER_ID = logger.add(sys.stderr, level="DEBUG", filter=_filter, diagnose=False)
 
 
 __all__ = ["configure_knowledge_logging"]

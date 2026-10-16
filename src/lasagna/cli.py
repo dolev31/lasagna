@@ -71,7 +71,9 @@ def _configure_cli_logging(
 
     logger.remove()
     if level == "DEBUG":
-        logger.add(sys.stderr, level=level)
+        # diagnose=False everywhere: loguru otherwise prints each frame's local
+        # variables (queries, document text, settings) into the traceback.
+        logger.add(sys.stderr, level=level, diagnose=False)
         return level
     threshold = logger.level(level).no
 
@@ -94,6 +96,7 @@ def _configure_cli_logging(
         level=min(threshold, logger.level("INFO").no),
         filter=_shown,
         format=_plain,
+        diagnose=False,
     )
     return level
 

@@ -674,6 +674,17 @@ First run:
   `RAG_SESSION_ID`, which REST now honors too), the banner names it, and the
   README block passes `-s my-corpus`. A call that names no session says
   how to name one.
+- **MCP errors leaked queries and confused agents.** A failed search wrote a
+  134-line traceback to the client's log with every frame's local variables,
+  the query text among them six times; every log sink in the package now has
+  `diagnose=False`. The missing-LLM error ended "or call
+  configure_providers()", a Python call an agent cannot make; it says which
+  variable to set where Lasagna runs. And on the default profile every MCP
+  search went to the agentic loop and failed without an LLM key, while the
+  README said only complex queries need one: without an LLM the MCP `search`
+  runs the session's standard pipeline and names `agentic` in
+  `degraded_stages`, as REST does for a query it routes there. The README
+  and docs/configuration.md say so.
 
 Requests to current models:
 
