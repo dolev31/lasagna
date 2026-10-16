@@ -896,7 +896,9 @@ class RAGConfig:
             # =================================================================
             # Chunking
             # =================================================================
-            "chunking_strategy": "semantic",  # fixed, semantic, recursive, sentence_window
+            # Declared as what runs: with "semantic" here every upload warned
+            # that enable_hierarchical (on, below) overrides it.
+            "chunking_strategy": "hierarchical",  # what runs: enable_hierarchical, then preserve_headers or preserve_tables, override another name
             "chunk_size": 800,
             "chunk_overlap": 0,  # Research: no measurable benefit from overlap (arXiv:2601.14123)
             "semantic_threshold": 0.75,

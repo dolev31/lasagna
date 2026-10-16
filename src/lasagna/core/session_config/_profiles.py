@@ -226,7 +226,7 @@ class ProfileMixin:
                 "enable_ocr": False,
                 "embedding_model": "all-MiniLM-L6-v2",
                 "embedding_dim": 384,
-                "chunking_strategy": "semantic",
+                "chunking_strategy": "hierarchical",  # enable_hierarchical is on by default
                 "chunk_size": 800,
                 "chunk_overlap": 0,
                 "default_top_k": 20,

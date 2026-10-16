@@ -702,6 +702,10 @@ Results tooling:
   The places where text is split are unchanged, and so is every benchmark
   number (the BERT-family tokenizers the benchmarks use ignore the
   whitespace that changed).
+- Every upload on the default profile warned that `chunking_strategy='semantic'`
+  was overridden and `hierarchical` would run. The settings file and the
+  built-in defaults declare `hierarchical`, which is what runs with
+  `enable_hierarchical` on, as the presets already declare theirs.
 
 First run:
 

@@ -56,7 +56,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 
 | Setting | Type | Default | Environment variables | Description |
 |---|---|---|---|---|
-| `chunking_strategy` | str | `"semantic"` | `LASAGNA_CHUNKING_STRATEGY`, `RAG_CHUNKING_STRATEGY` | fixed, semantic, recursive, sentence_window. |
+| `chunking_strategy` | str | `"hierarchical"` | `LASAGNA_CHUNKING_STRATEGY`, `RAG_CHUNKING_STRATEGY` | what runs: enable_hierarchical, then preserve_headers or preserve_tables, override another name. |
 | `chunk_size` | int, 50 to 100000 | `800` | `LASAGNA_CHUNK_SIZE`, `RAG_CHUNK_SIZE` | How large each piece of content should be (in characters). Smaller = more precise, larger = more context. |
 | `chunk_overlap` | int, 0 to 50000 | `0` | `LASAGNA_CHUNK_OVERLAP`, `RAG_CHUNK_OVERLAP` | Research: no measurable benefit from overlap (arXiv:2601.14123) |
 | `semantic_threshold` | float | `0.75` | `LASAGNA_SEMANTIC_THRESHOLD`, `RAG_SEMANTIC_THRESHOLD` | How sensitive the smart splitter is to topic changes. Lower = more splits, higher = fewer splits. |

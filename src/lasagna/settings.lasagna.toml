@@ -144,9 +144,14 @@ use_gpu = true                # MPS enabled for faster embedding
 
 # Chunking strategy options:
 #   "fixed"           - Simple character-based splitting (fastest)
-#   "semantic"        - Split at semantic boundaries (recommended)
+#   "semantic"        - Split at semantic boundaries
 #   "sentence_window" - Sliding window of sentences
-chunking_strategy = "semantic"
+#   "structure_aware" - Sections by header, tables kept whole, then semantic
+#   "hierarchical"    - Parent and child chunks (see enable_hierarchical)
+# The structural settings below decide what runs: enable_hierarchical makes it
+# hierarchical, else preserve_headers or preserve_tables make it structure_aware.
+# This names what runs with them as set here; another name only warns.
+chunking_strategy = "hierarchical"
 
 # Chunking parameters
 chunk_size = 800           # Target characters per chunk
