@@ -314,7 +314,20 @@ class ConfigManager:
         if name == "default":
             raise ValueError("Cannot overwrite 'default' profile")
 
-        save_config = config or self._client.config.to_dict()
+        if config:
+            save_config = config
+        else:
+            # The settings this client changed, under the names the backend
+            # reads, that a profile can hold. A profile is shared: the cache
+            # sizes, paths and log level a client runs with are its process's.
+            from .._config_bridge import get_runtime_overrides
+            from ...core.session_config._session_keys import session_key_problem
+
+            save_config = {
+                key: value
+                for key, value in get_runtime_overrides(self._client.config).items()
+                if session_key_problem(key, value) is None
+            }
 
         try:
             from ...core.session_config import get_knowledge_config_manager

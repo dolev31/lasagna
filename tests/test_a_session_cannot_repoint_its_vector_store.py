@@ -165,3 +165,34 @@ def test_rest_refuses_them_with_a_422_naming_the_key(manager, route):
     assert response.status_code == 422, response.text
     assert "vector_backend" in response.json()["detail"]
     assert "vector_backend" not in _search_sees("rest-tenant")
+
+
+def test_the_sdk_config_manager_saves_only_session_settings(manager):
+    import asyncio
+
+    from lasagna.sdk import KnowledgeClient, KnowledgeConfig
+
+    client = KnowledgeClient(
+        config=KnowledgeConfig(rerank_top_k=7, enable_hyde=False, log_level="DEBUG"),
+        session_id="sdk-tenant",
+    )
+    asyncio.run(client.config_manager.save_profile("sdk-saved", set_active=False))
+    saved = next(p for p in manager._global_custom_profiles if p.name == "sdk-saved").config
+    assert saved["rerank_top_k"] == 7 and "log_level" not in saved
+    with pytest.raises(Exception, match="vector_backend_config"):
+        asyncio.run(
+            client.config_manager.save_profile(
+                "sdk-evil", config={"vector_backend_config": {"url": "http://x"}}
+            )
+        )
+
+
+def test_a_pipeline_in_this_process_still_names_its_collection(manager):
+    """The evaluation harness gives an embedding arm a collection of its own."""
+    from lasagna.core.pipeline import KnowledgePipeline
+    from lasagna.core.strict import strict
+
+    pipeline = KnowledgePipeline(config={"collection_name": "rag_bench_arm_1", "rerank_top_k": 3})
+    with strict():
+        pipeline._apply_session_config("harness-session")
+    assert manager.get_resolved_config("harness-session")["collection_name"] == "rag_bench_arm_1"

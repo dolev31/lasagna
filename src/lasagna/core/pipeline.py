@@ -454,7 +454,10 @@ class KnowledgePipeline:
             from .session_config import get_knowledge_config_manager
 
             mgr = get_knowledge_config_manager()
-            mgr.patch_config(self._config, session_id=session_id)
+            # The pipeline's own settings, from its profile and the arm that
+            # built it in this process (an embedding arm names its collection),
+            # not a client's request: unchecked, as the harness's other writes.
+            mgr.patch_config(self._config, session_id=session_id, trusted=True)
         except Exception as e:
             from .strict import strict_stages
 
