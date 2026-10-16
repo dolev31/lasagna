@@ -566,6 +566,12 @@ First run:
   per model, or a warning about background GC, which only `serve` and the MCP
   server run. Progress bars that last longer than two seconds, such as a model
   download, still show.
+- The README's Python quickstart wrote gRPC fork notices (121 lines in one
+  run) and "Loading weights" bars to stderr. The fork was tqdm's: its first
+  bar creates a cross-process lock, which starts multiprocessing's resource
+  tracker while Milvus Lite's gRPC runs. Lasagna keeps tqdm on its thread lock,
+  and hides the weight-loading bar for a cached model and the encoding bar for
+  a few batches, without setting any environment variable.
 
 Requests to current models:
 

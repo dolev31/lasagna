@@ -26,6 +26,7 @@ from lasagna.core.accelerator import device_guard
 from lasagna.core.config import rag_config
 from lasagna.core.model_licenses import warn_if_restricted
 from lasagna.core.strict import rerank_observations
+from lasagna._quiet import loading_bar_hidden
 from lasagna.utils.normalization import (
     normalize_score_sigmoid as _normalize_score_sigmoid,
     normalize_scores_minmax as _normalize_scores_minmax,
@@ -271,7 +272,7 @@ class CrossEncoderReranker:
                 warn_if_restricted(name, component="reranker")
                 _refuse_unscorable_reranker(name, trust_remote_code)
                 extra = {"trust_remote_code": True} if trust_remote_code else {}
-                with device_guard(device):
+                with device_guard(device), loading_bar_hidden(name):
                     model = CrossEncoder(name, device=device, **extra)
             except Exception as e:
                 self._failed[key] = f"Cannot load reranker model {name!r}: {e}"

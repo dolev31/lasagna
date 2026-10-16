@@ -62,6 +62,10 @@ def import_pymilvus() -> ModuleType:
             # pymilvus depends on python-dotenv, so its own import says what
             # is missing.
             return importlib.import_module("pymilvus")
+        # gRPC starts with pymilvus; a fork after that floods stderr. See there.
+        from lasagna._quiet import tqdm_without_process_lock
+
+        tqdm_without_process_lock()
         saved = (dotenv.load_dotenv, dotenv.main.load_dotenv)
         before = dict(os.environ)
         dotenv.load_dotenv = dotenv.main.load_dotenv = _skip_dotenv

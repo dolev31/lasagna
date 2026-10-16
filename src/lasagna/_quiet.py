@@ -1,12 +1,17 @@
-"""Environment defaults that stop native libraries writing to the terminal.
+"""Keep native libraries from writing to the terminal.
 
-For the ``lasagna`` and ``lasagna-mcp`` commands only. A library must not change
-its host's process environment, so importing ``lasagna`` never calls this.
+:func:`quiet_third_party_output` sets environment defaults, for the ``lasagna``
+and ``lasagna-mcp`` commands only: a library must not change its host's process
+environment, so importing ``lasagna`` never calls it. The other two helpers
+are what the library path uses instead, and touch no environment variable.
 """
 
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
 
 #: Each is a default: a value already in the environment wins.
 QUIET_DEFAULTS = {
@@ -29,3 +34,63 @@ def quiet_third_party_output() -> None:
     """Apply :data:`QUIET_DEFAULTS` before any of those libraries is imported."""
     for key, value in QUIET_DEFAULTS.items():
         os.environ.setdefault(key, value)
+    tqdm_without_process_lock()
+
+
+def tqdm_without_process_lock() -> None:
+    """Keep tqdm from creating its cross-process lock, unless it already has.
+
+    The first tqdm bar in a process (even a disabled one) creates a
+    multiprocessing ``RLock``, a POSIX semaphore, and registering it starts
+    multiprocessing's resource tracker with fork and exec. Under Milvus Lite
+    gRPC is running by then, and it writes "Other threads are currently calling
+    into gRPC, skipping fork() handlers" and one "FD from fork parent still in
+    poll list" line per descriptor to stderr; at exit the tracker reports the
+    semaphore as leaked. The lock only orders bars drawn from several
+    processes, which Lasagna never does; without it tqdm uses its thread lock,
+    as it does where multiprocessing is unavailable.
+    """
+    try:
+        from tqdm.std import TqdmDefaultWriteLock
+    except ImportError:
+        return
+    if not hasattr(TqdmDefaultWriteLock, "mp_lock"):
+        TqdmDefaultWriteLock.mp_lock = None
+
+
+def _cached(model: str) -> bool:
+    """Whether ``model`` loads without a download: a local folder or a cached hub copy."""
+    if not model:
+        return False
+    if Path(model).expanduser().is_dir():
+        return True
+    # sentence-transformers reads a bare name ("all-MiniLM-L6-v2") as its own org's.
+    names = [model] if "/" in model else [model, f"sentence-transformers/{model}"]
+    try:
+        from huggingface_hub import try_to_load_from_cache
+
+        return any(isinstance(try_to_load_from_cache(n, "config.json"), str) for n in names)
+    except Exception:
+        return False
+
+
+@contextmanager
+def loading_bar_hidden(model: str) -> Iterator[None]:
+    """Hide transformers' "Loading weights" bar while a cached ``model`` loads.
+
+    On a cached model the bar lasts milliseconds, and from Python it was most
+    of what the README's quickstart printed. A model that has to be downloaded
+    keeps its bars, since a silent multi-gigabyte download reads as a hang.
+    """
+    try:
+        from transformers.utils import logging as hf_logging
+    except Exception:
+        hf_logging = None
+    if hf_logging is None or not hf_logging.is_progress_bar_enabled() or not _cached(model):
+        yield
+        return
+    hf_logging.disable_progress_bar()
+    try:
+        yield
+    finally:
+        hf_logging.enable_progress_bar()
