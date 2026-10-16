@@ -4,6 +4,7 @@ Handles backend resolution (per-session switching), collection creation,
 schema migration, index management, and embedding model reload.
 """
 
+import os
 import time
 import threading
 from typing import Any, Dict, List, Optional
@@ -714,9 +715,14 @@ class CollectionManager:
     def adopt_legacy_collection(self, config: Any) -> bool:
         """Let a model keep the documents an earlier version stored for it.
 
-        Before 0.1.0 every model wrote to ``rag_documents_v2``. The first model
-        to open it at the size it holds adopts it under that name, so upgrading
-        does not hide anyone's documents. A model at another size gets its own
+        Before 0.1.0 every model wrote to ``rag_documents_v2``, and nothing
+        recorded which: no stamp, a generic collection description, no model on
+        the rows (the session table names a profile per session, and sessions
+        at one size shared the collection). The size does not tell two models
+        apart (bge-large and bge-m3 are both 1024), so a model adopts it, under
+        that name, only when ``LASAGNA_LEGACY_COLLECTION_MODEL`` names it as the
+        maker; at the size it holds, any other model gets its own collection
+        and a warning that says so. A model at another size gets its own
         collection and the old one is left alone (see :meth:`legacy_collections`).
         Returns whether ``config`` now uses the legacy collection.
         """
@@ -745,6 +751,11 @@ class CollectionManager:
             if collection_is_empty(backend, LEGACY_COLLECTION_NAME):
                 return False
             if self.get_collection_embedding_dim(LEGACY_COLLECTION_NAME) != dim:
+                return False
+            maker = os.environ.get(LEGACY_MODEL_ENV, "").strip()
+            if maker != model:
+                if not maker:
+                    logger.warning(_unconfirmed_legacy_message(backend, model, dim))
                 return False
             _write_stamp(backend_name, LEGACY_COLLECTION_NAME, model, dim)
             adopt_collection(LEGACY_COLLECTION_NAME, model, dim, store)
@@ -841,6 +852,22 @@ class CollectionManager:
         else:
             logger.info(f"Initializing vector backend: {backend_name}")
             return get_backend(backend_name, **backend_cfg)
+
+
+#: Names the embedding model that wrote ``rag_documents_v2`` before 0.1.0.
+LEGACY_MODEL_ENV = "LASAGNA_LEGACY_COLLECTION_MODEL"
+
+
+def _unconfirmed_legacy_message(backend: VectorStoreAdapter, model: Any, dim: int) -> str:
+    rows = next(iter(legacy_collections(backend)), {}).get("rows")
+    held = f"{rows:,} chunks" if rows else "chunks"
+    return (
+        f"{LEGACY_COLLECTION_NAME!r} holds {held} at {dim} dimensions from a Lasagna "
+        f"version before 0.1.0, which did not record the embedding model that made them, "
+        f"so {model} uses its own collection and does not search them. If {model} made "
+        f"them, set {LEGACY_MODEL_ENV}={model} and start again to use them; if another "
+        f"model did, configure that model and name it there instead."
+    )
 
 
 def legacy_collections(backend: VectorStoreAdapter) -> List[Dict[str, Any]]:

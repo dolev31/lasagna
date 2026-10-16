@@ -155,9 +155,11 @@ each model writes to a collection of its own, named
   command that switches back, and nothing is changed.
 
 A store from before 0.1.0 has one collection, `rag_documents_v2`, shared by
-every model. The first model that opens it at its size keeps using it under
-that name; `lasagna status` lists one that no configured model reads, and how
-to search it again.
+every model, and nothing recorded which model wrote it. Name that model with
+`LASAGNA_LEGACY_COLLECTION_MODEL` (for example `BAAI/bge-m3`), and that model
+keeps using the collection under its old name; any other model gets its own.
+Until then a model of the same size logs a warning saying so, and
+`lasagna status` lists the collection.
 
 ## LLM providers and models
 

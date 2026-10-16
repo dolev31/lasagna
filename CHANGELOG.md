@@ -524,6 +524,10 @@ Server and deployment:
   default model's. A scan that cannot read which collection a document was
   written to is marked incomplete and repair refuses it; repair re-checks each
   database-only orphan before archiving it.
+- A `rag_documents_v2` collection from before 0.1.0 is adopted only by the
+  model `LASAGNA_LEGACY_COLLECTION_MODEL` names. The first model with a
+  matching size adopted it, so bge-large could claim bge-m3's vectors (both
+  1024).
 
 Numbers that were wrong:
 
