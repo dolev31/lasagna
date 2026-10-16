@@ -70,7 +70,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN useradd --create-home --shell /bin/bash rag
+RUN useradd --create-home --uid 1000 --shell /bin/bash rag
 WORKDIR /app
 
 # Copy pre-downloaded models from builder into rag user's home.

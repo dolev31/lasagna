@@ -33,7 +33,7 @@ FILES := -f docker-compose.yml -f backends/$(VECTOR_BACKEND).yml
 comma := ,
 RAG_CELERY_ENABLED ?= $(if $(filter celery,$(subst $(comma), ,$(COMPOSE_PROFILES))),true,false)
 
-.PHONY: up down down-v build logs ps health validate help shell test stress-test stress-test-all
+.PHONY: up down down-v build logs ps health validate validate-k8s help shell test stress-test stress-test-all
 
 up: validate  ## Start the stack
 	docker compose $(FILES) up -d
@@ -55,6 +55,9 @@ ps:  ## Show running containers
 
 health:  ## Check API health endpoint
 	@curl -sf http://localhost:$${API_PORT:-8000}/api/v1/health | python3 -m json.tool || echo "API not healthy"
+
+validate-k8s:  ## Check a rendered k8s overlay (K8S_OVERLAY=pgvector by default)
+	@kubectl kustomize k8s/overlays/$(or $(K8S_OVERLAY),pgvector) | python3 k8s/check_manifests.py
 
 validate:  ## Validate configuration
 	@test -n "$(VECTOR_BACKEND)" || { echo "ERROR: VECTOR_BACKEND is not set. Set it in .env or pass on command line."; exit 1; }

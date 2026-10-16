@@ -387,10 +387,15 @@ Before you apply:
    and `weaviate.rag-knowledge:8080`. The `qdrant`, `weaviate` and `pinecone` overlays also
    need their client in the image: build it with `--build-arg VECTOR_BACKEND=qdrant` (or
    `weaviate`, `pinecone`, `all`; see [Vector backends](#vector-backends)).
-3. **Share the uploads.** The manifests mount no volume and turn Celery on, so a worker
-   pod cannot open a file an api pod stored. Mount one ReadWriteMany volume at the same
-   path in both Deployments and set `LASAGNA_UPLOAD_DIR` to it, or set
-   `RAG_CELERY_ENABLED: "false"` so the api processes its own uploads.
+3. **Give the uploads claim a storage class.** Celery is on, so a worker pod opens files
+   an api pod stored: both Deployments mount the claim `rag-knowledge-uploads`
+   (`base/pvc-uploads.yaml`) at `/data/uploads`, which the ConfigMap sets as
+   `LASAGNA_UPLOAD_DIR`. The claim is ReadWriteMany, so set `storageClassName` to a class
+   that offers it (NFS, Amazon EFS, Azure Files, Google Filestore, CephFS). Without one the
+   claim stays Pending and the pods do not start; then set `RAG_CELERY_ENABLED: "false"`
+   (the api processes its own uploads) and remove the claim and the `uploads` volume, or
+   use S3 storage (`RAG_STORAGE_BACKEND=s3`). `make validate-k8s K8S_OVERLAY=pgvector`
+   checks a rendered overlay for this.
 4. **Fit the shutdown drain.** The api pods get `terminationGracePeriodSeconds: 45` and
    gunicorn waits 30 s, but the ConfigMap leaves `RAG_PROCESSING_TIMEOUT` at 300; set it
    below 30, as compose does.

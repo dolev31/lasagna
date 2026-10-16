@@ -28,6 +28,13 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       terminationGracePeriodSeconds: 45
+      # The image's rag user (uid and gid 1000) owns the uploads volume.
+      securityContext:
+        fsGroup: 1000
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: rag-knowledge-uploads
       containers:
         - name: api
           image: rag-knowledge:latest
@@ -41,6 +48,9 @@ spec:
                 name: rag-knowledge-config
             - secretRef:
                 name: rag-knowledge-secrets
+          volumeMounts:
+            - name: uploads
+              mountPath: /data/uploads
           resources:
             requests:
               cpu: "500m"

@@ -752,6 +752,11 @@ Servers and deployment:
 - `results.json` was written in place, so a crash or a full disk mid-write
   left a truncated file where the last good one had been. It is written to a
   temporary file, synced and renamed into place, like checkpoints.
+- **Every upload failed on the Celery worker in Kubernetes.** The manifests
+  turned Celery on but mounted no volume, so a worker pod could not open a
+  file an api pod stored. Both Deployments mount a ReadWriteMany claim,
+  `rag-knowledge-uploads`, at `LASAGNA_UPLOAD_DIR`, and `make validate-k8s`
+  checks a rendered overlay for it.
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except

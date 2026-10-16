@@ -36,6 +36,10 @@ data:
 
   # --- Celery ---
   RAG_CELERY_ENABLED: "true"
+  # Where uploads are stored: the rag-knowledge-uploads claim, mounted here in
+  # the api and the worker pods (pvc-uploads.yaml), so a worker can open a file
+  # an api pod stored. The LASAGNA_ name wins over a RAG_UPLOAD_DIR elsewhere.
+  LASAGNA_UPLOAD_DIR: "/data/uploads"
 
   # --- Embedded services ---
   RAG_EMBED_MCP: "false"
