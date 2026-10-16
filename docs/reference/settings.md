@@ -33,7 +33,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `vector_backend` | str | `"milvus"` | `LASAGNA_VECTOR_BACKEND`, `RAG_VECTOR_BACKEND` | Vector database backend to use. |
 | `vector_backend_config` | object | `{}` | `LASAGNA_VECTOR_BACKEND_CONFIG`, `RAG_VECTOR_BACKEND_CONFIG` | Backend-specific configuration. |
 | `collection_name` | str | `"rag_documents_v2"` | `LASAGNA_COLLECTION_NAME`, `RAG_COLLECTION_NAME` | The vector collection this configuration reads and writes. |
-| `embedding_dim` | int, 32 to 8192 | `1024` | `LASAGNA_EMBEDDING_DIM`, `RAG_EMBEDDING_DIM` | must match embedding_model (bge-m3 and bge-large: 1024) |
+| `embedding_dim` | int, 32 to 8192 | `1024` | `LASAGNA_EMBEDDING_DIM`, `RAG_EMBEDDING_DIM` | Vector size; an embedding_model set without one brings its own size. |
 | `metric_type` | str | `"COSINE"` | `LASAGNA_METRIC_TYPE`, `RAG_METRIC_TYPE` | vector similarity: COSINE, L2 or IP. |
 | `index_type` | str | `"HNSW"` | `LASAGNA_INDEX_TYPE`, `RAG_INDEX_TYPE` | dense index on servers; Milvus Lite always uses FLAT. |
 | `index_params` | object | `{"M": 16, "efConstruction": 256}` | `LASAGNA_INDEX_PARAMS`, `RAG_INDEX_PARAMS` | HNSW build parameters. |

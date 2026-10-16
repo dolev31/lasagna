@@ -1462,7 +1462,7 @@ class RAGConfig:
 
     @property
     def embedding_dim(self) -> int:
-        """The model's size, also when ``embedding_model`` was set without it.
+        """Vector size; an embedding_model set without one brings its own size.
 
         A model set in a layer above the one ``embedding_dim`` comes from
         (session over environment over settings file) takes its own size,
