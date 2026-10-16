@@ -2046,7 +2046,7 @@
       "SearchResponse": {
         "properties": {
           "degraded_stages": {
-            "description": "Pipeline stages that failed and fell back to a lesser result during this search (hyde, graphrag, hybrid, query_expansion, agentic). Empty when every configured stage ran.",
+            "description": "Pipeline stages that failed and fell back to a lesser result during this search (hyde, graphrag, hybrid, query_expansion, agentic, routing). Empty when every configured stage ran.",
             "items": {
               "type": "string"
             },
@@ -2135,7 +2135,7 @@
             "type": "string"
           },
           "degraded_stages": {
-            "description": "Pipeline stages that failed and fell back to a lesser result during this search (hyde, graphrag, hybrid, query_expansion, agentic). Empty when every configured stage ran.",
+            "description": "Pipeline stages that failed and fell back to a lesser result during this search (hyde, graphrag, hybrid, query_expansion, agentic, routing). Empty when every configured stage ran.",
             "items": {
               "type": "string"
             },

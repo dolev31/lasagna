@@ -351,7 +351,7 @@ are processed in the worker container, which serves no `/metrics`, so the api's
 `lasagna_ingests_total` counts only the documents the api processed itself.
 
 `lasagna_degraded_fallbacks_total{stage}` counts a pipeline stage that failed and fell back
-to a lesser result (`hyde`, `graphrag`, `hybrid`, `query_expansion`, `agentic`). The
+to a lesser result (`hyde`, `graphrag`, `hybrid`, `query_expansion`, `agentic`, `routing`). The
 search response names the same stages in `degraded_stages`, empty when every configured
 stage ran.
 

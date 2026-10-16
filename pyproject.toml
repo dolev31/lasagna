@@ -307,6 +307,9 @@ dev = [
     # Reads and validates the Colab notebook in examples/notebooks/, which is
     # the first thing many people run and is not otherwise executed by CI.
     "nbformat>=5.7",
+    # Registers every metric with the real client (it is in `production`):
+    # the no-op backend accepted a name with two label sets, Prometheus does not.
+    "prometheus-client>=0.20,<1",
 ]
 
 [build-system]

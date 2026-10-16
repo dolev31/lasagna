@@ -374,33 +374,42 @@ class SearchOrchestrator:
                 )
                 METRICS.histogram("rag.routing.decision_ms", routing_ms)
 
-                # COMPREHENSIVE → early-return via agentic retrieval
-                if routing_decision.tier == RoutingTier.COMPREHENSIVE:
-                    return self._search_comprehensive(
-                        query=query,
-                        session_id=session_id,
-                        top_k=top_k,
-                        min_score=min_score,
-                        document_ids=document_ids,
-                        trace_id=trace_id,
-                        routing_decision=routing_decision,
-                        _reranker_override=_reranker_override,
-                        _retriever_override=_retriever_override,
-                        _enhancer_override=_enhancer_override,
-                        _embedder_override=_embedder_override,
-                        _agentic_pipeline_override=_agentic_pipeline_override,
-                        _graph_node_overrides=_graph_node_overrides,
-                        query_config_overrides=query_config_overrides,
-                    )
-
                 # FAST → override heavyweight features
                 if routing_decision.tier == RoutingTier.FAST:
                     overrides = routing_decision.overrides
                     use_hyde = overrides.get("use_hyde", use_hyde)
                     use_reranking = overrides.get("use_reranking", use_reranking)
             except Exception as e:
+                if strict_stages():
+                    raise RuntimeError(f"Query routing failed: {e}") from e
                 logger.warning(f"Query routing failed, using standard pipeline: {e}")
+                _degraded.record("routing", e)
                 routing_decision = None
+
+            # COMPREHENSIVE → early-return via agentic retrieval. Outside the
+            # routing `try` on purpose: _search_comprehensive has its own
+            # fallback, which records the `agentic` stage and marks the results
+            # it substitutes, and it raises what must not fall back (a
+            # configuration error, strict evaluation, a running event loop).
+            # The routing `except` caught all of that, and any error raised
+            # after the agent had run, and reran the standard pipeline unmarked.
+            if routing_decision is not None and routing_decision.tier == RoutingTier.COMPREHENSIVE:
+                return self._search_comprehensive(
+                    query=query,
+                    session_id=session_id,
+                    top_k=top_k,
+                    min_score=min_score,
+                    document_ids=document_ids,
+                    trace_id=trace_id,
+                    routing_decision=routing_decision,
+                    _reranker_override=_reranker_override,
+                    _retriever_override=_retriever_override,
+                    _enhancer_override=_enhancer_override,
+                    _embedder_override=_embedder_override,
+                    _agentic_pipeline_override=_agentic_pipeline_override,
+                    _graph_node_overrides=_graph_node_overrides,
+                    query_config_overrides=query_config_overrides,
+                )
 
         # Track effective values for features that may be overridden by FAST tier.
         # These local vars shadow config properties so the pipeline uses the
@@ -409,6 +418,7 @@ class SearchOrchestrator:
         _effective_mmr = config.enable_mmr
         _effective_context_reordering = config.enable_context_reordering
         _effective_hierarchical = config.enable_hierarchical
+        _metrics_tier = routing_decision.tier.value if routing_decision else "standard"
         if routing_decision and routing_decision.tier == RoutingTier.FAST:
             overrides = routing_decision.overrides
             _effective_hybrid_search = overrides.get(
@@ -954,7 +964,7 @@ class SearchOrchestrator:
             METRICS.histogram("rag.search.dense_ms", dense_ms)
             METRICS.histogram("rag.search.encode_ms", encode_ms)
             METRICS.histogram("rag.search.hyde_ms", hyde_ms)
-            METRICS.histogram("rag.search.total_ms", total_ms)
+            METRICS.histogram("rag.search.total_ms", total_ms, tags={"tier": _metrics_tier})
             METRICS.counter("rag.search.calls", 1)
             logger.info(
                 f"No results from dense search for session_id={session_id}, query_hash={query_hash}"
@@ -1320,7 +1330,7 @@ class SearchOrchestrator:
         METRICS.histogram("rag.search.auto_merge_ms", auto_merge_ms)
         METRICS.histogram("rag.search.postprocess_ms", postprocess_ms)
         METRICS.histogram("rag.search.overhead_ms", overhead_ms)
-        METRICS.histogram("rag.search.total_ms", total_ms)
+        METRICS.histogram("rag.search.total_ms", total_ms, tags={"tier": _metrics_tier})
         METRICS.counter("rag.search.calls", 1)
 
         logger.debug(
@@ -2239,11 +2249,10 @@ class SearchOrchestrator:
                 "query_len": len(query) if query else 0,
             },
         )
-        METRICS.histogram(
-            "rag.search.total_ms",
-            total_ms,
-            tags={"tier": "comprehensive", "pipeline": pipeline_identity},
-        )
+        # One label set per metric: the standard path records this histogram
+        # by tier too, and Prometheus refuses a name registered twice with
+        # different labels. The pipeline is in the log line above.
+        METRICS.histogram("rag.search.total_ms", total_ms, tags={"tier": "comprehensive"})
         METRICS.counter("rag.search.calls", 1)
 
         quota_mgr.record_search(session_id)

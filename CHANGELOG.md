@@ -469,6 +469,14 @@ Server and deployment:
 - The CLI follows `serve.json` only when the current user owns it, only that
   user can write it, and it names a loopback http URL with a live process of
   that user; `lasagna serve` writes it with mode 0600.
+- **With Prometheus on, an agentic or CRAG search keeps its results.**
+  `rag.search.total_ms` was registered with two label sets, the real client
+  raised, and the routing fallback reran the standard pipeline after the agent
+  had run. Each metric now has one label set (`rag_search_total_ms` is labelled
+  by `tier` only), a metrics error never changes a request, and a routing
+  failure is reported in `degraded_stages` as `routing`. Under evaluation a
+  failed agentic search fails the task instead of being scored with standard
+  results.
 
 Numbers that were wrong:
 
