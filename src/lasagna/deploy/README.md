@@ -8,8 +8,12 @@ here apply it.
 
 ## Quick start
 
+The stack builds its image from a clone of the repository (the pip package does not
+carry the build context):
+
 ```bash
-cd src/lasagna/deploy
+git clone https://github.com/dolev31/lasagna.git
+cd lasagna/src/lasagna/deploy
 cp .env.example .env
 
 # The two required secrets
@@ -459,9 +463,20 @@ Before you apply:
 `lasagna-celery-beat` schedules the garbage collection and orphan scans, as compose's
 celery-beat does; with Celery on, the api leaves them to beat. It runs one replica with
 `strategy: Recreate`, so two never schedule at once, and keeps its schedule on an
-emptyDir, so a new pod starts the intervals over. The ConfigMap embeds with
-`BAAI/bge-large-en-v1.5` (compose uses `BAAI/bge-m3`) and sets `RAG_DEFAULT_TOP_K=75`,
-`RAG_RERANK_TOP_K=10`, partition tenant isolation, quotas and adaptive rate limiting.
+emptyDir, so a new pod starts the intervals over. The ConfigMap sets
+`RAG_DEFAULT_TOP_K=75`, `RAG_RERANK_TOP_K=10`, partition tenant isolation, quotas and
+adaptive rate limiting.
+
+**Why k8s embeds with another model than compose.** The ConfigMap embeds with
+`BAAI/bge-large-en-v1.5` (1.3 GB, English), and compose with `BAAI/bge-m3` (2.3 GB,
+multilingual), the settings file's default. Compose runs as a local install does, so a
+corpus built with `lasagna` on a laptop searches the same in the stack. In k8s every
+gunicorn worker and Celery process loads the model itself, so the smaller model fits
+more processes per pod (the sizing above assumes it). Both are 1024 dimensions, but
+their vectors cannot be compared: each model writes a collection of its own, and moving
+a corpus from one stack to the other means uploading it again. To run the same model in
+both, set `RAG_EMBEDDING_MODEL` in the ConfigMap (and size the pods for it:
+`make validate-k8s` checks) or in compose's `.env`.
 
 Probes: the api has a startup probe on `/api/v1/health/live` (up to 30 tries, 5 s apart),
 liveness on `/api/v1/health/live` every 15 s and readiness on `/api/v1/health/ready` every

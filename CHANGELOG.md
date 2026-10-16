@@ -1153,6 +1153,10 @@ Servers and deployment:
   blank offline: it serves the `swagger-ui-bundle` package's copy when that
   is installed, and otherwise shows, when the bundle cannot load, where the
   schema and the endpoint reference are.
+- The deployment guide's quick start begins with cloning the repository,
+  which the stack builds from, and says why Kubernetes embeds with
+  `BAAI/bge-large-en-v1.5` while compose uses `BAAI/bge-m3`, what that means
+  for a corpus moved between them, and how to align them.
 
 ### Known issues
 
