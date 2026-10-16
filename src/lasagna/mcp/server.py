@@ -30,6 +30,7 @@ import os
 import sys
 import functools
 import inspect
+import re
 import json
 import logging
 import time
@@ -1155,7 +1156,7 @@ async def search(
     plus a trailing ``<search_metadata>`` JSON block with structured
     citation data.
 
-    Retrieval behaviour (hybrid search, reranking, HyDE, adaptive routing)
+    Retrieval behavior (hybrid search, reranking, HyDE, adaptive routing)
     is governed by the session configuration: callers only specify *what*
     to search and optional scope constraints.
 
@@ -3966,6 +3967,66 @@ _TOOLS = (
 )
 
 
+#: A reST field line in a tool docstring: ``:param name: text`` or ``:returns: text``.
+_DOC_FIELD = re.compile(r"^:(param|returns?|raises?)(?:\s+(\w+))?\s*:\s*(.*)$")
+_LIST_ITEM = re.compile(r"^\s*(?:[-*]|\d+\.)\s")
+
+
+def _split_docstring(doc: Optional[str]) -> Tuple[str, Dict[str, str]]:
+    """A tool's description as plain text, and each parameter's own text.
+
+    Clients showed the docstring as written: reST ``:param:`` fields and
+    double backticks, about 26 KB across the tools with ``--tools all``. The
+    prose becomes the description (paragraphs unwrapped, lists kept), the
+    ``:returns:`` field its last line, and each ``:param:`` the description of
+    that parameter in the input schema.
+    """
+    text = inspect.cleandoc(doc or "")
+    prose: List[str] = []
+    fields: Dict[str, str] = {}
+    current: Optional[str] = None
+    for line in text.splitlines():
+        match = _DOC_FIELD.match(line.strip())
+        if match:
+            kind, name, rest = match.groups()
+            current = name if kind == "param" else "_returns" if kind.startswith("return") else None
+            if current:
+                fields[current] = rest.strip()
+            continue
+        if current and line[:1].isspace() and line.strip():
+            fields[current] += " " + line.strip()
+            continue
+        current = None
+        prose.append(line)
+
+    paragraphs = []
+    for block in "\n".join(prose).split("\n\n"):
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if not lines:
+            continue
+        if any(_LIST_ITEM.match(line) for line in lines):
+            paragraphs.append("\n".join(lines))
+        else:
+            paragraphs.append(" ".join(lines))
+    returns = fields.pop("_returns", None)
+    if returns:
+        paragraphs.append(f"Returns: {returns}")
+
+    def plain(value: str) -> str:
+        return value.replace("``", "`")
+
+    return plain("\n\n".join(paragraphs)), {k: plain(v) for k, v in fields.items()}
+
+
+def _describe_parameters(server: FastMCP, tool_name: str, parameters: Dict[str, str]) -> None:
+    """Put each parameter's text in the tool's input schema, where clients read it."""
+    tool = server._tool_manager.get_tool(tool_name)
+    properties = (tool.parameters or {}).get("properties", {}) if tool else {}
+    for name, text in parameters.items():
+        if name in properties:
+            properties[name]["description"] = text
+
+
 def create_mcp_server(
     host: str = "0.0.0.0",
     port: int = 8005,
@@ -3996,7 +4057,9 @@ def create_mcp_server(
     for fn in _TOOLS:
         if tool_set == "safe" and fn.__name__ in DESTRUCTIVE_TOOLS:
             continue
-        server.add_tool(_flag_failures(fn))
+        description, parameters = _split_docstring(fn.__doc__)
+        server.add_tool(_flag_failures(fn), description=description)
+        _describe_parameters(server, fn.__name__, parameters)
 
     # Custom HTTP routes (welcome, docs, health, api/call)
     _register_custom_routes(server, host, port)

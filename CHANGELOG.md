@@ -1172,6 +1172,10 @@ Servers and deployment:
   importable from the top-level package, and runtime messages (the model
   license warning, the power verdict, several errors) use plain punctuation
   instead of " -- ".
+- MCP tool descriptions were reST docstrings, `:param:` fields and double
+  backticks included. A description is the docstring's prose as plain text,
+  ending with what the tool returns, and each parameter's text is that
+  parameter's `description` in the input schema, where clients look for it.
 
 ### Known issues
 
