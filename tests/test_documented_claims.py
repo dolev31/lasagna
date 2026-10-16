@@ -629,7 +629,11 @@ class TestProseSaysWhatTheCodeDoes:
 
 
 def _tracked(*patterns):
-    """Tracked files matching git pathspecs (all of them under ``src/`` if git is absent)."""
+    """Files matching git pathspecs: tracked ones in a git checkout, else on disk.
+
+    A git pathspec's ``*`` crosses directories, so without git each pattern
+    is globbed recursively; an empty list would let every check pass.
+    """
     import subprocess
 
     try:
@@ -640,7 +644,13 @@ def _tracked(*patterns):
             check=True,
         ).stdout.decode()
     except (OSError, subprocess.CalledProcessError):
-        return []
+        found = {
+            p
+            for pattern in patterns
+            for p in REPO_ROOT.glob(pattern.replace("/*", "/**/*", 1))
+            if p.is_file() and "__pycache__" not in p.parts
+        }
+        return sorted(found)
     return [REPO_ROOT / name for name in sorted(filter(None, out.split("\0")))]
 
 
