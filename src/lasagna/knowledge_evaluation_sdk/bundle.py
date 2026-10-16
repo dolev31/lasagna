@@ -71,7 +71,13 @@ from typing import Any, Dict, List, Optional
 #: bundles rather than redefined: r_precision@k, complete_recall@k, rouge_l,
 #: contains_answer, abstention_rate, answer_similarity, citation_recall,
 #: citation_precision, and the *_per_query token and call aggregates.
-METRICS_VERSION = "1.5"
+#: 1.6: the retrieval track scores the ranked list. With context reordering on
+#: (standard, balanced and max_quality turn it on; standard is the default
+#: base_profile) it scored the order the generator reads instead: even ranks
+#: first, odd ranks reversed at the end, so rank 2 fell below the cut to k.
+#: Profiles and arms with reordering off (speed) score as before. The stage
+#: manifest records which order each track used (``context_order``).
+METRICS_VERSION = "1.6"
 
 #: Bundle schema version. Consumers accept >=1.0,<2.0.
 SCHEMA_VERSION = "1.0"

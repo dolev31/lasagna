@@ -13,15 +13,15 @@ each one that implements a published method naming its paper; an evaluation
 harness with paired significance tests, interaction tests and checkable result
 bundles; and the same pipeline served over MCP, REST and a Docker Compose stack.
 
-Its metric definitions are `METRICS_VERSION` 1.5: NDCG with linear gain and
+Its metric definitions are `METRICS_VERSION` 1.6: NDCG with linear gain and
 zero gain for a negative grade (as `trec_eval`), cutoff metrics over `k`
-documents, exact match and token F1 normalized in the official SQuAD order with
+documents in ranked order, exact match and token F1 normalized in the official SQuAD order with
 `[n]` citation markers removed and abstention counted only when an answer opens
 with one, and `factual_correctness` among the judged metrics
 ([metrics.md](src/lasagna/knowledge_evaluation_sdk/docs/metrics.md) defines
 each). The version is part of every comparability key, so results from the
 internal 0.1.0a1 pre-release (1.1) or from development builds since (1.2 to
-1.4) never share a leaderboard group with results from this release.
+1.5) never share a leaderboard group with results from this release.
 
 ### Added
 
@@ -262,8 +262,14 @@ Defaults and naming:
   `lasagna plugins list` load no model code, and `lasagna-mcp --help` takes
   under half a second (it took 8).
 
-Metric definitions and results (`METRICS_VERSION` 1.5):
+Metric definitions and results (`METRICS_VERSION` 1.6):
 
+- The retrieval track scores the ranked list. Under a profile with context
+  reordering on (standard, the default `base_profile`, balanced and
+  max_quality) it scored the order the generator reads, best passages at both
+  ends, so the second-ranked document fell below the cut to `k`. Retrieval
+  numbers from those profiles change; the speed profile's do not. The stage
+  manifest records the order each track used (`context_order`).
 - An answer counts as an abstention only when it opens with one, so a hedge
   later in the answer no longer zeroes exact match and token F1. Answers are
   normalized in the official SQuAD order.

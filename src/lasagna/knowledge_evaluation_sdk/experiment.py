@@ -1010,19 +1010,40 @@ def _check_no_rag_arms(pipeline_configs: List[Dict[str, Any]], tracks: List[str]
 
 
 def _fix_retrieval_depth(task_config: Dict[str, Any], depth: int) -> None:
-    """Make retrieval evaluation return ``depth`` uncached, untruncated results.
+    """Make retrieval evaluation return ``depth`` uncached, untruncated results, in rank order.
 
     Answer-time policies are right for answering and wrong for measuring
     retrieval at k: the search cache can serve a different arm's lists, the
     relative similarity threshold and adaptive-k cut lists well below k, and
-    default_top_k can cap the candidates below the requested depth.
+    default_top_k can cap the candidates below the requested depth. Context
+    reordering ("lost in the middle") is how the generator is shown its
+    passages, not a ranking: scored, it moved the second-ranked document to
+    the end of the list, below the cut to k.
     """
     task_config["enable_search_cache"] = False
+    task_config["enable_context_reordering"] = False
     task_config["similarity_threshold"] = 0.0
     ccr = dict(task_config.get("chunk_cite_retrieval") or {})
     ccr["strategy"] = "fixed"
     task_config["chunk_cite_retrieval"] = ccr
     task_config["default_top_k"] = max(int(task_config.get("default_top_k") or 0), depth)
+
+
+def _context_order(gen_config: Any) -> Dict[str, str]:
+    """The order each track reads its results in, for the stage manifest.
+
+    ``ranked`` is the retriever's (or reranker's) order: the retrieval track
+    always scores it. ``lost_in_the_middle`` is context reordering's, best
+    passages at both ends of the generator's context, which the generation
+    track uses when the arm turns reordering on. A function of the arm's
+    setting alone, so an arm that skips a track or reads no passages digests
+    like its control in this stage.
+    """
+    reordered = bool(getattr(gen_config, "enable_context_reordering", False))
+    return {
+        "retrieval": "ranked",
+        "generation": "lost_in_the_middle" if reordered else "ranked",
+    }
 
 
 def _short_list_warning(short: int, exhausted: int, n_queries: int, k: int, overfetch: int) -> str:
@@ -3903,7 +3924,10 @@ async def _eval_live(
     # - similarity_threshold is applied to per-query min-max-normalized scores,
     #   a relative cut that left about 4 documents per query on SciFact;
     # - adaptive-k cut reranked lists by score gap, to about 7 documents;
-    # - default_top_k capped the dense candidates below the requested depth.
+    # - default_top_k capped the dense candidates below the requested depth;
+    # - context reordering (on in standard, balanced and max_quality) put even
+    #   ranks first and odd ranks reversed at the end, so the metrics scored
+    #   the order the generator reads, with rank 2 last.
     _fix_retrieval_depth(task_config, _retrieval_depth)
     # Generation keeps its answer-time policies (they are the system under
     # test), but every run must execute rather than replay the cache.
@@ -4701,6 +4725,14 @@ async def _eval_live(
                 # Only when set, so every other arm's retriever digest is the
                 # one it always had.
                 **({"no_rag": True} if _no_rag(task) else {}),
+                # The order each track used: the retrieval track always scores
+                # the ranked list; the generator reads its passages reordered
+                # when the arm says so. Without this the manifest showed
+                # reordering off (the retrieval setting) for an arm whose
+                # generator read the reordered list.
+                "context_order": _context_order(
+                    _rc.with_session(shared_session_id).with_query_overrides(gen_config)
+                ),
             },
         )
     except Exception as exc:  # the manifest must never cost a result
