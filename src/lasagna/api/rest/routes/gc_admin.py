@@ -203,7 +203,7 @@ async def run_gc(
     5. Clean up idle sessions
     6. Reconcile quota counters
 
-    Idempotent — safe to call multiple times.  Returns per-phase results.
+    Idempotent: safe to call multiple times.  Returns per-phase results.
     """
     try:
         report = await run_in_threadpool(backend.run_gc, session_id=session_id)
@@ -234,7 +234,7 @@ async def detect_orphans(
     - ``scan_limited``: True if the vector scan hit ``vector_scan_limit`` and
       results may be incomplete.
 
-    This endpoint is **read-only** — it does not modify any data.
+    This endpoint is **read-only**: it does not modify any data.
     Pass the report to ``POST /admin/gc/repair`` to fix the issues.
     """
     try:
@@ -325,7 +325,7 @@ async def patch_gc_policy(
     """Update one or more lifecycle policy fields at runtime.
 
     Changes take effect immediately for the current process but are **not
-    persisted** — the server reverts to its configured policy on restart.
+    persisted**: the server reverts to its configured policy on restart.
     To make changes permanent, update ``[rag.lifecycle]`` in
     ``settings.lasagna.toml`` or the corresponding ``RAG_GC_*`` env vars.
 

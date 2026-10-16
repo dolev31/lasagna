@@ -74,11 +74,11 @@ class LifecycleScheduler:
 
             if _celery_broker_reachable():
                 logger.info(
-                    "LifecycleScheduler: Celery broker reachable — GC scheduled via Celery Beat."
+                    "LifecycleScheduler: Celery broker reachable; GC scheduled via Celery Beat."
                 )
                 # Nothing to do here: celery_app.py beat_schedule already registers the tasks.
             else:
-                logger.info("LifecycleScheduler: no Celery broker — starting embedded APScheduler.")
+                logger.info("LifecycleScheduler: no Celery broker; starting embedded APScheduler.")
                 self._start_apscheduler()
 
             self._started = True
@@ -223,9 +223,7 @@ class LifecycleScheduler:
         lock_acquired = False
         try:
             if not self._gc._db.acquire_gc_lock(owner_id, ttl_seconds=3600):
-                logger.info(
-                    "Scheduled orphan scan skipped — advisory lock held by another process."
-                )
+                logger.info("Scheduled orphan scan skipped: advisory lock held by another process.")
                 return
             lock_acquired = True
             from ..api.rag_backend import get_rag_backend

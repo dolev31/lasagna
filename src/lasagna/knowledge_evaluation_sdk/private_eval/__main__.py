@@ -399,7 +399,7 @@ def main() -> None:
         type=float,
         default=20_000_000.0,
         help=(
-            "Spend budget in tokens — triggers a warning when exceeded "
+            "Spend budget in tokens: triggers a warning when exceeded "
             "(default: 20,000,000). Was --max-cost in USD; prices are not a "
             "property of a run, and the dollar figure it compared against was "
             "always $0.00 because nothing wrote it."

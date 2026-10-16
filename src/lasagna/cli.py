@@ -1344,6 +1344,28 @@ def _print_leaderboard(results) -> None:
         console.print(results.leaderboard(primary))
     else:
         console.print("[yellow]No metrics computed[/yellow]")
+    cache = _llm_cache_line(getattr(results, "experiment_config", None) or {})
+    if cache:
+        console.print(cache)
+
+
+def _llm_cache_line(meta: Dict[str, Any]) -> str:
+    """``LLM cache: 412 hits, 37 misses (92%)`` for a run that generated answers
+    and looked responses up; "" otherwise, so a retrieval-only run prints nothing.
+
+    A fast run with a high hit rate replayed answers from an earlier run, and
+    says so where its numbers are printed.
+    """
+    cache = meta.get("llm_cache") or {}
+    hits, misses = int(cache.get("hits") or 0), int(cache.get("misses") or 0)
+    if "generation" not in (meta.get("tracks") or []) or not cache.get("enabled"):
+        return ""
+    if not hits + misses:
+        return ""
+    return (
+        f"LLM cache: {hits} {'hit' if hits == 1 else 'hits'}, "
+        f"{misses} {'miss' if misses == 1 else 'misses'} ({hits / (hits + misses):.0%})"
+    )
 
 
 @benchmark_app.command("experiment")
@@ -1594,7 +1616,7 @@ def benchmark_licenses(
         "",
         "Lasagna **redistributes no benchmark data**. Each dataset below is",
         "downloaded from its own upstream source on first use, under its own",
-        "license and terms of use. Those terms are yours to honour — including",
+        "license and terms of use. Those terms are yours to honor, including",
         "for anything you publish from results produced with them.",
         "",
         "`Live` marks the benchmarks that ship a retrievable corpus. The rest",
@@ -1607,8 +1629,8 @@ def benchmark_licenses(
         adapter = benchmark_registry.get(name)
         from .knowledge_evaluation_sdk.experiment import _adapter_has_corpus
 
-        live = "yes" if _adapter_has_corpus(adapter) else "—"
-        paper = info.paper or "—"
+        live = "yes" if _adapter_has_corpus(adapter) else "-"
+        paper = info.paper or "-"
         lic = info.license or "**unknown**"
         desc = (info.description or "").replace("|", "\\|")
         lines.append(f"| `{name}` | {lic} | {live} | {paper} | {desc} |")
@@ -1648,14 +1670,9 @@ def benchmark_leaderboard(
 ):
     """Old name of `lasagna results leaderboard`."""
     _deprecated_spelling("benchmark leaderboard", "results leaderboard")
-    if Path(results_path).is_dir():
-        results_leaderboard(results_path, metric=metric, output=None)
-        return
-    # One run's own table: `benchmark run` and `benchmark experiment` print it
-    # when they finish.
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
-
-    console.print(BenchmarkResults.load(results_path).leaderboard(metric))
+    # Every option by value: called directly, a typer function's defaults are
+    # its OptionInfo objects, and `fmt` arrived as one ("Unknown format").
+    results_leaderboard(results_path, metric=metric, output=None, fmt="markdown")
 
 
 @benchmark_app.command("validate-data")
@@ -2139,9 +2156,7 @@ def results_validate(
             problems.append(f"missing required block: {field}")
 
     if "run_id" in bundle and _content_hash(bundle) != bundle["run_id"]:
-        problems.append(
-            "run_id does not match the bundle contents — it was edited after generation"
-        )
+        problems.append("run_id does not match the bundle contents: it was edited after generation")
 
     for cfg in bundle.get("configs", []):
         recomputed = comparability_key(cfg.get("held_fixed", {}))
@@ -2183,7 +2198,7 @@ def results_validate(
         problems.extend(f"integrity (strict): {code}" for code in warnings)
 
     if problems:
-        console.print(f"[red]INVALID[/red] — {len(problems)} problem(s):")
+        console.print(f"[red]INVALID[/red], {len(problems)} problem(s):")
         # Problem lines quote arm names, which are free text: `a[/b]` is a
         # Rich closing tag and crashed the command instead of printing.
         for p in problems:
@@ -2355,7 +2370,7 @@ def results_significance(
 
     label = "Holm-Bonferroni" if correction == "holm" else "uncorrected"
     console.print(
-        f"[bold]{escape(metric)}[/bold] on {escape(benchmark)} — {_count(len(rows), 'pair')}, {label}"
+        f"[bold]{escape(metric)}[/bold] on {escape(benchmark)}: {_count(len(rows), 'pair')}, {label}"
     )
     console.print()
 
@@ -2391,7 +2406,7 @@ def results_significance(
             cells.append(str(row.get("n_paired", "")))
             if any_dropped:
                 cells.append(f"{row.get('n_dropped_a', 0)}/{row.get('n_dropped_b', 0)}")
-            cells.append("[green]significant[/green]" if row.get("significant") else "[dim]—[/dim]")
+            cells.append("[green]significant[/green]" if row.get("significant") else "[dim]-[/dim]")
             table.add_row(*cells)
         return table
 
@@ -2421,7 +2436,7 @@ def results_significance(
         console.print(
             f"  {survivors} of {_count(len(rows), 'pair')} "
             f"{'is' if survivors == 1 else 'are'} significant at alpha={alpha}, "
-            f"[yellow]uncorrected[/yellow] — with {len(rows)} comparisons, expect "
+            f"[yellow]uncorrected[/yellow]: with {len(rows)} comparisons, expect "
             f"about {len(rows) * alpha:.1f} of these by chance."
         )
     if any_dropped:
@@ -2548,7 +2563,7 @@ def results_per_query(
             table.add_row(
                 label(str(row["config"])),
                 escape(str(row["sample_id"])[:24]),
-                *[f"{row[m]:.3f}" if m in row else "—" for m in metrics],
+                *[f"{row[m]:.3f}" if m in row else "-" for m in metrics],
             )
         return table
 
@@ -2691,7 +2706,7 @@ def results_interaction(
         ("both", both),
     ):
         mean = report["means"][name]
-        delta = "—" if name == neither else f"{mean - base:+.4f}"
+        delta = "-" if name == neither else f"{mean - base:+.4f}"
         table.add_row(f"{label}  [dim]{escape(name)}[/dim]", f"{mean:.4f}", delta)
     console.print(table)
     for line in _identical_cells(results, benchmark, [neither, only_a, only_b, both]):
@@ -2948,9 +2963,19 @@ def doctor(
 
 @results_app.command("leaderboard")
 def results_leaderboard(
-    directory: str = typer.Argument(..., help="Directory of validated bundles"),
+    directory: str = typer.Argument(
+        ...,
+        help="A directory of validated bundles, one bundle, or a run's results.json (or "
+        "its folder)",
+    ),
     metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to rank by."),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Write markdown here"),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Folder to write one page per benchmark into (.md, or .tex with --format "
+        "latex), plus index.json",
+    ),
     fmt: str = typer.Option(
         "markdown",
         "--format",
@@ -2958,28 +2983,63 @@ def results_leaderboard(
         "when no --output is given",
     ),
 ):
-    """Render bundles as leaderboards, grouped by comparability key.
+    """Render bundles, or one run's results.json, as leaderboards grouped by
+    comparability key.
 
     Rows inside a group held the same configuration fixed, so they are
     comparable by construction. Rows in different groups are not, and are never
-    put in the same table.
+    put in the same table. A results.json with no --output prints the run's own
+    leaderboard, the one `benchmark experiment` prints when it finishes.
     """
-    from .knowledge_evaluation_sdk.leaderboard import FORMATS, build, grouped_rows, render_latex
+    from .knowledge_evaluation_sdk.bundle import MetricsVersionError
+    from .knowledge_evaluation_sdk.leaderboard import (
+        FORMATS,
+        _is_bundle,
+        build,
+        grouped_rows,
+        load_bundles,
+        render_latex,
+    )
 
     if fmt not in FORMATS:
         _error(f"Unknown format {fmt!r}. Use --format markdown or --format latex.")
-    if fmt == "latex" and not output:
-        # The tables alone and unwrapped, so `> tables.tex` captures valid LaTeX.
-        console.print(
-            render_latex(grouped_rows(directory, metric), metric),
-            markup=False,
-            highlight=False,
-            soft_wrap=True,
-            end="",
-        )
-        return
+    source = Path(directory)
+    if not source.exists():
+        _error(f"No such file or folder: {directory}")
+    if source.is_dir() and (source / "results.json").is_file() and not load_bundles(source):
+        # A run's output folder, as `benchmark experiment` names it at the
+        # end: it holds results.json and no bundles, and read as a folder it
+        # printed "0 row(s) from 0 bundle(s)".
+        source = source / "results.json"
+        directory = str(source)
+    if source.is_file():
+        try:
+            data = json.loads(source.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            _error(f"{directory} is not valid JSON ({exc}). Pass a results.json or a bundle.")
+        if not _is_bundle(data) and not (
+            isinstance(data, dict) and isinstance(data.get("results"), list)
+        ):
+            _error(f"{source.name} is neither a bundle nor a results.json from a run.")
+        if fmt == "markdown" and not output and not _is_bundle(data):
+            from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    index = build(directory, metric=metric, output=output, fmt=fmt)
+            console.print(BenchmarkResults.load(directory).leaderboard(metric), markup=False)
+            return
+    try:
+        if fmt == "latex" and not output:
+            # The tables alone and unwrapped, so `> tables.tex` captures valid LaTeX.
+            console.print(
+                render_latex(grouped_rows(directory, metric), metric),
+                markup=False,
+                highlight=False,
+                soft_wrap=True,
+                end="",
+            )
+            return
+        index = build(directory, metric=metric, output=output, fmt=fmt)
+    except (MetricsVersionError, ValueError) as exc:
+        _error(str(exc))
     console.print(
         f"[green]{index['n_rows']} row(s)[/green] from {index['n_bundles']} bundle(s) "
         f"across {len(index['benchmarks'])} benchmark(s)"

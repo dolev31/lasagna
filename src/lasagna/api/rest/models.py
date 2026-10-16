@@ -327,7 +327,7 @@ class StatsResponse(BaseModel):
 class ConfigPatchRequest(BaseModel):
     """Partial config update. Only provided keys are applied.
 
-    All fields are Optional — only non-None values are patched.
+    All fields are Optional: only non-None values are patched.
     Unknown fields are rejected by Pydantic (model_config forbids extras).
     """
 

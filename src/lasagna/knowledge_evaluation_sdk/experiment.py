@@ -747,11 +747,9 @@ def _ran_system(
 
     # The strategy that ran, not the one requested: structural settings
     # override it at ingest, in the order resolve_effective_strategy applies.
-    chunker = getattr(_ingest("chunking_strategy"), "value", _ingest("chunking_strategy"))
-    if _ingest("enable_hierarchical"):
-        chunker = "hierarchical"
-    elif _ingest("preserve_headers") or _ingest("preserve_tables"):
-        chunker = "structure_aware"
+    from .stages import CHUNKER_DISPATCH_KEYS, effective_chunking_strategy
+
+    chunker = effective_chunking_strategy({k: _ingest(k) for k in CHUNKER_DISPATCH_KEYS})
     try:
         from lasagna.retrieval.search.hybrid import STEMMER_AVAILABLE as bm25_stemming
     except Exception:  # pragma: no cover - hybrid search always importable here
@@ -1724,7 +1722,15 @@ def _run_metadata(cfg: "ExperimentConfig", concurrency: Optional[int] = None) ->
         "rag_overrides": rag_overrides(),
         "max_concurrency": cfg.max_concurrency,
         "benchmarks": [
-            {"name": b.name, "split": b.split, "n_samples": b.n_samples, "filters": b.filters}
+            {
+                "name": b.name,
+                "split": b.split,
+                "n_samples": b.n_samples,
+                "filters": b.filters,
+                # Data of your own: where it was read from. The hash in the
+                # name says what it was; this says which file to open again.
+                **({"path": _recorded_data_path(b.path, cfg.base_dir)} if b.path else {}),
+            }
             for b in cfg.benchmarks
         ],
         # The sweep as resolved, not as a hash. A config_hash is one-way, so a
@@ -1767,6 +1773,25 @@ def _run_metadata(cfg: "ExperimentConfig", concurrency: Optional[int] = None) ->
         "system": _system_under_test(cfg.pipeline.base_profile),
     }
     return redact(meta)
+
+
+def _recorded_data_path(path: str, base_dir: str) -> str:
+    """A local benchmark's ``path`` as the run metadata records it.
+
+    Relative to the sweep file's folder (the working directory for `benchmark
+    run`), however it was written. Never absolute: the run metadata goes into
+    bundles, which are published, and the path redaction only knows the home
+    and temp folders, so ``/data/acme/faq.jsonl`` would have been published as
+    written. A file on another Windows drive is recorded by its name alone.
+    """
+    from .benchmarks.adapters.local_files import resolve_data_path
+
+    full = resolve_data_path(path, base_dir)
+    root = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    try:
+        return Path(os.path.relpath(full, root)).as_posix()
+    except ValueError:  # no relative path between two drives
+        return full.name
 
 
 def _resolve_profile_config(base_profile: Optional[str]) -> Optional[Any]:
@@ -1817,6 +1842,8 @@ def _system_under_test(base_profile: Optional[str] = None) -> Dict[str, Any]:
     global defaults, because a visible gap is honest and a confident wrong
     value is not.
     """
+    from .stages import CHUNKER_DISPATCH_KEYS, effective_chunking_strategy
+
     profile_config = _resolve_profile_config(base_profile)
 
     try:
@@ -1871,7 +1898,8 @@ def _system_under_test(base_profile: Optional[str] = None) -> Dict[str, Any]:
         "agentic_models": dict(_get("agentic_models") or {}),
         "embedder_model": _get("embedding_model"),
         "embedder_dim": _get("embedding_dim"),
-        "chunker": _get("chunking_strategy"),
+        # What runs, as a task records it: a structural setting decides it.
+        "chunker": effective_chunking_strategy({k: _get(k) for k in CHUNKER_DISPATCH_KEYS}),
         "chunk_size": _get("chunk_size"),
         "chunk_overlap": _get("chunk_overlap"),
         "retriever_top_k": _get("rerank_top_k"),
@@ -2265,7 +2293,7 @@ def _apply_overrides_to_pipeline(
         if len(models) != len(weights):
             logger.warning(
                 f"ensemble_reranker_models/weights length mismatch: "
-                f"{len(models)} vs {len(weights)} — using equal weights"
+                f"{len(models)} vs {len(weights)}: using equal weights"
             )
             weights = [1.0] * len(models)
         try:
@@ -2415,7 +2443,7 @@ async def _eval_offline(
             error=(
                 f"Config overrides {sorted(inert_keys)} have no effect in "
                 f"'{task.mode}' mode, which scores gold context and never runs the "
-                f"retrieval pipeline — any metric produced here would be unrelated "
+                f"retrieval pipeline: any metric produced here would be unrelated "
                 f"to them. Use mode='live' (or mode='auto') to measure these. "
                 f"Set allow_inert_overrides=True to score gold context anyway."
             ),
@@ -3185,7 +3213,7 @@ async def _ensure_corpus_ingested(
             if pct > 50:
                 _msg = (
                     f"Aborting: {pct:.0f}% of qrels docs missing from loaded "
-                    f"corpus — results would be unreliable. Raise "
+                    f"corpus: results would be unreliable. Raise "
                     f"`max_corpus_docs` (0 = no limit) so the judged documents "
                     f"are actually ingested."
                 )
@@ -3654,10 +3682,10 @@ async def _eval_live(
         if _hybrid.is_native_mode_available() or _hybrid._backend_supports_native_hybrid(
             shared_session_id
         ):
-            logger.debug("Native hybrid available — skipping BM25 fallback prebuild")
+            logger.debug("Native hybrid available: skipping BM25 fallback prebuild")
         elif not _BM25_AVAIL:
             # Guard 2: rank_bm25 not installed
-            logger.debug("BM25 fallback not available — skipping prebuild")
+            logger.debug("BM25 fallback not available: skipping prebuild")
         else:
             _bm25_idx = _hybrid.get_session_index(shared_session_id)
             if _bm25_idx.is_current():
@@ -3704,7 +3732,7 @@ async def _eval_live(
                 else:
                     logger.warning(
                         f"No chunks found in vector store for session "
-                        f"{shared_session_id} — BM25 hybrid search will use "
+                        f"{shared_session_id}: BM25 hybrid search will use "
                         f"dense-only fallback"
                     )
 
@@ -4478,7 +4506,7 @@ async def _eval_live(
                         else:
                             logger.warning(
                                 f"All agentic answers were empty for "
-                                f"{task.task_key} — skipping agentic eval"
+                                f"{task.task_key}: skipping agentic eval"
                             )
 
                     # Emit canonical unsuffixed metrics so downstream

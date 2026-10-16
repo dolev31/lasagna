@@ -437,7 +437,7 @@ class QdrantBackend(VectorStoreAdapter):
 
         if not qdrant_filter:
             raise ValueError(
-                "Cannot delete with empty filter — this would be a no-op. "
+                "Cannot delete with empty filter: this would be a no-op. "
                 "Build a FilterExpression with at least one condition."
             )
 

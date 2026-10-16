@@ -162,11 +162,11 @@ def configure_metrics(enable_prometheus: bool = False) -> None:
             return  # already active — nothing to do
         try:
             METRICS._backend = _PrometheusBackend()
-            logger.info("Prometheus metrics enabled — all RAG instrumentation active")
+            logger.info("Prometheus metrics enabled: all RAG instrumentation active")
         except ImportError:
             METRICS._backend = _MetricsBackend()
             logger.warning(
-                "prometheus-client is not installed — metrics remain no-op.  "
+                "prometheus-client is not installed: metrics remain no-op.  "
                 "Install with: pip install prometheus-client>=0.20.0"
             )
     else:

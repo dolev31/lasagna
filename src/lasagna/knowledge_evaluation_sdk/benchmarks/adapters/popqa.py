@@ -91,7 +91,7 @@ class PopQAAdapter(BaseBenchmarkAdapter):
         return BenchmarkInfo(
             name="popqa",
             description=(
-                "PopQA — entity-centric QA testing knowledge across popularity tiers (14K pairs)"
+                "PopQA: entity-centric QA testing knowledge across popularity tiers (14K pairs)"
             ),
             category=BenchmarkCategory.SINGLE_HOP,
             eval_mode=BenchmarkEvalMode.GENERATION,

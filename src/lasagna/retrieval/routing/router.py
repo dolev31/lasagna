@@ -93,7 +93,7 @@ class QueryRouter:
                 tier=default_tier,
                 signals=None,
                 confidence=1.0,
-                rationale="Query routing disabled — using default tier",
+                rationale="Query routing disabled: using default tier",
                 strategy_used="disabled",
             )
             decision.overrides = self.get_tier_overrides(default_tier)
@@ -153,7 +153,7 @@ class QueryRouter:
             decision.tier = RoutingTier.STANDARD
             decision.overrides = QueryRouter.get_tier_overrides(RoutingTier.STANDARD)
             decision.rationale = (
-                f"{original_rationale} — downgraded to standard "
+                f"{original_rationale}: downgraded to standard "
                 f"(use_agentic_rag is disabled in config)"
             )
             logger.debug(

@@ -214,7 +214,7 @@ class SuiteRunner:
             }
         except Exception as exc:
             elapsed = time.monotonic() - start
-            logger.error(f"[suite] Failed: {exp_name} after {elapsed:.1f}s — {exc}")
+            logger.error(f"[suite] Failed: {exp_name} after {elapsed:.1f}s: {exc}")
             if progress_callback:
                 progress_callback(exp_name, "failed", elapsed)
             return exp_name, {

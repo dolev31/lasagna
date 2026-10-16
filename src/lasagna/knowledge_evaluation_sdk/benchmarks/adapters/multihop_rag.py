@@ -22,7 +22,7 @@ class MultiHopRAGAdapter(BaseBenchmarkAdapter):
     def info(self) -> BenchmarkInfo:
         return BenchmarkInfo(
             name="multihop_rag",
-            description="MultiHop-RAG — multi-hop RAG benchmark from news articles",
+            description="MultiHop-RAG: multi-hop RAG benchmark from news articles",
             category=BenchmarkCategory.MULTI_HOP,
             eval_mode=BenchmarkEvalMode.END_TO_END,
             num_queries=2_556,

@@ -749,7 +749,7 @@ class _PineconeTranslator:
             raise UnsupportedFilterError(
                 op,
                 "pinecone",
-                f"NOT({child_op.value}) cannot be translated — rewrite using EQ/NE/IN operators",
+                f"NOT({child_op.value}) cannot be translated: rewrite using EQ/NE/IN operators",
             )
 
         field = expr.field
@@ -1055,7 +1055,7 @@ class _OpenSearchTranslator:
         if not field or not cls._FIELD_RE.match(field):
             raise ValueError(
                 f"Invalid field name for OpenSearch: '{field}'. "
-                "Must match [a-zA-Z_][a-zA-Z0-9_\\-]* (dots not allowed — "
+                "Must match [a-zA-Z_][a-zA-Z0-9_\\-]* (dots not allowed; "
                 "use JSON_EQ/JSON_CONTAINS for nested field access)"
             )
 

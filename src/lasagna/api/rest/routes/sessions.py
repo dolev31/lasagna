@@ -135,7 +135,7 @@ async def create_session(
 ):
     """Create a signed session token encoding (session_id, user_id).
 
-    The token is self-contained — the server decodes it on each request
+    The token is self-contained: the server decodes it on each request
     without any database lookup.  Pass it via the ``X-Session-Token``
     header on subsequent requests.
 
@@ -146,7 +146,7 @@ async def create_session(
     hands out a token for any identity the caller asks for, and since sessions
     are the isolation boundary, that is read/write access to another tenant's
     documents. Requested identities are therefore refused rather than silently
-    replaced with generated ones — quietly returning a different session than
+    replaced with generated ones: quietly returning a different session than
     the one asked for would look like success and fail later in a confusing
     place.
 

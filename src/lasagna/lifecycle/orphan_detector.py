@@ -157,7 +157,7 @@ class OrphanDetector:
 
         if report.is_consistent:
             logger.info(
-                f"OrphanDetector: consistent — {len(db_ids)} DB docs, {len(vec_ids)} vec docs"
+                f"OrphanDetector: consistent; {len(db_ids)} DB docs, {len(vec_ids)} vec docs"
             )
         else:
             logger.warning(

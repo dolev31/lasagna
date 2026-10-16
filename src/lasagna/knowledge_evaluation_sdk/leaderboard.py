@@ -42,8 +42,32 @@ _MIN_RUNS_FOR_INTERVAL = 2
 _EXACT = 1e-9
 
 
+def _is_bundle(data: Any) -> bool:
+    return isinstance(data, dict) and "comparability_key" not in data and "configs" in data
+
+
+def _one_file(path: Path) -> Dict[str, Any]:
+    """A bundle, or a run's ``results.json`` bundled in memory.
+
+    Bundled the way ``lasagna results bundle`` would, so its rows carry the
+    same comparability keys as the file that command writes. A file named on
+    its own is not skipped when it cannot be read: there is nothing else to
+    show, so the error reaches the caller.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not _is_bundle(data):
+        if not (isinstance(data, dict) and isinstance(data.get("results"), list)):
+            raise ValueError(f"{path.name} is neither a bundle nor a results.json from a run.")
+        from .results import BenchmarkResults
+
+        data = BenchmarkResults.load(str(path)).to_bundle()
+    data["_path"] = path.name
+    return data
+
+
 def load_bundles(directory: str | Path) -> List[Dict[str, Any]]:
-    """Read every bundle under a directory, newest path order last.
+    """Read every bundle under a directory, newest path order last, or the one
+    file ``directory`` names (a bundle, or a run's ``results.json``).
 
     Unreadable files are skipped rather than fatal: one malformed submission
     should not stop the leaderboard for everyone else. The validator is what
@@ -55,13 +79,15 @@ def load_bundles(directory: str | Path) -> List[Dict[str, Any]]:
     is allowed to carry a local filesystem layout.
     """
     root = Path(directory)
+    if root.is_file():
+        return [_one_file(root)]
     bundles = []
     for path in sorted(root.rglob("*.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
-        if isinstance(data, dict) and "comparability_key" not in data and "configs" in data:
+        if _is_bundle(data):
             data["_path"] = path.relative_to(root).as_posix()
             bundles.append(data)
     return bundles
@@ -216,7 +242,7 @@ def render_markdown(
         f"# {benchmark}",
         "",
         f"Ranked by `{metric}`. **Self-reported and machine-validated, not "
-        "independently reproduced** — every row links to its bundle.",
+        "independently reproduced**. Every row links to its bundle.",
         "",
         "Each table is one comparability group: those rows held the same "
         "configuration fixed, so they may be compared with each other. Rows in "
@@ -362,7 +388,8 @@ FORMATS = {"markdown": ".md", "latex": ".tex"}
 
 
 def grouped_rows(directory: str | Path, metric: str = "ndcg@10") -> Dict[str, Any]:
-    """Read the bundles under ``directory`` as ranked comparability groups."""
+    """Read the bundles under ``directory`` (or the one file it names) as
+    ranked comparability groups."""
     rows = collect_rows(load_bundles(directory), metric)
     mark_verified(rows)
     return group(rows)
@@ -374,8 +401,9 @@ def build(
     output: Optional[str | Path] = None,
     fmt: str = "markdown",
 ) -> Dict[str, Any]:
-    """Read bundles, group them, and optionally write one page per benchmark
-    (``fmt`` is ``"markdown"`` or ``"latex"``) plus an index."""
+    """Read bundles (a directory, one bundle or one ``results.json``), group
+    them, and optionally write one page per benchmark (``fmt`` is
+    ``"markdown"`` or ``"latex"``) plus an index."""
     if fmt not in FORMATS:
         raise ValueError(f"Unknown format {fmt!r}. Use 'markdown' or 'latex'.")
     rows = collect_rows(load_bundles(directory), metric)
@@ -400,8 +428,11 @@ def build(
         out = Path(output)
         out.mkdir(parents=True, exist_ok=True)
         # Relative, so the committed page links correctly and carries no trace
-        # of the machine that generated it.
-        prefix = os.path.relpath(Path(directory).resolve(), out.resolve())
+        # of the machine that generated it. A single file is linked from its
+        # folder, as a bundle in a scanned directory is.
+        root = Path(directory)
+        root = root.parent if root.is_file() else root
+        prefix = os.path.relpath(root.resolve(), out.resolve())
         prefix = "" if prefix == "." else f"{PurePosixPath(*Path(prefix).parts)}/"
         for name in grouped:
             safe = name.replace("/", "_")

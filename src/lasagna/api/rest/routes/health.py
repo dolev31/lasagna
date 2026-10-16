@@ -91,7 +91,7 @@ def _run_health_checks(backend) -> Tuple[Dict[str, HealthCheckDetail], str]:
 
 @router.get("/health/live", response_model=LivenessResponse)
 async def liveness():
-    """Liveness probe — is this process alive?
+    """Liveness probe: is this process alive?
 
     Always returns 200 unless the process is deadlocked.
     Used by Kubernetes to decide whether to restart the container.
@@ -193,7 +193,7 @@ def _dependency_pings(backend) -> Dict[str, Callable[[], Optional[str]]]:
     responses={503: {"model": HealthResponse, "description": "A dependency is down"}},
 )
 async def readiness(backend=Depends(get_backend)):
-    """Readiness probe — can this instance handle requests?
+    """Readiness probe: can this instance handle requests?
 
     Pings the vector store, the metadata database (Postgres or SQLite) and,
     when this instance uses it, Redis, each with a 2 s timeout. Returns 503
@@ -223,7 +223,7 @@ async def readiness(backend=Depends(get_backend)):
 
 @router.get("/health", response_model=HealthResponse)
 async def full_health(backend=Depends(get_backend)):
-    """Full health check — reports dependency status but always returns 200.
+    """Full health check: reports dependency status but always returns 200.
 
     Use this for dashboards and monitoring; use ``/health/ready`` for
     orchestrator probes that need to remove unhealthy instances.
@@ -236,7 +236,7 @@ async def full_health(backend=Depends(get_backend)):
 # the feature flags. The probes above stay open for orchestrators.
 @router.get("/stats", response_model=StatsResponse, dependencies=[Depends(get_session_id)])
 async def system_stats(backend=Depends(get_backend)):
-    """System statistics — embedding model, features, cache stats."""
+    """System statistics: embedding model, features, cache stats."""
     try:
         raw = backend.get_stats()
         return StatsResponse(

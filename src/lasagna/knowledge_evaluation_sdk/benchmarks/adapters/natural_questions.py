@@ -22,7 +22,7 @@ class NaturalQuestionsAdapter(BaseBenchmarkAdapter):
     def info(self) -> BenchmarkInfo:
         return BenchmarkInfo(
             name="natural_questions",
-            description="Natural Questions — Google search questions with Wikipedia answers",
+            description="Natural Questions: Google search questions with Wikipedia answers",
             category=BenchmarkCategory.SINGLE_HOP,
             eval_mode=BenchmarkEvalMode.GENERATION,
             num_queries=7_830,

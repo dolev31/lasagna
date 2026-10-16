@@ -29,7 +29,7 @@ class SQuADv2Adapter(BaseBenchmarkAdapter):
     def info(self) -> BenchmarkInfo:
         return BenchmarkInfo(
             name="squad_v2",
-            description="SQuAD v2 — reading comprehension with unanswerable questions",
+            description="SQuAD v2: reading comprehension with unanswerable questions",
             category=BenchmarkCategory.SINGLE_HOP,
             eval_mode=BenchmarkEvalMode.GENERATION,
             num_queries=11_873,

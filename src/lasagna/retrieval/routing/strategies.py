@@ -55,7 +55,7 @@ class RuleBasedStrategy(BaseRoutingStrategy):
         # 1. NAVIGATIONAL short queries — simple lookup
         if qt == QueryType.NAVIGATIONAL.value and wc <= 5:
             return self._make(
-                RoutingTier.FAST, signals, 0.8, "Short navigational query — vector-only sufficient"
+                RoutingTier.FAST, signals, 0.8, "Short navigational query: vector-only sufficient"
             )
 
         # 2. FACTUAL confident short queries
@@ -64,7 +64,7 @@ class RuleBasedStrategy(BaseRoutingStrategy):
                 RoutingTier.FAST,
                 signals,
                 0.7,
-                "Confident factual query — keyword/vector sufficient",
+                "Confident factual query: keyword/vector sufficient",
             )
 
         # 3. Multi-hop or complex
@@ -73,23 +73,23 @@ class RuleBasedStrategy(BaseRoutingStrategy):
                 RoutingTier.COMPREHENSIVE,
                 signals,
                 0.7,
-                "Complex or multi-hop query — agentic retrieval needed",
+                "Complex or multi-hop query: agentic retrieval needed",
             )
 
         # 4. COMPARATIVE → STANDARD (locked: needs reranking, not agentic)
         if qt == QueryType.COMPARATIVE.value:
             return self._make(
-                RoutingTier.STANDARD, signals, 0.7, "Comparative query — hybrid + reranking optimal"
+                RoutingTier.STANDARD, signals, 0.7, "Comparative query: hybrid + reranking optimal"
             )
 
         # 5. CONCEPTUAL with confidence
         if qt == QueryType.CONCEPTUAL.value and conf > 0.5:
             return self._make(
-                RoutingTier.STANDARD, signals, 0.6, "Conceptual query — HyDE + hybrid beneficial"
+                RoutingTier.STANDARD, signals, 0.6, "Conceptual query: HyDE + hybrid beneficial"
             )
 
         # 6. Default
-        return self._make(RoutingTier.STANDARD, signals, 0.5, "Default — standard pipeline")
+        return self._make(RoutingTier.STANDARD, signals, 0.5, "Default: standard pipeline")
 
     def _make(
         self, tier: RoutingTier, signals: RoutingSignals, confidence: float, rationale: str
@@ -133,7 +133,7 @@ class AdaptiveStrategy(BaseRoutingStrategy):
                     signals=signals,
                     confidence=decision.confidence,
                     rationale=(
-                        f"{decision.rationale} — escalated from {decision.tier.value} "
+                        f"{decision.rationale}: escalated from {decision.tier.value} "
                         f"to {escalated.value} (confidence {decision.confidence:.2f} "
                         f"< threshold {threshold:.2f})"
                     ),

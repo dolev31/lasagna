@@ -22,7 +22,7 @@ class TriviaQAAdapter(BaseBenchmarkAdapter):
     def info(self) -> BenchmarkInfo:
         return BenchmarkInfo(
             name="triviaqa",
-            description="TriviaQA — trivia question answering (95K QA pairs)",
+            description="TriviaQA: trivia question answering (95K QA pairs)",
             category=BenchmarkCategory.SINGLE_HOP,
             eval_mode=BenchmarkEvalMode.GENERATION,
             num_queries=95_000,

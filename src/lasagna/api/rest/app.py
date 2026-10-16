@@ -71,14 +71,22 @@ async def _lifespan(app: FastAPI):
     from lasagna.api.rest.limits import apply_log_format
 
     apply_log_format()
-    logger.info("RAG REST API starting — initialising backend...")
+    logger.info("RAG REST API starting: initializing backend...")
     try:
         from lasagna.api.rag_backend import get_rag_backend
 
         _backend = get_rag_backend()
         logger.info("RAG backend ready")
     except Exception as exc:
-        logger.error(f"RAG backend init failed (will retry on first request): {exc}")
+        from lasagna.api.rag_backend import _is_data_dir_locked
+
+        if _is_data_dir_locked(exc):
+            # Another process holds the store. Each request answers 503 with
+            # the sentence that says so and how to fix it, and retries, so a
+            # lock held for a moment (a `lasagna status` run) costs nothing.
+            logger.debug(f"RAG backend not initialized: {exc}")
+        else:
+            logger.error(f"RAG backend init failed (will retry on first request): {exc}")
 
     # Log service configuration summary
     try:
@@ -110,7 +118,7 @@ async def _lifespan(app: FastAPI):
 
     yield  # app is running
 
-    logger.info("RAG REST API shutting down — releasing resources...")
+    logger.info("RAG REST API shutting down: releasing resources...")
     try:
         from lasagna.api.rag_backend import close_backend
 
@@ -397,7 +405,7 @@ def create_app(
                 "browser. Name the origins you actually serve."
             )
         logger.warning(
-            "CORS allow_origins=['*'] — any web page can call this API from a "
+            "CORS allow_origins=['*']: any web page can call this API from a "
             "browser. Restrict via RAG_CORS_ORIGINS before exposing it."
         )
     elif not _cors:

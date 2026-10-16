@@ -1000,7 +1000,7 @@ async def search_knowledge_base(query: str, config: RunnableConfig) -> str:
     configurable = config.get("configurable", {})
     session_id = configurable.get("session_id")
     if not session_id:
-        logger.warning("[AgenticRAG] No session_id in configurable — falling back to 'default'")
+        logger.warning("[AgenticRAG] No session_id in configurable: falling back to 'default'")
         session_id = "default"
     document_filter = configurable.get("document_filter")
     top_k = configurable.get("top_k", 10)

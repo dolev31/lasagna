@@ -680,7 +680,7 @@ class PgVectorBackend(VectorStoreAdapter):
         where_sql, where_params = self._build_where(filter_expr)
         if not where_sql:
             raise ValueError(
-                "Cannot delete with empty filter — this would delete all rows. "
+                "Cannot delete with empty filter: this would delete all rows. "
                 "Build a FilterExpression with at least one condition."
             )
 

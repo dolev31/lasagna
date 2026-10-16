@@ -373,7 +373,6 @@ def test_an_experiment_says_it_once_and_records_it(anthropic_only, monkeypatch, 
         )
     finally:
         logger.remove(sink)
-        logger.disable("lasagna")
 
     assert [m for m in logged if "does not accept temperature" in m] == [NOTE]
     sampling = results.experiment_config["sampling"]

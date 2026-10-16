@@ -63,7 +63,7 @@ class PrivateEvalAdapter:
         if self._track == "retrieval":
             return BenchmarkInfo(
                 name="private_eval/retrieval",
-                description="Private evaluation set — retrieval track (BEIR-derived, qrels)",
+                description="Private evaluation set: retrieval track (BEIR-derived, qrels)",
                 category=BenchmarkCategory.SINGLE_HOP,
                 eval_mode=BenchmarkEvalMode.RETRIEVAL,
                 num_queries=460,
@@ -71,7 +71,7 @@ class PrivateEvalAdapter:
         if self._track == "e2e_generation":
             return BenchmarkInfo(
                 name="private_eval/e2e_generation",
-                description="Private evaluation set — e2e generation (gold passages in corpus, IR+gen metrics)",
+                description="Private evaluation set: e2e generation (gold passages in corpus, IR+gen metrics)",
                 category=BenchmarkCategory.SINGLE_HOP,
                 eval_mode=BenchmarkEvalMode.GENERATION,
                 num_queries=283,
@@ -79,7 +79,7 @@ class PrivateEvalAdapter:
         if self._track == "hallucination":
             return BenchmarkInfo(
                 name="private_eval/hallucination",
-                description="Private evaluation set — hallucination resistance (no gold passages in corpus)",
+                description="Private evaluation set: hallucination resistance (no gold passages in corpus)",
                 category=BenchmarkCategory.SINGLE_HOP,
                 eval_mode=BenchmarkEvalMode.GENERATION,
                 num_queries=425,
@@ -87,7 +87,7 @@ class PrivateEvalAdapter:
         # Legacy fallback
         return BenchmarkInfo(
             name=f"private_eval/{self._track}",
-            description=f"Private evaluation set — {self._track} track",
+            description=f"Private evaluation set: {self._track} track",
             category=BenchmarkCategory.SINGLE_HOP,
             eval_mode=BenchmarkEvalMode.GENERATION,
             num_queries=0,

@@ -22,7 +22,6 @@ named. Skipping it would change the number of questions without saying so.
 from __future__ import annotations
 
 import csv
-import difflib
 import hashlib
 import io
 import json
@@ -31,6 +30,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+
+from lasagna.core._text import did_you_mean
 
 from .._base import (
     BaseBenchmarkAdapter,
@@ -250,11 +251,6 @@ def _json_type(value: Any) -> str:
     return type(value).__name__
 
 
-def _did_you_mean(key: str, known: Iterable[str]) -> str:
-    close = difflib.get_close_matches(key, sorted(known), n=1, cutoff=0.6)
-    return f' (did you mean "{close[0]}"?)' if close else ""
-
-
 #: (line or row number, row) pairs, in file order.
 _Numbered = List[Tuple[int, _Row]]
 
@@ -289,10 +285,8 @@ def _row_from_record(
         errors.append(f"{where}: {message}")
 
     for key in sorted(set(record) - set(_JSONL_FIELDS)):
-        bad(
-            f'unknown field "{key}"{_did_you_mean(key, _JSONL_FIELDS)}; '
-            f'put fields of your own under "metadata"'
-        )
+        hint = did_you_mean(key, _JSONL_FIELDS, quote='"')
+        bad(f'unknown field "{key}"{hint}; put fields of your own under "metadata"')
 
     question = _text(record, "question", bad, required=True)
     query_id = _identifier(record, bad) or default_id
@@ -434,8 +428,9 @@ def _parse_csv(label: str, text: str, errors: List[str]) -> _Numbered:
         return []
     for column in header:
         if column not in _CSV_COLUMNS:
+            hint = did_you_mean(column, _CSV_COLUMNS, quote='"')
             errors.append(
-                f'{label} row 1: unknown column "{column}"{_did_you_mean(column, _CSV_COLUMNS)}; '
+                f'{label} row 1: unknown column "{column}"{hint}; '
                 f"the columns are {', '.join(_CSV_COLUMNS)}"
             )
     if len(set(header)) != len(header):

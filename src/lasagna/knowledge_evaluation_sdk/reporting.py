@@ -25,7 +25,7 @@ def _format_effect_size(effect: Optional[float]) -> str:
     import math
 
     if effect is None or (isinstance(effect, float) and math.isnan(effect)):
-        return "—"
+        return "-"
     if math.isinf(effect):
         return "+∞" if effect > 0 else "−∞"
     return f"{effect:.3f}"
@@ -112,7 +112,7 @@ class ReportGenerator:
                                 # Counted in the Holm family as p = 1.
                                 lines.append(
                                     f"| {pw['config_a']} | {pw['config_b']} | 0 "
-                                    f"| untestable | — | No | — |"
+                                    f"| untestable | - | No | - |"
                                 )
                                 continue
                             sig_marker = "Yes" if pw["significant"] else "No"
@@ -372,7 +372,7 @@ class ReportGenerator:
                     ax.text(j, i, f"{data[i, j]:.4f}", ha="center", va="center", fontsize=8)
             fig.colorbar(im)
 
-        ax.set_title(f"{self._results.experiment_name or 'Results'} — {m}")
+        ax.set_title(f"{self._results.experiment_name or 'Results'}: {m}")
         plt.tight_layout()
 
         if save_path:
@@ -422,4 +422,4 @@ class ReportGenerator:
                 logger.debug(f"Heatmap skipped: {exc}")
 
         except ImportError:
-            logger.debug("matplotlib not available — plots skipped")
+            logger.debug("matplotlib not available: plots skipped")

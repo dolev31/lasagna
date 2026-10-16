@@ -129,9 +129,7 @@ def main(workdir: Path) -> None:
     sweep_seconds = time.monotonic() - sweep_started
 
     # 4. Read the result.
-    _lasagna(
-        "leaderboard", "benchmark", "leaderboard", "results/results.json", "--metric", "ndcg@10"
-    )
+    _lasagna("leaderboard", "results", "leaderboard", "results/results.json", "--metric", "ndcg@10")
     _lasagna(
         "significance",
         "results",

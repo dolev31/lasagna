@@ -223,7 +223,7 @@ def _winner(a: float, b: float, metric: str) -> int:
 
 def _num(value: Optional[float], digits: int = 4) -> str:
     if value is None:
-        return "—"
+        return "-"
     if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
         return _e(format_effect_size(value))
     return f"{value:.{digits}f}"
@@ -271,8 +271,9 @@ def _header(run: _Run, metric: str, benchmarks: List[str]) -> str:
     title = results.experiment_name or config.get("experiment_name") or "Lasagna results"
     submitter = meta.get("submitter") or {}
     who = ", ".join(v for v in (submitter.get("name"), submitter.get("affiliation")) if v)
+    created = config.get("created_at")
     facts = [
-        ("Date", _date(config.get("created_at"))),
+        ("Date", _date(created)),
         ("Package", meta.get("package_version") or env.get("lasagna_version")),
         ("Metrics version", meta.get("metrics_version")),
         ("Run id", meta.get("run_id")),
@@ -288,8 +289,12 @@ def _header(run: _Run, metric: str, benchmarks: List[str]) -> str:
     failed = len(results.failed_tasks)
     if failed:
         facts.append(("Failed tasks", f"{failed} of {results.total_tasks}"))
+    # The recorded timestamp, to the microsecond, on hover over the short form.
+    titles = {"Date": f' title="{_e(created)}"'} if created not in (None, "") else {}
     dl = "".join(
-        f"<div><dt>{_e(k)}</dt><dd>{_e(v)}</dd></div>" for k, v in facts if v not in (None, "")
+        f"<div><dt>{_e(k)}</dt><dd{titles.get(k, '')}>{_e(v)}</dd></div>"
+        for k, v in facts
+        if v not in (None, "")
     )
     integrity = meta.get("integrity") or {}
     flags = ""
@@ -365,7 +370,7 @@ def _leaderboard(ranking: List[Dict[str, Any]], metric: str) -> str:
     rows = []
     for r in ranking:
         rank = str(r["rank"]) if r["rank"] else "–"
-        value = _cell(r["mean"], r["std"], r["n_runs"]) if r["mean"] is not None else "—"
+        value = _cell(r["mean"], r["std"], r["n_runs"]) if r["mean"] is not None else "-"
         runs = str(r.get("n_runs", "")) if r["mean"] is not None else ""
         queries = str(r.get("n_queries") or "") if r["mean"] is not None else ""
         klass = ' class="unranked"' if not r["rank"] else ""
@@ -398,7 +403,7 @@ def _metric_table(results: BenchmarkResults, bench: str, metric: str) -> str:
         for arm in arms:
             agg = by_arm.get(arm)
             if agg is None:
-                cells.append('<td class="num muted">—</td>')
+                cells.append('<td class="num muted">-</td>')
                 continue
             klass = "num best" if best is not None and agg.mean == best else "num"
             cells.append(f'<td class="{klass}">{_cell(agg.mean, agg.std, agg.n_runs)}</td>')
@@ -431,7 +436,7 @@ def _significance(results: BenchmarkResults, bench: str, metric: str) -> str:
                 f"as p = 1: {_e(r.get('untestable', ''))}</td><td></td></tr>"
             )
             continue
-        mark = '<span class="chip good">significant</span>' if r.get("significant") else "—"
+        mark = '<span class="chip good">significant</span>' if r.get("significant") else "-"
         body.append(
             f'<tr><td class="pair">{pair}</td><td class="num">{r["difference"]:+.4f}</td>'
             f'<td class="num">{_e(format_effect_size(r.get("effect_size")))}</td>'
@@ -538,7 +543,7 @@ def _per_query(results: BenchmarkResults, bench: str, metric: str, a: str, b: st
         else:
             win, lose = (a, b) if w == 1 else (b, a)
             result = f'<strong class="winner">{_e(win)}</strong> over {_e(lose)}'
-        delta = f"{va - vb:+.4f}" if w is not None else "—"
+        delta = f"{va - vb:+.4f}" if w is not None else "-"
         query = f'<code class="qid">{_e(sid)}</code>'
         if question:
             query += f' <span class="question">{_e(_clip(question))}</span>'

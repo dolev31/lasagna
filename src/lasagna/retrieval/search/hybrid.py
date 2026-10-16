@@ -540,7 +540,7 @@ class BM25FallbackIndex:
         # search threads behind an expensive build.
         acquired = self._build_lock.acquire(blocking=False)
         if not acquired:
-            logger.debug("BM25 build already in progress — skipping")
+            logger.debug("BM25 build already in progress: skipping")
             return False
 
         try:

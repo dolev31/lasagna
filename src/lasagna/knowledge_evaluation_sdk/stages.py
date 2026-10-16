@@ -256,6 +256,38 @@ _HARNESS_STAGES: Dict[str, Optional[str]] = {
     "save_trajectories": None,
 }
 
+#: Strategies named after a structural setting; with it off, ``semantic`` runs.
+_STRUCTURAL = frozenset({"structure_aware", "hierarchical"})
+
+#: The settings that decide which built-in chunker runs.
+CHUNKER_DISPATCH_KEYS = (
+    "chunking_strategy",
+    "enable_hierarchical",
+    "preserve_headers",
+    "preserve_tables",
+)
+
+
+def effective_chunking_strategy(settings: Mapping[str, Any]) -> Optional[str]:
+    """The built-in chunker that runs for these chunker settings.
+
+    ``enable_hierarchical`` wins, then ``preserve_headers`` or
+    ``preserve_tables`` (``structure_aware``), and a structural strategy whose
+    setting is off runs ``semantic``. This is the dispatch order of
+    ``processing.chunker.semantic.resolve_effective_strategy``, here without
+    its warning or its import cost so records can name what ran; a test holds
+    the two equal.
+    """
+    strategy = settings.get("chunking_strategy")
+    strategy = getattr(strategy, "value", strategy)
+    if settings.get("enable_hierarchical"):
+        return "hierarchical"
+    if settings.get("preserve_headers") or settings.get("preserve_tables"):
+        return "structure_aware"
+    if strategy in _STRUCTURAL:
+        return "semantic"
+    return None if strategy is None else str(strategy)
+
 
 def stage_of(key: str) -> Optional[str]:
     """The stage a setting or component slot belongs to; None if operational."""
@@ -339,6 +371,13 @@ def stage_manifest(
         stage = stage_of(key)
         if stage is not None:
             by_stage[stage][key] = value
+    chunking = by_stage["chunker"]
+    if "chunking_strategy" in chunking and not (components or {}).get("chunker"):
+        # The strategy that runs, not the one named: structural settings
+        # shadow it, so two arms naming different strategies can chunk alike
+        # (and should digest alike). A chunker component replaces the
+        # built-in dispatch, so its arms keep the setting as given.
+        chunking["chunking_strategy"] = effective_chunking_strategy(chunking)
 
     manifest: Dict[str, Any] = {}
     for stage, settings in by_stage.items():

@@ -255,10 +255,10 @@ class ExperimentSupervisor:
             progress = (
                 f"{es.done_tasks}/{es.total_tasks}" if es.total_tasks > 0 else f"{es.done_tasks}/??"
             )
-            best_q = f"{es.best_metric:.4f}" if es.best_metric is not None else "—"
-            delta = f"{es.baseline_delta:+.3f}" if es.baseline_delta is not None else "—"
-            elapsed = _fmt_duration(es.elapsed_s) if es.elapsed_s > 0 else "—"
-            eta = _fmt_duration(es.eta_s) if es.eta_s is not None else "—"
+            best_q = f"{es.best_metric:.4f}" if es.best_metric is not None else "-"
+            delta = f"{es.baseline_delta:+.3f}" if es.baseline_delta is not None else "-"
+            elapsed = _fmt_duration(es.elapsed_s) if es.elapsed_s > 0 else "-"
+            eta = _fmt_duration(es.eta_s) if es.eta_s is not None else "-"
             warn_str = "; ".join(es.anomalies) if es.anomalies else ""
 
             line = (
@@ -289,7 +289,7 @@ class ExperimentSupervisor:
         if report.baseline_quality is not None:
             print(f"  Baseline (standard): {self._ir_metric} = {report.baseline_quality:.4f}")
         if report.anomaly_count > 0:
-            print(f"  ⚠  {report.anomaly_count} anomaly warning(s) — see above")
+            print(f"  ⚠  {report.anomaly_count} anomaly warning(s): see above")
         print("=" * 90)
 
         # Detailed anomaly block
@@ -311,7 +311,7 @@ class ExperimentSupervisor:
         try:
             import yaml as _yaml
         except ImportError:
-            logger.warning("PyYAML not available — cannot parse experiment specs")
+            logger.warning("PyYAML not available: cannot parse experiment specs")
             return []
 
         for yaml_path in sorted(self._experiments_dir.glob("*.yaml")):
@@ -646,7 +646,7 @@ class ExperimentSupervisor:
         if len(non_base) > 1:
             values = list(non_base.values())
             if max(values) - min(values) < 0.001:
-                anomalies.append("⚠ All configs identical — config injection may not be working")
+                anomalies.append("⚠ All configs identical: config injection may not be working")
 
         # Latency anomaly: compute from per-task latency fields if available
         latencies = [
@@ -671,7 +671,7 @@ class ExperimentSupervisor:
 
 def _fmt_duration(seconds: Optional[float]) -> str:
     if seconds is None:
-        return "—"
+        return "-"
     s = int(seconds)
     if s < 60:
         return f"{s}s"
