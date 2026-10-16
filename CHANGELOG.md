@@ -479,8 +479,8 @@ Server and deployment:
   results.
 - **A Milvus collection whose row count cannot be read is no longer treated as
   empty and dropped.** `get_collection_stats` returned 0 on any error, which
-  the identity check, an insert rebuild and MCP `reindex_document
-  --force_rebuild` took for an empty collection. OpenSearch raises the same
+  the identity check, an insert rebuild and MCP `reindex_document`
+  with `force_rebuild` took for an empty collection. OpenSearch raises the same
   way.
 - OpenSearch hosts and the tracing endpoint are logged without their passwords.
 - MCP `reindex_document` and `rebuild_collection` no longer replace the
@@ -507,6 +507,11 @@ Server and deployment:
 - CI pins detect-secrets 1.5.0, the version that wrote `.secrets.baseline`.
 - The release workflow pins `pypa/gh-action-pypi-publish` to the commit v1.14.2
   names; the pin was the tag object.
+- **`--resume` no longer restores results computed with another LLM.** The
+  resume key was the same for gpt-6-luna on OpenAI and Claude on Anthropic; it
+  now includes the LLM provider and model (`MODEL_NAME`, the detected API key),
+  the judge's model and base URL, and the local commit of each model the arm
+  loads. Earlier checkpoints are not restored.
 
 Numbers that were wrong:
 

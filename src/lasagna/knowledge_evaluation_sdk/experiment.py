@@ -1552,17 +1552,6 @@ class Experiment:
         _check_components_conform(pipeline_configs)
         _check_no_rag_arms(pipeline_configs, cfg.tracks)
 
-        # What a checkpoint depends on beyond its task: metric definitions,
-        # package version, judge and environment settings. In every task key,
-        # so --resume never restores a result computed under other ones.
-        from .run_provenance import resume_fingerprint
-
-        fingerprint = resume_fingerprint(
-            os.environ.get("RAG_EVAL_JUDGE_MODEL") or cfg.judge_model or None,
-            variance_source=cfg.variance_source,
-            max_concurrency=cfg.max_concurrency,
-        )
-
         for bench_spec in cfg.benchmarks:
             for pipe_cfg in pipeline_configs:
                 for run_idx in range(cfg.n_runs):
@@ -1583,10 +1572,10 @@ class Experiment:
                         max_corpus_docs=cfg.max_corpus_docs,
                         variance_source=cfg.variance_source,
                         tracks=(tuple(cfg.tracks) if list(cfg.tracks) != list(_TRACKS) else None),
-                        resume_fingerprint=fingerprint,
                     )
                     tasks.append(task)
 
+        _set_resume_fingerprints(cfg, tasks)
         return tasks
 
     async def run(
@@ -2083,6 +2072,41 @@ DEFAULT_JUDGE_MODEL = "gpt-6-luna"
 #: forces 1.0 on gpt-5 and later; the judge client restores this one where the
 #: model takes it. See ``pin_openai_client``.
 _JUDGE_TEMPERATURE = 0.01
+
+
+def _set_resume_fingerprints(cfg: "ExperimentConfig", tasks: List[BenchmarkTask]) -> None:
+    """Put what a checkpoint depends on beyond its task into every task key.
+
+    Metric definitions, package version, judge and its endpoint, environment
+    settings, the LLM provider and model, and the local commit of each model
+    the arm loads, so --resume never restores a result computed under other
+    ones. The LLM counts on the retrieval track too: query expansion, HyDE and
+    the LLM rerankers call it there. A model not yet in the local cache has no
+    commit to hash, so after a run that downloaded one, --resume reruns its
+    tasks once.
+    """
+    from .cost import _arm_models, _platform, generator_model_name
+    from .run_provenance import model_revisions, resume_fingerprint
+
+    judge = _resolve_judge_model(cfg)
+    llms: Dict[str, Any] = {"provider": _platform(), "model": generator_model_name()}
+    if judge:
+        llms["judge_base_url"] = (
+            os.environ.get("RAG_EVAL_JUDGE_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or None
+        )
+    scorers = [_similarity_model_for_record()] if "generation" in _parse_tracks(cfg.tracks) else []
+    by_arm: Dict[str, str] = {}
+    for task in tasks:
+        if task.config_hash not in by_arm:
+            loaded = [m for _, m, _ in _arm_models(task) if not m.startswith("component ")]
+            by_arm[task.config_hash] = resume_fingerprint(
+                judge,
+                variance_source=cfg.variance_source,
+                max_concurrency=cfg.max_concurrency,
+                llms=llms,
+                model_revisions=model_revisions(n for n in loaded + scorers if n),
+            )
+        task.resume_fingerprint = by_arm[task.config_hash]
 
 
 def _resolve_judge_model(cfg: "ExperimentConfig") -> Optional[str]:

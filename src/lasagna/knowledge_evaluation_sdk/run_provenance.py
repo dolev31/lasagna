@@ -126,12 +126,17 @@ def resume_fingerprint(
     variance_source: Optional[str] = None,
     max_concurrency: Optional[int] = None,
     settings_file: Optional[str] = None,
+    llms: Optional[Mapping[str, Any]] = None,
+    model_revisions: Optional[Mapping[str, Any]] = None,
 ) -> str:
     """A hash of what a checkpointed result depends on beyond its task.
 
     The metric definitions, the package version, the judge, the overridden
     settings, the versions of the libraries that compute the numbers, the
-    settings file's contents, ``variance_source`` and ``max_concurrency``. A
+    settings file's contents, ``variance_source`` and ``max_concurrency``;
+    ``llms``, the provider and models the run resolved (``MODEL_NAME`` is not a
+    ``RAG_`` variable, and the provider follows whichever API key is set); and
+    ``model_revisions``, the local commit of each model the task loads. A
     checkpoint written under any other value of these is not restored; it
     would carry numbers computed some other way.
     """
@@ -147,6 +152,8 @@ def resume_fingerprint(
             "settings_file": _settings_file_digest(settings_file),
             "variance_source": variance_source,
             "max_concurrency": max_concurrency,
+            "llms": dict(llms or {}),
+            "model_revisions": dict(model_revisions or {}),
         },
         sort_keys=True,
         default=str,
