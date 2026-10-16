@@ -6,21 +6,31 @@
 # Usage:
 #   docker compose -f docker-compose.yml -f backends/pinecone.yml up -d
 
+# The image needs this store's client library (the `vector-backends` extra);
+# the Dockerfile installs it for this build argument.
+x-build-args: &build-args
+  args:
+    VECTOR_BACKEND: pinecone
+
 services:
   api:
+    build: *build-args
     environment:
       RAG_VECTOR_BACKEND: pinecone
 
   celery-worker:
+    build: *build-args
     environment:
       RAG_VECTOR_BACKEND: pinecone
 
   # Beat only schedules tasks, but it imports the same config, so it gets
   # the same backend settings as every other service.
   celery-beat:
+    build: *build-args
     environment:
       RAG_VECTOR_BACKEND: pinecone
 
   mcp:
+    build: *build-args
     environment:
       RAG_VECTOR_BACKEND: pinecone

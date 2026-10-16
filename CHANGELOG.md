@@ -152,6 +152,11 @@ Results:
 
 Servers and deployment:
 
+- **The Docker image had no Qdrant, Weaviate or Pinecone client**, so the
+  stack built with those fragments never passed its readiness check. The
+  Dockerfile's `VECTOR_BACKEND` build argument installs the client (and fails
+  the build if it does not import), the three fragments set it, and `make
+  validate` refuses an existing image built for another backend.
 - **Without the `celery` profile, uploads waited for a worker that never
   ran.** Compose set `RAG_CELERY_ENABLED=true` whatever the profiles, and
   with Redis reachable the api queued every upload. `make` now derives the

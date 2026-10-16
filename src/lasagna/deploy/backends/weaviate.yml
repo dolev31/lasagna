@@ -6,6 +6,12 @@
 # Usage:
 #   docker compose -f docker-compose.yml -f backends/weaviate.yml up -d
 
+# The image needs this store's client library (the `vector-backends` extra);
+# the Dockerfile installs it for this build argument.
+x-build-args: &build-args
+  args:
+    VECTOR_BACKEND: weaviate
+
 services:
   weaviate:
     image: cr.weaviate.io/semitechnologies/weaviate:1.28.4
@@ -29,6 +35,7 @@ services:
     restart: unless-stopped
 
   api:
+    build: *build-args
     environment:
       RAG_VECTOR_BACKEND: weaviate
       WEAVIATE_URL: http://weaviate:8080
@@ -37,6 +44,7 @@ services:
         condition: service_healthy
 
   celery-worker:
+    build: *build-args
     environment:
       RAG_VECTOR_BACKEND: weaviate
       WEAVIATE_URL: http://weaviate:8080
@@ -47,11 +55,13 @@ services:
   # Beat only schedules tasks, but it imports the same config, so it gets
   # the same backend settings as every other service.
   celery-beat:
+    build: *build-args
     environment:
       RAG_VECTOR_BACKEND: weaviate
       WEAVIATE_URL: http://weaviate:8080
 
   mcp:
+    build: *build-args
     environment:
       RAG_VECTOR_BACKEND: weaviate
       WEAVIATE_URL: http://weaviate:8080

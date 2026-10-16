@@ -86,12 +86,30 @@ COPY pyproject.toml LICENSE NOTICE README.md ./
 COPY src/lasagna/ ./src/lasagna/
 
 # Install Python dependencies. `production` is what the production settings turn
-# on (Redis, Celery, Prometheus, OpenTelemetry, PostgreSQL); the others are the
-# backends and embedder the compose overlays select.
+# on (Redis, Celery, Prometheus, OpenTelemetry, PostgreSQL); `pgvector`,
+# `opensearch` and `flag-embedding` are backends and an embedder the compose
+# overlays select. Milvus and Milvus Lite ship with the core package.
+#
+# VECTOR_BACKEND names the store the image talks to. qdrant, weaviate and
+# pinecone need the `vector-backends` extra; their compose fragments set this
+# argument, and `all` installs every client. The build fails if the client
+# does not import, rather than the api failing its readiness check later.
 # Pin setuptools<78 so that pkg_resources remains available (required by milvus-lite)
-RUN pip install --no-cache-dir "setuptools<78" && \
-    pip install --no-cache-dir ".[production,pgvector,opensearch,flag-embedding]" \
-    "gunicorn>=22.0.0"
+ARG VECTOR_BACKEND=milvus
+RUN case "$VECTOR_BACKEND" in \
+      milvus|milvus-lite|pgvector|opensearch) extra=""; check="" ;; \
+      qdrant) extra=",vector-backends"; check="qdrant_client" ;; \
+      weaviate) extra=",vector-backends"; check="weaviate" ;; \
+      pinecone) extra=",vector-backends"; check="pinecone" ;; \
+      all) extra=",vector-backends"; check="qdrant_client weaviate pinecone" ;; \
+      *) echo "Unknown VECTOR_BACKEND=$VECTOR_BACKEND. Use one of: milvus milvus-lite pgvector opensearch qdrant weaviate pinecone all" >&2; exit 1 ;; \
+    esac && \
+    pip install --no-cache-dir "setuptools<78" && \
+    pip install --no-cache-dir ".[production,pgvector,opensearch,flag-embedding$extra]" \
+    "gunicorn>=22.0.0" && \
+    for module in pymilvus psycopg opensearchpy $check; do python -c "import $module" || exit 1; done
+# Read by `make validate`, which refuses an image built for another backend.
+LABEL org.lasagna.vector-backend="$VECTOR_BACKEND"
 
 # nltk's sentence tokenizer data. Nothing downloads it at runtime, so bake it in
 # where nltk looks by default.

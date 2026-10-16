@@ -74,9 +74,12 @@ Makefile includes `.env` and that assignment wins. Pass the same value to `make 
 
 - **Client libraries in the image.** The Dockerfile installs
   `".[production,pgvector,opensearch,flag-embedding]"`, which covers Milvus, Milvus Lite,
-  pgvector and OpenSearch. `qdrant`, `weaviate` and `pinecone` also need the
-  `vector-backends` extra; without it the api cannot load the backend and fails its
-  readiness check. Add `vector-backends` to that install line and run `make build`.
+  pgvector and OpenSearch. Its `VECTOR_BACKEND` build argument adds the `vector-backends`
+  extra for `qdrant`, `weaviate` and `pinecone` (or `all`), and the build fails if the
+  client does not import. The `qdrant`, `weaviate` and `pinecone` fragments set that
+  argument, so `make build` builds the right image. `make up` reuses an image that exists,
+  so after switching to one of those three, `make validate` refuses an image built for
+  another backend and names the command: `make build VECTOR_BACKEND=qdrant`.
 - **External databases.** The connection a fragment sets is under `environment:`, so a
   `QDRANT_URL` in `.env` does not reach the services. To use a vector store outside the
   stack, edit the fragment or write your own.
@@ -138,7 +141,7 @@ this volume with the others.
 | Target | What it does |
 | --- | --- |
 | `make up` | `make validate`, then `docker compose <files> up -d` |
-| `make validate` | Stops with an error when `VECTOR_BACKEND` is unset; when `backends/<VECTOR_BACKEND>.yml` does not exist (it lists the ones that do); when `RAG_JWT_SECRET` or `POSTGRES_PASSWORD` is empty; when `VECTOR_BACKEND=milvus-lite` is combined with `celery` or `mcp` in `COMPOSE_PROFILES`; and when `RAG_CELERY_ENABLED` is true without `celery` in `COMPOSE_PROFILES`. Otherwise prints `Config OK`. It checks that the secrets are set, not how long they are |
+| `make validate` | Stops with an error when `VECTOR_BACKEND` is unset; when `backends/<VECTOR_BACKEND>.yml` does not exist (it lists the ones that do); when `RAG_JWT_SECRET` or `POSTGRES_PASSWORD` is empty; when `VECTOR_BACKEND=milvus-lite` is combined with `celery` or `mcp` in `COMPOSE_PROFILES`; when `RAG_CELERY_ENABLED` is true without `celery` in `COMPOSE_PROFILES`; and, for `qdrant`, `weaviate` and `pinecone`, when an image already built for the stack lacks that backend's client. Otherwise prints `Config OK`. It checks that the secrets are set, not how long they are |
 | `make down` | Stop the stack, keep the volumes |
 | `make down-v` | Stop the stack and delete its volumes (documents, metadata, uploads) |
 | `make build` | Rebuild the image |
@@ -369,7 +372,8 @@ Before you apply:
    the Secret and overlays point at `postgres.rag-knowledge:5432`,
    `redis.rag-knowledge:6379`, `milvus.rag-knowledge:19530`, `qdrant.rag-knowledge:6333`
    and `weaviate.rag-knowledge:8080`. The `qdrant`, `weaviate` and `pinecone` overlays also
-   need the `vector-backends` extra in the image (see [Vector backends](#vector-backends)).
+   need their client in the image: build it with `--build-arg VECTOR_BACKEND=qdrant` (or
+   `weaviate`, `pinecone`, `all`; see [Vector backends](#vector-backends)).
 3. **Share the uploads.** The manifests mount no volume and turn Celery on, so a worker
    pod cannot open a file an api pod stored. Mount one ReadWriteMany volume at the same
    path in both Deployments and set `LASAGNA_UPLOAD_DIR` to it, or set
