@@ -172,3 +172,100 @@ def test_validate_accepts_celery_with_its_profile(tmp_path):
         "RAG_CELERY_ENABLED=true",
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# -- the queue the api writes to is the worker's ------------------------------
+
+_APP_MODULE = "lasagna.infrastructure.tasks.celery_app"
+
+
+def _import_app_with(monkeypatch, celery_class):
+    import importlib
+
+    fake = types.ModuleType("celery")
+    fake.Celery = celery_class
+    monkeypatch.setitem(sys.modules, "celery", fake)
+    monkeypatch.delitem(sys.modules, _APP_MODULE, raising=False)
+    try:
+        return importlib.import_module(_APP_MODULE)
+    finally:
+        sys.modules.pop(_APP_MODULE, None)
+
+
+class _Celery:
+    """What celery_app.py does with the Celery app it creates."""
+
+    made = []
+
+    def __init__(self, main, broker=None, backend=None, include=()):
+        self.main, self.include, self.default = main, list(include), False
+        self.conf = types.SimpleNamespace(update=lambda **kw: None)
+        _Celery.made.append(self)
+
+    def autodiscover_tasks(self, packages, related_name="tasks"):
+        self.include += [f"{p}.{related_name}" for p in packages]
+
+    def set_default(self):
+        self.default = True
+
+
+def test_the_configured_app_is_the_default_for_every_thread(monkeypatch):
+    """Found on the live compose stack: with the worker up, every upload logged
+    "Celery dispatch failed ... Connection refused" and ran in the api.
+
+    The tasks are shared tasks, bound to Celery's current app, which is per
+    thread; the upload route runs in a threadpool thread, where the current app
+    was Celery's unconfigured default (AMQP on localhost). The configured app
+    must be the default for all threads.
+    """
+    _Celery.made.clear()
+    _import_app_with(monkeypatch, _Celery)
+
+    assert [(app.main, app.default) for app in _Celery.made] == [("rag_tasks", True)]
+
+
+def test_the_worker_imports_the_module_that_defines_the_tasks(monkeypatch):
+    """Then the worker discarded each message as an unregistered task:
+    autodiscover_tasks imported ``lasagna.infrastructure.tasks.tasks``, which
+    does not exist, so no task (upload or GC) was ever registered."""
+    _Celery.made.clear()
+    _import_app_with(monkeypatch, _Celery)
+
+    (app,) = _Celery.made
+    assert "lasagna.infrastructure.tasks.document_tasks" in app.include
+    for module in app.include:
+        assert importlib_util_find(module), f"{module} does not exist"
+
+
+def importlib_util_find(module: str) -> bool:
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(module) is not None
+    except ModuleNotFoundError:
+        return False
+
+
+def test_with_celery_the_tasks_are_registered_and_sent_from_any_thread(monkeypatch):
+    pytest.importorskip("celery")
+    import importlib
+    import threading
+
+    monkeypatch.setenv("RAG_CELERY_BROKER_URL", "redis://broker.invalid:6379/0")
+    monkeypatch.delitem(sys.modules, _APP_MODULE, raising=False)
+    try:
+        app = importlib.import_module(_APP_MODULE).celery_app
+        app.loader.import_default_modules()
+        seen = []
+        worker = threading.Thread(
+            target=lambda: seen.append(
+                document_tasks.process_document_task._get_current_object().app.main
+            )
+        )
+        worker.start()
+        worker.join()
+    finally:
+        sys.modules.pop(_APP_MODULE, None)
+
+    assert seen == [app.main]
+    assert {"rag.process_document", "knowledge.gc.run_full_cycle"} <= set(app.tasks)

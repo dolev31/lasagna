@@ -65,6 +65,10 @@ def _build_beat_schedule() -> dict:
     }
 
 
+#: The module that defines the tasks (``rag.process_document`` and the GC tasks).
+TASK_MODULE = "lasagna.infrastructure.tasks.document_tasks"
+
+
 def create_celery_app() -> "Celery":
     """Create and configure the Celery application.
 
@@ -85,6 +89,12 @@ def create_celery_app() -> "Celery":
         "rag_tasks",
         broker=broker_url,
         backend=result_backend,
+        # Imported by the worker at startup, so it knows the tasks. The
+        # autodiscover_tasks call that stood here imports `<package>.tasks`,
+        # which does not exist: the worker registered nothing and discarded
+        # every upload and GC run as "unregistered task", while its
+        # `inspect ping` healthcheck still passed.
+        include=[TASK_MODULE],
     )
 
     app.conf.update(
@@ -101,8 +111,13 @@ def create_celery_app() -> "Celery":
         beat_schedule=_build_beat_schedule(),
     )
 
-    # Auto-discover tasks in this package
-    app.autodiscover_tasks(["lasagna.infrastructure.tasks"])
+    # The tasks are ``shared_task``s, which bind to Celery's *current* app, and
+    # that is per thread. The REST routes dispatch from a threadpool thread
+    # where this app was never made current, so ``.delay()`` used Celery's
+    # unconfigured default app (AMQP on localhost), failed with "Connection
+    # refused", and every upload fell back to the api's own threads with the
+    # worker idle. The default app is shared by all threads.
+    app.set_default()
 
     from lasagna.core.provenance import redact_url
 

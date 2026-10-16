@@ -152,6 +152,14 @@ Results:
 
 Servers and deployment:
 
+- **No upload ever reached the Celery worker, and the worker ran no task.**
+  The api dispatches from a threadpool thread, where Celery's current app was
+  its unconfigured default (AMQP on localhost), so every `.delay()` failed
+  with "Connection refused" and the api processed the upload itself. And the
+  worker's `autodiscover_tasks` imported a module that does not exist, so it
+  discarded every upload and GC run as an unregistered task while its
+  healthcheck passed. The app is the default for all threads and lists the
+  task module; found running the live tests against the compose stack.
 - **`KnowledgeClient.from_url` failed against a server with auth on, and its
   `close()` raised `AttributeError`.** It never sent `X-Session-Token`, so
   `RAG_REQUIRE_AUTH=true` answered 401 to every call. With `api_key` (a key
