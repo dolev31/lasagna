@@ -300,7 +300,13 @@ def _parse_env_value(key: str, raw: str, template: Any) -> Any:
     else:
         value = raw
 
-    if key in _VALID_RANGES and isinstance(value, (int, float)):
+    _check_bounds(key, value)
+    return value
+
+
+def _check_bounds(key: str, value: Any) -> None:
+    """Raise `ConfigError` when ``value`` is outside ``key``'s range or choices."""
+    if key in _VALID_RANGES and isinstance(value, (int, float)) and not isinstance(value, bool):
         lo, hi = _VALID_RANGES[key]
         if not (lo <= value <= hi):
             raise ConfigError(f"{key} takes {lo} to {hi}")
@@ -314,7 +320,38 @@ def _parse_env_value(key: str, raw: str, template: Any) -> Any:
                 f"{key} takes one of {', '.join(allowed)}"
                 + (f" (did you mean {hint[0]}?)" if hint else "")
             )
-    return value
+
+
+def _check_file_value(key: str, value: Any, template: Any) -> None:
+    """Raise `ConfigError` when a settings-file value breaks the rules an env value meets.
+
+    The file's values are typed already (TOML), so this checks the type the
+    default has (a whole number also counts as a number), then the range and
+    choices `_parse_env_value` applies.
+    """
+
+    def _is(kind: type) -> bool:
+        if isinstance(value, bool):
+            return kind is bool
+        if kind is float:
+            return isinstance(value, (int, float))
+        return isinstance(value, kind)
+
+    if key in _NULLABLE_TYPES:
+        if value is None or (isinstance(value, str) and value.strip().lower() in ("none", "null")):
+            return
+        ok = _is(_NULLABLE_TYPES[key])
+    elif template is None:
+        ok = True
+    else:
+        ok = _is(type(template) if isinstance(template, (bool, int, float, str)) else object)
+        if isinstance(template, list):
+            ok = isinstance(value, list)
+        elif isinstance(template, dict):
+            ok = isinstance(value, dict)
+    if not ok:
+        raise ConfigError(f"{key} takes {_type_phrase(template, key)}")
+    _check_bounds(key, value)
 
 
 def _warn_unknown_env(env_key: str, known: Dict[str, Any]) -> None:
@@ -526,6 +563,7 @@ class RAGConfig:
                 override_path = knowledge_module_dir / override_path
             if override_path.exists():
                 logger.info(f"Loading settings from {override_path}")
+                self._settings_path = str(override_path)
                 return Dynaconf(
                     root_path=str(override_path.parent),
                     settings_files=[str(override_path)],
@@ -539,6 +577,7 @@ class RAGConfig:
 
         if knowledge_toml_path.exists():
             logger.debug(f"Loading settings from knowledge module: {knowledge_toml_path}")
+            self._settings_path = str(knowledge_toml_path)
             return Dynaconf(
                 root_path=str(knowledge_module_dir),
                 settings_files=[str(knowledge_toml_path)],
@@ -912,6 +951,7 @@ class RAGConfig:
             knowledge_rag = knowledge_rag.to_dict()
         elif not isinstance(knowledge_rag, dict):
             knowledge_rag = {}
+        self._check_settings_file(knowledge_rag, default_config)
 
         # 12-factor: Load overrides from RAG_* environment variables. Every
         # setting is accepted: the defaults above, the ones only the settings
@@ -959,6 +999,29 @@ class RAGConfig:
         )
 
         return config
+
+    def _check_settings_file(self, values: Dict[str, Any], defaults: Dict[str, Any]) -> None:
+        """Refuse settings-file values that the same setting in the environment would refuse.
+
+        They were merged unchecked, so ``chunk_size = 5`` or
+        ``database_backend = "postgres"`` in a settings file ran with no sign.
+        The error names the file, each key and its value.
+        """
+        problems = []
+        for key, value in values.items():
+            if key not in defaults:
+                continue
+            try:
+                _check_file_value(key, value, defaults[key])
+            except ConfigError as exc:
+                problems.append(f"[rag] {key} = {value!r}: {exc}")
+        if problems:
+            source = getattr(self, "_settings_path", None) or "the settings file"
+            raise ConfigError(
+                f"Invalid setting{'s' if len(problems) > 1 else ''} in {source}:\n  "
+                + "\n  ".join(problems)
+                + "\nFix the value in the file, or remove the line to use the default."
+            )
 
     @staticmethod
     def _load_env_overrides(default_config: Dict[str, Any]) -> Dict[str, Any]:

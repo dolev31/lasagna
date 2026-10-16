@@ -729,6 +729,11 @@ Servers and deployment:
   certificate checks off; `on` was ignored by the lifecycle settings,
   `RAG_EMBED_MCP`, `RAG_CONFIGURATOR`, `RAG_ALLOW_HEADER_IDENTITY` and
   `RAG_LANGFUSE_TRACING`.
+- Values in the settings file (`LASAGNA_SETTINGS_FILE`, or the packaged
+  `settings.lasagna.toml`) were merged without the checks environment values
+  get, so `chunk_size = 5` or `database_backend = "postgres"` ran as written.
+  They are checked the same way (type, range, choices), and the error names
+  the file, each key and its value.
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except
