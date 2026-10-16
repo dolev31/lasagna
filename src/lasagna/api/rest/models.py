@@ -201,8 +201,11 @@ class HealthResponse(BaseModel):
     #: sensitive to disclose: a caller learns it from their first request.
     require_auth: bool = False
 
-    #: The checks that are not ``up``; a readiness 503 names them here.
+    #: The checks that are ``down``; a readiness 503 names them here.
     failing: List[str] = Field(default_factory=list)
+
+    #: The checks that are ``degraded``: working on a fallback (Redis down).
+    degraded: List[str] = Field(default_factory=list)
 
 
 class LivenessResponse(BaseModel):

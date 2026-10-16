@@ -533,7 +533,10 @@ class TestReadiness:
         assert r.status_code == 503
         assert r.json()["failing"] == ["vector_backend"]
 
-    def test_redis_is_pinged_when_it_is_used(self, auth_off, fast_pings, monkeypatch):
+    def test_redis_down_is_degraded_not_failing(self, auth_off, fast_pings, monkeypatch):
+        """Redis is pinged when it is used. Its users fall back (the search cache
+        and rate limits to process memory, uploads to local processing), so it no
+        longer takes the instance out of rotation."""
         import lasagna.core.config as config_module
 
         monkeypatch.setattr(
@@ -548,8 +551,10 @@ class TestReadiness:
             raising=False,
         )
         r = _client(_backend()).get("/api/v1/health/ready")
-        assert r.status_code == 503
-        assert r.json()["failing"] == ["redis"]
+        assert r.status_code == 200, r.json()
+        assert r.json()["failing"] == [] and r.json()["degraded"] == ["redis"]
+        assert r.json()["status"] == "degraded"
+        assert r.json()["checks"]["redis"]["status"] == "degraded"
 
     def test_hung_pings_do_not_take_the_threads_searches_use(self, auth_off, fast_pings):
         """Searches run on the default executor; a hung ping must not hold it."""

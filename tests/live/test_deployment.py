@@ -1016,7 +1016,7 @@ class TestFullStack:
         assert deleted.status_code == 200, deleted.text
         assert not any(doc_id in search() for _ in range(8))
 
-    def test_the_mcp_server_is_healthy(self):
+    def test_the_mcp_server_is_alive(self):
         try:
             resp = http.get(f"{MCP_BASE_URL}/health", timeout=HEALTH_TIMEOUT)
         except requests.ConnectionError:
@@ -1024,4 +1024,5 @@ class TestFullStack:
                 raise
             pytest.skip(f"no MCP server at {MCP_BASE_URL}; set {MCP_URL_ENV} to require one")
         assert resp.status_code == 200, resp.text
-        assert resp.json()["status"] == "healthy"
+        # Liveness only: get_system_status and /api/v1/health report components.
+        assert resp.json()["status"] == "alive"

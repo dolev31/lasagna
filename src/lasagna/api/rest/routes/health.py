@@ -1,16 +1,29 @@
 """Health, liveness, and readiness probes.
 
-- ``GET /api/v1/health``       — full health check (all dependencies)
-- ``GET /api/v1/health/live``  — liveness (is the process alive?)
-- ``GET /api/v1/health/ready`` — readiness (can it handle requests?)
-- ``GET /api/v1/stats``        — system statistics
+One model, three answers:
+
+- ``GET /api/v1/health/live``: liveness. The process is up: 200, and no
+  dependency is checked.
+- ``GET /api/v1/health/ready``: readiness. Can this instance serve? 503 naming
+  every failing component in ``failing``; a degraded one (Redis down, which
+  the search cache, rate limits and uploads fall back from) does not fail it.
+- ``GET /api/v1/health``: detailed status, the same component states as
+  readiness (``healthy``, ``degraded`` or ``unhealthy``, with ``failing`` and
+  ``degraded``), always with 200 once the backend has loaded. The MCP
+  ``get_system_status`` tool reports the same states.
+- ``GET /api/v1/stats``: system statistics.
+
+They contradicted each other: ``/health`` answered 200 ``"unhealthy"`` with
+``failing: []``, readiness 503 with the embedding model failing, and MCP said
+"healthy".
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
 from time import perf_counter
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -28,8 +41,27 @@ from ..models import (
 router = APIRouter(tags=["health"])
 
 
+def _served_embedder(backend):
+    """The embedder a request without a session uses: that session's model.
+
+    The session is `lasagna serve -s` (``RAG_SESSION_ID``), else ``default``.
+    The backend's own manager is the settings file's model, which a session
+    on a profile does not search with.
+    """
+    manager = backend.embedding_manager
+    get_config = getattr(backend, "get_session_config", None)
+    if get_config is None:
+        return manager
+    config = get_config(os.environ.get("RAG_SESSION_ID", "").strip() or "default")
+    if config.embedding_model == manager.model_name:
+        return manager
+    from lasagna.infrastructure.embedding.manager import shared_embedding_manager
+
+    return shared_embedding_manager(config)
+
+
 def _embedding_check(backend) -> HealthCheckDetail:
-    """The default embedding model: loaded, loadable from disk, or not loadable.
+    """The served session's embedding model: loaded, loadable from disk, or not loadable.
 
     It said "up" from the model's name alone, while the model was not
     downloaded and the server offline, and every search answered 500.
@@ -38,7 +70,7 @@ def _embedding_check(backend) -> HealthCheckDetail:
 
     try:
         t0 = perf_counter()
-        manager = backend.embedding_manager
+        manager = _served_embedder(backend)
         model_name = manager.model_name
         dim = manager.dimension
         problem = None if getattr(manager, "is_loaded", True) else refusal(model_name)
@@ -56,54 +88,6 @@ def _embedding_check(backend) -> HealthCheckDetail:
         )
     except Exception as exc:
         return HealthCheckDetail(status="down", detail=str(exc))
-
-
-def _run_health_checks(backend) -> Tuple[Dict[str, HealthCheckDetail], str]:
-    """The checks behind ``GET /health``: (checks, overall status).
-
-    Readiness pings the same dependencies with timeouts; see `readiness`.
-    """
-    checks: dict[str, HealthCheckDetail] = {}
-    overall = "healthy"
-
-    checks["embedding_model"] = _embedding_check(backend)
-    if checks["embedding_model"].status != "up":
-        overall = "unhealthy"
-
-    # Check vector backend
-    try:
-        t0 = perf_counter()
-        vb = backend.get_vector_backend()
-        backend_name = vb.backend_name
-        ms = (perf_counter() - t0) * 1000
-        checks["vector_backend"] = HealthCheckDetail(
-            status="up",
-            latency_ms=round(ms, 2),
-            detail=backend_name,
-        )
-    except Exception as exc:
-        checks["vector_backend"] = HealthCheckDetail(status="down", detail=str(exc))
-        overall = "unhealthy"
-
-    # Check metadata database
-    try:
-        from lasagna.core.database import get_rag_database
-
-        t0 = perf_counter()
-        db = get_rag_database()
-        db.get_documents("__health_check__")
-        ms = (perf_counter() - t0) * 1000
-        db_detail = getattr(db, "database_backend", "sqlite")
-        checks["database"] = HealthCheckDetail(
-            status="up",
-            latency_ms=round(ms, 2),
-            detail=db_detail,
-        )
-    except Exception as exc:
-        checks["database"] = HealthCheckDetail(status="down", detail=str(exc))
-        overall = "degraded" if overall == "healthy" else overall
-
-    return checks, overall
 
 
 @router.get("/health/live", response_model=LivenessResponse)
@@ -204,49 +188,85 @@ def _dependency_pings(backend) -> Dict[str, Callable[[], Optional[str]]]:
     return pings
 
 
-@router.get(
-    "/health/ready",
-    response_model=HealthResponse,
-    responses={503: {"model": HealthResponse, "description": "A dependency is down"}},
-)
-async def readiness(backend=Depends(get_backend)):
-    """Readiness probe: can this instance handle requests?
+async def component_checks(backend) -> Dict[str, HealthCheckDetail]:
+    """Every component's state, as readiness, ``/health`` and MCP status report it.
 
-    Pings the vector store, the metadata database (Postgres or SQLite) and,
-    when this instance uses it, Redis, each with a 2 s timeout. Returns 503
-    naming every dependency that did not answer in ``failing``, so a load
-    balancer stops routing here and an operator sees which one.
+    The embedding model is checked as loaded or loadable; the vector store,
+    the metadata database and (when used) Redis are pinged, each within
+    ``PING_TIMEOUT_S``. Redis is the one with a fallback, so it is degraded
+    when down, not failing.
     """
     checks = {"embedding_model": _embedding_check(backend)}
     pinged = await asyncio.gather(
         *(_ping(name, call) for name, call in _dependency_pings(backend).items())
     )
     checks.update(dict(pinged))
-    failing = sorted(name for name, check in checks.items() if check.status != "up")
-    resp = HealthResponse(
-        status="healthy" if not failing else "unhealthy",
+    redis = checks.get("redis")
+    if redis is not None and redis.status == "down":
+        checks["redis"] = HealthCheckDetail(
+            status="degraded",
+            latency_ms=redis.latency_ms,
+            detail=f"{redis.detail}. Without it the search cache and rate limits are kept "
+            f"per process, and uploads are processed here instead of by a Celery worker.",
+        )
+    return checks
+
+
+def summarize(checks: Dict[str, HealthCheckDetail]) -> Tuple[str, List[str], List[str]]:
+    """(status, failing, degraded): ``unhealthy`` with any failing, else ``degraded`` or ``healthy``."""
+    failing = sorted(name for name, check in checks.items() if check.status == "down")
+    degraded = sorted(name for name, check in checks.items() if check.status == "degraded")
+    status = "unhealthy" if failing else ("degraded" if degraded else "healthy")
+    return status, failing, degraded
+
+
+def component_checks_blocking(backend) -> Dict[str, HealthCheckDetail]:
+    """`component_checks` for a synchronous caller (the MCP status tool), in a thread of its own."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="lasagna-health") as pool:
+        return pool.submit(lambda: asyncio.run(component_checks(backend))).result()
+
+
+def _health_response(checks: Dict[str, HealthCheckDetail]) -> HealthResponse:
+    status, failing, degraded = summarize(checks)
+    return HealthResponse(
+        status=status,
         checks=checks,
         require_auth=require_auth(),
         failing=failing,
+        degraded=degraded,
     )
 
-    if failing:
-        return JSONResponse(
-            status_code=503,
-            content=resp.model_dump(),
-        )
+
+@router.get(
+    "/health/ready",
+    response_model=HealthResponse,
+    responses={503: {"model": HealthResponse, "description": "A component is failing"}},
+)
+async def readiness(backend=Depends(get_backend)):
+    """Readiness probe: can this instance handle requests?
+
+    Checks the served session's embedding model and pings the vector store,
+    the metadata database (Postgres or SQLite) and, when this instance uses
+    it, Redis, each with a 2 s timeout. Returns 503 naming every failing
+    component in ``failing``, so a load balancer stops routing here and an
+    operator sees which one. Redis down is ``degraded``: answered with 200.
+    """
+    resp = _health_response(await component_checks(backend))
+    if resp.failing:
+        return JSONResponse(status_code=503, content=resp.model_dump())
     return resp
 
 
 @router.get("/health", response_model=HealthResponse)
 async def full_health(backend=Depends(get_backend)):
-    """Full health check: reports dependency status but always returns 200.
+    """Detailed status: the component states readiness checks, always with 200.
 
-    Use this for dashboards and monitoring; use ``/health/ready`` for
-    orchestrator probes that need to remove unhealthy instances.
+    For dashboards and monitoring; ``/health/ready`` is the probe that
+    answers 503 when a component is failing.
     """
-    checks, overall = _run_health_checks(backend)
-    return HealthResponse(status=overall, checks=checks, require_auth=require_auth())
+    return _health_response(await component_checks(backend))
 
 
 # With auth on, a verified caller only: it names the collection, the model and

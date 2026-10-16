@@ -12,16 +12,16 @@ Lasagna exposes 41 HTTP endpoints across two route groups: 32 versioned endpoint
 
 | # | Method | Path | Description | Response Model |
 |---|--------|------|-------------|----------------|
-| 1 | `GET` | `/api/v1/health/live` | Liveness probe. Always returns 200. | `LivenessResponse` |
-| 2 | `GET` | `/api/v1/health/ready` | Readiness probe. Returns 503 if a dependency is down. | `HealthResponse` |
-| 3 | `GET` | `/api/v1/health` | Full health check. Always returns 200. | `HealthResponse` |
+| 1 | `GET` | `/api/v1/health/live` | Liveness: the process is up. 200, no dependency checked. | `LivenessResponse` |
+| 2 | `GET` | `/api/v1/health/ready` | Readiness: 503 naming each failing component. | `HealthResponse` |
+| 3 | `GET` | `/api/v1/health` | Detailed status: the same component states as readiness, always 200. | `HealthResponse` |
 | 4 | `GET` | `/api/v1/stats` | System statistics (model, collection, feature flags). | `StatsResponse` |
 
 ---
 
 #### `GET /api/v1/health/live`
 
-Kubernetes liveness probe. Always returns 200 unless the process is deadlocked.
+Liveness: the process is up. Returns 200 and checks no dependency, so a slow or missing dependency never gets the process restarted.
 
 **Response:** `LivenessResponse`
 
@@ -33,7 +33,7 @@ Kubernetes liveness probe. Always returns 200 unless the process is deadlocked.
 
 #### `GET /api/v1/health/ready`
 
-Readiness probe. Checks the embedding model, then pings the vector store, the metadata database (SQLite or Postgres) and, when this instance uses it, Redis, each with a 2 s timeout. Returns 503 with the same response body when any of them is down, and names each one that did not answer in `failing`.
+Readiness: can this instance serve? Checks that the embedding model of the session requests without one use (`lasagna serve -s`, else `default`) is loaded or loadable from disk, then pings the vector store, the metadata database (SQLite or Postgres) and, when this instance uses it, Redis, each with a 2 s timeout. Each component is `up`, `down` or `degraded`. Returns 503 with the same response body when any is `down`, naming each in `failing`. Redis is the one component with a fallback (the search cache and rate limits keep to process memory, uploads are processed in the server instead of by Celery), so Redis down is `degraded`, listed in `degraded`, and answered with 200.
 
 **Response:** `HealthResponse`
 
@@ -46,17 +46,18 @@ Readiness probe. Checks the embedding model, then pings the vector store, the me
     "database":       {"status": "up", "latency_ms": 2.1, "detail": "sqlite"}
   },
   "failing": [],
+  "degraded": [],
   "require_auth": false,
   "version": "0.1.0"
 }
 ```
 
-`version` is the installed package's version (`lasagna.__version__`). `require_auth` reports whether `RAG_REQUIRE_AUTH` is on. When a dependency is down, `status` is `"unhealthy"` and `failing` lists it (for example `["redis"]`).
+`version` is the installed package's version (`lasagna.__version__`). `require_auth` reports whether `RAG_REQUIRE_AUTH` is on. `status` is `"unhealthy"` when a component is down (`failing` lists it, for example `["embedding_model"]`), `"degraded"` when one is degraded and none is down, else `"healthy"`.
 
 | Status Code | Condition |
 |-------------|-----------|
-| 200 | All dependencies answered |
-| 503 | One or more dependencies down or not answering within 2 s |
+| 200 | No component is down (some may be degraded) |
+| 503 | A component is down or did not answer within 2 s |
 
 ```bash
 curl http://localhost:8000/api/v1/health/ready
@@ -66,7 +67,7 @@ curl http://localhost:8000/api/v1/health/ready
 
 #### `GET /api/v1/health`
 
-Full health check. Checks the same embedding model, vector backend and database as `/ready` (without the Redis ping or the timeouts) but always returns 200, whatever the dependency status. `status` is `healthy`, `degraded` (only the database is down) or `unhealthy`. Use it for dashboards and monitoring, and `/ready` for orchestrator probes.
+Detailed status: the same checks, component states, `status`, `failing` and `degraded` as `/ready`, always with 200. Use it for dashboards and monitoring, and `/ready` for orchestrator probes. The MCP `get_system_status` tool reports the same states.
 
 ---
 
@@ -425,7 +426,7 @@ search. `rank` is the position, from 1.
 A server never downloads a model inside a request: when the session's embedding
 model is not on disk (for example an unconfigured session, which uses the
 settings file's BGE-M3), the search answers `503` with the command that fixes
-it, and `/health/ready` reports the default model as `down`.
+it, and `/health/ready` reports the served session's model as `down`.
 `RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS=true` lets the server download instead.
 
 **Response:** `SearchResponse`

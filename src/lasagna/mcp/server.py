@@ -1979,14 +1979,24 @@ def get_system_status() -> str:
         # Check if using V2 backend
         is_v2 = hasattr(backend, "embedding_manager")
 
+        # The component states readiness and GET /api/v1/health report: this
+        # said "healthy" while /health/ready answered 503.
+        from lasagna.api.rest.routes.health import component_checks_blocking, summarize
+
+        checks = component_checks_blocking(backend)
+        overall, failing, degraded_components = summarize(checks)
+
         stats = {
-            "status": "healthy",
+            "status": overall,
+            "failing": failing,
+            "degraded": degraded_components,
+            "checks": {name: check.model_dump() for name, check in checks.items()},
             "session_id": session_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "backend_version": "V2" if is_v2 else "V1",
             "components": {
                 "milvus": {
-                    "connected": True,
+                    "connected": checks["vector_backend"].status == "up",
                     "collection_name": collection_name,
                     "collection_exists": has_collection,
                 },
@@ -3848,10 +3858,14 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
 
     @mcp_instance.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> JSONResponse:
-        """Health check endpoint."""
+        """Liveness: the process is up. No dependency is checked here.
+
+        The get_system_status tool reports each component, as the REST API's
+        /api/v1/health does; "healthy" here claimed what nothing had checked.
+        """
         try:
             status = {
-                "status": "healthy",
+                "status": "alive",
                 "server": "rag_knowledge_mcp",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "endpoints": {

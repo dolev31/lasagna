@@ -308,12 +308,15 @@ profile the worker processes documents and these threads are a fallback.
 
 | Endpoint | What it answers | Used by |
 | --- | --- | --- |
-| `GET /api/v1/health/live` | 200 `{"status": "alive"}` while the process runs | the image `HEALTHCHECK`, k8s startup and liveness probes |
-| `GET /api/v1/health/ready` | Pings the vector store, the metadata database and, when the cache is Redis or Celery is on, Redis, each with a 2 s timeout, and checks that the embedding model is loaded. 200 when all answer; 503 with the names of the ones that did not in `failing` | compose api healthcheck, k8s readiness probe |
-| `GET /api/v1/health` | Status of the embedding model, vector store and database, with no timeouts: `healthy`, `degraded` (database down) or `unhealthy`, always with 200 | `make health`, dashboards |
+| `GET /api/v1/health/live` | Liveness: 200 `{"status": "alive"}` while the process runs; no dependency is checked | the image `HEALTHCHECK`, k8s startup and liveness probes |
+| `GET /api/v1/health/ready` | Readiness: checks that the served session's embedding model is loaded or on disk, and pings the vector store, the metadata database and, when the cache is Redis or Celery is on, Redis, each with a 2 s timeout. 503 naming each component that is down in `failing`; Redis down is `degraded` (the cache, rate limits and uploads fall back), listed in `degraded`, with 200 | compose api healthcheck, k8s readiness probe |
+| `GET /api/v1/health` | Detailed status: the same component states, `failing` and `degraded` as readiness (`healthy`, `degraded` or `unhealthy`), always with 200 | `make health`, dashboards |
 
-None of them needs a credential or is rate limited. `/health/ready` and `/health` answer
-503 while the backend has not loaded, and both report `version` and `require_auth`.
+None of them needs a credential or is rate limited. Before the backend has loaded,
+`/health/ready` and `/health` answer 503 (there is nothing to check yet); after that
+`/health` always answers 200. Both report `version` and `require_auth`. The MCP
+service's `GET /health` on port 8005 is liveness only; its `get_system_status` tool
+reports the component states.
 
 ### Logs
 

@@ -685,6 +685,17 @@ First run:
   runs the session's standard pipeline and names `agentic` in
   `degraded_stages`, as REST does for a query it routes there. The README
   and docs/configuration.md say so.
+- **Health answers contradicted each other.** `/api/v1/health` answered 200
+  with `"unhealthy"` and an empty `failing`, `/api/v1/health/ready` 503 naming
+  the embedding model, the MCP `get_system_status` tool "healthy", and the
+  deployment guide both "always with 200" and "503 while ... not loaded".
+  One model now: liveness (`/api/v1/health/live`, and the MCP service's
+  `/health`) checks nothing; readiness answers 503 naming each failing
+  component, and counts Redis down as degraded, since the cache, rate limits
+  and uploads fall back; `/api/v1/health` and `get_system_status` report the
+  same component states with `failing` and `degraded`, `/api/v1/health`
+  always with 200. The embedding check is for the model the served session
+  (`serve -s`, else `default`) searches with.
 
 Requests to current models:
 
