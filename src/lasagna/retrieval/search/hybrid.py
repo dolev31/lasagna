@@ -829,13 +829,21 @@ class HybridSearcher:
         Returns:
             True if native hybrid search is available via the backend
         """
-        backend, _ = self._get_session_backend(session_id)
+        backend, collection_name = self._get_session_backend(session_id)
         if backend is None:
             return False
 
         if hasattr(backend, "capabilities"):
             caps = backend.capabilities
-            return caps.supports_hybrid_search or caps.supports_native_bm25
+            if not (caps.supports_hybrid_search or caps.supports_native_bm25):
+                return False
+            # A backend that can run it may hold a collection made without
+            # what it needs (Milvus: the sparse_embedding field). Then BM25
+            # fusion is the normal path, not a fallback.
+            per_collection = getattr(backend, "collection_supports_native_hybrid", None)
+            if per_collection is not None and collection_name:
+                return bool(per_collection(collection_name))
+            return True
 
         return False
 

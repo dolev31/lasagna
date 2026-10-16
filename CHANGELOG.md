@@ -708,6 +708,12 @@ Servers and deployment:
   whenever every thread was busy, so files 6 to 20 came back "threads are
   busy". Each file of a batch now waits for a thread (at most
   `processing_timeout`); a single upload into a full pool is still a 503.
+- Hybrid search on a Milvus server reported `degraded_stages: ["hybrid"]` on
+  every search: the backend claimed native hybrid, which needs a
+  `sparse_embedding` field the collections Lasagna creates do not have, so
+  each search tried it, failed and fell back, and the BM25 index it fell back
+  to was never filled. Native hybrid is claimed per collection, only where
+  that field exists; otherwise BM25 fusion is the normal path.
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except
