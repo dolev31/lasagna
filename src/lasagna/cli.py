@@ -1217,68 +1217,6 @@ def import_config(
 
 
 # ---------------------------------------------------------------------------
-# evaluate (researcher mode)
-# ---------------------------------------------------------------------------
-
-
-@app.command()
-def evaluate(
-    document: str = typer.Argument(..., help="Path to knowledge document"),
-    ground_truth: str = typer.Argument(..., help="Path to ground truth JSONL"),
-    output_dir: str = typer.Option("./eval_results", "--output", "-o", help="Output directory"),
-    session_id: str = typer.Option("eval", "--session", "-s", help="Session ID"),
-):
-    """Run RAG evaluation benchmark.
-
-    Uploads the document, runs queries from ground truth, scores with LLM judge.
-    """
-    doc_path = Path(document)
-    gt_path = Path(ground_truth)
-
-    if not doc_path.exists():
-        _error(f"Document not found: {document}")
-    if not gt_path.exists():
-        _error(f"Ground truth not found: {ground_truth}")
-
-    console.print("Running evaluation...")
-    console.print(f"  Document: [cyan]{doc_path.name}[/cyan]")
-    console.print(f"  Ground truth: [cyan]{gt_path.name}[/cyan]")
-
-    from lasagna.knowledge_evaluation_sdk.models import EvalConfig
-    from lasagna.knowledge_evaluation_sdk.evaluator import KnowledgeEvaluator
-
-    config = EvalConfig(
-        document_path=str(doc_path),
-        ground_truth_path=str(gt_path),
-        output_dir=output_dir,
-    )
-
-    evaluator = KnowledgeEvaluator(config)
-
-    async def _run_eval():
-        try:
-            return await evaluator.run()
-        finally:
-            await evaluator.cleanup()
-
-    try:
-        metrics = _run(_run_eval())
-    except Exception as exc:
-        _error(f"Evaluation failed: {exc}", exc=exc)
-
-    console.print()
-    console.print(
-        Panel.fit(
-            f"[bold]Evaluation Complete[/bold]\n\n"
-            f"Total cases: [cyan]{metrics.total_cases}[/cyan]\n"
-            f"Average score: [cyan]{metrics.avg_score:.2f}[/cyan]\n"
-            f"Pass rate: [green]{metrics.pass_rate:.1f}%[/green]\n"
-            f"Results saved to: [cyan]{output_dir}[/cyan]",
-        )
-    )
-
-
-# ---------------------------------------------------------------------------
 # Benchmark sub-app
 # ---------------------------------------------------------------------------
 

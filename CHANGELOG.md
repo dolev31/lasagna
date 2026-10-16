@@ -294,6 +294,13 @@ Metric definitions and results (`METRICS_VERSION` 1.5):
 
 Command line:
 
+- `lasagna evaluate`, an undocumented command from before the benchmark
+  harness, is removed: it checked for no API key, retried for 69 s and then
+  failed. `lasagna benchmark run <file>` measures your own data
+  ([docs/own-data.md](docs/own-data.md)). A core install no longer warns
+  "Docling enabled in config but not installed" per document: the settings
+  file turns Docling on and falls back without it by design, which is now
+  said once, at INFO, with the install command.
 - `-s` means `--session` in every command; `benchmark run` spells out
   `--split` and `--mode`. `benchmark run` measures retrieval unless `--tracks`
   names generation or `--generator` is given (generation needs an API key),

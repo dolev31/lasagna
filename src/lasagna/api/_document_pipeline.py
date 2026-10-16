@@ -72,6 +72,10 @@ class ChunkStoreUnavailable(RuntimeError):
     """The vector store could not be read; REST answers 503."""
 
 
+
+#: Whether the Docling fallback has been logged in this process (once is enough).
+_docling_fallback_said = False
+
 class DocumentPipeline:
     """Manages document upload, processing, and lifecycle.
 
@@ -885,7 +889,16 @@ class DocumentPipeline:
         if not config.docling_enabled:
             return False
         if not is_docling_available():
-            logger.warning("Docling enabled in config but not installed. Using legacy pipeline.")
+            # The settings file turns Docling on and falls back without it, by
+            # design: a warning per document on every core install was noise,
+            # also for the speed profile, which turns Docling off.
+            global _docling_fallback_said
+            if not _docling_fallback_said:
+                _docling_fallback_said = True
+                logger.info(
+                    "Docling is not installed, so documents are read with the built-in "
+                    "extraction. To use it: pip install 'lasagna-rag[docling]'"
+                )
             return False
         # Skip Docling for file types it doesn't support (e.g. .txt, .json)
         ext = Path(file_path).suffix.lower()
