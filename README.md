@@ -321,33 +321,37 @@ config applies.
 
 Adding a technique is one decorator on a plain function. The function becomes
 a component of its stage, interchangeable with every built-in, and runs inside
-the complete pipeline. This runs as is, with no model download and no corpus:
+the complete pipeline. Save this as `my_ideas.py`; `python my_ideas.py` runs as
+is, with no model download and no corpus:
 
 ```python
+# my_ideas.py
 import lasagna
-from lasagna.core.base_components import ScoredDocument
-from lasagna.core.registry import registry
 
 
-@lasagna.reranker("readme_demo", paper="Doe et al. 2026", claims={"ndcg@10": 0.456})
+@lasagna.reranker(paper="Doe et al. 2026", claims={"ndcg@10": 0.456})
 def longer_first(query, text):
     return len(text.split())  # your technique: score one passage
 
 
-candidates = [
-    ScoredDocument(content="short", score=0.9, document_id="d1", chunk_id="c1"),
-    ScoredDocument(content="a considerably longer passage of text", score=0.5,
-                   document_id="d2", chunk_id="c2"),
-    ScoredDocument(content="middling length here", score=0.7,
-                   document_id="d3", chunk_id="c3"),
-]
+if __name__ == "__main__":  # try it on three passages
+    from lasagna.core.base_components import ScoredDocument
+    from lasagna.core.registry import registry
 
-mine = registry.get("reranker", "readme_demo").rerank("q", candidates)
-entry = next(e for e in registry.list_rerankers() if e["name"] == "readme_demo")
-print("retrieval order:", [d.document_id for d in candidates])
-print("my reranker:    ", [d.document_id for d in mine])
-print("claims recorded:", entry["claims"])
-print("interchangeable:", entry["implements_contract"])
+    candidates = [
+        ScoredDocument(content="short", score=0.9, document_id="d1", chunk_id="c1"),
+        ScoredDocument(content="a considerably longer passage of text", score=0.5,
+                       document_id="d2", chunk_id="c2"),
+        ScoredDocument(content="middling length here", score=0.7,
+                       document_id="d3", chunk_id="c3"),
+    ]
+
+    mine = registry.get("reranker", "longer_first").rerank("q", candidates)
+    entry = next(e for e in registry.list_rerankers() if e["name"] == "longer_first")
+    print("retrieval order:", [d.document_id for d in candidates])
+    print("my reranker:    ", [d.document_id for d in mine])
+    print("claims recorded:", entry["claims"])
+    print("interchangeable:", entry["implements_contract"])
 ```
 
 ```text
@@ -370,8 +374,8 @@ agentic loop, subclass the stage's interface (`BaseReranker`,
 `BaseAgenticPipeline` and so on) and register the class with
 `@registry.register` instead.
 
-Then measure it. A sweep names the function by its import path, with no
-registration call and no package:
+Then measure it. A sweep names the function by its import path,
+`my_ideas:longer_first`, with no registration call and no package:
 
 ```yaml
 # sweep.yaml, next to my_ideas.py

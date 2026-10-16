@@ -637,8 +637,8 @@ Arms (2): reranker=cross_encoder, reranker=template_length
 Tasks (2): 1 benchmark x 2 arms x 1 run
   smoke  split=test  12 samples
 Models:
-  embedder           all-MiniLM-L6-v2  downloaded
-  reranker           cross-encoder/ms-marco-MiniLM-L-6-v2  downloaded
+  embedder           all-MiniLM-L6-v2  cached
+  reranker           cross-encoder/ms-marco-MiniLM-L-6-v2  cached
   reranker           component template_length
 Tokens: no generation track, so no answer is generated or judged; an arm still calls an LLM if its pipeline does (HyDE, an agentic pipeline, an LLM reranker).
 Probe of smoke (estimate): arm 'reranker=cross_encoder' on 3 samples took 2.8 s including setup (loading models, ingesting), 0.12 s per query, 0 LLM calls

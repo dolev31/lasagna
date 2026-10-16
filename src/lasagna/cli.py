@@ -25,7 +25,9 @@ from rich.measure import Measurement
 from rich.panel import Panel
 from rich.table import Table
 
-console = Console()
+# No emoji codes: user-supplied names reach the console, and
+# `component validate nope:x` printed "nope❌" (":x:" is an emoji code).
+console = Console(emoji=False)
 app = typer.Typer(
     name="lasagna",
     help="Lasagna: upload and search documents, benchmark pipeline changes, configure, and serve.",
@@ -80,7 +82,19 @@ def _configure_cli_logging(
         # without them a half-hour ingest looks like a hang.
         return record["level"].no >= threshold or bool(record["extra"].get("progress"))
 
-    logger.add(sys.stderr, level=min(threshold, logger.level("INFO").no), filter=_shown)
+    # "warning: ..." and the message, not loguru's timestamp, module and line:
+    # those are for a developer, and -v still shows them.
+    def _plain(record) -> str:
+        if record["level"].no >= logger.level("WARNING").no:
+            return "<level>{level}</level>: {message}\n{exception}"
+        return "{message}\n{exception}"
+
+    logger.add(
+        sys.stderr,
+        level=min(threshold, logger.level("INFO").no),
+        filter=_shown,
+        format=_plain,
+    )
     return level
 
 
@@ -1595,7 +1609,14 @@ def benchmark_experiment(
         console.print(f"  Resumed {len(done)} of {len(tasks)} from checkpoints")
 
     def _progress(completed: int, total: int, task_key: str):
-        console.print(f"  [{completed}/{total}] {task_key}")
+        # The arm, not the task key: its hashes wrapped every line in two.
+        parts = task_key.split("|")
+        label = (
+            f"{parts[0]}  {parts[1]}  {parts[5].replace('_', ' ')}"
+            if len(parts) > 5
+            else task_key
+        )
+        console.print(f"  [{completed}/{total}] {escape(label)}", soft_wrap=True)
 
     async def _execute():
         return await exp.run(progress_callback=_progress)
@@ -1607,6 +1628,9 @@ def benchmark_experiment(
 
     output_dir = exp.config.effective_output_dir()
     _print_leaderboard(results)
+    # Before the summary: printed after "Output" and "Next", a failed check
+    # read as an afterthought to a run that had looked complete.
+    _print_isolation(results)
     console.print(
         Panel.fit(
             f"[bold]Experiment Complete[/bold]\n\n"
@@ -1620,7 +1644,6 @@ def benchmark_experiment(
     console.print(
         f"Next:   lasagna results significance {escape(results_file)} --all", soft_wrap=True
     )
-    _print_isolation(results)
     if exp.config.n_runs > 1 and runs_were_identical(results._results):
         console.print(
             f"[dim]Note: all {exp.config.n_runs} runs of every arm were identical (nothing "
@@ -2167,10 +2190,17 @@ def component_validate(
 
     if report.passed:
         console.print("\n[green]Contract satisfied.[/green] This component is interchangeable.")
+        # The README's flow: a sweep names the function by its import path, with
+        # no registration call. "Next: register it" said otherwise.
+        example = (
+            f'rerankers: [cross_encoder, "{name}"]'
+            if report.component_type == "reranker"
+            else f'"{name}" in the stage\'s list'
+        )
         console.print(
-            "Next: register it, then compare it against a control: "
-            "https://github.com/dolev31/lasagna/blob/main/docs/guide.md"
-            "#6-compare-it-against-a-baseline",
+            f"Next: name it in a sweep to compare it against a control, as {escape(example)}: "
+            f"https://github.com/dolev31/lasagna/blob/main/docs/guide.md"
+            f"#6-compare-it-against-a-baseline",
             soft_wrap=True,
         )
     else:
@@ -2575,7 +2605,10 @@ def results_significance(
     # Folding them (`reranker=cross_e / ncoder`) or truncating them made two
     # arms impossible to tell apart.
     table = _table(lambda name: escape(str(name)), "\n")
-    if _natural_width(table) > console.width:
+    if not shown_rows:
+        # A header over no rows read as a failure to compute anything.
+        table = None
+    elif _natural_width(table) > console.width:
         numbered = {
             name: f"[{i}]"
             for i, name in enumerate(
@@ -2586,7 +2619,8 @@ def results_significance(
             console.print(f"  {escape(tag)} {escape(name)}")
         console.print()
         table = _table(lambda name: escape(numbered[str(name)]), " ")
-    console.print(table)
+    if table is not None:
+        console.print(table)
 
     survivors = sum(1 for r in rows if r.get("significant"))
     console.print()
@@ -2616,7 +2650,8 @@ def results_significance(
             )
     hidden = len(tested) - len(shown_rows)
     if not show_all and hidden:
-        console.print(f"  {hidden} non-significant pairs hidden; --all shows them.")
+        pairs = _count(hidden, "non-significant pair")
+        console.print(f"  {pairs} {'is' if hidden == 1 else 'are'} not shown; --all shows them.")
 
 
 def _significance_verdict(rows: list, metric: str, benchmark: str, alpha: float) -> Panel:

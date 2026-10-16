@@ -351,6 +351,8 @@ class AggregatedMetrics:
     values: List[float] = field(default_factory=list)
 
     def __str__(self) -> str:
+        if self.n_runs < 2:
+            return f"{self.mean:.4f} (n={self.n_runs})"
         return f"{self.mean:.4f} ± {self.std:.4f} (n={self.n_runs})"
 
 
@@ -1322,7 +1324,8 @@ class BenchmarkResults:
             for config in configs:
                 m = bench_data.get(config)
                 if m:
-                    val = f"{m.mean:.4f} ± {m.std:.4f}"
+                    # A spread needs two runs: one read "0.9806 ± 0.0000".
+                    val = f"{m.mean:.4f} ± {m.std:.4f}" if m.n_runs > 1 else f"{m.mean:.4f}"
                     if m.mean == best_mean and len(bench_data) > 1:
                         val = f"**{val}**"
                     cells.append(val)
@@ -1419,7 +1422,7 @@ class BenchmarkResults:
                 m = bench_data.get(config)
                 if m:
                     val = f"{m.mean:.4f}"
-                    if include_std:
+                    if include_std and m.n_runs > 1:
                         val += f" \\pm {m.std:.4f}"
                     if bold_best and m.mean == best_mean and len(bench_data) > 1:
                         val = f"\\textbf{{{val}}}"

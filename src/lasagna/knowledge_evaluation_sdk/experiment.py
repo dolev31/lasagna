@@ -677,7 +677,15 @@ def _load_yaml(path: str) -> Dict[str, Any]:
     except ImportError:
         raise ImportError("PyYAML required for YAML configs: pip install pyyaml")
     with open(path) as f:
-        return yaml.safe_load(f)
+        try:
+            return yaml.safe_load(f)
+        except yaml.YAMLError as exc:
+            # A ValueError, so the CLI prints this one line rather than a
+            # 164-line traceback of the parser.
+            mark = getattr(exc, "problem_mark", None)
+            where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+            problem = getattr(exc, "problem", None) or str(exc)
+            raise ValueError(f"not valid YAML{where}: {problem}") from None
 
 
 def _load_toml(path: str) -> Dict[str, Any]:
@@ -834,20 +842,31 @@ def _check_components_exist(pipeline_configs: List[Dict[str, Any]]) -> None:
     from lasagna.core.registry import registry
 
     unknown = []
+    likely_typo = False
     for pc in pipeline_configs:
         for key, value in (pc.get("overrides") or {}).items():
             if key in _COMPONENT_KEYS and isinstance(value, str):
                 known = registry.list(key).get(key, [])
                 if not registry.has(key, value):
+                    hint = _did_you_mean(value, known)
+                    likely_typo = likely_typo or bool(hint)
                     unknown.append(
-                        f"{pc.get('name')}: {key}={value!r} (registered: {sorted(known)})"
+                        f"{pc.get('name')}: {key} {value!r}{hint} (registered: "
+                        f"{', '.join(sorted(known))})"
                     )
     if unknown:
+        # A misspelled built-in was told to install an entry point.
+        advice = (
+            "Correct the name, or name your own component by its import path "
+            "(my_ideas:my_function)."
+            if likely_typo
+            else "Name your own component by its import path (my_ideas:my_function), "
+            "or install it as a lasagna_components entry point "
+            "(see docs/contributing-components.md)."
+        )
         raise ValueError(
             "These arms name components that are not registered, so they would "
-            "measure the default component instead: " + "; ".join(unknown) + ". "
-            "Install your component as a lasagna_components entry point "
-            "(see docs/contributing-components.md)."
+            "measure the default component instead: " + "; ".join(unknown) + ". " + advice
         )
 
 
@@ -893,7 +912,18 @@ def _check_override_keys(pipeline_configs: List[Dict[str, Any]]) -> None:
     """
     known = _known_override_keys()
     for pc in pipeline_configs:
-        _refuse_unknown(pc.get("overrides") or {}, known, f"arm {pc.get('name')!r}")
+        unknown = sorted(set(pc.get("overrides") or {}) - known)
+        if not unknown:
+            continue
+        # The likely key, and where the rest are listed: printing all ~400 known
+        # keys buried it among celery_broker_url and the like.
+        parts = ", ".join(f"{k!r}{_did_you_mean(k, known)}" for k in unknown)
+        raise ValueError(
+            f"Unknown key(s) in arm {pc.get('name')!r}: {parts}. An arm names components "
+            f"({', '.join(sorted(_COMPONENT_KEYS))}), harness keys "
+            f"({', '.join(sorted(HARNESS_KEYS))}) or settings, listed in "
+            f"docs/reference/settings.md."
+        )
 
 
 def _load_component_references(

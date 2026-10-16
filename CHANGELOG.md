@@ -556,6 +556,22 @@ First run:
   `my_ideas:keyword_overlap`, as a sweep does.
 - The `lasagna` command prints a bad setting as one message and exits 2;
   it was a traceback around the message.
+- Messages from the first hour: a malformed sweep file is one line with its
+  line and column (it was a 164-line traceback); a misspelled component or
+  arm key gets the likely name, without the advice to install an entry point
+  or a list of every known setting; warnings print as `WARNING: <message>`
+  without loguru's timestamp and source line (`-v` keeps them); progress
+  lines name the benchmark, arm and run instead of wrapping task hashes; the
+  isolation verdict prints before the summary; `results significance` with
+  nothing significant prints no empty table and says "1 non-significant pair
+  is not shown"; the LaTeX leaderboard drops columns that say nothing for the
+  rows (Varied equal to Config, an anonymous submitter, Verified), and no
+  table prints "± 0.0000" for one run; the dry run says "cached" rather than
+  "downloaded"; names with colons print literally (`nope:x` printed as
+  "nope❌"); a function reranker that returns something other than a number
+  is named with the value; `component validate` ends by showing the sweep
+  line, not "register it". The README's component is `my_ideas.py`, the file
+  its sweep names.
 - `lasagna doctor` fails a vector backend nothing registers, with the
   likely name: `RAG_VECTOR_BACKEND=milvuss` was "ok vector_backend:
   configured: milvuss", and the first upload failed.
