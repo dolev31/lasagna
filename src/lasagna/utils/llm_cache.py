@@ -38,8 +38,8 @@ import sqlite3
 import threading
 import time
 from contextlib import closing, contextmanager
-from dataclasses import dataclass, replace
-from typing import Any, Dict, Iterator, List, Optional
+from dataclasses import dataclass, field, replace
+from typing import Any, Dict, Iterator, List, Optional, Set
 
 from loguru import logger
 
@@ -51,9 +51,12 @@ _OFF = frozenset({"0", "false", "no", "off"})
 
 
 def default_cache_path() -> str:
-    """``~/.lasagna/cache/llm.sqlite``: the cache follows the data directory,
-    beside ``research/results``."""
-    return os.path.join(os.path.expanduser("~"), ".lasagna", "cache", "llm.sqlite")
+    """``<data dir>/cache/llm.sqlite`` (``~/.lasagna`` unless ``LASAGNA_DATA_DIR``
+    says otherwise): the cache follows the data directory, beside
+    ``research/results``."""
+    from lasagna.core.paths import cache_dir
+
+    return str(cache_dir() / "llm.sqlite")
 
 
 @dataclass(frozen=True)
@@ -109,13 +112,18 @@ class LLMCacheSettings:
         No path: bundles are published, and a path names the machine and the
         user it ran under.
         """
-        return {
+        record: Dict[str, Any] = {
             "enabled": self.enabled,
             "deterministic_only": self.deterministic_only,
             "hits": stats.hits,
             "misses": stats.misses,
             "hit_rate": stats.hit_rate,
         }
+        if self.enabled and stats.not_applied:
+            # Hits and misses of 0 would read as an empty cache.
+            record["applied"] = False
+            record["not_applied"] = "; ".join(sorted(stats.not_applied))
+        return record
 
 
 @dataclass
@@ -124,6 +132,8 @@ class CacheStats:
 
     hits: int = 0
     misses: int = 0
+    #: Why some chat model could not carry the cache (see `note_not_applied`).
+    not_applied: Set[str] = field(default_factory=set)
 
     @property
     def lookups(self) -> int:
@@ -137,6 +147,7 @@ class CacheStats:
     def add(self, other: "CacheStats") -> None:
         self.hits += other.hits
         self.misses += other.misses
+        self.not_applied |= other.not_applied
 
 
 class LLMCache:
@@ -393,6 +404,21 @@ def _model_cache_type() -> Any:
 
     _model_cache_class = _ModelCache
     return _ModelCache
+
+
+def note_not_applied(reason: str) -> None:
+    """Record, in the active scope, a chat model that cannot carry the cache."""
+    scope = _active.get()
+    if scope is not None and scope.store is not None:
+        with scope._lock:
+            scope.not_applied.add(reason)
+
+
+def carries_llm_cache(model: Any) -> bool:
+    """Whether ``model`` already has the experiment cache attached."""
+    return _model_cache_class is not None and isinstance(
+        getattr(model, "cache", None), _model_cache_class
+    )
 
 
 def attach_llm_cache(model: Any, platform: str, deterministic: bool) -> Any:

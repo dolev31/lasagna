@@ -27,14 +27,19 @@ So the settings file and the environment set the defaults for a process, and
 the session overrides that `lasagna configure` writes win for that session.
 `lasagna configure --profile speed -s A` changes session `A` only; another
 session, and a new one, still start from the settings file and the
-environment.
+environment. A profile sets only the settings that define it (for `speed`, the
+MiniLM model, no reranking and the rest of its list); the vector backend and
+every other setting it does not name still come from the environment and the
+settings file.
 
 **Where session overrides are kept.** The `lasagna` command and `lasagna-mcp`
 store them in the metadata database (SQLite under the data directory, or
 PostgreSQL when `database_backend` is `postgresql`), so a profile set by one
 command applies in the next one and in `lasagna serve`. Python code keeps them
 in memory for the life of the process unless `RAG_SESSION_BACKEND=persistent`
-is set.
+is set. The compose stack and the Kubernetes ConfigMap set it, so the api's
+workers, the Celery worker and the MCP server read one session's settings
+alike.
 
 **From Python**, a `KnowledgeConfig` passed to `KnowledgeClient` splits the
 same way: the fields that choose what the process connects to (vector backend,
@@ -92,7 +97,8 @@ picks its profile with
 
 Everything a user stores is under one data directory, `~/.lasagna`: the
 metadata database and the Milvus Lite store in `dbs/`, uploaded files in
-`uploads/`.
+`uploads/`, experiment results in `research/results/` (for a sweep without
+`output_dir:`), and the experiment LLM cache in `cache/llm.sqlite`.
 
 | Variable | Default | What it places |
 |---|---|---|
@@ -100,9 +106,8 @@ metadata database and the Milvus Lite store in `dbs/`, uploaded files in
 | `LASAGNA_DB_DIR` (or `RAG_DB_DIR`) | `<data dir>/dbs` | the metadata database and the Milvus Lite store |
 | `LASAGNA_UPLOAD_DIR` (or `RAG_UPLOAD_DIR`) | `<data dir>/uploads` | uploaded files |
 
-Two things stay under your home directory whatever these say: experiment
-results in `~/.lasagna/research/results/`, and the experiment LLM cache in
-`~/.lasagna/cache/llm.sqlite`.
+`LASAGNA_DATA_DIR` moves the results and the cache with the rest;
+`llm_cache: {path: ...}` in a sweep puts the cache file elsewhere.
 
 Before 0.1.0 the data directory was `~/.rag_knowledge`. The first time the
 default is used and only `~/.rag_knowledge` exists, it is renamed to

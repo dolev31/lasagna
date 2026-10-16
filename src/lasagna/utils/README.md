@@ -19,7 +19,7 @@ response cache from a user's side:
 | `tracing.py` | `TRACER` (`Tracer` facade over OpenTelemetry), `configure_tracing`; exporters `otlp`, `console`, `zipkin`, and `jaeger` (deprecated, warns) |
 | `degraded.py` | `record(stage, reason)` and `collecting()`: counts a stage that fell back (`lasagna_degraded_fallbacks_total{stage=...}`) and collects it for the response's `degraded_stages` |
 | `token_usage.py` | `UsageMeter`, `attach_usage_meter`, `instrument_openai_client` (the RAGAS judge client): tokens and LLM calls; tokens only, never prices |
-| `llm_cache.py` | The experiment's LLM response cache: `LLMCacheSettings`, `llm_cache_scope`, `attach_llm_cache`, one SQLite file (`default_cache_path()`: `~/.lasagna/cache/llm.sqlite`) |
+| `llm_cache.py` | The experiment's LLM response cache: `LLMCacheSettings`, `llm_cache_scope`, `attach_llm_cache`, one SQLite file (`default_cache_path()`: `<data dir>/cache/llm.sqlite`, `~/.lasagna` unless `LASAGNA_DATA_DIR` is set) |
 | `normalization.py` | `normalize_score_sigmoid`, `normalize_scores_minmax`, `normalize_scores_for_mmr`, `normalize_score_for_display`, `normalize_score_relative`, `adaptive_k_selection` |
 | `tokenization.py` | `estimate_tokens` (tiktoken when installed, else `len(text) // 4`), `estimate_tokens_batch`, `count_tokens_for_messages`, `fits_in_context`, `truncate_to_token_limit` |
 | `model_utils.py` | `resolve_model_settings` (`None`, `"default"`, `"platform:model"`, a dotted settings path, or a dict), `get_default_model_name` (`MODEL_NAME`, then the config provider, then a fallback), `message_text` |

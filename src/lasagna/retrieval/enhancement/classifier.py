@@ -8,7 +8,7 @@ dynamically. Different query types benefit from different retrieval strategies:
 - NAVIGATIONAL: Finding specific documents/sections (balanced approach)
 - COMPARATIVE: Comparing multiple items (use query expansion)
 
-This is a SOTA technique for adaptive RAG that improves retrieval quality
+This is a technique for adaptive RAG that improves retrieval quality
 by matching retrieval strategy to query intent.
 """
 

@@ -75,7 +75,9 @@ Three deliberate restrictions:
 - A submitter cannot verify their own row, or the badge is earned by publishing
   twice.
 - A single-run row can never be verified, because it reports no spread for
-  anything to land inside.
+  anything to land inside, unless its run recorded `nothing_samples`: only
+  retrieval ran and no task called an LLM, so a second run would repeat it
+  exactly, and another lab reproduces it by equalling its mean.
 - The other bundle must have run the same arm (equal `varied_levels`). The
   comparability key leaves out the dimension under test, so every arm of a
   sweep shares one key, and a reranker arm landing inside a baseline row is two

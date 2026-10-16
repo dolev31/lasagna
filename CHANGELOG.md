@@ -376,6 +376,14 @@ Documentation:
   under `src/lasagna/` are short notes for contributors that point into
   `docs/`.
 
+- Text a user reads outside the docs says what the code does: the profile
+  lists of `GET /api/v1/config/profiles` and the SDK's `list_profiles` (which
+  said "SOTA features" and named models the profiles do not use) share the
+  profiles' own descriptions, and the configurator, settings files, compose,
+  Makefile, Dockerfile and Kubernetes comments, docstrings and help lose
+  "SOTA", "production-ready", "seamless", "powerful" and their em dashes. A
+  test covers those files and every string in the package.
+
 ### Deprecated
 
 Each of these still works in 0.1.x, says so when used, and is removed in 0.2.0.
@@ -470,6 +478,25 @@ Numbers that were wrong:
 
 Results tooling:
 
+- **`--strict` and the hub refused single-run bundles while the docs
+  recommend `n_runs: 1` for retrieval.** A run now records `nothing_samples`
+  (only retrieval ran, no task called an LLM, repeats if any were identical);
+  such a run raises no `SINGLE_RUN`, and the leaderboard verifies it when
+  another lab's bundle equals its mean. A run with an LLM stage still needs
+  repeats.
+- Experiment results and the LLM cache ignored `LASAGNA_DATA_DIR` and stayed
+  under `~/.lasagna`. They are in `<data dir>/research/results` and
+  `<data dir>/cache/llm.sqlite`.
+- `results bundle -o newdir/run.json` (and `results schema`, `results
+  per-query`, `export`) ended in a `FileNotFoundError` traceback when the
+  folder did not exist. The folder is created; one that cannot be is a
+  one-line error.
+- **The LLM cache never applied to a custom provider.** It was attached in
+  `SimpleLLMProvider` only, so a provider set with `set_llm_provider` was
+  called again on every warm run while `results.json` recorded the cache as
+  on with 0 hits and 0 misses. Any `LLMProvider` subclass's chat model now
+  carries the cache and the token meter; a model that cannot carry the cache
+  is recorded as `"applied": false` with the reason.
 - A checkpoint is flushed to disk before it is renamed into place, so a crash
   cannot leave an empty checkpoint that `--resume` reads as a finished task.
 - `results leaderboard` ranked latency and token counts highest first: the
@@ -483,6 +510,17 @@ Results tooling:
 
 First run:
 
+- `lasagna doctor` said the first search downloads "~5 GB" and the speed
+  profile "an 80 MB model" (measured: 3.1 GB and 91 MB), and that retrieval
+  works without an API key, while the default configuration sends complex
+  queries through agentic retrieval. Both hints are computed from the
+  profiles and the measured sizes, and name the speed profile as the one
+  that retrieves without a key. The configurator, the settings file
+  comments and the support skill state the same sizes.
+- `lasagna-mcp` over stdio answered `tools/list` after about 7 s: the
+  `--session-backend` default made every start reset the backend, which
+  imported torch. It answers in under a second; a reset happens only for a
+  flag that was given.
 - A misspelled benchmark, profile, stage or component name is one error with
   the likely name (`did you mean 'smoke'?`), before any model loads. A
   misspelled benchmark ran for seconds and failed inside its task.
@@ -534,6 +572,65 @@ Requests to current models:
 
 Servers and deployment:
 
+- **A stack configured for a Milvus server opened Milvus Lite.** The startup
+  backend always passed a local `db_path`, which `MilvusBackend` took over the
+  `uri`, so `backends/milvus.yml` and `MILVUS_URI` wrote to a file inside each
+  container. A configured server address wins, the log names the store opened,
+  and a `db_path` set together with a server address is an error naming both.
+- **Orphan repair deleted the vectors of documents it should keep.** Detection
+  counted only `ready` rows, so a document still uploading, processing or
+  indexing, one in `error` and an archived one were vector-only orphans, and a
+  repair (the Celery scan with `dry_run=False`, `POST /admin/gc/repair`)
+  deleted their vectors. A vector is an orphan only when no row in any status
+  owns it, and repair checks again before deleting.
+- **Without the `celery` profile, uploads waited for a worker that never
+  ran.** Compose set `RAG_CELERY_ENABLED=true` whatever the profiles, and
+  with Redis reachable the api queued every upload. `make` now derives the
+  setting from `COMPOSE_PROFILES`, `make validate` refuses `true` without the
+  profile, and the api queues an upload only when a worker answers on the
+  broker, otherwise processing it in its own threads and logging why. GC is
+  scheduled inside the api in the same case; it was left to a Beat that was
+  not running.
+- **The Docker image had no Qdrant, Weaviate or Pinecone client**, so the
+  stack built with those fragments never passed its readiness check. The
+  Dockerfile's `VECTOR_BACKEND` build argument installs the client (and fails
+  the build if it does not import), the three fragments set it, and `make
+  validate` refuses an existing image built without that client.
+- **No upload ever reached the Celery worker, and the worker ran no task.**
+  The api dispatches from a threadpool thread, where Celery's current app was
+  its unconfigured default (AMQP on localhost), so every `.delay()` failed
+  with "Connection refused" and the api processed the upload itself. And the
+  worker's `autodiscover_tasks` imported a module that does not exist, so it
+  discarded every upload and GC run as an unregistered task while its
+  healthcheck passed. The app is the default for all threads and lists the
+  task module; found running the live tests against the compose stack.
+- **A session's settings overrode the environment with the settings file's.**
+  Search reads a session's settings above the environment, and was handed the
+  active profile's whole configuration, settings file included. With the
+  persistent session backend (the default of `lasagna` and `lasagna-mcp`),
+  every session searched with the file's `vector_backend` and
+  `embedding_model` whatever `RAG_VECTOR_BACKEND` and `RAG_EMBEDDING_MODEL`
+  said; with the in-memory one, any session that applied a profile did. A
+  profile now sets only its own settings. The compose stack and the
+  Kubernetes ConfigMap set `RAG_SESSION_BACKEND=persistent`, so the api's
+  workers, the Celery worker and the MCP server see one session's settings
+  alike; in memory, two requests of a session could get different settings.
+- **A process that had read a session never saw later changes to it** with
+  session settings in PostgreSQL, so a profile applied through one api worker
+  missed the other workers, the Celery worker and the MCP server; and the
+  worker indexed with the model it had loaded, not the session's, into a
+  collection nobody had created. Sessions are re-read once a second, and the
+  task makes the session's embedder and collection current before indexing.
+- **On Qdrant and Pinecone a profile could not be applied once its model's
+  collection existed** (409, "could not read the embedding size"): the size
+  was read only from a field named `embedding`, Milvus's name. Any dense
+  vector field is read now. Weaviate, pgvector and OpenSearch still report no
+  size.
+- **`KnowledgeClient.from_url` failed against a server with auth on, and its
+  `close()` raised `AttributeError`.** It never sent `X-Session-Token`, so
+  `RAG_REQUIRE_AUTH=true` answered 401 to every call. With `api_key` (a key
+  from `RAG_API_KEYS`) it mints a session token on the first 401;
+  `session_token=` sends one minted already.
 - **Uploads processed by the Celery worker failed.** The api stored a file
   inside its own container and passed the path to the worker, which had no such
   file. The api, worker and mcp share an `uploads-data` volume at

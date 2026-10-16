@@ -71,7 +71,7 @@ _instance_lock = threading.Lock()
 
 
 class RAGBackend:
-    """Primary RAG Backend with configurable SOTA features.
+    """Primary RAG backend with configurable retrieval features.
 
     This is the main RAG backend for Lasagna's knowledge base system.
     All features are configurable via settings.lasagna.toml.
@@ -103,7 +103,7 @@ class RAGBackend:
         return _instance
 
     def __init__(self):
-        """Initialize RAG backend with all SOTA components.
+        """Initialize the RAG backend and its components.
 
         Thread-safe: uses _instance_lock to prevent concurrent initialization.
         The lock is acquired here (not just in __new__) because two threads can
@@ -166,7 +166,7 @@ class RAGBackend:
             )
         )
 
-        # Initialize SOTA embedding manager.
+        # Initialize the embedding manager.
         #
         # Passing the config explicitly rather than relying on the factory's
         # `None` fallback, so that its config-drift detection can fire: a second
@@ -430,7 +430,7 @@ class RAGBackend:
         _document_processor_override: Any = None,
         refuse_when_busy: bool = False,
     ) -> Document:
-        """Upload and process a document with SOTA pipeline.
+        """Upload a document and run it through extraction, chunking and indexing.
 
         ``_chunker_override`` takes a ``BaseChunker`` instance, mirroring the
         ``_reranker_override`` the search path already accepts. Underscored for
@@ -457,7 +457,7 @@ class RAGBackend:
         file_path: str,
         config: Optional[RAGConfig] = None,
     ):
-        """Process document with SOTA pipeline."""
+        """Extract, chunk, embed and index an uploaded document."""
         return self._document_pipeline.process_document(document, file_path, config)
 
     # Backward-compat alias
@@ -514,7 +514,7 @@ class RAGBackend:
         _agentic_pipeline_override: Optional[Any] = None,
         _graph_node_overrides: Optional[Dict[str, Any]] = None,
     ) -> List[SearchResult]:
-        """Search with SOTA retrieval pipeline.
+        """Search with the configured retrieval pipeline.
 
         The three trailing overrides are what KnowledgePipeline passes for a
         swapped retriever, agentic pipeline or graph node; without them here

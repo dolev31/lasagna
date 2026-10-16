@@ -1,4 +1,4 @@
-"""Semantic Chunking for RAG System - SOTA Implementation.
+"""Semantic Chunking for RAG System.
 
 This module provides intelligent text chunking strategies:
 - Semantic chunking based on embedding similarity

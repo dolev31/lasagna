@@ -181,6 +181,33 @@ def _process_limiters_restored():
 
 
 @pytest.fixture(autouse=True)
+def _session_backend_restored():
+    """Put the session backend and the providers back after each test.
+
+    Running the CLI in process sets ``RAG_SESSION_BACKEND=persistent`` with
+    ``os.environ.setdefault`` (as ``lasagna`` does for a real run) and leaves
+    the persistent provider it configured, so every later test searched with
+    the settings of the process-wide config manager. A test that wrote through
+    a manager of its own then read another one's settings:
+    ``test_configurator``'s save-as-active check failed whenever a CLI test ran
+    before it, on public-main too.
+    """
+    import lasagna.providers as providers
+
+    env = os.environ.get("RAG_SESSION_BACKEND")
+    names = ("_config_provider", "_llm_provider", "_session_provider", "_auto_config_done")
+    saved = {name: getattr(providers, name) for name in names}
+    yield
+    if env is None:
+        os.environ.pop("RAG_SESSION_BACKEND", None)
+    else:
+        os.environ["RAG_SESSION_BACKEND"] = env
+    with providers._provider_lock:
+        for name, value in saved.items():
+            setattr(providers, name, value)
+
+
+@pytest.fixture(autouse=True)
 def _lasagna_logs_enabled():
     """The package disables its own logs on import (library default); several
     tests capture them, so turn them back on before every test.

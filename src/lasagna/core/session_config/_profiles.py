@@ -42,6 +42,18 @@ from ._data_models import (
 _cached_default_profiles: Optional[List[RAGProfile]] = None
 
 
+#: What each built-in profile does, as every surface describes it: the REST
+#: profile list and the SDK's ``list_profiles`` repeated their own copies,
+#: which used marketing words and named embedding models the profiles do not use.
+BUILTIN_PROFILE_DESCRIPTIONS: Dict[str, str] = {
+    "default": "Default configuration from settings.lasagna.toml",
+    "speed": "Vector search only, with all-MiniLM-L6-v2: no reranking, MMR or HyDE",
+    "standard": "Hybrid search, reranking and agentic retrieval with BGE-M3 (recommended start)",
+    "balanced": "Standard plus hierarchical chunking and the structured agentic graph, with BGE-M3",
+    "max_quality": "Every retrieval feature on: HyDE, query expansion, RAG fusion and CRAG",
+}
+
+
 class ProfileMixin:
     """Mixin for profile management.
 
@@ -109,32 +121,32 @@ class ProfileMixin:
             # Create default profile from TOML
             default_profile = RAGProfile(
                 name="default",
-                description="Default configuration from settings.lasagna.toml",
+                description=BUILTIN_PROFILE_DESCRIPTIONS["default"],
                 config=rag_config,
             )
 
             # Create preset profiles based on common configurations
             speed_profile = RAGProfile(
                 name="speed",
-                description="Vector search only, with all-MiniLM-L6-v2: no reranking, MMR or HyDE",
+                description=BUILTIN_PROFILE_DESCRIPTIONS["speed"],
                 config=self._create_speed_config(rag_config),
             )
 
             standard_profile = RAGProfile(
                 name="standard",
-                description="Hybrid search, reranking and agentic retrieval with BGE-M3 (recommended start)",
+                description=BUILTIN_PROFILE_DESCRIPTIONS["standard"],
                 config=self._create_standard_config(rag_config),
             )
 
             balanced_profile = RAGProfile(
                 name="balanced",
-                description="Standard plus hierarchical chunking and the structured agentic graph, with BGE-M3",
+                description=BUILTIN_PROFILE_DESCRIPTIONS["balanced"],
                 config=self._create_balanced_config(rag_config),
             )
 
             max_quality_profile = RAGProfile(
                 name="max_quality",
-                description="Every retrieval feature on: HyDE, query expansion, RAG fusion and CRAG",
+                description=BUILTIN_PROFILE_DESCRIPTIONS["max_quality"],
                 config=self._create_max_quality_config(rag_config),
             )
 

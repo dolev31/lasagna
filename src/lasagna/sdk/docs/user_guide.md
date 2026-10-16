@@ -49,7 +49,7 @@ from lasagna.sdk import KnowledgeClient
 # Connect to remote server
 client = KnowledgeClient.from_url(
     "https://rag.myapp.com",
-    api_key="sk-...",           # Optional Bearer token
+    api_key="...",              # A key from the server's RAG_API_KEYS (auth on)
     session_id="my-session",    # Optional (auto-generated if omitted)
 )
 

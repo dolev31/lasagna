@@ -74,9 +74,13 @@ Makefile includes `.env` and that assignment wins. Pass the same value to `make 
 
 - **Client libraries in the image.** The Dockerfile installs
   `".[production,pgvector,opensearch,flag-embedding]"`, which covers Milvus, Milvus Lite,
-  pgvector and OpenSearch. `qdrant`, `weaviate` and `pinecone` also need the
-  `vector-backends` extra; without it the api cannot load the backend and fails its
-  readiness check. Add `vector-backends` to that install line and run `make build`.
+  pgvector and OpenSearch. Its `VECTOR_BACKEND` build argument adds the `vector-backends`
+  extra for `qdrant`, `weaviate` and `pinecone` (or `all`), and the build fails if the
+  client does not import. The `qdrant`, `weaviate` and `pinecone` fragments set that
+  argument, so `make build` builds the right image. `make up` reuses an image that exists,
+  so after switching to one of those three, `make validate` refuses an image built
+  without the extra (the extra installs all three clients) and names the command:
+  `make build VECTOR_BACKEND=qdrant`.
 - **External databases.** The connection a fragment sets is under `environment:`, so a
   `QDRANT_URL` in `.env` does not reach the services. To use a vector store outside the
   stack, edit the fragment or write your own.
@@ -112,11 +116,15 @@ make up VECTOR_BACKEND=milvus-lite COMPOSE_PROFILES=
 | `mcp` | `mcp` | Standalone MCP server over SSE, port `MCP_PORT` (8005); see [MCP service](#mcp-service) |
 | `jaeger` | `tracing` | Trace UI on 16686, OTLP gRPC on 4317 |
 
-Without the `celery` profile, also set `RAG_CELERY_ENABLED=false` in `.env`.
-`docker-compose.yml` defaults it to `true`, and with Redis reachable the api then queues
-each upload for a worker that is not running. With it off, the api processes uploads in
-up to `RAG_MAX_CONCURRENT_UPLOADS` (5) threads of its own. The milvus-lite fragment sets
-this for you. Without the `mcp` profile no MCP server runs, except with milvus-lite.
+`RAG_CELERY_ENABLED` follows the `celery` profile: `make` sets it to `true` when
+`COMPOSE_PROFILES` includes `celery` and to `false` otherwise, and `make validate` refuses
+`RAG_CELERY_ENABLED=true` without the profile. Started with `docker compose` directly, it
+defaults to `true`; the api then queues an upload only when a Celery worker answers a ping
+on the broker (checked at most every 30 seconds), and otherwise logs `RAG_CELERY_ENABLED is
+true but no Celery worker answered ...` once and processes uploads in up to
+`RAG_MAX_CONCURRENT_UPLOADS` (5) threads of its own, as it does with the setting off.
+GC is scheduled the same way: by Celery Beat when a worker answers, by a scheduler inside
+the api otherwise. Without the `mcp` profile no MCP server runs, except with milvus-lite.
 
 ### Shared uploads volume
 
@@ -134,7 +142,7 @@ this volume with the others.
 | Target | What it does |
 | --- | --- |
 | `make up` | `make validate`, then `docker compose <files> up -d` |
-| `make validate` | Stops with an error when `VECTOR_BACKEND` is unset; when `backends/<VECTOR_BACKEND>.yml` does not exist (it lists the ones that do); when `RAG_JWT_SECRET` or `POSTGRES_PASSWORD` is empty; and when `VECTOR_BACKEND=milvus-lite` is combined with `celery` or `mcp` in `COMPOSE_PROFILES`. Otherwise prints `Config OK`. It checks that the secrets are set, not how long they are |
+| `make validate` | Stops with an error when `VECTOR_BACKEND` is unset; when `backends/<VECTOR_BACKEND>.yml` does not exist (it lists the ones that do); when `RAG_JWT_SECRET` or `POSTGRES_PASSWORD` is empty; when `VECTOR_BACKEND=milvus-lite` is combined with `celery` or `mcp` in `COMPOSE_PROFILES`; when `RAG_CELERY_ENABLED` is true without `celery` in `COMPOSE_PROFILES`; and, for `qdrant`, `weaviate` and `pinecone`, when an image already built for the stack lacks that backend's client. Otherwise prints `Config OK`. It checks that the secrets are set, not how long they are |
 | `make down` | Stop the stack, keep the volumes |
 | `make down-v` | Stop the stack and delete its volumes (documents, metadata, uploads) |
 | `make build` | Rebuild the image |
@@ -365,7 +373,8 @@ Before you apply:
    the Secret and overlays point at `postgres.rag-knowledge:5432`,
    `redis.rag-knowledge:6379`, `milvus.rag-knowledge:19530`, `qdrant.rag-knowledge:6333`
    and `weaviate.rag-knowledge:8080`. The `qdrant`, `weaviate` and `pinecone` overlays also
-   need the `vector-backends` extra in the image (see [Vector backends](#vector-backends)).
+   need their client in the image: build it with `--build-arg VECTOR_BACKEND=qdrant` (or
+   `weaviate`, `pinecone`, `all`; see [Vector backends](#vector-backends)).
 3. **Share the uploads.** The manifests mount no volume and turn Celery on, so a worker
    pod cannot open a file an api pod stored. Mount one ReadWriteMany volume at the same
    path in both Deployments and set `LASAGNA_UPLOAD_DIR` to it, or set
@@ -400,13 +409,15 @@ Each setting resolves from, highest first: the session's overrides, the environm
 switches on this page that are not settings are read only by the name shown:
 `RAG_REQUIRE_AUTH`, `RAG_API_KEYS`, `RAG_JWT_SECRET`, `RAG_ADMIN_TOKEN`,
 `RAG_MAX_BATCH_FILES`, `RAG_MAX_BATCH_BYTES`, `RAG_SEARCH_TIMEOUT`, `RAG_CORS_ORIGINS`,
-`RAG_BIND_IS_PROTECTED`, `RAG_EMBED_MCP`, `LASAGNA_LOG_FORMAT` and `LASAGNA_MCP_TOOLS`.
+`RAG_BIND_IS_PROTECTED`, `RAG_EMBED_MCP`, `RAG_SESSION_BACKEND`, `LASAGNA_LOG_FORMAT` and
+`LASAGNA_MCP_TOOLS`.
 
 | Setting | Code default | Compose | k8s |
 | --- | --- | --- | --- |
 | `RAG_DATABASE_BACKEND` | `sqlite` | `postgresql` | `postgresql` |
 | `RAG_CACHE_BACKEND` | `memory` | `redis` | `redis` |
-| `RAG_CELERY_ENABLED` | `false` | `true` | `true` |
+| `RAG_CELERY_ENABLED` | `false` | follows the `celery` profile under `make`, else `true` | `true` |
+| `RAG_SESSION_BACKEND` | in memory (`persistent` for `lasagna` and `lasagna-mcp`) | `persistent` | `persistent` |
 | `RAG_CONNECTION_POOL_SIZE` (vector store) | `1` | `10` | `10` |
 | `RAG_EMBEDDING_MODEL` | `BAAI/bge-m3` | `BAAI/bge-m3` | `BAAI/bge-large-en-v1.5` |
 | `RAG_RERANKER_MODEL` | `mixedbread-ai/mxbai-rerank-large-v1` | same | same |

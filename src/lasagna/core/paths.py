@@ -1,7 +1,9 @@
 """Where Lasagna keeps its data, and the move from the old location.
 
 Everything a user stores lives under one data directory: the metadata
-database and the vector store in ``dbs/``, uploaded files in ``uploads/``. It is
+database and the vector store in ``dbs/``, uploaded files in ``uploads/``,
+experiment results in ``research/results/`` and the experiment LLM cache in
+``cache/``. It is
 ``~/.lasagna`` unless ``LASAGNA_DATA_DIR`` (or ``RAG_DATA_DIR``) names another,
 and each part can still be placed on its own with ``LASAGNA_DB_DIR`` and
 ``LASAGNA_UPLOAD_DIR`` (or the ``RAG_`` names they always had).
@@ -63,6 +65,16 @@ def upload_dir() -> Path:
     """Where uploaded files are kept."""
     explicit = env_get("UPLOAD_DIR")
     return Path(explicit).expanduser() if explicit else data_dir() / "uploads"
+
+
+def results_dir() -> Path:
+    """Where an experiment without ``output_dir`` writes its results folder."""
+    return data_dir() / "research" / "results"
+
+
+def cache_dir() -> Path:
+    """Where the experiment LLM cache keeps its file."""
+    return data_dir() / "cache"
 
 
 def _move_legacy(legacy: Path, target: Path) -> None:

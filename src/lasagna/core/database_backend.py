@@ -54,8 +54,13 @@ class DatabaseBackend(Protocol):
         """
         ...
 
-    def get_documents_batch(self, document_ids: List[str]) -> List[Dict[str, Any]]:
-        """Fetch multiple documents by ID in a single query."""
+    def get_documents_batch(
+        self, document_ids: List[str], include_soft_deleted: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Fetch multiple documents by ID in a single query.
+
+        Soft-deleted documents are excluded unless ``include_soft_deleted``.
+        """
         ...
 
     def update_document_status(

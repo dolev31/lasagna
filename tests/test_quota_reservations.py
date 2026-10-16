@@ -227,6 +227,7 @@ class TestAsyncDispatchReservation:
         mock_task = MagicMock()
         with (
             patch.object(document_tasks, "process_document_task", mock_task),
+            patch.object(document_tasks, "celery_workers_answer", lambda: True),
             patch("lasagna.core.config.rag_config") as mock_config,
         ):
             mock_config.celery_enabled = True
@@ -256,6 +257,7 @@ class TestAsyncDispatchReservation:
         mock_task.delay.side_effect = ConnectionError("Celery down")
         with (
             patch.object(document_tasks, "process_document_task", mock_task),
+            patch.object(document_tasks, "celery_workers_answer", lambda: True),
             patch("lasagna.core.config.rag_config") as mock_config,
         ):
             mock_config.celery_enabled = True

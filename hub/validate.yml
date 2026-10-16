@@ -54,9 +54,10 @@ jobs:
             [ -z "$f" ] && continue
             echo "::group::$f"
             # --strict: warnings block a *published* result even though they do
-            # not block a local run. A single run is a fine pilot; it is not a
-            # leaderboard row, and an unresolved judge alias means the number
-            # cannot be reproduced six months from now.
+            # not block a local run. A single run of a pipeline with an LLM stage
+            # is a fine pilot; it is not a leaderboard row (one in which nothing
+            # samples raises no SINGLE_RUN), and an unresolved judge alias means
+            # the number cannot be reproduced six months from now.
             lasagna results validate "$f" --strict || failed=1
             echo "::endgroup::"
           done <<< "$files"
@@ -73,9 +74,10 @@ jobs:
               contents, so any change invalidates it. Re-run and re-bundle
               rather than editing.
             * Integrity warnings. Under --strict, SINGLE_RUN and
-              UNRESOLVED_JUDGE_ALIAS block publication: one run cannot support
-              a claim about variance, and a floating judge alias points at
-              different weights over time.
+              UNRESOLVED_JUDGE_ALIAS block publication: one run of a pipeline
+              with an LLM stage cannot support a claim about variance, and a
+              floating judge alias points at different weights over time. A
+              retrieval-only run with no LLM call needs only one run.
             * Incomplete provenance. A number nobody can situate is not
               reviewable.
 

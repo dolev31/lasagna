@@ -1,5 +1,5 @@
 # =============================================================================
-# Lasagna — Deployment Makefile
+# Lasagna: Deployment Makefile
 # =============================================================================
 # Usage:
 #   make up                         Start with VECTOR_BACKEND from .env
@@ -25,6 +25,13 @@ export
 
 # Assemble compose files: base + backend fragment
 FILES := -f docker-compose.yml -f backends/$(VECTOR_BACKEND).yml
+
+# The api queues uploads for Celery only when the celery profile runs a worker.
+# Unset, RAG_CELERY_ENABLED follows COMPOSE_PROFILES; `make validate` refuses
+# true without the profile. (Started without make, the api checks for a worker
+# itself and processes uploads in its own threads when none answers.)
+comma := ,
+RAG_CELERY_ENABLED ?= $(if $(filter celery,$(subst $(comma), ,$(COMPOSE_PROFILES))),true,false)
 
 .PHONY: up down down-v build logs ps health validate help shell test stress-test stress-test-all
 
@@ -59,7 +66,26 @@ validate:  ## Validate configuration
 		*,celery,*|*,mcp,*) echo "ERROR: VECTOR_BACKEND=milvus-lite runs inside the api process, so the celery and mcp profiles cannot reach it (COMPOSE_PROFILES=$(COMPOSE_PROFILES)). Set COMPOSE_PROFILES= (MCP is then served by the api at /mcp/sse), or use a server backend such as VECTOR_BACKEND=milvus."; exit 1;; \
 		esac; \
 	fi
-	@echo "Config OK: VECTOR_BACKEND=$(VECTOR_BACKEND) COMPOSE_PROFILES=$(COMPOSE_PROFILES)"
+	@case "$$(printf '%s' '$(RAG_CELERY_ENABLED)' | tr '[:upper:]' '[:lower:]')" in \
+	1|true|yes|on) \
+		case ",$$(printf '%s' '$(COMPOSE_PROFILES)' | tr -d ' ')," in \
+		*,celery,*) ;; \
+		*) echo "ERROR: RAG_CELERY_ENABLED=$(RAG_CELERY_ENABLED) queues uploads for a Celery worker, but COMPOSE_PROFILES=$(COMPOSE_PROFILES) starts none. Add celery to COMPOSE_PROFILES, or remove RAG_CELERY_ENABLED from .env so it follows the profile."; exit 1;; \
+		esac;; \
+	esac
+	@# `up` reuses an image that exists, so one built without the vector-backends
+	@# extra lacks this backend's client (see the Dockerfile's VECTOR_BACKEND
+	@# argument). The extra installs all three clients.
+	@case "$(VECTOR_BACKEND)" in qdrant|weaviate|pinecone) \
+		for img in $$(docker compose $(FILES) config --images 2>/dev/null | grep -E -- '-(api|celery-worker|celery-beat|mcp)$$'); do \
+			built=$$(docker image inspect --format '{{ index .Config.Labels "org.lasagna.vector-backend" }}' "$$img" 2>/dev/null) || continue; \
+			case "$$built" in \
+			qdrant|weaviate|pinecone|all) ;; \
+			*) echo "ERROR: The image $$img has no $(VECTOR_BACKEND) client: it was built for VECTOR_BACKEND=$$(echo "$$built" | sed 's/<no value>//;s/^$$/milvus/'), without the vector-backends extra. Rebuild it with: make build VECTOR_BACKEND=$(VECTOR_BACKEND)"; exit 1;; \
+			esac; \
+		done;; \
+	esac
+	@echo "Config OK: VECTOR_BACKEND=$(VECTOR_BACKEND) COMPOSE_PROFILES=$(COMPOSE_PROFILES) RAG_CELERY_ENABLED=$(RAG_CELERY_ENABLED)"
 
 shell:  ## Open a shell in the API container
 	docker compose $(FILES) exec api bash
@@ -67,7 +93,7 @@ shell:  ## Open a shell in the API container
 test:  ## Run static deployment tests
 	cd ../../.. && python -m pytest tests/test_unified_deployment.py -v -k "not Live"
 
-# Stress test env — lightweight models for fast CPU execution
+# Stress test env: lightweight models for fast CPU execution
 STRESS_ENV := RAG_EMBEDDING_MODEL=all-MiniLM-L6-v2 \
 	RAG_EMBEDDING_DIM=384 \
 	RAG_RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2 \

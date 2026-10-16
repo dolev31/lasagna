@@ -1,4 +1,4 @@
-"""Query Enhancement for RAG System - SOTA Implementation.
+"""Query Enhancement for RAG System.
 
 This module provides:
 - HyDE (Hypothetical Document Embeddings) for improved retrieval

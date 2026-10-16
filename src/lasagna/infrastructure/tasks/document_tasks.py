@@ -2,7 +2,7 @@
 
 Three-tier dispatch for document processing:
 
-1. **Celery** — When ``celery_enabled = true`` and a broker is reachable,
+1. **Celery** — When ``celery_enabled = true`` and a worker answers on the broker,
    tasks are enqueued to Celery workers for fully distributed processing.
 2. **Thread pool** — When Celery is unavailable and ``async_processing = true``
    (default), a bounded ``ThreadPoolExecutor`` processes documents in
@@ -136,6 +136,8 @@ def _process_document_impl(
 
         # Get session-scoped config
         config = backend.get_session_config(session_id)
+        # This may be another process than the one that took the upload.
+        backend._document_pipeline.use_embedder_for(config)
 
         # Run the full processing pipeline
         backend._document_pipeline.process_document(doc, file_path, config=config)
@@ -481,6 +483,88 @@ def _thread_pool_wrapper(
 
 
 # ---------------------------------------------------------------------------
+# Celery workers — is anyone consuming the queue?
+# ---------------------------------------------------------------------------
+
+#: Seconds a worker probe's answer is reused, so uploads do not each wait on a ping.
+WORKER_PROBE_TTL_S = 30.0
+_worker_probe: Tuple[float, bool] = (float("-inf"), False)
+_worker_probe_lock = threading.Lock()
+_last_fallback_reason: Optional[str] = None
+
+
+def _ping_celery_workers(timeout: float = 1.0) -> bool:
+    """Whether at least one Celery worker answers a ping on the broker."""
+    try:
+        from lasagna.infrastructure.tasks.celery_app import celery_app
+
+        if celery_app is None:
+            return False
+        # limit=1: return on the first reply instead of waiting out the timeout.
+        return bool(celery_app.control.ping(timeout=timeout, limit=1))
+    except Exception as exc:  # noqa: BLE001 - an unreachable broker is "no worker"
+        logger.debug(f"Celery worker ping failed: {exc}")
+        return False
+
+
+def celery_workers_answer(now: Optional[float] = None) -> bool:
+    """`_ping_celery_workers`, reusing an answer for `WORKER_PROBE_TTL_S` seconds."""
+    global _worker_probe
+    now = time.monotonic() if now is None else now
+    with _worker_probe_lock:
+        checked_at, answered = _worker_probe
+        if now - checked_at < WORKER_PROBE_TTL_S:
+            return answered
+        answered = _ping_celery_workers()
+        _worker_probe = (now, answered)
+        return answered
+
+
+def choose_dispatch(
+    celery_enabled: bool,
+    celery_installed: bool,
+    workers_answer: Callable[[], bool],
+    broker: str = "",
+) -> Tuple[str, Optional[str]]:
+    """Where a document is processed: ``"celery"`` or ``"local"``, and why not Celery.
+
+    The reason is None when Celery was not asked for, or is used. With
+    ``RAG_CELERY_ENABLED`` on and Redis reachable, ``.delay()`` used to
+    succeed with no worker running (the compose stack without its ``celery``
+    profile), so every upload waited in the queue for good. A queue only
+    gets a document when a worker answers on the broker.
+    """
+    if not celery_enabled:
+        return "local", None
+    if not celery_installed:
+        return "local", (
+            "RAG_CELERY_ENABLED is true but celery is not installed, so uploads are processed "
+            'in this process. Install it with pip install "lasagna-rag[production]", or set '
+            "RAG_CELERY_ENABLED=false."
+        )
+    if not workers_answer():
+        where = f" on {broker}" if broker else ""
+        return "local", (
+            f"RAG_CELERY_ENABLED is true but no Celery worker answered{where}, so uploads are "
+            "processed in this process. Start a worker (with compose: --profile celery), or "
+            "set RAG_CELERY_ENABLED=false."
+        )
+    return "celery", None
+
+
+def _note_fallback(reason: Optional[str]) -> None:
+    """Log a change of dispatch decision once, not on every upload."""
+    global _last_fallback_reason
+    if reason == _last_fallback_reason:
+        return
+    _last_fallback_reason = reason
+    if reason:
+        logger.warning(reason)
+    else:
+        logger.info("A Celery worker answered; uploads are queued for it again.")
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher — public API used by the document pipeline / REST layer
 # ---------------------------------------------------------------------------
 
@@ -498,9 +582,9 @@ def dispatch_processing(
 
     Three-tier dispatch with explicit fallback semantics:
 
-    1. **Celery** — ``celery_enabled=true`` and broker reachable → enqueue.
-       If Celery dispatch *fails* (broker down), log WARNING and fall
-       through to tier 2.
+    1. **Celery** — ``celery_enabled=true`` and a worker answers on the
+       broker (`choose_dispatch`) → enqueue. With no worker, or if Celery
+       dispatch *fails*, log WARNING and fall through to tier 2.
     2. **Thread pool** — ``async_processing=true`` (default) and semaphore
        available → submit to ``ThreadPoolExecutor``.  If the pool is at
        capacity (semaphore full), log WARNING and fall through to tier 3.
@@ -522,8 +606,18 @@ def dispatch_processing(
     from lasagna.core.config import rag_config
 
     # --- Tier 1: Celery ---
-    celery_enabled = getattr(rag_config, "celery_enabled", False)
-    if celery_enabled and process_document_task is not None:
+    from lasagna.core.provenance import redact_url
+
+    celery_enabled = bool(getattr(rag_config, "celery_enabled", False))
+    route, reason = choose_dispatch(
+        celery_enabled,
+        process_document_task is not None,
+        celery_workers_answer,
+        broker=redact_url(getattr(rag_config, "celery_broker_url", "")) if celery_enabled else "",
+    )
+    if celery_enabled:
+        _note_fallback(reason)
+    if route == "celery":
         try:
             process_document_task.delay(
                 document_id,

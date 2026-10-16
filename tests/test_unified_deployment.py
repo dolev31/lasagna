@@ -309,6 +309,7 @@ class TestComposeMerging:
             "RAG_DATABASE_DSN",
             "RAG_REDIS_URL",
             "RAG_CACHE_BACKEND",
+            "RAG_SESSION_BACKEND",
             "RAG_TENANT_ISOLATION",
             "RAG_ENABLE_PROMETHEUS",
             "RAG_CONNECTION_POOL_SIZE",

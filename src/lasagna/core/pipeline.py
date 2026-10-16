@@ -876,7 +876,7 @@ class KnowledgePipeline:
         session_id: str = "__pipeline__",
         config_overrides: Optional[Dict[str, Any]] = None,
     ) -> list:
-        """Run the full SOTA search pipeline.
+        """Run the full search pipeline.
 
         Applies pipeline config as session overrides and passes any
         registered component overrides to the search orchestrator.

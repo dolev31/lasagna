@@ -458,8 +458,18 @@ interaction below reflects that rather than an overlap between the techniques.
 ```
 
 On this corpus neither technique helped the dense baseline, and once the
-reranker was on, hybrid search changed none of the top ten. The harness says
-so instead of reporting a 2×2 that only looks complete. The statistic is
+reranker was on, hybrid search changed none of the top ten. It was not skipped:
+it reordered the candidates, and that is all it could do here. Each cell asks
+for 40 chunks (ten documents, over-fetched four times), and
+`enable_hybrid_search` fuses the dense and BM25 lists by weighted rank, with
+`hybrid_alpha` 0.7 and `rrf_k` 60. A chunk only BM25 finds scores at most
+0.3/60 = 0.0050, below the 40th dense chunk's 0.7/99 = 0.0071, so the fused 40
+are the dense 40 in another order; on all 100 queries the reranker was handed
+the same 40 chunks in both cells. The cross-encoder scores each chunk on its
+own, so it returned the same top ten. For BM25 to bring in chunks of its own at
+this depth, `hybrid_alpha` must be below 0.62, or sweep the `hybrid_rrf`
+retriever, which fuses each list's top `hybrid_fusion_depth` (1,000) unweighted.
+The harness says so instead of reporting a 2×2 that only looks complete. The statistic is
 `(AB − neither) − (A − neither) − (B − neither)`, tested by sign-flipping each
 query's interaction contrast (all four cells of a query move together), with a
 t interval. Positive means the techniques compound; negative means they

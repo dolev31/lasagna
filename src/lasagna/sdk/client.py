@@ -151,6 +151,7 @@ class KnowledgeClient:
         url: str,
         api_key: Optional[str] = None,
         session_id: Optional[str] = None,
+        session_token: Optional[str] = None,
     ) -> "KnowledgeClient":
         """Connect to a remote Lasagna API server.
 
@@ -159,8 +160,15 @@ class KnowledgeClient:
 
         Args:
             url: Base URL of the Lasagna API (e.g. ``https://rag.myapp.com``)
-            api_key: Optional Bearer token for authentication
+            api_key: A key from the server's ``RAG_API_KEYS``. With
+                ``RAG_REQUIRE_AUTH`` on, the client mints a session token with
+                it (``POST /api/v1/sessions``) when the server first answers
+                401, and its session becomes the token's. Also sent as
+                ``Authorization: Bearer``.
             session_id: Session identifier. Auto-generated if not provided.
+                With auth on, only an admin may name one, so leave it out.
+            session_token: A token from ``POST /api/v1/sessions``, sent as
+                ``X-Session-Token`` on every request.
 
         Returns:
             KnowledgeClient connected to the remote server
@@ -187,21 +195,22 @@ class KnowledgeClient:
                 "Must be a non-empty string or None (to auto-generate)."
             )
 
-        instance = cls.__new__(cls)
-        instance._config = KnowledgeConfig()
-        instance._session_id = session_id or f"remote_{uuid.uuid4().hex[:8]}"
+        # Through __init__, so the remote client has every attribute a local
+        # one has: built field by field, it lacked _in_flight_documents and
+        # close() raised AttributeError.
+        instance = cls(session_id=session_id or f"remote_{uuid.uuid4().hex[:8]}")
+
+        def adopt(minted: str) -> None:
+            instance._session_id = minted
+
         instance._backend = RemoteRAGBackend(
             base_url=url,
             api_key=api_key,
             session_id=instance._session_id,
+            session_token=session_token,
+            requested_session=session_id,
+            on_session=adopt,
         )
-        instance._backend_lock = asyncio.Lock()
-        instance._document_manager = None
-        instance._search_manager = None
-        instance._config_manager = None
-        instance._citation_manager = None
-        instance._focused_document_ids = None
-        instance._bridged_runtime_keys = set()
 
         logger.info(f"KnowledgeClient connected to remote: {url}")
         return instance
@@ -767,8 +776,8 @@ class KnowledgeClient:
 
         Example:
             ```python
-            client.use_preset("standard")     # SOTA features + lightweight model
-            client.use_preset("balanced")      # SOTA features + best model
+            client.use_preset("standard")     # hybrid search, reranking, agentic, BGE-M3
+            client.use_preset("balanced")      # standard plus hierarchical chunking
             client.use_preset("max_quality")   # All features enabled
             client.use_preset("speed")         # Pure vector search only
             ```

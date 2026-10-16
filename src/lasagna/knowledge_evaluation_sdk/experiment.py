@@ -1106,8 +1106,36 @@ def runs_were_identical(task_results: Iterable[Any]) -> bool:
     return all(all(scores(r) == scores(g[0]) for r in g[1:]) for g in repeated)
 
 
+def nothing_samples(task_results: Iterable[Any], tracks: Iterable[str]) -> bool:
+    """Whether repeating this run would give the same numbers, by construction.
+
+    True when only the retrieval track ran and no task made an LLM call (no
+    agentic step, LLM reranker or query rewriter): retrieval with fixed models
+    is deterministic. When the run has repeats, they must also have come out
+    identical (`runs_were_identical`, the end-of-run note). Recorded as the
+    run's ``nothing_samples``, so a single run of such a pipeline is a complete
+    result: the docs recommend ``n_runs: 1`` for it, and the bundle's
+    ``SINGLE_RUN`` warning, which ``--strict`` and the hub refused, is for runs
+    with an LLM stage in the loop.
+    """
+    done = [r for r in task_results if not getattr(r, "error", None)]
+    if not done or set(tracks or ()) != {"retrieval"}:
+        return False
+    if any(getattr(r, "system_llm_calls", 0) or getattr(r, "eval_llm_calls", 0) for r in done):
+        return False
+    groups: Dict[tuple, int] = {}
+    for r in done:
+        key = (r.benchmark_name, r.config_name)
+        groups[key] = groups.get(key, 0) + 1
+    return runs_were_identical(done) if any(n > 1 for n in groups.values()) else True
+
+
 def _results_root() -> str:
-    return os.path.join(os.path.expanduser("~"), ".lasagna", "research", "results")
+    """``<data dir>/research/results``: it ignored ``LASAGNA_DATA_DIR`` and
+    stayed under the home directory."""
+    from lasagna.core import paths
+
+    return str(paths.results_dir())
 
 
 def _slug(name: str) -> str:
@@ -1594,6 +1622,8 @@ class Experiment:
         )
         # How much of this run was replayed, so a fast run can be read as one.
         results.experiment_config["llm_cache"] = cache_settings.record(cache_totals)
+        # Whether one run is the whole answer (see nothing_samples).
+        results.experiment_config["nothing_samples"] = nothing_samples(task_results, cfg.tracks)
         if prices is not None:
             # The table and the rates behind every cost_usd_estimate.
             from .cost import generator_model_name, judge_model_name
@@ -3315,9 +3345,7 @@ async def _ensure_corpus_ingested(
                 _skip_ingest = True
             elif existing_doc_ids:
                 # Load allowlist for known errors from previous runs
-                _allowlist_path = (
-                    Path.home() / ".lasagna" / "research" / "results" / "_ingest_allowlist.json"
-                )
+                _allowlist_path = Path(_results_root()) / "_ingest_allowlist.json"
                 _known_errors: set = set()
                 if _allowlist_path.exists():
                     try:
@@ -3378,9 +3406,7 @@ async def _ensure_corpus_ingested(
 
             # Persist error allowlist for future resume
             if error_ids:
-                _allowlist_path = (
-                    Path.home() / ".lasagna" / "research" / "results" / "_ingest_allowlist.json"
-                )
+                _allowlist_path = Path(_results_root()) / "_ingest_allowlist.json"
                 _allowlist_path.parent.mkdir(parents=True, exist_ok=True)
                 _al: dict = {}
                 if _allowlist_path.exists():

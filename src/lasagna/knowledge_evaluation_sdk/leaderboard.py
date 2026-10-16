@@ -33,7 +33,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 #: A row from a single run reports no spread, so it can never be confirmed or
-#: contradicted by a collision. It is shown, and never marked verified.
+#: contradicted by a collision. It is shown, and never marked verified, unless
+#: its run recorded ``nothing_samples``: then a second run would repeat it, and
+#: its interval is the mean itself.
 _MIN_RUNS_FOR_INTERVAL = 2
 
 #: The interval of a row whose runs agree exactly. Such a pipeline is
@@ -154,6 +156,9 @@ def collect_rows(bundles: Iterable[Dict[str, Any]], metric: str) -> List[Dict[st
                     "mean": mean,
                     "std": std,
                     "n_runs": len(values),
+                    "nothing_samples": bool(
+                        (bundle.get("experiment") or {}).get("nothing_samples")
+                    ),
                     "run_id": bundle.get("run_id", ""),
                     "path": bundle.get("_path", ""),
                     # What `group` ranks by: without it every metric sorted
@@ -184,7 +189,8 @@ def mark_verified(rows: List[Dict[str, Any]]) -> None:
     """
     for row in rows:
         row["verified"] = False
-        if row["n_runs"] < _MIN_RUNS_FOR_INTERVAL or not _stages_recorded(row):
+        exact = row["n_runs"] < _MIN_RUNS_FOR_INTERVAL and row.get("nothing_samples")
+        if (row["n_runs"] < _MIN_RUNS_FOR_INTERVAL and not exact) or not _stages_recorded(row):
             continue
         # std == 0 used to disqualify the row, so a deterministic pipeline
         # could never be verified, even by a bit-identical reproduction.

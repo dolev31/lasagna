@@ -77,8 +77,8 @@ except ImportError:
 class KnowledgeRetriever(BaseRetriever):
     """LangChain retriever backed by Knowledge SDK.
 
-    Implements the LangChain BaseRetriever interface for seamless
-    integration with LangChain chains and agents.
+    Implements the LangChain BaseRetriever interface, so chains and agents
+    can use it wherever they take a retriever.
 
     Attributes:
         client: KnowledgeClient instance

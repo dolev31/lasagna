@@ -1,6 +1,6 @@
 """Search orchestration pipeline for RAG retrieval.
 
-Implements the full SOTA search pipeline: query classification, HyDE,
+Implements the full search pipeline: query classification, HyDE,
 dense search, hybrid fusion (BM25), cross-encoder reranking, MMR diversity,
 auto-merge, caching, metrics, and citation extraction.
 """
@@ -258,7 +258,7 @@ class SearchOrchestrator:
         _graph_node_overrides: Optional[Dict[str, Any]] = None,
         query_config_overrides: Optional[Dict[str, Any]] = None,
     ) -> List[SearchResult]:
-        """Search with SOTA retrieval pipeline.
+        """Search with the configured retrieval pipeline.
 
         Args:
             query: Search query
@@ -528,7 +528,7 @@ class SearchOrchestrator:
         # Determine query for embedding
         search_query = query
 
-        # Query classification for adaptive retrieval (P0-3: SOTA feature)
+        # Query classification for adaptive retrieval (P0-3)
         # Reuse the early classification from routing if available,
         # avoiding a redundant classify_query() call.
         query_classification = _early_classification
@@ -1383,7 +1383,7 @@ class SearchOrchestrator:
     ) -> List[SearchResult]:
         """Async version of search().  Offloads CPU-bound work to thread pool.
 
-        Suitable for use in FastAPI async endpoints.  Uses the same SOTA
+        Suitable for use in FastAPI async endpoints.  Uses the same
         pipeline as the synchronous ``search()`` method.
         """
         loop = asyncio.get_running_loop()
@@ -1561,7 +1561,7 @@ class SearchOrchestrator:
     ) -> List[SearchResult]:
         """Search with query expansion and RRF-based result fusion.
 
-        This is a SOTA technique that:
+        This technique:
         1. Generates query variations using the QueryExpander
         2. Searches with each query variation (original + variations)
         3. Fuses results using Reciprocal Rank Fusion (RRF) with original query weighted higher

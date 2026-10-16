@@ -547,6 +547,14 @@ def json_schema() -> Dict[str, Any]:
                         ),
                     },
                     "variance_source": {"enum": ["run", "sample"]},
+                    "nothing_samples": {
+                        "type": "boolean",
+                        "description": (
+                            "True when only retrieval ran and no task called an LLM (and "
+                            "repeats, if any, were identical): one run is then the whole "
+                            "answer, and SINGLE_RUN is not raised."
+                        ),
+                    },
                     "determinism": {
                         "enum": list(SEEDED_LABELS),
                         "description": (
@@ -827,9 +835,11 @@ def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str
     if any(r.get("split") and r.get("split") != "test" for r in rows):
         warnings.append("NON_TEST_SPLIT")
 
-    if run_meta.get("n_runs", 1) < 2:
+    if run_meta.get("n_runs", 1) < 2 and not run_meta.get("nothing_samples"):
         # Not blocking on its own: a single run is a legitimate pilot. It only
-        # becomes a problem when a significance claim is attached to it.
+        # becomes a problem when a significance claim is attached to it. A run
+        # in which nothing samples (retrieval only, no LLM call) is complete
+        # with one run, as the docs recommend, so it carries no warning.
         warnings.append("SINGLE_RUN")
 
     judge = run_meta.get("judge_model")

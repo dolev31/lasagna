@@ -13,7 +13,7 @@ raises `ValueError` and names the extra to install.
 
 | Backend | Install | Read from the environment when no arguments are given | Compose fragment |
 | --- | --- | --- | --- |
-| `milvus` | core | `MILVUS_URI`, `MILVUS_TOKEN`; otherwise Milvus Lite at `<db dir>/rag_milvus.db` (but see the note on Milvus servers below) | `milvus-lite.yml`, `milvus.yml` |
+| `milvus` | core | `MILVUS_URI`, `MILVUS_TOKEN`; otherwise Milvus Lite at `<db dir>/rag_milvus.db` (see the note on Milvus servers below) | `milvus-lite.yml`, `milvus.yml` |
 | `qdrant` | `pip install "lasagna-rag[vector-backends]"` | `QDRANT_URL`, `QDRANT_API_KEY`; otherwise local files in `<db dir>/qdrant_data` | `qdrant.yml` |
 | `pinecone` | `pip install "lasagna-rag[vector-backends]"` | `PINECONE_API_KEY` | `pinecone.yml` |
 | `weaviate` | `pip install "lasagna-rag[vector-backends]"` | `WEAVIATE_URL`, `WEAVIATE_API_KEY`; otherwise embedded Weaviate | `weaviate.yml` |
@@ -52,13 +52,15 @@ stay there. Each document row records `vector_backend_name` and
 `collection_name`, and deleting the document deletes its vectors from that
 backend (opened with its default configuration) and collection.
 
-**Milvus servers.** The backend Lasagna builds at startup always passes a
-`db_path` to `MilvusBackend` (from `vector_backend_config`, or
-`<db dir>/rag_milvus.db`), and `MilvusBackend` prefers `db_path` to `uri`. So
-neither `MILVUS_URI` nor `vector_backend_config = {"uri": "http://milvus:19530"}`
-(what `backends/milvus.yml` sets) connects that backend to a Milvus server: it
-opens Milvus Lite inside the process. `get_backend("milvus", uri=...)` called
-directly does connect to the server.
+**Milvus servers.** The backend Lasagna builds at startup connects to a Milvus
+server when one is configured: `"uri"` in `vector_backend_config` (what
+`backends/milvus.yml` sets), else `MILVUS_URI`, with `"token"` or `MILVUS_TOKEN`.
+Otherwise it opens Milvus Lite at the `"db_path"` in `vector_backend_config`, or
+at `<db dir>/rag_milvus.db`. The startup log names the one it opened
+(`Initializing vector backend: Milvus server at http://milvus:19530 (from
+vector_backend_config)`). A `"db_path"` together with a server address stops
+startup with a `ConfigError` that names both, and `MilvusBackend(db_path=...,
+uri=...)` raises `ValueError`: before 0.1.0 the file won silently.
 
 ## Collections: one per embedding model
 

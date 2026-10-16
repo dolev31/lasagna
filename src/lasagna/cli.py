@@ -239,6 +239,21 @@ def _count(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
+def _output_file(output: str) -> Path:
+    """``output`` as a path whose folder exists.
+
+    ``-o newdir/run.json`` ended in a ``FileNotFoundError`` traceback when
+    ``newdir`` did not exist; the folder is created, and one that cannot be
+    is a one-line error.
+    """
+    path = Path(output)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        _error(f"Cannot create the folder {path.parent} for {output}: {exc.strerror or exc}")
+    return path
+
+
 def _error(msg: str, exit_code: int = 1, exc: Optional[BaseException] = None):
     """Print error and exit.
 
@@ -998,7 +1013,7 @@ def export_config(
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
         data = mgr.export_config(session_id)
-        with open(output, "w") as f:
+        with open(_output_file(output), "w") as f:
             json.dump(data, f, indent=2, default=str)
         console.print(f"[green]Configuration exported to {output}[/green]")
     except OSError as exc:
@@ -1429,9 +1444,11 @@ def benchmark_experiment(
         # the newest one of this experiment, or say there is none.
         latest = exp.config.latest_output_dir()
         if latest is None:
+            from lasagna.core.paths import results_dir
+
             _error(
                 f"Nothing to resume: no checkpoints for experiment {exp.config.name!r} under "
-                f"~/.lasagna/research/results. Run without --resume, or set output_dir: in "
+                f"{results_dir()}. Run without --resume, or set output_dir: in "
                 f"the sweep to resume a specific folder."
             )
         exp.config._resolved_output_dir = latest
@@ -1657,7 +1674,7 @@ def benchmark_licenses(
 
     markdown = "\n".join(lines)
     if output:
-        Path(output).write_text(markdown)
+        _output_file(output).write_text(markdown)
         console.print(f"[green]Wrote[/green] {output} ({len(infos)} benchmarks)")
     else:
         console.print(markdown, markup=False)
@@ -2115,7 +2132,10 @@ def results_bundle(
     except MetricsVersionError as exc:
         _error(str(exc))
 
-    Path(output).write_text(json.dumps(bundle, indent=2, default=str))
+    try:
+        _output_file(output).write_text(json.dumps(bundle, indent=2, default=str))
+    except OSError as exc:
+        _error(f"Cannot write {output}: {exc.strerror or exc}")
     console.print(f"[green]Wrote[/green] {escape(output)}")
     console.print(f"  run_id: {bundle['run_id']}")
     for cfg in bundle["configs"]:
@@ -2525,7 +2545,7 @@ def results_per_query(
         rows = sorted(rows, key=lambda r: r.get(sort_by, float("inf")))
 
     if output:
-        path = Path(output)
+        path = _output_file(output)
         if path.suffix == ".jsonl":
             path.write_text("\n".join(json.dumps(r, default=str) for r in rows) + "\n")
         else:
@@ -3120,7 +3140,7 @@ def results_schema(
 
     text = _json.dumps(json_schema(), indent=2) + "\n"
     if output:
-        Path(output).write_text(text, encoding="utf-8")
+        _output_file(output).write_text(text, encoding="utf-8")
         console.print(f"[green]Wrote {escape(output)}[/green] (schema {SCHEMA_VERSION})")
     else:
         console.print(text, markup=False, highlight=False)

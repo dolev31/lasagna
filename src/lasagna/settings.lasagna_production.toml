@@ -1,5 +1,5 @@
 # =============================================================================
-#             RAG KNOWLEDGE BASE — PRODUCTION CONFIGURATION
+#             RAG KNOWLEDGE BASE: PRODUCTION CONFIGURATION
 # =============================================================================
 #
 # This file configures the RAG system for multi-tenant production deployments.
@@ -23,7 +23,7 @@
 [rag]
 
 # =============================================================================
-# INFRASTRUCTURE — Database, Cache, Background Processing
+# INFRASTRUCTURE: Database, Cache, Background Processing
 # =============================================================================
 
 # Database: PostgreSQL for concurrent writes and horizontal scaling
@@ -46,7 +46,7 @@ celery_enabled = true
 connection_pool_size = 10
 
 # =============================================================================
-# TENANT PROTECTION — Isolation, Quotas, Rate Limiting
+# TENANT PROTECTION: Isolation, Quotas, Rate Limiting
 # =============================================================================
 
 # Partition-based isolation: each tenant's vectors stored in separate partitions
@@ -60,7 +60,7 @@ rate_limiting_enabled = true
 rate_limiting_strategy = "adaptive"
 
 # =============================================================================
-# OBSERVABILITY — Metrics and Tracing
+# OBSERVABILITY: Metrics and Tracing
 # =============================================================================
 
 # Prometheus metrics: counters and histograms for all pipeline stages
@@ -75,7 +75,7 @@ tracing_endpoint = "http://localhost:4317"
 tracing_service_name = "rag-knowledge"
 
 # =============================================================================
-# EMBEDDING MODEL — Production Quality
+# EMBEDDING MODEL: Production Quality
 # =============================================================================
 
 embedding_model = "BAAI/bge-large-en-v1.5"
@@ -86,7 +86,7 @@ batch_size = 32
 use_gpu = true
 
 # =============================================================================
-# SEARCH QUALITY — Balanced Profile
+# SEARCH QUALITY: Balanced Profile
 # =============================================================================
 
 enable_reranking = true

@@ -446,7 +446,13 @@ class PersistentSessionProvider(SessionConfigProvider):
         return self._manager
 
     def get_resolved_config(self, session_id: str) -> Dict[str, Any]:
-        return self._get_manager().get_resolved_config(session_id)
+        # What the session chose, not its profile's whole configuration: the
+        # latter carries the packaged settings file's values, which then beat
+        # every environment setting (see KnowledgeConfigManager.get_chosen_config).
+        manager = self._get_manager()
+        if hasattr(manager, "get_chosen_config"):
+            return manager.get_chosen_config(session_id)
+        return manager.get_resolved_config(session_id)
 
     def is_rag_enabled(self, session_id: str) -> bool:
         return self._get_manager().is_rag_enabled(session_id)

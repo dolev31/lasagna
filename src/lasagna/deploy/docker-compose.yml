@@ -1,5 +1,5 @@
 # ============================================================================
-# Lasagna — Base Compose (shared infrastructure)
+# Lasagna: Base Compose (shared infrastructure)
 #
 # This is the base file.  Combine with a backend fragment:
 #   docker compose -f docker-compose.yml -f backends/pgvector.yml up -d
@@ -8,13 +8,13 @@
 #   VECTOR_BACKEND=pgvector make up
 #
 # Services defined here:
-#   api          — FastAPI + Gunicorn (always starts)
-#   redis        — Cache + message broker (always starts)
-#   postgres     — Metadata database (always starts)
-#   celery-worker — Background processing (profile: celery)
-#   celery-beat  — Periodic GC and orphan scans (profile: celery)
-#   mcp          — Standalone MCP server (profile: mcp)
-#   jaeger       — Distributed tracing (profile: tracing)
+#   api           FastAPI + Gunicorn (always starts)
+#   redis         Cache + message broker (always starts)
+#   postgres      Metadata database (always starts)
+#   celery-worker Background processing (profile: celery)
+#   celery-beat   Periodic GC and orphan scans (profile: celery)
+#   mcp           Standalone MCP server (profile: mcp)
+#   jaeger        Distributed tracing (profile: tracing)
 #
 # Every long-running service has a healthcheck, so
 #   docker compose -f docker-compose.yml -f backends/qdrant.yml up -d --wait
@@ -46,6 +46,16 @@ x-env: &common-env
   # the worker processes documents and these threads are a fallback.
   RAG_PROCESSING_TIMEOUT: "${RAG_PROCESSING_TIMEOUT:-20}"
   RAG_CACHE_BACKEND: redis
+  # Session settings (a profile chosen, PATCH /api/v1/config) kept in Postgres,
+  # where every gunicorn worker, the celery worker and the mcp server read them.
+  # The default keeps them in each process's memory: two requests of one session
+  # saw different settings depending on the worker that served them, and the
+  # celery worker indexed with settings the session never chose.
+  RAG_SESSION_BACKEND: persistent
+  # Whether the api queues uploads for celery-worker. `make` derives it from
+  # COMPOSE_PROFILES (true with the celery profile) and `make validate` refuses
+  # true without it. The api also checks that a worker answers on the broker,
+  # and otherwise processes uploads in its own threads and logs why.
   RAG_CELERY_ENABLED: "${RAG_CELERY_ENABLED:-true}"
   RAG_CELERY_BROKER_URL: redis://redis:6379/0
   RAG_CELERY_RESULT_BACKEND: redis://redis:6379/1
@@ -115,7 +125,7 @@ x-build: &common-build
 
 services:
   # -------------------------------------------------------------------------
-  # API Server (FastAPI + Gunicorn) — always starts
+  # API Server (FastAPI + Gunicorn): always starts
   # -------------------------------------------------------------------------
   api:
     build: *common-build
@@ -160,7 +170,7 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # Celery Worker — opt-in via: --profile celery
+  # Celery Worker: opt in with --profile celery
   # -------------------------------------------------------------------------
   celery-worker:
     build: *common-build
@@ -196,7 +206,7 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # Celery Beat Scheduler — opt-in via: --profile celery
+  # Celery Beat Scheduler: opt in with --profile celery
   # Runs periodic GC and orphan-scan tasks on a cron schedule.
   # Must run alongside celery-worker (one beat instance per cluster).
   # -------------------------------------------------------------------------
@@ -231,7 +241,7 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # MCP Server (standalone) — opt-in via: --profile mcp
+  # MCP Server (standalone): opt in with --profile mcp
   # -------------------------------------------------------------------------
   mcp:
     build: *common-build
@@ -269,7 +279,7 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # Redis (Cache + Message Broker) — always starts
+  # Redis (Cache + Message Broker): always starts
   # -------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
@@ -286,7 +296,7 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # PostgreSQL (Metadata Database) — always starts
+  # PostgreSQL (Metadata Database): always starts
   # Image can be overridden by backend fragments (e.g. pgvector/pgvector:pg16)
   # -------------------------------------------------------------------------
   postgres:
@@ -310,7 +320,7 @@ services:
     restart: unless-stopped
 
   # -------------------------------------------------------------------------
-  # Jaeger (Distributed Tracing) — opt-in via: --profile tracing
+  # Jaeger (Distributed Tracing): opt in with --profile tracing
   # -------------------------------------------------------------------------
   jaeger:
     image: jaegertracing/all-in-one:latest

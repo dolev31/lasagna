@@ -108,8 +108,9 @@ comparability key. `validate` recomputes the key and the run id, so an edited
 number no longer matches its own bundle.
 
 `--strict` also fails on the warnings, which do not block a local run:
-`SINGLE_RUN` (one run reports no spread, so the results hub can never mark the
-row verified), `UNRESOLVED_JUDGE_ALIAS` (a floating judge alias points at
+`SINGLE_RUN` (one run of a pipeline in which something samples reports no
+spread, so the results hub cannot mark the row verified; a retrieval-only run
+with no LLM call records `nothing_samples` and raises no `SINGLE_RUN`), `UNRESOLVED_JUDGE_ALIAS` (a floating judge alias points at
 different weights over time) and `UNPINNED_DATASET`, among others.
 
 ## 5. Ship it as a package

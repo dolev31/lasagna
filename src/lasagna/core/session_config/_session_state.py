@@ -24,6 +24,11 @@ from ._data_models import (
 #: How stale a cached session may be before it is compared with the store.
 _RECHECK_SECONDS = 1.0
 
+#: Keys each session last published to an in-memory session provider, so a
+#: key the session no longer chooses (a profile switched away from) is
+#: removed rather than left behind. Per process, like that provider.
+_published_keys: Dict[str, set] = {}
+
 
 def _persisted_view(state: Any) -> tuple:
     """The fields the session table keeps, from a state or a stored row."""
@@ -201,6 +206,33 @@ class SessionStateMixin:
         state = self.get_session_state(session_id)
         return state.get_resolved_config()
 
+    def get_chosen_config(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """What this session chose: its profile's own settings and its overrides.
+
+        This is what search reads as the session's settings, which rank above
+        the environment's. `get_resolved_config` starts from the profile's
+        whole configuration: for ``default`` the packaged settings file, for
+        a built-in profile that file plus the few settings that define the
+        profile. Handed to search, the file's ``vector_backend``,
+        ``embedding_model`` and the rest beat ``RAG_VECTOR_BACKEND=qdrant`` and
+        every other environment setting, for every session: the compose stack
+        configured for Qdrant searched a Milvus Lite file. So a built-in
+        profile contributes only its spec (``_PROFILE_SPECS``), ``default``
+        nothing, and a saved profile everything that was saved.
+        """
+        state = self.get_session_state(session_id)
+        active = state.get_active_profile()
+        chosen: Dict[str, Any] = {}
+        if active is not None and active.name != "default":
+            spec = (
+                self._PROFILE_SPECS.get(active.name)
+                if self._is_protected_profile_name(active.name)
+                else None
+            )
+            chosen = copy.deepcopy(spec if spec is not None else active.config)
+        _deep_merge(chosen, copy.deepcopy(state.session_overrides))
+        return chosen
+
     def _publish_to_search(self, session_id: Optional[str]) -> None:
         """Mirror the resolved config into the store the search path reads.
 
@@ -234,8 +266,13 @@ class SessionStateMixin:
             if getattr(provider, "_delegates_to_manager", False):
                 # It reads from here already; writing back would recurse.
                 return
-            resolved = self.get_resolved_config(session_id)
-            provider.set_config_overrides(session_id or "default", resolved)
+            sid = session_id or "default"
+            chosen = self.get_chosen_config(session_id)
+            stale = _published_keys.get(sid, set()) - set(chosen)
+            if stale and hasattr(provider, "remove_config_overrides"):
+                provider.remove_config_overrides(sid, stale)
+            provider.set_config_overrides(sid, chosen)
+            _published_keys[sid] = set(chosen)
         except Exception:
             # Never let publishing break the write itself -- but say so, since
             # the symptom otherwise is a config change that does not apply.

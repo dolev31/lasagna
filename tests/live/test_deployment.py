@@ -111,8 +111,14 @@ SAMPLE_MD_CONTENT = (
 # ---------------------------------------------------------------------------
 
 
-def _wait_for_document_ready(document_id: str, headers: dict):
-    """Poll GET /documents/{id}/status until status is 'ready' or timeout."""
+def _wait_for_document_ready(document_id: str, headers: dict) -> dict:
+    """Poll GET /documents/{id}/status until status is 'ready' or timeout.
+
+    Returns the document as it reads once processed. The upload response is
+    written before processing (``status: processing``, ``chunks_count: 0``),
+    so a test that checked the chunk count on it failed against any stack
+    that processes uploads in the background, which compose always does.
+    """
     url = f"{BASE_URL}/documents/{document_id}/status"
     deadline = time.time() + POLL_MAX_WAIT
     while time.time() < deadline:
@@ -120,7 +126,11 @@ def _wait_for_document_ready(document_id: str, headers: dict):
         if resp.status_code == 200:
             status = resp.json().get("status")
             if status == "ready":
-                return
+                doc = http.get(
+                    f"{BASE_URL}/documents/{document_id}", headers=headers, timeout=DEFAULT_TIMEOUT
+                )
+                doc.raise_for_status()
+                return doc.json()
             if status == "error":
                 raise AssertionError(
                     f"Document {document_id} entered error state: "
@@ -221,9 +231,7 @@ def uploaded_txt_doc(docker_service_available, session_headers, sample_txt_file)
     data = resp.json()
     doc_id = data["document_id"]
 
-    _wait_for_document_ready(doc_id, session_headers)
-
-    yield data
+    yield {**data, **_wait_for_document_ready(doc_id, session_headers)}
 
     http.delete(
         f"{BASE_URL}/documents/{doc_id}",
@@ -246,9 +254,7 @@ def uploaded_md_doc(docker_service_available, session_headers, sample_md_file):
     data = resp.json()
     doc_id = data["document_id"]
 
-    _wait_for_document_ready(doc_id, session_headers)
-
-    yield data
+    yield {**data, **_wait_for_document_ready(doc_id, session_headers)}
 
     http.delete(
         f"{BASE_URL}/documents/{doc_id}",

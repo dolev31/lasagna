@@ -1,4 +1,4 @@
-"""Citation Manager for RAG System - Enhanced SOTA Implementation.
+"""Citation Manager for RAG System.
 
 This module provides a robust citation system with:
 - Collision-resistant citation IDs with session scoping

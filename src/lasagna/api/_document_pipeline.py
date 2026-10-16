@@ -125,7 +125,7 @@ class DocumentPipeline:
         _document_processor_override: Any = None,
         refuse_when_busy: bool = False,
     ) -> Document:
-        """Upload and process a document with SOTA pipeline.
+        """Upload a document and run it through extraction, chunking and indexing.
 
         Args:
             file_path: Path to the uploaded file
@@ -147,9 +147,7 @@ class DocumentPipeline:
         file_size_for_quota = os.path.getsize(file_path) if os.path.exists(file_path) else 0
         quota_mgr.check_upload(session_id, file_size_bytes=file_size_for_quota)
 
-        self._collection_manager.maybe_reload_embedding_manager(config)
-        # Sync embedding manager reference after potential reload
-        self.embedding_manager = self._collection_manager.embedding_manager
+        self.use_embedder_for(config)
         logger.debug(
             "Document load using embedding model: "
             f"{self.embedding_manager.model_name} "
@@ -384,6 +382,17 @@ class DocumentPipeline:
     # Processing
     # =========================================================================
 
+    def use_embedder_for(self, config: RAGConfig) -> None:
+        """Make the embedder, and the collection it writes to, current for ``config``.
+
+        The upload route does this before it stores a file. The process that
+        indexes the file may be another one (the Celery worker), so the task
+        does it again there: without it the worker embedded with whatever
+        model it had loaded and wrote to a collection nobody had created.
+        """
+        self._collection_manager.maybe_reload_embedding_manager(config)
+        self.embedding_manager = self._collection_manager.embedding_manager
+
     def process_document(
         self,
         document: Document,
@@ -392,7 +401,7 @@ class DocumentPipeline:
         _chunker_override: Any = None,
         _document_processor_override: Any = None,
     ):
-        """Process document with SOTA pipeline.
+        """Extract, chunk, embed and index an uploaded document.
 
         ``_chunker_override`` is a ``BaseChunker`` instance that replaces the
         built-in chunking strategies for this document, which is what makes a

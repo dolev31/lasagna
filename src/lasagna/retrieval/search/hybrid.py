@@ -1,4 +1,4 @@
-"""Hybrid Search for RAG System - SOTA Implementation.
+"""Hybrid Search for RAG System.
 
 This module provides hybrid search combining:
 - Dense retrieval (vector similarity)

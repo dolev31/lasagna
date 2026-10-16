@@ -58,6 +58,10 @@
             "sample"
           ]
         },
+        "nothing_samples": {
+          "type": "boolean",
+          "description": "True when only retrieval ran and no task called an LLM (and repeats, if any, were identical): one run is then the whole answer, and SINGLE_RUN is not raised."
+        },
         "determinism": {
           "enum": [
             "seeded_per_task",

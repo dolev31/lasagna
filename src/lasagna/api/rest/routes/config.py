@@ -14,6 +14,7 @@ from loguru import logger
 from pydantic import ValidationError
 
 from lasagna.api._profile_guard import EmbeddingSizeConflict
+from lasagna.core.session_config._profiles import BUILTIN_PROFILE_DESCRIPTIONS
 from lasagna.api.rag_backend import RAGBackend
 from ..dependencies import get_backend, get_profile_owner, get_session_id, get_user_id
 from ..models import ConfigPatchRequest, ConfigResponse, ProfileInfo, ProfileListResponse
@@ -44,10 +45,9 @@ def _canonicalize_patch(patch_dict: Dict[str, Any]) -> Dict[str, Any]:
 
 
 _PROFILES = {
-    "speed": "Pure vector search: fastest, no reranking/hybrid/HyDE",
-    "standard": "Core SOTA features with lightweight embedding model",
-    "balanced": "Best quality-speed tradeoff with BGE-large embeddings",
-    "max_quality": "All features enabled: maximum recall and precision",
+    name: description
+    for name, description in BUILTIN_PROFILE_DESCRIPTIONS.items()
+    if name != "default"
 }
 
 
@@ -127,7 +127,7 @@ def _config_response(cfg) -> ConfigResponse:
         routing_strategy=getattr(cfg, "routing_strategy", "rule_based"),
         routing_default_tier=getattr(cfg, "routing_default_tier", "standard"),
         routing_confidence_threshold=getattr(cfg, "routing_confidence_threshold", 0.5),
-        # SOTA retrieval features
+        # Retrieval features
         enable_context_reordering=getattr(cfg, "enable_context_reordering", True),
         enable_contextual_retrieval=getattr(cfg, "enable_contextual_retrieval", False),
         enable_rag_fusion=getattr(cfg, "enable_rag_fusion", False),

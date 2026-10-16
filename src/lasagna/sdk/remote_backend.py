@@ -129,6 +129,63 @@ class RemoteSearchResult:
     document: Optional[RemoteDocumentRef] = None
 
 
+if HTTPX_AVAILABLE:
+
+    class _SessionAuth(httpx.Auth):
+        """Send the session token, minting one with the API key when the server asks.
+
+        With ``RAG_REQUIRE_AUTH`` on, the server takes no ``X-Session-ID`` as
+        identity and answers 401 until a request carries an ``X-Session-Token``
+        from ``POST /api/v1/sessions``, which needs an ``X-API-Key`` from
+        ``RAG_API_KEYS``. The client never asked for one, so it got 401 on every
+        call. On a 401 this mints a token once (for the named session, if one
+        was given, which the server allows only to an admin), then sends the
+        request again. A refused mint is what the caller sees, with the
+        server's reason.
+        """
+
+        requires_request_body = True  # the request is sent again after minting
+        requires_response_body = True  # the minted token is read from the reply
+
+        def __init__(
+            self,
+            sessions_url: str,
+            api_key: Optional[str],
+            token: Optional[str],
+            requested_session: Optional[str],
+            on_session: Any,
+        ) -> None:
+            self._sessions_url = sessions_url
+            self._api_key = api_key
+            self.token = token
+            self._requested_session = requested_session
+            self._on_session = on_session
+
+        def auth_flow(self, request):
+            sent = self.token
+            if sent:
+                request.headers["X-Session-Token"] = sent
+            response = yield request
+            if response.status_code != 401 or not self._api_key:
+                return
+            if self.token and self.token != sent:
+                # Another request minted one meanwhile.
+                request.headers["X-Session-Token"] = self.token
+                yield request
+                return
+            body = {"session_id": self._requested_session} if self._requested_session else {}
+            minted = yield httpx.Request(
+                "POST", self._sessions_url, headers={"X-API-Key": self._api_key}, json=body
+            )
+            if minted.status_code != 201:
+                return
+            data = minted.json()
+            self.token = data["token"]
+            self._on_session(data["session_id"])
+            request.headers["X-Session-Token"] = self.token
+            yield request
+
+
 class RemoteRAGBackend:
     """httpx-based backend for remote RAG API access.
 
@@ -145,7 +202,15 @@ class RemoteRAGBackend:
         api_key: Optional[str] = None,
         session_id: str = "default",
         timeout: float = 60.0,
+        session_token: Optional[str] = None,
+        requested_session: Optional[str] = None,
+        on_session: Any = None,
     ):
+        """``api_key`` is a key from the server's ``RAG_API_KEYS``: with
+        ``RAG_REQUIRE_AUTH`` on it mints a session token on the first 401.
+        ``session_token`` is one already minted. ``requested_session`` is the
+        session the caller named, if any; ``on_session(session_id)`` is told
+        which session a minted token belongs to."""
         if not HTTPX_AVAILABLE:
             raise ImportError(
                 "httpx is required for remote backend. Install with: pip install httpx"
@@ -154,15 +219,24 @@ class RemoteRAGBackend:
         self._base_url = base_url.rstrip("/")
         self._session_id = session_id
         self._timeout = timeout
+        self._on_session = on_session
 
         headers = {"X-Session-ID": session_id}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
+        self._auth = _SessionAuth(
+            f"{self._base_url}{self._api('/sessions')}",
+            api_key,
+            session_token,
+            requested_session,
+            self._adopt_session,
+        )
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             headers=headers,
             timeout=timeout,
+            auth=self._auth,
         )
         self._sync_pool: Optional[concurrent.futures.ThreadPoolExecutor] = None
         self._pool_lock = threading.Lock()
@@ -175,6 +249,17 @@ class RemoteRAGBackend:
     def _api(self, path: str) -> str:
         """Build API path."""
         return f"/api/v1{path}"
+
+    @property
+    def session_id(self) -> str:
+        """The session requests go to: a minted token's, once there is one."""
+        return self._session_id
+
+    def _adopt_session(self, session_id: str) -> None:
+        self._session_id = session_id
+        self._client.headers["X-Session-ID"] = session_id
+        if self._on_session is not None:
+            self._on_session(session_id)
 
     @staticmethod
     def _parse_json(resp) -> Dict[str, Any]:

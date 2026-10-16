@@ -34,18 +34,16 @@ if TYPE_CHECKING:
     from .policy import LifecyclePolicy
 
 
-def _celery_broker_reachable() -> bool:
-    """Check whether a Celery broker is configured and reachable."""
-    try:
-        from ..infrastructure.tasks.celery_app import celery_app
+def _celery_workers_running() -> bool:
+    """Whether a Celery worker answers on the broker (Beat runs beside it).
 
-        if celery_app is None:
-            return False
-        # Ping the broker with a 2-second timeout
-        celery_app.control.inspect(timeout=2.0).ping()
-        return True
-    except Exception:
-        return False
+    A reachable broker with no worker used to count: ``inspect().ping()``
+    returns None rather than raising, so the compose stack without its
+    ``celery`` profile started no embedded scheduler and GC never ran.
+    """
+    from ..infrastructure.tasks.document_tasks import _ping_celery_workers
+
+    return _ping_celery_workers(timeout=2.0)
 
 
 class LifecycleScheduler:
@@ -72,13 +70,13 @@ class LifecycleScheduler:
             if self._started:
                 return
 
-            if _celery_broker_reachable():
+            if _celery_workers_running():
                 logger.info(
-                    "LifecycleScheduler: Celery broker reachable; GC scheduled via Celery Beat."
+                    "LifecycleScheduler: a Celery worker answered; GC scheduled via Celery Beat."
                 )
                 # Nothing to do here: celery_app.py beat_schedule already registers the tasks.
             else:
-                logger.info("LifecycleScheduler: no Celery broker; starting embedded APScheduler.")
+                logger.info("LifecycleScheduler: no Celery worker; starting embedded APScheduler.")
                 self._start_apscheduler()
 
             self._started = True
@@ -135,7 +133,7 @@ class LifecycleScheduler:
                         logger.warning(
                             f"LifecycleScheduler: failed to reschedule orphan scan job: {exc}"
                         )
-            elif _celery_broker_reachable():
+            elif _celery_workers_running():
                 if (
                     new_policy.gc_cycle_hours != old_gc
                     or new_policy.orphan_scan_hours != old_orphan
@@ -154,6 +152,8 @@ class LifecycleScheduler:
         try:
             from ..infrastructure.tasks.document_tasks import run_gc_cycle_task
 
+            if not _celery_workers_running():
+                raise RuntimeError("no Celery worker answered")
             run_gc_cycle_task.delay()
             logger.info("LifecycleScheduler: GC task enqueued via Celery.")
         except Exception:

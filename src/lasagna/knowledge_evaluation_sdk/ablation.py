@@ -213,7 +213,7 @@ class AblationResults:
 
         When ``scores_a`` / ``scores_b`` are not provided, the method
         automatically looks up stored per-sample scores from the ablation
-        run. This makes significance testing seamless after ``sweep()``
+        run. This lets significance tests run directly after ``sweep()``
         or ``grid_search()``.
 
         Args:

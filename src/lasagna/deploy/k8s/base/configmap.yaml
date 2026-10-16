@@ -27,6 +27,9 @@ data:
   # --- Infrastructure ---
   RAG_DATABASE_BACKEND: "postgresql"
   RAG_CACHE_BACKEND: "redis"
+  # Session settings in PostgreSQL, so every api pod and worker reads the same
+  # ones; in memory, each process kept its own.
+  RAG_SESSION_BACKEND: "persistent"
   # RAG_VECTOR_BACKEND is set per overlay (milvus, pgvector, qdrant, etc.)
   # Pool size should be >= gunicorn workers x 2 (default 4 workers -> 10)
   RAG_CONNECTION_POOL_SIZE: "10"
@@ -58,7 +61,7 @@ data:
   # --- Search quality ---
   # NOTE: k8s uses bge-large-en-v1.5 (production config) while Docker Compose
   # defaults to bge-m3 (development). Both are 1024d but produce different
-  # embedding spaces — do NOT mix indices between environments.
+  # embedding spaces: do NOT mix indices between environments.
   RAG_EMBEDDING_MODEL: "BAAI/bge-large-en-v1.5"
   RAG_EMBEDDING_DIM: "1024"
   RAG_EMBEDDING_BACKEND: "sentence-transformers"
@@ -70,7 +73,7 @@ data:
   RAG_DEFAULT_TOP_K: "75"
   RAG_RERANK_TOP_K: "10"
 
-  # SOTA feature toggles omitted — these use Dockerfile/code defaults:
+  # Retrieval feature toggles omitted: these use the Dockerfile and code defaults:
   #   RAG_ENABLE_CONTEXT_REORDERING (default: true)
   #   RAG_ENABLE_RAG_FUSION, RAG_ENABLE_CRAG,
   #   RAG_ENABLE_CONTEXTUAL_RETRIEVAL, RAG_DOCLING_ENABLED (default: false)

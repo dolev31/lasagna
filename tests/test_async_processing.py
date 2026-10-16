@@ -35,7 +35,7 @@ class TestDispatchTiering:
     """Verify the Celery → ThreadPool → Sync fallback order."""
 
     def test_celery_dispatch_when_enabled(self):
-        """Tier 1: Celery dispatches when enabled and broker is reachable."""
+        """Tier 1: Celery dispatches when enabled and a worker answers on the broker."""
         from lasagna.infrastructure.tasks.document_tasks import (
             dispatch_processing,
         )
@@ -50,6 +50,10 @@ class TestDispatchTiering:
             patch(
                 "lasagna.infrastructure.tasks.document_tasks.process_document_task",
                 mock_task,
+            ),
+            patch(
+                "lasagna.infrastructure.tasks.document_tasks.celery_workers_answer",
+                lambda: True,
             ),
             patch(
                 "lasagna.core.config.rag_config",
@@ -80,6 +84,10 @@ class TestDispatchTiering:
                 mock_task,
             ),
             patch(
+                "lasagna.infrastructure.tasks.document_tasks.celery_workers_answer",
+                lambda: True,
+            ),
+            patch(
                 "lasagna.core.config.rag_config",
                 mock_config,
             ),
@@ -89,6 +97,7 @@ class TestDispatchTiering:
         ):
             result = dispatch_processing("doc1", "sess1", "/tmp/test.txt")
             assert result is True  # Thread pool should have accepted it
+            mock_task.delay.assert_called_once()
 
     def test_thread_pool_when_celery_disabled(self):
         """Tier 2: Thread pool dispatches when Celery is disabled."""
