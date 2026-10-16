@@ -7,6 +7,9 @@
 # Build:
 #   docker build -t lasagna -f src/lasagna/deploy/Dockerfile .
 #
+# The image runs torch's CPU-only build. For an NVIDIA GPU host, build with
+#   --build-arg TORCH_VARIANT=cuda
+#
 # Run API server:
 #   docker run -p 8000:8000 --env-file .env lasagna
 #
@@ -31,6 +34,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # The stage loads the models with the same versions the image runs them with.
 ARG CONSTRAINTS=constraints/0.1.0.txt
 COPY ${CONSTRAINTS} /tmp/constraints.txt
+
+# torch's CPU-only build at the version the constraints pin, installed before
+# anything that depends on torch: from PyPI, torch on Linux brings the CUDA
+# libraries, several GB. This stage only downloads the models and loads them
+# once, on the CPU, so it uses the CPU build whatever TORCH_VARIANT says.
+# --no-deps: torch's own dependencies come from PyPI, constrained, below.
+RUN torch=$(grep -E '^torch==' /tmp/constraints.txt) && \
+    pip install --no-cache-dir --no-deps --index-url https://download.pytorch.org/whl/cpu "$torch"
 
 # Quoted: unquoted, the shell reads `>=5.1.2` as a redirect to a file named
 # "=5.1.2", so pip installed whatever version it liked.
@@ -85,16 +96,32 @@ WORKDIR /app
 COPY --from=models /root/.cache/huggingface /home/rag/.cache/huggingface
 RUN chown -R rag:rag /home/rag/.cache
 
+# The tested versions (see the models stage). A package they do not list (the
+# production extras: celery, redis, psycopg, gunicorn) takes its newest match.
+ARG CONSTRAINTS=constraints/0.1.0.txt
+COPY ${CONSTRAINTS} ./constraints.txt
+
+# Which torch build the image runs.
+#   cpu (default)  torch's CPU-only build from the PyTorch index, at the version
+#                  the constraints pin, installed first. The install below keeps
+#                  it: a local version such as 2.14.1+cpu satisfies torch==2.14.1.
+#   cuda           torch from PyPI, whose Linux wheels bundle the CUDA
+#                  libraries (several GB more), for a host with an NVIDIA GPU.
+# Before the project files, so a change to the source reuses this layer.
+ARG TORCH_VARIANT=cpu
+RUN case "$TORCH_VARIANT" in \
+      cpu) torch=$(grep -E '^torch==' constraints.txt) && \
+           pip install --no-cache-dir --no-deps --index-url https://download.pytorch.org/whl/cpu "$torch" ;; \
+      cuda) ;; \
+      *) echo "Unknown TORCH_VARIANT=$TORCH_VARIANT. Use cpu (the default) or cuda."; exit 1 ;; \
+    esac
+
 # Copy project files needed for pip install. LICENSE and NOTICE go into the
 # built package's metadata (pyproject's license-files), and Apache-2.0 section
 # 4(d) requires NOTICE to travel with every redistribution; the README is the
 # package's long description.
 COPY pyproject.toml LICENSE NOTICE README.md ./
 COPY src/lasagna/ ./src/lasagna/
-# The tested versions (see the models stage). A package they do not list (the
-# production extras: celery, redis, psycopg, gunicorn) takes its newest match.
-ARG CONSTRAINTS=constraints/0.1.0.txt
-COPY ${CONSTRAINTS} ./constraints.txt
 
 # Install Python dependencies. `production` is what the production settings turn
 # on (Redis, Celery, Prometheus, OpenTelemetry, PostgreSQL); `pgvector`,
@@ -120,6 +147,11 @@ RUN case "$VECTOR_BACKEND" in \
     for module in pymilvus psycopg opensearchpy $check; do python -c "import $module" || exit 1; done
 # Read by `make validate`, which refuses an image built for another backend.
 LABEL org.lasagna.vector-backend="$VECTOR_BACKEND"
+# The cpu image must still have the CPU build: a CUDA torch here means the
+# install above replaced it, and the image is several GB larger for nothing.
+RUN if [ "$TORCH_VARIANT" = cpu ]; then \
+      python -c "import sys, torch; cuda = torch.version.cuda; sys.exit(f'TORCH_VARIANT=cpu, but the package install replaced the CPU build of torch with {torch.__version__} (CUDA {cuda}).' if cuda else 0)"; \
+    fi
 
 # nltk's sentence tokenizer data. Nothing downloads it at runtime, so bake it in
 # where nltk looks by default.

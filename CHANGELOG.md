@@ -355,6 +355,11 @@ Servers and deployment:
   gunicorn with `--preload` and honors `FORWARDED_ALLOW_IPS` (or
   `RAG_FORWARDED_ALLOW_IPS`). The models baked into the image are build
   arguments (`EMBEDDING_MODELS`, `RERANKER_MODELS`, `OPTIONAL_MODELS`).
+- **The Docker image runs torch's CPU-only build.** torch from PyPI brings the
+  CUDA libraries on Linux, so the image the CI stack builds was 11.5 GB; it is
+  3.8 GB. The build argument `TORCH_VARIANT=cuda` (`make build
+  TORCH_VARIANT=cuda`, or `TORCH_VARIANT` in `.env`) builds the CUDA image for
+  a GPU host; see `src/lasagna/deploy/README.md`.
 - **With `RAG_REQUIRE_AUTH` on, creating a session needs an API key.** Send
   `X-API-Key` with one of the keys in `RAG_API_KEYS`; with none configured,
   `POST /api/v1/sessions` returns 503. Rate limits are counted per key rather
@@ -611,6 +616,11 @@ First run:
   tracker while Milvus Lite's gRPC runs. Lasagna keeps tqdm on its thread lock,
   and hides the weight-loading bar for a cached model and the encoding bar for
   a few batches, without setting any environment variable.
+- On macOS with transformers 5.20 or later (what an install from PyPI gets),
+  every command and the quickstart printed torch's "NOTE: Redirects are
+  currently not supported in MacOs." It concerns torchelastic workers, which
+  Lasagna never starts. Importing `lasagna` drops that one message from that
+  one torch logger; other torch warnings still show.
 
 Requests to current models:
 
@@ -817,7 +827,10 @@ Servers and deployment:
   into the other's collection, and a search could embed its query with the
   other session's model. Each request now holds its own session's embedder.
   A process keeps each model it has loaded (up to five) instead of reloading
-  one whenever the session changes.
+  one whenever the session changes. The same held for MMR: each search set its
+  embedder on the reranker all searches share, so a concurrent search on
+  another model could make MMR rank this search's results with that model's
+  embeddings. The embedder now goes with the search's rerank call.
 - The CI lint job failed on its first run (two mypy errors in
   `sdk/integrations/inbound.py`), the secret scan on nine false positives
   missing from `.secrets.baseline`, and the step that runs the tests loading

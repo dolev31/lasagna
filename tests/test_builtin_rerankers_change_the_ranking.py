@@ -26,7 +26,7 @@ from lasagna.retrieval.search.ranker import (
     EnsembleRerankerAdapter,
     MMRRerankerAdapter,
     adapt_reranker_for_pipeline,
-    bind_embedding_manager,
+    search_embedder,
 )
 
 # Two near-duplicates first, then a different passage: what MMR exists to fix.
@@ -94,11 +94,10 @@ def test_mmr_moves_a_near_duplicate_down_with_mmr_off_in_the_profile():
     docs = _docs(("alpha one", 0.9), ("alpha one again", 0.85), ("beta two", 0.5))
     mmr = adapt_reranker_for_pipeline(MMRRerankerAdapter())
     # The orchestrator hands the search's embedder to the wrapped component.
-    bind_embedding_manager(mmr, _Embedder())
-
-    out = mmr.rerank(
-        "q", [ranker.scored_document_to_dict(d) for d in docs], 3, config=_speed_like()
-    )
+    with search_embedder(_Embedder()):
+        out = mmr.rerank(
+            "q", [ranker.scored_document_to_dict(d) for d in docs], 3, config=_speed_like()
+        )
 
     assert [r.chunk_id for r in out] == ["alpha one", "beta two", "alpha one again"]
 
@@ -118,8 +117,10 @@ def test_combined_differs_from_cross_encoder_with_mmr_off_in_the_profile(models)
 
     cross_encoder = CrossEncoderRerankerAdapter().rerank("q", docs, top_k=3, config=config)
     combined = adapt_reranker_for_pipeline(CombinedRerankerAdapter())
-    bind_embedding_manager(combined, _Embedder())
-    out = combined.rerank("q", [ranker.scored_document_to_dict(d) for d in docs], 3, config=config)
+    with search_embedder(_Embedder()):
+        out = combined.rerank(
+            "q", [ranker.scored_document_to_dict(d) for d in docs], 3, config=config
+        )
 
     assert _order(cross_encoder) == ["alpha one", "alpha one again", "beta two"]
     assert [r.chunk_id for r in out] == ["alpha one", "beta two", "alpha one again"]

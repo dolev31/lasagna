@@ -72,6 +72,13 @@ _logger.disable("lasagna")
 # RAGAS_DO_NOT_TRACK=false before importing lasagna to turn it back on.
 _os.environ.setdefault("RAGAS_DO_NOT_TRACK", "true")
 
+# On macOS, newer transformers make torch log a note about a torch feature
+# Lasagna never uses (see _quiet.hide_torch_redirects_note). Dropped here,
+# before anything imports transformers.
+from lasagna._quiet import hide_torch_redirects_note as _hide_torch_redirects_note  # noqa: E402
+
+_hide_torch_redirects_note()
+
 # The public surface: public_name -> (submodule, attribute). Everything here is
 # in __all__ and in the TYPE_CHECKING block below.
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {

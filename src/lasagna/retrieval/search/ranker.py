@@ -7,10 +7,12 @@ This module provides:
 """
 
 from dataclasses import dataclass
+import contextvars
 import threading
 from collections import OrderedDict
+from contextlib import contextmanager
 import time
-from typing import List, Optional, Tuple, Union, Any, Dict
+from typing import Iterator, List, Optional, Tuple, Union, Any, Dict
 import numpy as np
 from loguru import logger
 
@@ -445,6 +447,38 @@ class CrossEncoderReranker:
         return converted
 
 
+#: The embedder of the search being served, set around its rerank call. One
+#: reranker serves every search, so the embedder cannot be an attribute of it:
+#: assigned per request, a search on another session's model could change it
+#: between the assignment and this search's MMR step.
+_SEARCH_EMBEDDER: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "lasagna_search_embedder", default=None
+)
+
+
+@contextmanager
+def search_embedder(embedding_manager: Any) -> Iterator[None]:
+    """Run a block whose MMR stages compare passages with ``embedding_manager``.
+
+    The reranker is built once with the embedding manager of that moment. When
+    a session or a sweep arm uses another embedder, MMR re-embedded chunks with
+    the old model and compared them with vectors from the new one: with a
+    384-d corpus under a 1024-d default, every reranking arm crashed with
+    "shapes (384,) and (1024,) not aligned". This sets the search's embedder
+    for the calls made inside the block only (this thread, or task), whatever
+    wrapper holds the MMR stage. A custom embedder without the manager API
+    leaves MMR with the one it was built with.
+    """
+    if embedding_manager is None or not hasattr(embedding_manager, "encode_documents_batch"):
+        yield
+        return
+    token = _SEARCH_EMBEDDER.set(embedding_manager)
+    try:
+        yield
+    finally:
+        _SEARCH_EMBEDDER.reset(token)
+
+
 class MMRReranker:
     """Maximal Marginal Relevance for result diversity.
 
@@ -503,7 +537,11 @@ class MMRReranker:
         if not results or not (mmr_enabled or force):
             return results[:top_k]
 
-        if not self.embedding_manager:
+        # The current search's embedder, else the one this stage was built with.
+        embedder = _SEARCH_EMBEDDER.get()
+        if embedder is None:
+            embedder = self.embedding_manager
+        if not embedder:
             if force:
                 raise ValueError(
                     "MMR compares passages by their embeddings and has no embedding "
@@ -530,9 +568,7 @@ class MMRReranker:
         # Only re-embed chunks that don't have pre-fetched embeddings
         if need_embedding_indices:
             contents_to_embed = [results[i].content for i in need_embedding_indices]
-            new_embeddings = self.embedding_manager.encode_documents_batch(
-                contents_to_embed, show_progress=False
-            )
+            new_embeddings = embedder.encode_documents_batch(contents_to_embed, show_progress=False)
             for i, idx in enumerate(need_embedding_indices):
                 embeddings[idx] = new_embeddings[i]
             logger.debug(
@@ -584,7 +620,7 @@ class MMRReranker:
                 max_sim = 0.0
                 if selected_embeddings:
                     for sel_emb in selected_embeddings:
-                        sim = self.embedding_manager.similarity(embedding, sel_emb)
+                        sim = embedder.similarity(embedding, sel_emb)
                         max_sim = max(max_sim, sim)
 
                 # MMR score - now both terms are in [0, 1] range
@@ -1643,34 +1679,6 @@ class PipelineRerankerAdapter:
         if return_metrics:
             return out, {"rerank_ms": elapsed_ms, "mmr_ms": 0.0}
         return out
-
-
-def bind_embedding_manager(reranker: Any, embedding_manager: Any) -> None:
-    """Point a reranker's MMR stage at the embedder the current search uses.
-
-    The reranker is built once with the embedding manager of that moment. When
-    a session or a sweep arm switches embedders, MMR kept re-embedding chunks
-    with the old model and comparing them with vectors from the new one: with
-    a 384-d corpus under a 1024-d default, every reranking arm crashed with
-    "shapes (384,) and (1024,) not aligned".
-    """
-    if embedding_manager is None or not hasattr(embedding_manager, "encode_documents_batch"):
-        return
-    # A component reaches the orchestrator wrapped (PipelineRerankerAdapter
-    # holds it as `_component`), and the mmr component's `_inner` is the MMR
-    # stage itself. Looking only at `reranker.mmr` and `reranker._inner.mmr`
-    # bound neither, so the mmr and combined components ran with no embedder
-    # and returned their input order.
-    holders = []
-    for outer in (reranker, getattr(reranker, "_component", None)):
-        if outer is not None:
-            holders += [outer, getattr(outer, "_inner", None)]
-    for holder in holders:
-        if isinstance(holder, MMRReranker):
-            holder.embedding_manager = embedding_manager
-        mmr = getattr(holder, "mmr", None)
-        if mmr is not None and hasattr(mmr, "embedding_manager"):
-            mmr.embedding_manager = embedding_manager
 
 
 def adapt_reranker_for_pipeline(reranker: Any) -> Any:
