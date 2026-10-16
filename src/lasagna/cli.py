@@ -371,6 +371,10 @@ def _known_failure(exc: Optional[BaseException]) -> Optional[str]:
     "Failed to get status:" plus a 300-character message wrapped across five
     lines.
     """
+    # Offline with a benchmark's data not cached: the message names the fix.
+    not_cached = _in_cause_chain(exc, "DatasetNotCached")
+    if not_cached is not None:
+        return str(not_cached)
     locked = _in_cause_chain(exc, "DataDirLockedError")
     if locked is None:
         return None
@@ -1646,23 +1650,33 @@ def benchmark_experiment(
         _error(f"Experiment failed: {exc}", exc=exc)
 
     output_dir = exp.config.effective_output_dir()
-    _print_leaderboard(results)
-    # Before the summary: printed after "Output" and "Next", a failed check
-    # read as an afterthought to a run that had looked complete.
-    _print_isolation(results)
+    # Every task failed: a green "Experiment Complete" box and a "Next" command
+    # for results that do not exist read as a finished run.
+    all_failed = bool(results.total_tasks) and len(results.failed_tasks) == results.total_tasks
+    if not all_failed:
+        _print_leaderboard(results)
+        # Before the summary: printed after "Output" and "Next", a failed check
+        # read as an afterthought to a run that had looked complete.
+        _print_isolation(results)
     console.print(
         Panel.fit(
-            f"[bold]Experiment Complete[/bold]\n\n"
-            f"Tasks: [cyan]{results.total_tasks}[/cyan]\n"
+            (
+                "[bold red]Experiment failed[/bold red]: every task failed\n\n"
+                if all_failed
+                else "[bold]Experiment Complete[/bold]\n\n"
+            )
+            + f"Tasks: [cyan]{results.total_tasks}[/cyan]\n"
             f"Failed: [{'red' if results.failed_tasks else 'green'}]{len(results.failed_tasks)}[/]",
+            border_style="red" if all_failed else "none",
         )
     )
     # Outside the panel, unwrapped, so the path and the command can be copied.
     results_file = shlex.quote(str(Path(output_dir) / "results.json"))
     console.print(f"Output: {escape(output_dir)}", soft_wrap=True)
-    console.print(
-        f"Next:   lasagna results significance {escape(results_file)} --all", soft_wrap=True
-    )
+    if not all_failed:
+        console.print(
+            f"Next:   lasagna results significance {escape(results_file)} --all", soft_wrap=True
+        )
     if exp.config.n_runs > 1 and runs_were_identical(results._results):
         console.print(
             f"[dim]Note: all {exp.config.n_runs} runs of every arm were identical (nothing "

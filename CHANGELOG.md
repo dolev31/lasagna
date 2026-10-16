@@ -667,6 +667,13 @@ Results tooling:
   job skips them only when the models are not cached. Four stay skipped,
   each naming why: colbert (colbertv2.0, 440 MB), monot5 (990 MB), cohere
   (its API) and flashrank (its package).
+- **A dataset missing offline failed in every task.** With SciFact not
+  cached and offline mode on, the Colab example printed the dataset error once
+  per arm and again in the failed-task list, then a green "Experiment
+  Complete ... Failed: 3" box and a "Next:" command. A run checks once, before
+  any task, that each benchmark's Hugging Face data is cached when offline
+  mode is on, and stops with one error naming the benchmark and the fix. When
+  every task fails, the summary box is red, says so, and prints no "Next:".
 
 First run:
 

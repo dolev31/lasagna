@@ -1621,6 +1621,12 @@ class Experiment:
         tasks = self.generate_tasks()
         logger.info(f"Generated {len(tasks)} tasks")
 
+        # Offline, a benchmark whose data is not cached fails here, once, rather
+        # than in every task with the same "dataset_info.json not found".
+        problem = _offline_dataset_problem([t.benchmark_name for t in tasks])
+        if problem is not None:
+            raise problem
+
         # Pre-register corpus ref counts for live mode.
         # With max_concurrency=1 tasks run sequentially; without this,
         # task N releases (and deletes) the corpus before task N+1 runs.
@@ -1862,6 +1868,20 @@ def _run_metadata(cfg: "ExperimentConfig", concurrency: Optional[int] = None) ->
         "system": _system_under_test(cfg.pipeline.base_profile),
     }
     return redact(meta)
+
+
+def _offline_dataset_problem(benchmark_names: List[str]):
+    """The `DatasetNotCached` error for these benchmarks, or None (see `missing_offline_datasets`)."""
+    from .datasets import hf_repos, missing_offline_datasets
+
+    repos = {}
+    for name in dict.fromkeys(benchmark_names):
+        try:
+            adapter = benchmark_registry.get(name)
+        except Exception:  # noqa: BLE001 - local data has no registry entry to look up
+            adapter = None
+        repos[name] = hf_repos(name, adapter)
+    return missing_offline_datasets(repos)
 
 
 def _recorded_data_path(path: str, base_dir: str) -> str:
