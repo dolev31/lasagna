@@ -194,8 +194,9 @@ async def run_gc(
 ) -> Dict[str, Any]:
     """Trigger a manual full garbage-collection cycle.
 
-    Runs all 6 GC phases:
+    Runs all 7 GC phases:
 
+    0. Fail documents still processing long after any worker could be on them
     1. Hard-delete expired soft-deleted documents
     2. Expire documents past their TTL
     3. Clean up old ERROR documents

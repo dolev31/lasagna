@@ -373,7 +373,7 @@ If `RAG_ADMIN_TOKEN` is not set, is a placeholder, or is shorter than 32 charact
 
 | # | Method | Path | Description |
 |---|--------|------|-------------|
-| 16 | `POST` | `/api/v1/admin/gc/run` | Run a full 6-phase GC cycle (`?session_id=` limits it to one session). Takes the database advisory lock, and returns at once if another GC run holds it. |
+| 16 | `POST` | `/api/v1/admin/gc/run` | Run a full 7-phase GC cycle (`?session_id=` limits it to one session). Takes the database advisory lock, and returns at once if another GC run holds it. |
 | 17 | `GET` | `/api/v1/admin/gc/orphans` | Read-only orphan scan: lists documents in DB-only or vector-only state. Does NOT modify data. |
 | 18 | `POST` | `/api/v1/admin/gc/repair` | Detect and repair orphans. `?dry_run=true` (default) previews changes; `?dry_run=false` applies. |
 | 19 | `GET` | `/api/v1/admin/gc/policy` | The lifecycle policy in force (grace window, TTL, GC intervals, safety thresholds). |

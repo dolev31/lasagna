@@ -1429,6 +1429,33 @@ class RAGDatabase:
                 )
             return [row[0] for row in cursor.fetchall()]
 
+    def fail_stale_processing_documents(
+        self, cutoff: datetime, reason: str, session_id: Optional[str] = None
+    ) -> List[str]:
+        """Mark documents still uploading, processing or indexing since before *cutoff* as error.
+
+        Each update re-checks the status, so a document that finished between
+        the read and the write keeps its status. Used by GC Phase 0.
+        """
+        stale = f"status IN ({_UNFINISHED_SQL}) AND upload_date < ?"
+        params: List[Any] = [cutoff.isoformat()]
+        if session_id:
+            stale += " AND session_id = ?"
+            params.append(session_id)
+        failed: List[str] = []
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT document_id FROM rag_documents WHERE {stale}", params)
+            for (document_id,) in cursor.fetchall():
+                cursor.execute(
+                    f"UPDATE rag_documents SET status = 'error', error_message = ? "
+                    f"WHERE document_id = ? AND {stale}",
+                    [reason, document_id, *params],
+                )
+                if cursor.rowcount > 0:
+                    failed.append(document_id)
+        return failed
+
     def list_all_active_document_ids(
         self,
         session_id: Optional[str] = None,
@@ -1756,6 +1783,10 @@ class RAGDatabase:
                 return int(row[0])
             finally:
                 conn.close()
+
+
+#: Statuses of a document that some process is still working on.
+_UNFINISHED_SQL = "'uploading', 'processing', 'indexing'"
 
 
 def record_visibility_change(db: Any, session_id: Optional[str]) -> bool:

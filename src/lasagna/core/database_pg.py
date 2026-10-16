@@ -1259,6 +1259,29 @@ class PostgresRAGDatabase:
                     )
                 return [row[0] for row in cur.fetchall()]
 
+    def fail_stale_processing_documents(
+        self, cutoff: datetime, reason: str, session_id: Optional[str] = None
+    ) -> List[str]:
+        """Mark documents still uploading, processing or indexing since before *cutoff* as error.
+
+        One conditional UPDATE, so a document that finished meanwhile keeps
+        its status. Used by GC Phase 0.
+        """
+        sql = (
+            "UPDATE rag_documents SET status = 'error', error_message = %s "
+            "WHERE status IN ('uploading', 'processing', 'indexing') AND upload_date < %s"
+        )
+        params: List[Any] = [reason, cutoff]
+        if session_id:
+            sql += " AND session_id = %s"
+            params.append(session_id)
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql + " RETURNING document_id", params)
+                failed = [row[0] for row in cur.fetchall()]
+            conn.commit()
+        return failed
+
     def list_all_active_document_ids(
         self,
         session_id: Optional[str] = None,

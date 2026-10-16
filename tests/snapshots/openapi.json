@@ -3940,7 +3940,7 @@
     },
     "/api/v1/admin/gc/run": {
       "post": {
-        "description": "Trigger a manual full garbage-collection cycle.\n\nRuns all 6 GC phases:\n\n1. Hard-delete expired soft-deleted documents\n2. Expire documents past their TTL\n3. Clean up old ERROR documents\n4. Clean up expired citations\n5. Clean up idle sessions\n6. Reconcile quota counters\n\nIdempotent: safe to call multiple times.  Returns per-phase results.",
+        "description": "Trigger a manual full garbage-collection cycle.\n\nRuns all 7 GC phases:\n\n0. Fail documents still processing long after any worker could be on them\n1. Hard-delete expired soft-deleted documents\n2. Expire documents past their TTL\n3. Clean up old ERROR documents\n4. Clean up expired citations\n5. Clean up idle sessions\n6. Reconcile quota counters\n\nIdempotent: safe to call multiple times.  Returns per-phase results.",
         "operationId": "run_gc_api_v1_admin_gc_run_post",
         "parameters": [
           {

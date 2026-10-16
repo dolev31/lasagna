@@ -515,6 +515,11 @@ Server and deployment:
 - Archiving, restoring and GC expiry bump the session's content generation, so
   other workers stop serving an archived document (or keep missing a restored
   one) from their search cache.
+- **Documents left "processing" by a dead worker are failed with the reason.**
+  A new GC phase, also run when the lifecycle scheduler starts, fails documents
+  still processing after twelve times the longest a document may take (the
+  Celery task limits with Celery on, else `processing_timeout`; at least an
+  hour). A redelivered Celery task skips a finished document.
 
 Numbers that were wrong:
 

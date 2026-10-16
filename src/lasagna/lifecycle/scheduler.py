@@ -70,6 +70,14 @@ class LifecycleScheduler:
             if self._started:
                 return
 
+            # Documents a process left "processing" when it died, failed now
+            # rather than at the next GC cycle (which a core install never
+            # schedules). Only those far past any worker's time limit.
+            try:
+                self._gc.fail_stale_processing()
+            except Exception as exc:
+                logger.warning(f"Could not check for documents stuck in processing: {exc}")
+
             if _celery_workers_running():
                 logger.info(
                     "LifecycleScheduler: a Celery worker answered; GC scheduled via Celery Beat."
