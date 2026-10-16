@@ -1,108 +1,80 @@
-# `core/` — Lasagna foundation package
+# core: configuration, registry, pipeline, metadata store
 
-Foundational layer for the RAG knowledge system. Every other module
-(`agentic/`, `sdk/`, `api/`, `retrieval/`, `processing/`) depends on `core/`.
+The layer every other package imports: the resolved configuration (`RAGConfig`), the component
+registry and stage ABCs, `KnowledgePipeline`, the Pydantic data models, the metadata database
+(SQLite or PostgreSQL), and per-session profile state (`session_config/`).
 
-## Quick Start
+How a setting is resolved: [docs/configuration.md](../../../docs/configuration.md#where-a-setting-comes-from).
+Every setting and its default: [docs/reference/settings.md](../../../docs/reference/settings.md).
+Writing a component against the ABCs: [docs/guide.md](../../../docs/guide.md#4-write-a-component).
 
-```python
-from lasagna.core import (
-    RAGConfig, get_rag_config, reset_rag_config,
-    ComponentRegistry, registry,
-    KnowledgePipeline, PipelineResult,
-    KnowledgeConfigManager, get_knowledge_config_manager,
-    BaseReranker,
-)
+## Module map
 
-# Access global config
-cfg = get_rag_config()
-print(cfg.vector_backend, cfg.embedding_model)
+| File | Responsibility |
+| ---- | -------------- |
+| `config.py` | `RAGConfig` (one property per setting; `with_session()` for a session-scoped view), `get_rag_config`, `reset_rag_config`, lazy module-level `rag_config`, `ConfigError` |
+| `registry.py` | `ComponentRegistry` singleton (`registry`), `COMPONENT_TYPES`, built-in registrations as lazy `module:Class` factories, entry-point discovery (group `lasagna_components`), graph-node callables |
+| `base_components.py` | Stage ABCs (`BaseEmbedder`, `BaseChunker`, `BaseReranker`, `BaseRetriever`, `BaseDocumentProcessor`, `BaseQueryEnhancer`, `BaseAgenticPipeline`) and their data types |
+| `pipeline.py` | `KnowledgePipeline` (compose, swap, run, evaluate, serialize), `PipelineResult`, `QUERY_TIME_STAGES` |
+| `schema.py` | Pydantic models (`Document`, `DocumentChunk`, `SearchResult`, ...) and vector schema helpers |
+| `database_backend.py` | `DatabaseBackend` Protocol that both metadata stores implement |
+| `database.py` | `RAGDatabase` (SQLite, `rag.db`), `get_rag_database` (picks the backend), `reset_rag_database` |
+| `database_pg.py` | `PostgresRAGDatabase` (connection pool) |
+| `session_config/` | `KnowledgeConfigManager`: profiles, per-session state, persistence, last-search citations, vector backend choice, validation (one mixin per file) |
+| `paths.py` | The data directory (`~/.lasagna`, or `LASAGNA_DATA_DIR`), `dbs/` and `uploads/`, and the one-time rename from `~/.rag_knowledge` |
+| `strict.py` | `strict_stages()`: during evaluation a stage that cannot run raises instead of falling back |
+| `provenance.py` | `capture()` of environment and versions for results bundles; `redact`, `redact_url` |
+| `testing.py` | `ComponentTestHarness`, used by `lasagna component validate` and the experiment runner |
+| `quota.py`, `rate_limiter.py`, `tenant.py` | Multi-tenant quotas, adaptive token-bucket rate limiting, partition-based isolation; all off by default |
+| `accelerator.py` | `device_guard`: one process-wide lock for Apple MPS, taken around each model load or batch |
+| `model_licenses.py` | License metadata for downloadable weights; `warn_if_restricted` |
+| `diagnostics.py`, `setup_text.py`, `_text.py` | Text and checks behind `lasagna doctor` and `lasagna init`; `did_you_mean` |
 
-# Register a custom component
-@registry.register("reranker", "my_reranker")
-class MyReranker(BaseReranker): ...
-
-# Build and run a pipeline
-pipeline = KnowledgePipeline.from_profile("balanced")
-pipeline.ingest("/path/to/docs", session_id="sess_123")
-results = pipeline.query("What is X?", session_id="sess_123")
-```
-
-## Module Map
-
-| File | Purpose | Key Exports |
-|---|---|---|
-| `config.py` | 160-property RAG configuration with 4-level resolution | `RAGConfig`, `get_rag_config`, `rag_config` |
-| `database.py` | SQLite metadata backend (documents, citations, chunks, profiles, sessions) | `RAGDatabase`, `get_rag_database` |
-| `database_pg.py` | PostgreSQL metadata backend (drop-in replacement) | `PostgresRAGDatabase` |
-| `database_backend.py` | `DatabaseBackend` Protocol — contract both backends implement | `DatabaseBackend` |
-| `schema.py` | Pydantic models + vector schema DDL | `Document`, `DocumentChunk`, `SearchResult` |
-| `registry.py` | Singleton component registry with auto-discovery | `ComponentRegistry`, `registry` |
-| `pipeline.py` | Composable RAG pipeline with hooks and evaluation | `KnowledgePipeline`, `PipelineResult` |
-| `base_components.py` | ABCs for pluggable components | `BaseEmbedder`, `BaseChunker`, `BaseReranker`, ... |
-| `quota.py` | Per-tenant resource quota enforcement | `QuotaManager`, `get_quota_manager` |
-| `rate_limiter.py` | Adaptive token-bucket rate limiter | `RateLimiter`, `get_rate_limiter` |
-| `tenant.py` | Partition-based tenant isolation | `TenantManager`, `get_tenant_manager` |
-| `testing.py` | Component contract validation harness | `ComponentTestHarness` |
-| `session_config/` | Session/profile management (6 mixins) | `KnowledgeConfigManager` |
+Deeper pages: [docs/architecture.md](docs/architecture.md), [docs/config.md](docs/config.md),
+[docs/session_config.md](docs/session_config.md), [docs/database.md](docs/database.md),
+[docs/backend_parity.md](docs/backend_parity.md).
 
 ## Singletons
 
-| Singleton | Accessor | Reset | Lock |
-|---|---|---|---|
-| `RAGConfig` | `get_rag_config()` | `reset_rag_config()` | `_rag_config_lock` |
-| `ComponentRegistry` | `ComponentRegistry()` / `registry` | `ComponentRegistry.reset()` | `_lock` (class-level) |
-| `KnowledgeConfigManager` | `get_knowledge_config_manager()` | re-assign internal `_knowledge_config_manager` | `_knowledge_config_manager_lock` |
-| `RAGDatabase` | `get_rag_database()` | `reset_rag_database()` | `_rag_database_lock` |
-| `QuotaManager` | `get_quota_manager()` | `configure_quota_manager()` | `_instance_lock` |
-| `RateLimiter` | `get_rate_limiter()` | `configure_rate_limiter()` | `_instance_lock` |
-| `TenantManager` | `get_tenant_manager()` | `configure_tenant_manager()` | `_instance_lock` |
+| Object | Accessor | Reset | Lock |
+| ------ | -------- | ----- | ---- |
+| `RAGConfig` | `get_rag_config()`, `rag_config` | `reset_rag_config()` | `_rag_config_lock` |
+| `ComponentRegistry` | `registry`, `ComponentRegistry()` | `ComponentRegistry.reset()` | class `_lock`; `_data_lock` for registrations |
+| `KnowledgeConfigManager` | `get_knowledge_config_manager()` | none (module global `_knowledge_config_manager`) | `_knowledge_config_manager_lock` |
+| metadata database | `get_rag_database()` | `reset_rag_database()` (closes the old one) | `_rag_database_lock` |
+| `QuotaManager`, `RateLimiter`, `TenantManager` | `get_quota_manager()`, `get_rate_limiter()`, `get_tenant_manager()` | `configure_*()` | `_instance_lock` in each module |
 
-All singletons use double-check locking for thread safety.
+All use double-checked locking. With `RAG_DATABASE_BACKEND=postgresql`,
+`get_knowledge_config_manager()` returns a new request-scoped manager per call instead of the
+singleton. `reset_rag_config()` makes the next access re-read environment, TOML and provider
+settings; tests rely on it.
 
-## API Stability Policy
+## Design notes
 
-- **Stable public API**: Symbols in `__all__` (31 symbols) — import from `lasagna.core`
-- **Semi-public API**: Symbols in submodules but NOT in `__all__` — import from the submodule directly:
-  - `DatabaseBackend`, `get_rag_database` — from `core.database` / `core.database_backend`
-  - `QuotaManager`, `get_quota_manager` — from `core.quota`
-  - `RateLimiter`, `get_rate_limiter` — from `core.rate_limiter`
-  - `TenantManager`, `get_tenant_manager` — from `core.tenant`
-  - `ComponentTestHarness` — from `core.testing`
+**Public API.** Names in `core/__init__.py` `__all__` are the stable import surface
+(`from lasagna.core import ...`). Everything else (`get_rag_database`, `DatabaseBackend`, the
+quota, rate limiter and tenant managers, `ComponentTestHarness`) is imported from its submodule.
 
-## Config Resolution Chain
+**Two metadata stores, one contract.** `RAGDatabase` and `PostgresRAGDatabase` both implement
+`DatabaseBackend`; `get_rag_database()` chooses by `rag_config.database_backend`.
+`tests/test_backend_parity.py` runs the same tests on both (PostgreSQL only when
+`DATABASE_DSN` is set). Both create their tables on first access: `rag_documents`, `citations`,
+`parent_chunks`, `rag_profiles`, `rag_sessions`, `schema_meta`, `collection_meta`, `gc_lock`,
+`gc_audit_log`; PostgreSQL adds `rag_quotas`. When you change a table, change both DDLs.
 
-Properties resolve in priority order (highest wins):
+**The session-config persistence mixin is chosen at import.** `session_config/__init__.py`
+reads `RAG_DATABASE_BACKEND` from the environment when it is imported and mixes in
+`_persistence.py` (tables in `rag.db`) or `_persistence_db.py` (PostgreSQL with a Redis cache).
+The last search's citations per session are also written to `citations_<session>.json` in the
+data directory (`_citations_store.py`), so the MCP process and the REST app can share them.
 
-```
-Session override  →  Environment variable (RAG_*)  →  TOML setting  →  Default
-```
+**Config is read through properties.** Code reads `config.<setting>`, never the TOML or the
+environment directly, so session overrides, the `LASAGNA_`/`RAG_` environment names and the
+TOML file are applied in one place (`RAGConfig._get_knowledge_setting`). A new setting needs a
+default in the defaults dict of `config.py` (its comment becomes the description) and a
+property. Then run `python scripts/gen_settings_doc.py` to regenerate
+`docs/reference/settings.md`; `tests/test_settings_doc_current.py` fails when the page is stale.
 
-See [docs/config.md](docs/config.md) for the full 160-property reference.
-
-## Database Backend Parity
-
-Both SQLite and PostgreSQL backends implement the `DatabaseBackend` Protocol.
-See [docs/database.md](docs/database.md) for the parity contract and behavioral differences.
-
-### Data Layout
-
-All state lives in a single database — `rag.db` (SQLite) or equivalent PostgreSQL tables.
-No JSON files, no external state. Tables are created automatically on first access.
-
-| Table | What it stores |
-|---|---|
-| `rag_documents` | Document metadata and processing status |
-| `citations` | Citation tracking with TTL-based expiry |
-| `parent_chunks` | Parent content for hierarchical chunking |
-| `rag_profiles` | User-created RAG configuration profiles |
-| `rag_sessions` | Per-session config state (active profile, overrides, focused docs) |
-| `schema_meta` | Internal schema versioning |
-
-## Further Documentation
-
-- [docs/architecture.md](docs/architecture.md) — Dependency graph, config chain, session lifecycle
-- [docs/config.md](docs/config.md) — RAGConfig property reference
-- [docs/database.md](docs/database.md) — Database backend guide and parity contract
-- [docs/session_config.md](docs/session_config.md) — Session/profile management guide
-- [docs/backend_parity.md](docs/backend_parity.md) — What the SQLite and PostgreSQL backends must do identically
+**Built-ins load lazily.** The registry stores built-in components as `module:Class` strings
+and imports them on first `get`, so `import lasagna` does not load torch. Entry-point discovery
+is best-effort; failures are recorded in `discovery_log()` (shown by `lasagna plugins list`).

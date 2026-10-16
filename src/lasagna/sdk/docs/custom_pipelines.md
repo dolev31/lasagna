@@ -10,7 +10,7 @@ Replace the entire agentic retrieval pipeline with your own implementation while
 
 Subclass `BaseAgenticPipeline` and implement `run()`.
 
-**Constructor contract:** Your `__init__` must accept `session_config` (a `RAGConfig` instance) and `**kwargs` (future-proofing). The runtime passes `session_config=` and `node_overrides=` at instantiation time — unknown kwargs should be silently accepted.
+**Constructor contract:** your `__init__` must accept `session_config` (a `RAGConfig` instance) and `**kwargs`. The runtime passes `session_config=` and `node_overrides=` when it creates the pipeline, and may pass more keywords in later releases, so accept and ignore the ones you do not use.
 
 ```python
 from lasagna.core.base_components import (
@@ -89,7 +89,7 @@ class MyCustomRAG(BaseAgenticPipeline):
 | `hops` | `List[HopData]` | No | Per-hop tracking data |
 | `metrics` | `AgenticRAGMetrics` | No | Detailed timing/quality metrics |
 
-> **`HopData`** and **`AgenticRAGMetrics`** are optional tracking types defined in `lasagna.agentic.agentic_rag`. Simple pipelines can omit both — they default to an empty list and `None`. Multi-hop pipelines that want per-hop observability should populate `hops` with one `HopData` per search iteration (fields: `hop_index`, `query_used`, `retrieved_chunks`, latency timings). `AgenticRAGMetrics` aggregates timing breakdown and token accounting across the full pipeline run.
+> **`HopData`** and **`AgenticRAGMetrics`** are optional tracking types defined in `lasagna.agentic.agentic_rag`. Simple pipelines can omit both: they default to an empty list and `None`. Multi-hop pipelines that want per-hop observability should populate `hops` with one `HopData` per search iteration (fields: `hop_index`, `query_used`, `retrieved_chunks`, latency timings). `AgenticRAGMetrics` aggregates timing breakdown and token accounting across the full pipeline run.
 
 ---
 
@@ -138,16 +138,15 @@ The format is `{category}.{name} = "module:ClassName"`. The registry auto-discov
 
 Once registered, select the pipeline via any config surface:
 
-| Surface | Syntax | Precedence |
-|---------|--------|------------|
-| Session override | Per-request via session config manager | 1st (highest) |
-| REST | `PATCH /api/v1/config {"agentic_pipeline": "my_custom_rag"}` | 1st (sets session override) |
-| TOML | `agentic_pipeline = "my_custom_rag"` in `settings.lasagna.toml` | 2nd |
-| Env var | `RAG_AGENTIC_PIPELINE=my_custom_rag` | 2nd |
-| SDK | `KnowledgeConfig(agentic_pipeline="my_custom_rag")` | 2nd |
-| Default | `"legacy_react"` (or `"default"` if `use_structured_graph=true`) | 3rd |
+| Surface | Syntax | Lands in |
+|---------|--------|----------|
+| SDK | `KnowledgeConfig(agentic_pipeline="my_custom_rag")` or `await client.set_config(agentic_pipeline="my_custom_rag")` | Session override |
+| REST | `PATCH /api/v1/config {"agentic_pipeline": "my_custom_rag"}` | Session override |
+| CLI, MCP | `lasagna import` of a configuration JSON that sets it, or the MCP `patch_rag_config` tool | Session override |
+| Env var | `LASAGNA_AGENTIC_PIPELINE=my_custom_rag` (or `RAG_AGENTIC_PIPELINE`) | Environment |
+| TOML | `agentic_pipeline = "my_custom_rag"` in `settings.lasagna.toml` | Settings file |
 
-When `agentic_pipeline` is set explicitly, it takes full precedence over the legacy `use_structured_graph` boolean.
+When two of them set it, the level in the last column decides, in the order Lasagna resolves every setting: per-query overrides, then session overrides, then environment variables, then the settings file (see [Where a setting comes from](../../../../docs/configuration.md#where-a-setting-comes-from)). When none sets `agentic_pipeline`, it is `"default"` if `use_structured_graph` is true, else `"legacy_react"` (`RAGConfig.agentic_pipeline` in `core/config.py`).
 
 > **Registration does not activate.** Registering a pipeline makes it *available* but does not select it. You must explicitly choose it via one of the surfaces above for it to handle searches.
 
@@ -161,15 +160,19 @@ When `agentic_pipeline` is set explicitly, it takes full precedence over the leg
 python -m lasagna pipelines list
 ```
 
-Output:
+Output (shortened; the five published loops `self_ask`, `ircot`, `flare`, `adaptive` and `self_rag` are also listed):
 ```
-┌──────────────────┬─────────────────────────────┬───────────────────────────────┬────────┐
-│ Name             │ Description                 │ Class                         │ Active │
-├──────────────────┼─────────────────────────────┼───────────────────────────────┼────────┤
-│ default          │ Built-in structured RAG ... │ BuiltinStructuredPipeline     │        │
-│ legacy_react     │ Legacy ReAct agent ...      │ LegacyReActPipeline           │ ✓      │
-│ my_custom_rag    │ Single-hop with ColBERT     │ MyCustomRAG                   │        │
-└──────────────────┴─────────────────────────────┴───────────────────────────────┴────────┘
+┏━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┓
+┃ Name          ┃ Description                            ┃ Class                     ┃ Active ┃
+┡━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━┩
+│ default       │ Built-in structured RAG graph (13      │ BuiltinStructuredPipeline │        │
+│               │ nodes, CRAG, quality gates)            │                           │        │
+│ legacy_react  │ Legacy ReAct agent with monolithic     │ LegacyReActPipeline       │ ✓      │
+│               │ search tool                            │                           │        │
+│ my_custom_rag │ Single-hop with ColBERT                │ MyCustomRAG               │        │
+└───────────────┴────────────────────────────────────────┴───────────────────────────┴────────┘
+
+Active pipeline: legacy_react
 ```
 
 ### REST API
@@ -181,12 +184,13 @@ curl http://localhost:8000/api/v1/pipelines
 ```json
 {
   "pipelines": [
-    {"name": "default", "description": "Built-in structured RAG ...", "class_name": "BuiltinStructuredPipeline"},
-    {"name": "legacy_react", "description": "Legacy ReAct agent ...", "class_name": "LegacyReActPipeline"},
+    {"name": "default", "description": "Built-in structured RAG graph (13 nodes, CRAG, quality gates)", "class_name": "BuiltinStructuredPipeline"},
+    {"name": "legacy_react", "description": "Legacy ReAct agent with monolithic search tool", "class_name": "LegacyReActPipeline"},
+    ...
     {"name": "my_custom_rag", "description": "Single-hop with ColBERT", "class_name": "MyCustomRAG"}
   ],
   "active": "legacy_react",
-  "total": 3
+  "total": 8
 }
 ```
 
@@ -218,7 +222,7 @@ Create a separate package with entry-points (see Method C above). Install alongs
 # Dockerfile
 FROM python:3.11-slim
 RUN pip install lasagna-rag my-custom-pipeline
-ENV RAG_AGENTIC_PIPELINE=my_custom_rag
+ENV LASAGNA_AGENTIC_PIPELINE=my_custom_rag
 ```
 
 ### Docker with source mount (prototyping)
@@ -232,10 +236,10 @@ services:
       - ./my_pipeline.py:/app/custom/my_pipeline.py
     environment:
       - PYTHONPATH=/app/custom
-      - RAG_AGENTIC_PIPELINE=my_custom_rag
+      - LASAGNA_AGENTIC_PIPELINE=my_custom_rag
 ```
 
-> **Important:** Mounting a file and setting `RAG_AGENTIC_PIPELINE` is not enough on its own — the module must be **imported** so the `@registry.register` decorator executes. Either add the import to the REST app's startup (e.g., FastAPI lifespan), or use entry-points (Method C) which are auto-discovered without explicit imports.
+> **Important:** mounting a file and setting `LASAGNA_AGENTIC_PIPELINE` is not enough on its own: the module must be **imported** so the `@registry.register` decorator runs. Either add the import to the REST app's startup (e.g., FastAPI lifespan), or use entry-points (Method C) which are auto-discovered without explicit imports.
 
 ---
 
@@ -245,18 +249,18 @@ services:
 |---------|-------|-----|
 | `KeyError: "Agentic pipeline 'X' is not registered"` | Config references a pipeline name that hasn't been registered | Ensure the module with `@registry.register(...)` is imported before first search. Use `pipelines list` to check. |
 | Pipeline registered locally but not in REST API | The module isn't importable in the uvicorn process | Use entry-points (auto-discovered) or add the import to the REST app's startup. |
-| `TypeError: run() must return AgenticRAGResult` | `run()` returns a dict or wrong type | Import and return `AgenticRAGResult` from `lasagna.agentic.agentic_rag`. |
-| Pipeline shows in `list` but queries don't use it | Config precedence: another surface overrides yours | Check session overrides first, then TOML/env, then defaults. Session override has highest precedence. |
+| A search fails after your `run()` returns | `run()` returns a dict or another type | Import and return `AgenticRAGResult` from `lasagna.agentic.agentic_rag`. |
+| Pipeline shows in `list` but queries don't use it | Another source sets `agentic_pipeline` ahead of yours | Check session overrides first (`lasagna doctor -s SESSION` shows what is in force), then `LASAGNA_`/`RAG_` environment variables, then the settings file. |
 | Entry-point not discovered | Wrong group name or naming format | Group must be `lasagna_components`, key format is `agentic_pipeline.{name}`. Run `pip show my-package` to verify installation. |
 
 ---
 
 ## Further Reading
 
-- [Custom Pipelines & Nodes](../../agentic/README.md#custom-pipelines) — quick-start for pipeline and node-level overrides
-- [Researcher Guide — Pipeline Extensibility](extending.md) — ablation with `sweep_pipelines()` and `sweep_nodes()`
-- [REST API Endpoints](../../api/docs/endpoints.md) — full endpoint documentation including `GET /api/v1/pipelines`
-- [Agentic Config Reference](../../agentic/docs/config.md) — `agentic_pipeline` precedence rules
+- [Which pipeline runs](../../agentic/README.md#which-pipeline-runs): how a pipeline is resolved, and node-level overrides
+- [Agentic Pipeline Extensibility](extending.md#agentic-pipeline-extensibility): ablation with `sweep_pipelines()` and `sweep_nodes()`
+- [REST API Endpoints](../../api/docs/endpoints.md): every endpoint, including `GET /api/v1/pipelines`
+- [Agentic Config Reference](../../agentic/docs/config.md): `agentic_pipeline` precedence rules
 
 ## See Also
 

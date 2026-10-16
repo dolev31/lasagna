@@ -117,7 +117,7 @@ config = KnowledgeConfig(vector_backend="custom")
 
 ## Storage Backends
 
-Pluggable file storage for uploaded documents. Default is local filesystem (zero config).
+Pluggable file storage for uploaded documents. The default is the local filesystem, under the upload directory (`~/.lasagna/uploads` unless `LASAGNA_UPLOAD_DIR` or `LASAGNA_DATA_DIR` says otherwise).
 
 ### Listing Storage Backends
 
@@ -217,16 +217,20 @@ config = KnowledgeConfig(storage_backend="my_cloud")
 
 ### Storage Environment Variables
 
+These are read under their `RAG_` names only (`storage/registry.py`); `storage_backend` is also an ordinary setting, so `LASAGNA_STORAGE_BACKEND` and the settings file work for it too. `storage_backend_config`, when set, wins over the `RAG_STORAGE_S3_*` and `RAG_STORAGE_FSSPEC_*` variables.
+
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
 | `RAG_STORAGE_BACKEND` | `local` | `local`, `s3`, or `fsspec` |
 | `RAG_STORAGE_S3_BUCKET` | *(empty)* | S3 bucket name |
 | `RAG_STORAGE_S3_ENDPOINT_URL` | *(empty)* | S3-compatible endpoint |
+| `RAG_STORAGE_S3_PREFIX` | `rag-documents` | Key prefix in the bucket |
 | `RAG_STORAGE_S3_REGION` | `us-east-1` | AWS region |
 | `RAG_STORAGE_FSSPEC_PROTOCOL` | *(empty)* | fsspec protocol (`gcs`, `az`, etc.) |
 | `RAG_STORAGE_FSSPEC_BASE_PATH` | *(empty)* | Base path in the filesystem |
+| `RAG_STORAGE_FSSPEC_OPTIONS` | *(empty)* | JSON object of fsspec `storage_options` |
 
-Install: `pip install lasagna-rag[storage-s3]` for S3, or `pip install lasagna-rag[storage-all]` for all providers.
+Install: `pip install "lasagna-rag[storage-s3]"` for S3, or `pip install "lasagna-rag[storage-all]"` for S3, GCS and Azure through fsspec.
 
 ---
 

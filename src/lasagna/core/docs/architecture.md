@@ -9,37 +9,38 @@
                                │ re-exports
           ┌────────────┬───────┼───────┬────────────┬──────────┐
           ▼            ▼       ▼       ▼            ▼          ▼
-    ┌──────────┐ ┌──────────┐ ┌────────┐ ┌───────────┐ ┌──────────┐
-    │ config.py│ │schema.py │ │registry│ │ pipeline  │ │session/  │
-    │ (1618L)  │ │ (274L)   │ │(844L)  │ │ (870L)    │ │__init__ │
-    └──┬───────┘ └──────────┘ └───┬────┘ └─────┬─────┘ └──┬──────┘
+    ┌──────────┐ ┌──────────┐ ┌────────┐ ┌───────────┐ ┌───────────────┐
+    │ config.py│ │schema.py │ │registry│ │ pipeline  │ │session_config/│
+    │          │ │          │ │  .py   │ │   .py     │ │  __init__.py  │
+    └──┬───────┘ └──────────┘ └───┬────┘ └─────┬─────┘ └──┬────────────┘
        │                          │             │          │
        │              ┌───────────┘       ┌─────┘    ┌─────┘
        ▼              ▼                   ▼          ▼
-  ┌──────────────────────────┐    ┌────────────┐  ┌──────────────────┐
-  │  base_components.py      │    │ database.py│  │ session_config/  │
-  │  (ABCs: 6 components)    │    │ (1039L)    │  │ (6 mixins, 9 files)│
-  └──────────────────────────┘    │database_pg │  └──────────────────┘
-                                  │ (1023L)    │
+  ┌──────────────────────────┐    ┌────────────┐  ┌────────────────────┐
+  │  base_components.py      │    │ database.py│  │ session_config/    │
+  │  (ABCs: 8 components)    │    │ (SQLite)   │  │ (6 mixins, 9 files)│
+  └──────────────────────────┘    │database_pg │  └────────────────────┘
+                                  │ (Postgres) │
                                   └──────┬─────┘
                                          │
                               ┌──────────┼──────────┐
                               ▼          ▼          ▼
                          ┌────────┐ ┌────────┐ ┌────────┐
                          │quota.py│ │rate_   │ │tenant  │
-                         │(549L)  │ │limiter │ │.py     │
-                         └────────┘ │(455L)  │ │(159L)  │
-                                    └────────┘ └────────┘
+                         │        │ │limiter │ │.py     │
+                         └────────┘ │.py     │ └────────┘
+                                    └────────┘
 ```
 
-External consumers (57 files import from `core/`):
-- `api/` — REST routes, dependencies, backend orchestration
-- `sdk/` — Python SDK client, managers
-- `agentic/` — Agentic RAG graph nodes
-- `retrieval/` — Search, ranking, enhancement
-- `processing/` — Document processing, chunking
-- `infrastructure/` — Embedding, caching
-- `providers/` — Config, LLM, session providers
+External consumers (55 modules outside `core/` import from it), among them:
+- `api/`: REST routes, dependencies, backend orchestration
+- `sdk/`: Python SDK client, managers
+- `agentic/`: Agentic RAG graph nodes
+- `retrieval/`: Search, ranking, enhancement
+- `processing/`: Document processing, chunking
+- `infrastructure/`: Embedding, caching
+- `providers/`: Config, LLM, session providers
+- `knowledge_evaluation_sdk/`: the experiment runner
 
 ## Config Resolution Chain
 
@@ -54,9 +55,10 @@ External consumers (57 files import from `core/`):
 │  └──────────────────────────────────────────────┘    │
 │                    │ miss                             │
 │                    ▼                                  │
-│  Priority 2: Environment variables (RAG_*)            │
+│  Priority 2: Environment variables (LASAGNA_*, RAG_*) │
 │  ┌──────────────────────────────────────────────┐    │
 │  │ self._env_overrides[leaf_key]                  │    │
+│  │ LASAGNA_<NAME> wins over RAG_<NAME>            │    │
 │  │ Type-coerced to match default type             │    │
 │  │ Numeric range validation for known keys        │    │
 │  └──────────────────────────────────────────────┘    │
@@ -65,7 +67,8 @@ External consumers (57 files import from `core/`):
 │  Priority 3: TOML settings                            │
 │  ┌──────────────────────────────────────────────┐    │
 │  │ settings.lasagna.toml [rag] section          │    │
-│  │ Or custom file via RAG_SETTINGS_FILE env var   │    │
+│  │ Or a file named by LASAGNA_SETTINGS_FILE      │    │
+│  │ (or RAG_SETTINGS_FILE)                         │    │
 │  └──────────────────────────────────────────────┘    │
 │                    │ miss                             │
 │                    ▼                                  │
@@ -124,7 +127,7 @@ Session overrides are applied at runtime via `with_session(session_id)`.
                      │
                      ▼
             ┌──────────────────┐
-            │ cleanup_old_     │  ← TTL=24h, throttled to 1/min
+            │ _cleanup_old_    │  ← TTL=24h, throttled to 1/min
             │  sessions()      │
             └──────────────────┘
 ```
@@ -134,7 +137,7 @@ Session overrides are applied at runtime via `with_session(session_id)`.
 ```
           ┌─────────────────────────┐
           │   DatabaseBackend       │ (@runtime_checkable Protocol)
-          │   16 methods            │
+          │   41 methods            │
           └──────┬──────────────────┘
                  │ implements
        ┌─────────┴──────────┐
@@ -143,15 +146,14 @@ Session overrides are applied at runtime via `with_session(session_id)`.
 │ RAGDatabase  │    │PostgresRAGDatabase│
 │ (SQLite)     │    │ (PostgreSQL)      │
 │ per-call conn│    │ connection pool   │
-│ WAL mode     │    │ psycopg3/2       │
-│ RLock        │    │ extra tables:     │
-│              │    │  profiles,sessions│
-│              │    │  quotas           │
+│ WAL mode     │    │ psycopg3/2        │
+│ RLock        │    │ extra table:      │
+│              │    │  rag_quotas       │
 └──────────────┘    └──────────────────┘
 ```
 
 Both backends share:
-- 4 tables: `rag_documents`, `citations`, `parent_chunks`, `schema_meta`
+- 9 tables: `rag_documents`, `citations`, `parent_chunks`, `schema_meta`, `rag_profiles`, `rag_sessions`, `collection_meta`, `gc_audit_log`, `gc_lock`
 - `store_citations()` with per-session limit enforcement (max 5000)
 - Full-row upsert on citation conflict
 - Composite index `(session_id, created_at DESC, id DESC)`
@@ -171,12 +173,12 @@ See [database.md](database.md) for the full parity contract.
         ┌──────────┐ ┌──────────┐    ┌──────────┐
         │ Built-in │ │ Decorator│    │ Entry    │
         │ (lazy)   │ │ @register│    │ Points   │
-        │ 15 comps │ │          │    │ lasagna_ │
+        │          │ │          │    │ lasagna_ │
         └──────────┘ └──────────┘    │components│
                                      └──────────┘
 
-Categories: embedder, chunker, reranker, retriever,
-            document_processor, query_enhancer
+Categories (COMPONENT_TYPES): embedder, chunker, reranker, retriever,
+            document_processor, query_enhancer, generator, agentic_pipeline
 ```
 
 Registration: `@registry.register("category", "name")` decorator or
@@ -189,11 +191,11 @@ Lookup: `registry.get("category", "name", **kwargs)` with adaptive parameter fil
 ```
 KnowledgeConfigManager
   ├── ProfileMixin          (_profiles.py)
-  │     profile CRUD, built-in presets (5 profiles)
+  │     profile CRUD, built-in presets (default plus 4 profiles)
   ├── SessionStateMixin     (_session_state.py)
   │     get/patch/reset/import/export config
-  ├── PersistenceMixin      (_persistence.py — SQLite mode)
-  │   OR DatabasePersistenceMixin (_persistence_db.py — PG mode)
+  ├── PersistenceMixin      (_persistence.py, SQLite mode)
+  │   OR DatabasePersistenceMixin (_persistence_db.py, PG mode)
   │     load/save profiles & session states
   ├── CitationStoreMixin    (_citations_store.py)
   │     cross-process search results sharing
@@ -203,8 +205,9 @@ KnowledgeConfigManager
         config validation gate
 ```
 
-Mode selection: `RAG_DATABASE_BACKEND=postgresql` → DatabasePersistenceMixin,
-otherwise → PersistenceMixin (file-based).
+Mode selection: `RAG_DATABASE_BACKEND=postgresql` in the environment when `core.session_config` is imported → DatabasePersistenceMixin,
+otherwise → PersistenceMixin (file-based). This choice reads that one variable, not `LASAGNA_DATABASE_BACKEND` or the
+`database_backend` setting in a settings file.
 
 ## Built-in RAG Profiles
 

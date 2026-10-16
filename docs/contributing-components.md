@@ -1,6 +1,6 @@
 # Contributing a component
 
-How a researcher gets from an idea to a published, checkable result — and what
+How a researcher gets from an idea to a published, checkable result, and what
 makes each step auditable rather than just easy.
 
 The design goal is narrow: **it should be hard to produce a number you cannot
@@ -14,11 +14,11 @@ Five steps. Each is one command, and each is a checkpoint that can fail.
 
 | # | Step | Command | What it rules out |
 |---|---|---|---|
-| 1 | Write it | one decorator on a function | — |
+| 1 | Write it | one decorator on a function | |
 | 2 | Check the contract | `lasagna component validate my_ideas:keyword_overlap` | it does not satisfy its stage's contract (types, `top_k`, empty input, no mutation of its input) |
-| 3 | Check it runs | `lasagna benchmark run smoke --reranker my_ideas:keyword_overlap ...` | it breaks inside the pipeline |
+| 3 | Check it runs | `lasagna benchmark run smoke --reranker my_ideas:keyword_overlap --profile speed` | it breaks inside the pipeline |
 | 4 | Check it helps | `lasagna benchmark experiment sweep.yaml` | the gain is noise, or was never measured |
-| 5 | Publish | `lasagna results bundle` → `validate` | nobody can tell what produced the number |
+| 5 | Publish | `lasagna results bundle`, then `validate` | nobody can tell what produced the number |
 
 The ordering is the design. Every step catches a failure the next one would
 otherwise disguise as a result.
@@ -58,8 +58,8 @@ The agentic pipeline is the one stage with no one-line form: a loop is a class
 
 `paper` and `claims` are optional and worth filling in: they come back out of
 the registry, so a results table can show the claimed number beside the one you
-reproduced. That comparison is the single most useful thing a reader of your
-result can see, and nothing else in the ecosystem records it.
+reproduced. That comparison is the most useful thing a reader of your result
+can see.
 
 A technique with state or a model is a class instead: subclass the stage's
 interface (`BaseReranker` and so on), register it with
@@ -92,11 +92,12 @@ That list is the set of *fair* baselines. Use it.
 
 ### What validation does not prove
 
-It exercises the component in isolation. That is deliberate — it is the fastest
-possible check — but it means a green result does not mean the pipeline can
-call your component. It could not, until recently: the orchestrator invoked
-rerankers with an internal signature and a documented `BaseReranker` raised
-`TypeError` the first time it ran for real, four green checks into the process.
+It exercises the component in isolation. That is deliberate (it is the fastest
+possible check), but it means a green result does not mean the pipeline can
+call your component. A wrapper bridges the orchestrator's internal reranker
+signature to `BaseReranker`; when such a bridge breaks, a documented component
+raises `TypeError` the first time it runs for real, after every isolated check
+passed.
 
 Which is why step 3 exists and is not optional.
 
@@ -105,12 +106,12 @@ Which is why step 3 exists and is not optional.
 ## 3. Check it runs
 
 ```bash
-lasagna benchmark run smoke --reranker my_ideas:keyword_overlap --profile speed --tracks retrieval
+lasagna benchmark run smoke --reranker my_ideas:keyword_overlap --profile speed
 ```
 
 24 documents, 12 queries, held inside the package. No dataset download, no API
 key. It runs the real pipeline end to end with your component in its stage, so a
-green run means your component is genuinely wired in. `my_ideas:keyword_overlap`
+green run means your component is wired in. `my_ideas:keyword_overlap`
 is an import path: the CLI imports it from the working directory, so the
 function needs no package. Installed plugins are named by their registered name.
 `--query-enhancer` and `--generator` name a component of those stages the same
@@ -130,12 +131,12 @@ go wrong.
 name: does my reranker help
 benchmarks:
   - name: beir/scifact
-    n_samples: 200
+    n_samples: 100
 tracks: [retrieval]                                 # no LLM or RAGAS needed
 pipeline:
   base_profile: speed                               # no LLM key, small models
   rerankers: [cross_encoder, "my_ideas:keyword_overlap"]   # a control and yours
-n_runs: 3
+n_runs: 1                                           # retrieval does not sample
 ```
 
 ```bash
@@ -149,23 +150,22 @@ on `speed`. Before ingesting anything the run checks that each named component
 passes its stage's contract, and when it finishes it confirms that the
 configuration reaching each stage differed only at the reranker (or says which
 other stage moved), and flags your arm as inert if its ranked lists never moved.
-The second
-command prints each pair with the difference, the effect size and both the raw
-and the Holm-adjusted p:
+The second command prints each pair with the difference, the effect size and
+both the raw and the Holm-adjusted p. For `keyword_overlap` (query words found
+in the passage) against the cross-encoder on 100 SciFact queries, a real run
+printed:
 
-```
-ndcg@10 on beir/scifact — 1 pair, Holm-Bonferroni
-
-pair                                 diff    d_z        p  p (Holm)    n
-reranker=cross_encoder                ...    ...      ...       ...  ...
+```text
+pair                                     diff    d_z        p  p (Holm)    n
+reranker=cross_encoder                +0.0913  +0.38  1.0e-04   1.0e-04  100  significant
 vs reranker=my_ideas:keyword_overlap
 
-╭─ significant after Holm correction ─────────────────────────────────╮
-│ reranker=cross_encoder beats reranker=my_ideas:keyword_overlap      │
-│   ndcg@10 ... on beir/scifact, d_z ..., p (Holm) ..., ... queries   │
-│                                                                     │
-│ 1 of 1 pair survives correction at family-wise alpha=0.05.          │
-╰─────────────────────────────────────────────────────────────────────╯
+╭─ significant after Holm correction ─────────────────────────────────────────╮
+│ reranker=cross_encoder beats reranker=my_ideas:keyword_overlap              │
+│   ndcg@10 +0.0913 on beir/scifact, d_z +0.38, p (Holm) 1.0e-04, 100 queries │
+│                                                                             │
+│ 1 of 1 pair survives correction at family-wise alpha=0.05.                  │
+╰─────────────────────────────────────────────────────────────────────────────╯
 ```
 
 The box at the end says what the table supports. Green names each pair that
@@ -181,9 +181,12 @@ things" from "my component never ran". The two look identical from outside.
 **Everything else held fixed.** Same chunker, same embedder, same top-k, same
 split, same sample. The difference is attributable because nothing else moved.
 
-**More than one run.** Retrieval metrics move between runs. `n_runs: 1` cannot
-separate a real gap from noise, and per-sample scores are carried through and
-paired by sample identity so significance testing is actually possible.
+**A paired test over queries.** Per-sample scores are carried through and
+paired by sample identity, so the test compares the two arms on the same
+queries. Retrieval with fixed models returns the same lists on every run, so
+one run is enough; repeat runs when an LLM stage is in the loop (an LLM
+reranker, HyDE, an agentic pipeline, answer generation), where answers vary
+from run to run.
 
 Other stages sweep the same way. `chunkers:`, `embedders:`, `query_enhancers:`
 and `generators:` take lists like `rerankers:`. A chunker or embedder arm gets a
@@ -206,11 +209,16 @@ and a generator sweep.
 
 ```bash
 lasagna results bundle results.json -o run.json
-lasagna results validate run.json --strict
+lasagna results validate run.json
 ```
 
+`--strict` also fails on integrity warnings that do not block a local run, such
+as `SINGLE_RUN` and `UNRESOLVED_JUDGE_ALIAS`; `lasagna results view
+results.json` writes the whole run as one HTML page to attach to a review, and
+`lasagna results leaderboard <dir> --format latex` prints a table for a paper.
+
 The bundle carries library versions, hardware, the resolved sweep, the corpus
-fingerprint, the sample-id digest, and a **comparability key** — a hash over
+fingerprint, the sample-id digest, and a **comparability key**: a hash over
 everything held fixed, deliberately *excluding* the dimension under test.
 
 That exclusion is the whole design. A key covering everything would make every
@@ -239,7 +247,7 @@ and sample counts behind it, is the usual way these mislead.
 
 **Metric drift is caught.** `metrics_version` is inside the key, so redefining
 `ndcg@10` drops old numbers out of comparison instead of quietly mixing them
-with new ones. Nothing else catches this.
+with new ones.
 
 **Reproduction is a signal, not a badge.** A row is marked `verified` only when
 a *different* submitter publishes a bundle with the same key whose mean lands
@@ -256,8 +264,8 @@ the rest of the guarantees worth anything.
 
 ## Shipping it as a package
 
-Copy [`examples/lasagna-plugin-template/`](../examples/lasagna-plugin-template/)
-— a real installable package registering one reranker and one benchmark through
+Copy [`examples/lasagna-plugin-template/`](../examples/lasagna-plugin-template/):
+a real installable package registering one reranker and one benchmark through
 entry points, with tests. CI installs and runs it, so it cannot rot into a
 snippet that no longer works.
 
@@ -274,7 +282,7 @@ lasagna plugins list
 ```
 
 Run it. Discovery logs failures and continues, so a broken entry point does not
-raise — your component is simply never used, and the results quietly come from
+raise: your component is simply never used, and the results quietly come from
 the built-in default. `lasagna plugins list` and `lasagna doctor` both surface
 the failure with its exception.
 
@@ -297,20 +305,20 @@ Stated rather than hidden, because you will hit these.
   contexts).** The other stages are handed strings or a file path, which cannot
   be changed in place. A class component that keeps state should still copy what
   it is handed before changing it.
-- **`judge_model` is `None` in the comparability key for retrieval-only runs.**
-  That is accurate rather than a gap — there is no judge — but it means two runs
-  scored by *different* judges group together if neither recorded one. Pin a
-  dated judge snapshot whenever you report a generation metric.
+- **A single-run row is never marked verified on the results hub**, because it
+  reports no spread for another submission to land inside, even when the arms
+  are deterministic. Publish two or more runs if you want a row others can
+  verify.
 
 ---
 
 ## Getting help
 
-`lasagna doctor` first — it answers most questions before they are asked. Then
+`lasagna doctor` first: it answers most questions before they are asked. Then
 [a bug report](../.github/ISSUE_TEMPLATE/bug_report.yml), or
 [a component contribution](../.github/ISSUE_TEMPLATE/component_contribution.yml)
 if you want yours listed. If a published number does not reproduce, open a
-[result dispute](../.github/ISSUE_TEMPLATE/result_dispute.yml) — run
+[result dispute](../.github/ISSUE_TEMPLATE/result_dispute.yml); run
 `lasagna results compare` first, since the field-level diff usually settles it.
 
 Agents working in a repo that uses Lasagna can run `lasagna skills install` to

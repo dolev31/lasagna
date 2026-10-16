@@ -1,8 +1,8 @@
-# Session Store -- Deep Dive
+# Session Store: Deep Dive
 
 ## Overview
 
-The `SessionStore` protocol provides shared session state for the RAG system. Session state includes config overrides, focused documents, active profile, and RAG toggle — state that must be consistent when multiple API workers run behind a load balancer.
+The `SessionStore` protocol provides shared session state for the RAG system. Session state includes config overrides, focused documents, active profile, and RAG toggle: state that must be consistent when multiple API workers run behind a load balancer.
 
 ---
 
@@ -26,8 +26,8 @@ class SessionStore(Protocol):
 
 - Storage: `Dict[str, Dict[str, Any]]`
 - Thread safety: `threading.Lock` on all operations
-- Expiration: explicit via `cleanup_expired()` — compares `last_accessed` timestamp
-- Lifetime: lost on process restart (acceptable for single-user mode where `_persistence.py` handles file-based backup)
+- Expiration: explicit via `cleanup_expired()`, which compares the `last_accessed` timestamp
+- Lifetime: lost on process restart (acceptable for single-user mode, where `_persistence.py` keeps session config in the SQLite `rag_sessions` table)
 
 ### RedisSessionStore
 
@@ -75,7 +75,7 @@ def get_session_store():
 
 **Fixed-after-init**: no config-drift detection. To replace, use `configure_session_store(store)`.
 
-**Fallback**: if any exception occurs during initialization (including Redis connection failure), falls back to `InMemorySessionStore`.
+**Fallback**: if an exception escapes initialization (the `redis` package is missing, or the URL cannot be parsed), `get_session_store()` falls back to `InMemorySessionStore`. A Redis server that does not answer is not such an exception: `RedisSessionStore.__init__` logs a warning when its `ping()` fails and the Redis store is kept, so every later operation fails open (returns `None`/`False`/`[]` with a warning) until Redis is reachable.
 
 ---
 
@@ -109,7 +109,6 @@ When `cache_backend = "redis"`:
 | ------ | ----- |
 | `core/session_config/_persistence_db.py` | Load/save session config overrides |
 | `mcp/server.py` | Track rebuild signatures across MCP tool calls |
-| Tests (`test_agentic_rag_integration.py`) | Session state for integration tests |
 
 ---
 

@@ -4,7 +4,7 @@
 
 1. [Agentic RAG (Multi-hop)](#agentic-rag-multi-hop)
 2. [Processing Pipeline](#processing-pipeline)
-3. [SOTA Retrieval Features](#sota-retrieval-features)
+3. [Retrieval Features](#retrieval-features)
 
 ---
 
@@ -66,26 +66,28 @@ config = KnowledgeConfig(
 )
 ```
 
-**Pipeline selection** -- choose which agentic pipeline to run:
+**Pipeline selection**: choose which agentic pipeline runs.
+
 
 ```python
 config = KnowledgeConfig(
     agentic_pipeline="default",  # Built-in structured graph (13 nodes, CRAG, quality gates)
-    # agentic_pipeline="legacy_react",  # Legacy ReAct agent (default)
+    # agentic_pipeline="legacy_react",  # ReAct agent; what runs when nothing selects a pipeline
+    # agentic_pipeline="self_ask",  # Also ircot, flare, adaptive, self_rag (published loops)
     # agentic_pipeline="my_custom_rag",  # Any registered BaseAgenticPipeline
 )
 ```
 
-The `agentic_pipeline` field accepts any name registered in the `agentic_pipeline` namespace of the component registry. The legacy `use_structured_graph` boolean is still supported as a convenience: `true` maps to `"default"`, `false` maps to `"legacy_react"`. When both are set, `agentic_pipeline` takes precedence.
+The `agentic_pipeline` field accepts any name registered in the `agentic_pipeline` namespace of the component registry (`lasagna pipelines list` shows them). When it is unset, the `use_structured_graph` boolean picks one of the two built-ins: `true` means `"default"`, `false` means `"legacy_react"`. When both are set, `agentic_pipeline` wins.
 
 > For writing and registering custom pipelines, see the [BYOA Guide](custom_pipelines.md).
 
-**Additional backend-configurable features** (also settable via `settings.lasagna.toml` or environment variables):
+**More agentic settings** (in `KnowledgeConfig`, in `settings.lasagna.toml`, or as `LASAGNA_<NAME>` / `RAG_<NAME>` environment variables, resolved as [Where a setting comes from](../../../../docs/configuration.md#where-a-setting-comes-from) describes):
 
-- `enable_hallucination_check` -- Self-RAG ISSUP grounding verification (structured graph only)
-- `enable_answer_quality_check` -- Self-RAG ISUSE answer relevance check (structured graph only)
-- `use_final_search` -- Final comprehensive search on original question
-- `coverage_scorer_mode` -- Coverage scoring method (`keyword` or `llm`)
+- `enable_hallucination_check`: Self-RAG ISSUP grounding check (structured graph only)
+- `enable_answer_quality_check`: Self-RAG ISUSE answer relevance check (structured graph only)
+- `use_final_search`: one more search on the original question after refinement, for complete citations (not a `KnowledgeConfig` field; default `false`)
+- `coverage_scorer_mode`: how coverage is scored, `keyword` or `llm`
 
 For full configuration details, see the [agentic RAG documentation](../../agentic/docs/config.md).
 
@@ -111,16 +113,16 @@ result = await agent.ainvoke({"messages": [("user", "What is the revenue?")]})
 
 ### Adaptive Chunk Retrieval
 
-By default, the system uses **Adaptive-k** (based on EMNLP 2025 research) to dynamically determine how many chunks to return instead of a fixed number. This prevents both information loss (too few chunks) and hallucination (too many irrelevant chunks).
+By default, the number of chunks returned is chosen per query with **Adaptive-k** (the score-gap method the code cites as EMNLP 2025) instead of a fixed number. The aim is to avoid both missing evidence (too few chunks) and padding the context with irrelevant ones (too many).
 
-**How it works**: After cross-encoder reranking, the system sorts relevance scores in descending order and finds the largest relative gap in the score distribution. Chunks above the gap are "clearly relevant"; chunks below are not. A configurable buffer is added past the gap as a safety margin.
+**How it works**: after cross-encoder reranking, the normalized relevance scores are sorted in descending order and the largest relative gap is found. Chunks above the gap are kept; chunks below it are dropped, except for a configurable buffer of extra chunks past the gap.
 
 This applies to both regular search (via `client.search_documents()`) and agentic search (via `client.agentic_search()`).
 
 ```python
 from lasagna.sdk import KnowledgeConfig, ChunkRetrievalStrategy
 
-# Adaptive (default) — dynamically determines chunk count per query
+# Adaptive (default): chunk count chosen per query
 config = KnowledgeConfig(
     chunk_retrieval_strategy=ChunkRetrievalStrategy.ADAPTIVE,
     chunk_retrieval_max=20,     # Maximum chunks (ceiling)
@@ -129,13 +131,13 @@ config = KnowledgeConfig(
     min_gap_ratio=0.15,         # Minimum gap to trigger cutoff
 )
 
-# Fixed — always return exactly N chunks (legacy behavior)
+# Fixed: always return the same number of chunks
 config = KnowledgeConfig(
     chunk_retrieval_strategy=ChunkRetrievalStrategy.FIXED,
     rerank_top_k=5,
 )
 
-# Above threshold — return all chunks above a score threshold
+# Above threshold: return all chunks above a score threshold
 config = KnowledgeConfig(
     chunk_retrieval_strategy=ChunkRetrievalStrategy.ABOVE_THRESHOLD,
     chunk_retrieval_threshold=0.5,
@@ -147,29 +149,29 @@ config = KnowledgeConfig(
 
 | Preset | `rerank_top_k` | `chunk_retrieval_max` | Strategy |
 | ------------- | -------------- | --------------------- | -------- |
-| `speed` | 5 | 10 | adaptive |
-| `standard` | 10 | 15 | adaptive |
-| `balanced` | 10 | 20 | adaptive |
-| `max_quality` | 20 | 30 | adaptive |
+| `speed` | 5 | 10 | fixed |
+| `standard` | 5 | 15 | adaptive |
+| `balanced` | 5 | 20 | adaptive |
+| `max_quality` | 5 | 30 | adaptive |
 
 ### Hierarchical Chunking + Auto-Merge
 
-Hierarchical chunking creates a **parent-child chunk structure** that combines fine-grained search accuracy with broad context for LLM responses. This is ported from LlamaIndex's `AutoMergingRetriever` (Apache 2.0).
+Hierarchical chunking creates a **parent-child chunk structure**: small chunks are what search matches, and their larger parents are what the LLM can receive. The merge step is a port of LlamaIndex's `AutoMergingRetriever` algorithm (Apache 2.0; `api/_auto_merger.py`).
 
 **How it works:**
 
-1. **Upload**: Documents are split into large **parent chunks** (default 2000 chars) and smaller **child chunks** (default 500 chars). Only children are embedded and stored in the vector database. Parents are stored in SQLite.
+1. **Upload**: Documents are split into large **parent chunks** (default 2000 chars) and smaller **child chunks** (default 500 chars). Only children are embedded and stored in the vector database. Parents are stored in the metadata database (SQLite, or PostgreSQL when `database_backend` is `postgresql`).
 
-2. **Search**: The retrieval pipeline searches child chunks as usual (vector search + hybrid + reranking + MMR). This gives **fine-grained matching accuracy**.
+2. **Search**: the retrieval pipeline searches child chunks as usual (vector search, hybrid, reranking, MMR), so matching works on small pieces of text.
 
-3. **Auto-Merge**: After retrieval, if enough child chunks from the same parent are in the results (ratio >= `auto_merge_threshold`), they are **replaced with the parent's full content**. This gives the LLM **richer context** without losing relevance.
+3. **Auto-Merge**: after retrieval, if enough child chunks from the same parent are in the results (ratio >= `auto_merge_threshold`), they are **replaced with the parent's full content**, scored as the best of those children.
 
-**Why this matters**: Fixed-size chunks often split important information across boundaries. A question about a topic might match 3 small chunks from the same section. Instead of feeding 3 small fragments to the LLM, auto-merge replaces them with the full parent section — giving the LLM the complete picture.
+**Why this matters**: fixed-size chunks often split related information across boundaries. A question about a topic might match 3 small chunks from the same section. Instead of passing 3 fragments to the LLM, auto-merge passes the parent section they came from.
 
 ```python
-from lasagna.sdk import KnowledgeConfig
+from lasagna.sdk import KnowledgeClient, KnowledgeConfig
 
-# Enable hierarchical chunking with auto-merge (default in balanced/max_quality)
+# Enable hierarchical chunking with auto-merge (on in balanced and max_quality)
 config = KnowledgeConfig(
     enable_hierarchical=True,
     parent_chunk_size=2000,      # Large context windows
@@ -179,10 +181,10 @@ config = KnowledgeConfig(
 
 client = KnowledgeClient(config=config)
 
-# Upload — creates parent-child chunk hierarchy automatically
+# Upload: creates the parent-child chunk hierarchy
 await client.upload("./long_report.pdf")
 
-# Search — auto-merge happens transparently
+# Search: auto-merge runs as part of the search
 results = await client.search_documents("quarterly performance analysis")
 
 # Results may contain auto-merged chunks with richer content
@@ -205,12 +207,12 @@ for r in results:
 
 | Preset | Hierarchical | Auto-Merge Threshold | Effect |
 |--------|-------------|---------------------|--------|
-| `speed` | Disabled | N/A | Pure flat chunks for minimum latency |
-| `standard` | Disabled | N/A | Flat chunks with lightweight model |
+| `speed` | Disabled | N/A | Flat chunks |
+| `standard` | Disabled | N/A | Flat chunks |
 | `balanced` | Enabled | 0.5 | Parent-child with standard merging |
 | `max_quality` | Enabled | 0.4 | More aggressive merging for max recall |
 
-**Backward compatibility**: Documents uploaded before enabling hierarchical chunking work normally — they have no parent references and pass through auto-merge unchanged. Re-upload documents to benefit from hierarchical chunking.
+**Documents indexed without it**: documents uploaded before hierarchical chunking was turned on have no parent references and pass through auto-merge unchanged. Re-upload them (or call `client.documents.reindex(document_id)`) to give them parents.
 
 ---
 
@@ -302,15 +304,17 @@ for r in reranked:
 
 ---
 
-## SOTA Retrieval Features
+## Retrieval Features
 
-The Knowledge SDK implements a comprehensive set of state-of-the-art retrieval techniques. Each feature can be toggled independently via configuration, and the built-in presets combine them into battle-tested configurations.
+Each feature below is a setting you can turn on or off on its own, and the built-in presets combine them (see [Configuration Profiles](configuration.md#configuration-profiles)). To find out whether one helps on your data, compare it in a sweep ([Ablation Studies](extending.md#ablation-studies)) rather than relying on published numbers.
 
 ### BGE-M3 Embedding
 
-The default embedding model is **BAAI/bge-m3**, a SOTA multi-function embedding model that supports dense, sparse, and ColBERT retrieval in a single model. It supports 100+ languages and an 8K-token context window.
+The default embedding model is **BAAI/bge-m3**, one model that produces dense, sparse and ColBERT (multi-vector) representations. It covers 100+ languages and inputs of up to 8K tokens.
 
-**Auto-detection**: The SDK auto-detects the best available embedding backend at startup. When the `FlagEmbedding` library is installed, it uses the native `BGEM3FlagModel` for optimal performance (including native sparse vector generation). Otherwise, it falls back to `sentence-transformers`, which provides dense embeddings only.
+**Backend selection**: with `embedding_backend="auto"`, a BGE-M3 model loads through `FlagEmbedding`'s `BGEM3FlagModel` when that library is installed (`pip install "lasagna-rag[flag-embedding]"`), which also gives sparse vectors. Without it, and for every other model, it loads through `sentence-transformers`, which gives dense vectors only (`infrastructure/embedding/manager.py`).
+
+Each embedding model has its own vector collection, `rag_documents_v2__<model>__<dim>`, so switching models does not mix vectors of different sizes; documents indexed under one model must be uploaded again to be searched with another.
 
 ```python
 from lasagna.sdk import KnowledgeConfig
@@ -319,7 +323,7 @@ from lasagna.sdk import KnowledgeConfig
 config = KnowledgeConfig(
     embedding_model="BAAI/bge-m3",       # Default
     embedding_dim=1024,                    # BGE-M3 dimension
-    embedding_backend="auto",             # Auto-detect best backend
+    embedding_backend="auto",             # FlagEmbedding for BGE-M3 when installed
 )
 
 # Force a specific backend
@@ -350,26 +354,26 @@ config = KnowledgeConfig(
 | `normalize_embeddings` | bool | True | L2-normalize vectors for cosine similarity |
 | `use_gpu` | bool | True | Use GPU (CUDA/MPS) if available |
 
-**Environment variable**: `RAG_EMBEDDING_MODEL=BAAI/bge-m3`
+**Environment variable**: `LASAGNA_EMBEDDING_MODEL=BAAI/bge-m3` (`RAG_EMBEDDING_MODEL` is also read; `LASAGNA_` wins when both are set)
 
 ### mxbai Reranker
 
-The SDK uses the **mixedbread-ai/mxbai-rerank-large-v1** cross-encoder reranker, which achieves **BEIR NDCG@10 = 57.49** -- among the best open-source rerankers available. It is loaded via `sentence-transformers.CrossEncoder` and runs on GPU (CUDA/MPS) when available.
+The default reranker is the **mixedbread-ai/mxbai-rerank-large-v1** cross-encoder (its authors report BEIR NDCG@10 = 57.49). It is loaded with `sentence_transformers.CrossEncoder` and runs on the GPU (CUDA or MPS) when one is available.
 
-The reranking pipeline applies cross-encoder scoring to refine initial retrieval results, significantly improving precision compared to embedding-only retrieval.
+The cross-encoder scores each query and candidate chunk together and reorders the candidates that first-stage retrieval returned.
 
 ```python
 from lasagna.sdk import KnowledgeConfig
 
 config = KnowledgeConfig(
     enable_reranking=True,                                    # Enable cross-encoder reranking
-    reranker_model="mixedbread-ai/mxbai-rerank-large-v1",   # BEIR NDCG@10 = 57.49
+    reranker_model="mixedbread-ai/mxbai-rerank-large-v1",   # the default
     rerank_top_k=5,                                           # Final results after reranking
     reranker_batch_size=16,                                   # Batch size for scoring
 )
 ```
 
-**Pipeline**: Dense retrieval (top_k=20) -> Cross-encoder reranking -> Adaptive-K selection -> MMR diversity -> Final results
+**Pipeline**: retrieval (`default_top_k`=20 candidates) -> cross-encoder reranking -> Adaptive-k selection -> MMR diversity -> final results
 
 **Configuration options:**
 
@@ -382,7 +386,7 @@ config = KnowledgeConfig(
 
 ### Contextual Retrieval
 
-Implements **Anthropic-style contextual retrieval** ([reference](https://www.anthropic.com/news/contextual-retrieval)). At index time, each chunk is enriched with LLM-generated context that describes how it fits within the broader document. This reduces retrieval failure rates by up to 67%.
+Implements **contextual retrieval** as Anthropic describes it ([reference](https://www.anthropic.com/news/contextual-retrieval)). At index time, an LLM writes a short note for each chunk on how it fits within the whole document.
 
 When enabled, the upload pipeline calls an LLM for each chunk to generate a short contextual preamble (e.g., "This chunk describes Q3 revenue figures from the 2024 annual report"). The preamble is prepended to the chunk before embedding.
 
@@ -394,17 +398,17 @@ config = KnowledgeConfig(
 
 **Trade-offs:**
 
-- Significantly improves retrieval recall and precision
+- Can improve recall and precision; measure it on your corpus
 - Increases indexing time and cost (one LLM call per chunk)
-- No impact on search latency (enrichment happens at upload time)
+- No effect on search latency (enrichment happens at upload time)
 
-**Environment variable**: `RAG_ENABLE_CONTEXTUAL_RETRIEVAL=true`
+**Environment variable**: `LASAGNA_ENABLE_CONTEXTUAL_RETRIEVAL=true` (or `RAG_ENABLE_CONTEXTUAL_RETRIEVAL`)
 
 ### RAG Fusion
 
-Implements **RAG Fusion** ([arXiv:2402.03367](https://arxiv.org/abs/2402.03367)): generates multiple query variations using an LLM and merges the results using **Reciprocal Rank Fusion (RRF)**. This improves comprehensiveness by 30-40% and accuracy by 8-10%.
+Implements **RAG Fusion** ([arXiv:2402.03367](https://arxiv.org/abs/2402.03367)): an LLM writes several variations of the query, each is searched, and the result lists are merged with **Reciprocal Rank Fusion (RRF)**.
 
-When enabled, the search pipeline generates N alternative phrasings of the query (each approaching the topic from a different angle), runs separate searches for each, and fuses the result lists using RRF scoring.
+When enabled, the search pipeline generates `rag_fusion_n_queries` alternative phrasings of the query, runs a search for each, and fuses the result lists with RRF. It is skipped for searches limited to specific documents.
 
 ```python
 config = KnowledgeConfig(
@@ -421,20 +425,20 @@ config = KnowledgeConfig(
 | `rag_fusion_n_queries` | int | 3 | Number of alternative queries |
 | `rrf_k` | int | 60 | RRF constant (higher = more weight to lower ranks) |
 
-**Environment variable**: `RAG_ENABLE_RAG_FUSION=true`
+**Environment variable**: `LASAGNA_ENABLE_RAG_FUSION=true` (or `RAG_ENABLE_RAG_FUSION`)
 
 ### Adaptive-K (Score-Gap Detection)
 
-Based on EMNLP 2025 research, **Adaptive-K** dynamically determines how many chunks to return instead of using a fixed number. This prevents both information loss (too few chunks) and hallucination from irrelevant context (too many chunks).
+**Adaptive-k** picks how many chunks to return for each query instead of using a fixed number (the method and its settings are described under [Adaptive Chunk Retrieval](#adaptive-chunk-retrieval)).
 
-**How it works**: After cross-encoder reranking, normalized relevance scores are sorted in descending order. The system identifies the largest relative gap in the score distribution. Chunks above the gap are "clearly relevant"; chunks below are not. A configurable buffer is added past the gap as a safety margin.
+**How it works**: after cross-encoder reranking, the normalized relevance scores are sorted in descending order and the largest relative gap is found. Chunks above the gap are kept, plus a configurable buffer past it.
 
-Adaptive-K is **enabled by default** in all presets.
+Adaptive-k is the `KnowledgeConfig` default and is on in every preset except `speed`, which returns a fixed number of chunks.
 
 ```python
 from lasagna.sdk import KnowledgeConfig, ChunkRetrievalStrategy
 
-# Adaptive (default) -- dynamically determines chunk count per query
+# Adaptive (default): chunk count chosen per query
 config = KnowledgeConfig(
     chunk_retrieval_strategy=ChunkRetrievalStrategy.ADAPTIVE,
     chunk_retrieval_max=20,      # Maximum chunks (ceiling)
@@ -443,13 +447,13 @@ config = KnowledgeConfig(
     min_gap_ratio=0.15,          # Minimum relative gap to trigger cutoff
 )
 
-# Fixed -- always return exactly N chunks (legacy behavior)
+# Fixed: always return the same number of chunks
 config = KnowledgeConfig(
     chunk_retrieval_strategy=ChunkRetrievalStrategy.FIXED,
     rerank_top_k=5,
 )
 
-# Above threshold -- return all chunks above a score threshold
+# Above threshold: return all chunks above a score threshold
 config = KnowledgeConfig(
     chunk_retrieval_strategy=ChunkRetrievalStrategy.ABOVE_THRESHOLD,
     chunk_retrieval_threshold=0.5,
@@ -461,7 +465,7 @@ config = KnowledgeConfig(
 
 Addresses the **"Lost in the Middle"** problem ([Liu et al., 2023](https://arxiv.org/abs/2307.03172)) where LLMs tend to ignore information placed in the middle of long contexts. When enabled, retrieved chunks are reordered so that the most relevant results appear at the **start and end** of the context window, with less relevant results in the middle.
 
-This is **enabled by default**.
+This is **on by default** (`enable_context_reordering=True`).
 
 ```python
 config = KnowledgeConfig(
@@ -469,7 +473,7 @@ config = KnowledgeConfig(
 )
 ```
 
-**Environment variable**: `RAG_ENABLE_CONTEXT_REORDERING=true`
+**Environment variable**: `LASAGNA_ENABLE_CONTEXT_REORDERING=true` (or `RAG_ENABLE_CONTEXT_REORDERING`)
 
 ### Corrective RAG (CRAG)
 
@@ -489,22 +493,22 @@ config = KnowledgeConfig(
 | `enable_crag` | bool | False | Enable Corrective RAG |
 | `crag_web_search_fallback` | bool | False | Fall back to web search if quality is low |
 
-**Environment variables**: `RAG_ENABLE_CRAG=true`, `RAG_CRAG_WEB_SEARCH_FALLBACK=true`
+**Environment variables**: `LASAGNA_ENABLE_CRAG=true`, `LASAGNA_CRAG_WEB_SEARCH_FALLBACK=true` (the `RAG_` names are also read). The web search fallback needs `pip install "lasagna-rag[web]"`.
 
 ### Feature Summary
 
-| Feature | Config Key | Default | Latency Impact |
-|---------|-----------|---------|----------------|
+| Feature | Config Key | Default | Extra Work |
+|---------|-----------|---------|------------|
 | BGE-M3 Embedding | `embedding_model` | `BAAI/bge-m3` | Baseline |
-| mxbai Reranker | `enable_reranking` | True | +50-100ms |
-| Contextual Retrieval | `enable_contextual_retrieval` | False | Index-time only |
-| RAG Fusion | `enable_rag_fusion` | False | +200-500ms (LLM call) |
-| Adaptive-K | `chunk_retrieval_strategy` | ADAPTIVE | Negligible |
-| Lost-in-the-Middle | `enable_context_reordering` | True | Negligible |
-| Corrective RAG | `enable_crag` | False | +300-800ms (LLM call) |
-| HyDE | `enable_hyde` | True | +200-500ms (LLM call) |
-| Hybrid Search (BM25) | `enable_hybrid_search` | True | +10-30ms |
-| MMR Diversity | `enable_mmr` | True | +20-50ms |
+| mxbai Reranker | `enable_reranking` | True | A cross-encoder pass over the candidates |
+| Contextual Retrieval | `enable_contextual_retrieval` | False | An LLM call per chunk, at index time only |
+| RAG Fusion | `enable_rag_fusion` | False | An LLM call plus one search per query variant |
+| Adaptive-k | `chunk_retrieval_strategy` | ADAPTIVE | Arithmetic on the reranked scores |
+| Lost-in-the-Middle | `enable_context_reordering` | True | Reordering only |
+| Corrective RAG | `enable_crag` | False | LLM grading of the retrieved chunks |
+| HyDE | `enable_hyde` | False | An LLM call per query |
+| Hybrid Search (BM25) | `enable_hybrid_search` | True | A BM25 search fused with the vector search |
+| MMR Diversity | `enable_mmr` | True | Similarity comparisons among the candidates |
 
 ---
 

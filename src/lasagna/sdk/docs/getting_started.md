@@ -53,7 +53,7 @@ asyncio.run(main())
 pip install lasagna-rag
 ```
 
-**Prerequisites:** Set one LLM API key in your environment. The SDK auto-detects from 15+ supported platforms:
+**Prerequisites:** Set one LLM API key in your environment. The SDK picks the provider from whichever key it finds (the platforms and their default models are in `providers/llm_provider.py`, `SUPPORTED_PLATFORMS`):
 
 ```bash
 # Any ONE of these is sufficient:
@@ -69,6 +69,8 @@ pip install "lasagna-rag[vector-backends]"  # Pinecone, Qdrant, Weaviate
 pip install "lasagna-rag[pgvector]"         # PostgreSQL pgvector
 pip install "lasagna-rag[opensearch]"       # OpenSearch
 ```
+
+Documents, the metadata database and the vector store are kept under `~/.lasagna`. Set `LASAGNA_DATA_DIR` (or `RAG_DATA_DIR`) to keep them elsewhere; see [where data lives](../../../../docs/configuration.md#where-data-lives).
 
 ---
 
@@ -115,11 +117,11 @@ pip install "lasagna-rag[opensearch]"       # OpenSearch
 
 ```python
 from lasagna.sdk import (
-    ChunkingStrategy,    # FIXED, SEMANTIC, RECURSIVE, SENTENCE_WINDOW
+    ChunkingStrategy,    # FIXED, SEMANTIC, RECURSIVE, SENTENCE_WINDOW, STRUCTURE_AWARE, HIERARCHICAL
     EmbeddingProvider,   # HUGGINGFACE, OPENAI
     VectorBackend,       # MILVUS, PINECONE, QDRANT, WEAVIATE, PGVECTOR, OPENSEARCH, MEMORY
     HyDEStrategy,        # OFF, FIRST_HOP, ADAPTIVE, ALWAYS
-    DocumentStatus,      # PENDING, PROCESSING, INDEXING, READY, FAILED
+    DocumentStatus,      # PENDING, PROCESSING, INDEXING, READY, FAILED, SOFT_DELETED
 )
 ```
 

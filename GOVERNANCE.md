@@ -6,8 +6,8 @@ than saying so.
 ## Who decides
 
 Lasagna is currently maintained by a single maintainer, who has final say on
-what merges. That is not a permanent structure — it is a description of where
-the project is. If a second person is reviewing regularly and their judgement
+what merges. That is not a permanent structure; it is a description of where
+the project is. If a second person is reviewing regularly and their judgment
 is good, they get commit rights, and this file changes.
 
 Deciding "what merges" does not mean deciding what is true. Anything that
@@ -26,7 +26,7 @@ This has already happened several times to code the maintainer wrote, and the
 ## Result disputes
 
 Open a [result dispute](.github/ISSUE_TEMPLATE/result_dispute.yml). Almost all
-of them resolve without a judgement call: run
+of them resolve without a judgment call: run
 
 ```bash
 lasagna results compare theirs.json yours.json
@@ -43,7 +43,7 @@ removes numbers it no longer likes is not a record of anything.
 ## Breaking changes
 
 Pre-1.0, breaking changes ship when they make the library more correct, with the
-reasoning in the [CHANGELOG](CHANGELOG.md). Two things get a deprecation period
+reasoning in the [CHANGELOG](CHANGELOG.md). Three things get a deprecation period
 rather than a straight break, because they invalidate other people's work:
 
 - **Component ABCs**, which would break installed third-party plugins.

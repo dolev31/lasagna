@@ -1,4 +1,4 @@
-# Lasagna — UI Components Reference
+# Lasagna UI Components Reference
 
 Copy-paste-ready TypeScript types, API client, React hooks, and components for building frontends on top of Lasagna. Every example is self-contained and written for standalone use.
 
@@ -14,11 +14,11 @@ Copy-paste-ready TypeScript types, API client, React hooks, and components for b
   - [1.3 Citation Parser](#13-citation-parser)
   - [1.4 Chat History Persistence](#14-chat-history-persistence)
 - [Part 2: React Hooks](#part-2-react-hooks)
-  - [2.1 useKnowledge — Documents & Upload](#21-useknowledge)
-  - [2.2 useCitations — Citation State](#22-usecitations)
-  - [2.3 useDocumentPicker — "/" Command](#23-usedocumentpicker)
-  - [2.4 useRAGConfig — Config & Profiles](#24-useragconfig)
-  - [2.5 useChatHistory — Per-Message Persistence](#25-usechathistory)
+  - [2.1 useKnowledge: Documents & Upload](#21-useknowledge)
+  - [2.2 useCitations: Citation State](#22-usecitations)
+  - [2.3 useDocumentPicker: "/" Command](#23-usedocumentpicker)
+  - [2.4 useRAGConfig: Config & Profiles](#24-useragconfig)
+  - [2.5 useChatHistory: Per-Message Persistence](#25-usechathistory)
 - [Part 3: React Components](#part-3-react-components)
   - [3.1 DocumentUploadPanel](#31-documentuploadpanel)
   - [3.2 SearchResults](#32-searchresults)
@@ -444,7 +444,7 @@ const prompt = `Based on this context:\n${llmContext}\n\nAnswer: What were the k
 
 ### 1.3 Citation Parser
 
-Parse `[1]`, `[2]` markers from LLM responses. Groups consecutive citations like `[1][2]` into `[1,2]`. Framework-agnostic — works with any rendering library.
+Parse `[1]`, `[2]` markers from LLM responses. Groups consecutive citations like `[1][2]` into `[1,2]`. It is framework-agnostic and works with any rendering library.
 
 ```typescript
 // utils/parseCitations.ts
@@ -551,7 +551,7 @@ export function validateCitationRange(
 
 ### 1.4 Chat History Persistence
 
-Persist each message (answer HTML + citations + chunks) to `sessionStorage` so citations survive page refreshes. Each message owns its own citation set — essential for multi-turn conversations.
+Persist each message (answer HTML + citations + chunks) to `sessionStorage` so citations survive page refreshes. Each message owns its own citation set, which multi-turn conversations need.
 
 > **Scope:** `sessionStorage` clears when the browser tab closes. The `sessionId` itself lives in `localStorage` (persistent), so the same session ID comes back on reopen but the chat history is empty. To survive browser restarts, swap every `sessionStorage` call below for `localStorage`.
 
@@ -613,22 +613,22 @@ import { marked } from "marked";
 import { saveMessage, getMessages, clearMessages } from "./utils/chatHistory";
 
 // After a completed LLM turn (convert markdown once, reuse for display and persistence):
-// marked.parse() is the explicit synchronous API — avoids the string|Promise<string> ambiguity of marked()
+// marked.parse() is the explicit synchronous API; it avoids the string|Promise<string> ambiguity of marked()
 const answerHtml = marked.parse(llmMarkdownReply) as string;
 saveMessage(sessionId, {
   id: `msg_${Date.now()}`,
   userQuery: "What were the key findings?",
   answerHtml,
   citations: result.citations,
-  // result.results[i].chunk — SearchWithCitationsResponse has no top-level chunks field
+  // result.results[i].chunk: SearchWithCitationsResponse has no top-level chunks field
   chunks: result.results.map((r) => r.chunk),
   timestamp: Date.now(),
 });
 
-// On page mount — restore previous conversation:
+// On page mount, restore the previous conversation:
 const previous = getMessages(sessionId);
 
-// On restart — wipe the slate:
+// On restart, wipe the slate:
 clearMessages(sessionId);
 ```
 
@@ -958,7 +958,7 @@ export function useRAGConfig(api: KnowledgeAPI) {
 
 ### 2.5 useChatHistory
 
-Wraps the `chatHistory` storage utility in a React hook. Loads history on mount and exposes a `persist` method. **Call `marked()` once in the caller** and pass the resulting HTML — this avoids a second render pass and keeps the markdown→HTML conversion in one explicit place.
+Wraps the `chatHistory` storage utility in a React hook. Loads history on mount and exposes a `persist` method. **Call `marked()` once in the caller** and pass the resulting HTML. This avoids a second render pass and keeps the markdown→HTML conversion in one explicit place.
 
 ```tsx
 // hooks/useChatHistory.ts
@@ -974,7 +974,7 @@ export function useChatHistory(sessionId: string) {
 
   /**
    * Call after each completed LLM turn.
-   * Accepts pre-rendered HTML (not raw markdown) — call marked() once in the
+   * Accepts pre-rendered HTML (not raw markdown): call marked() once in the
    * caller, then pass the result here and to the display component. This avoids
    * a second lexer+renderer pass for the same string.
    */
@@ -1035,7 +1035,7 @@ setMessages([]);
 
 ## Part 3: React Components
 
-All components use **inline styles** — no external CSS required. Replace styles with your design system as needed.
+All components use **inline styles**, so no external CSS is required. Replace styles with your design system as needed.
 
 ### 3.1 DocumentUploadPanel
 
@@ -1430,7 +1430,7 @@ export function CitationBadge({ indices, citations, query }: Props) {
 
 Renders LLM response text with inline citation badges. Two variants depending on what your LLM returns.
 
-> **Plain text vs HTML:** If your LLM returns plain text, use the plain-text variant below — text is rendered safely with `{seg.content}`. If your LLM returns markdown-formatted responses, **convert to HTML with `marked()` first**, then use the HTML variant which renders via `dangerouslySetInnerHTML`. The HTML variant is required when using `useChatHistory.persist()` since it stores HTML, not raw markdown.
+> **Plain text vs HTML:** If your LLM returns plain text, use the plain-text variant below, which renders text safely with `{seg.content}`. If your LLM returns markdown-formatted responses, **convert to HTML with `marked()` first**, then use the HTML variant which renders via `dangerouslySetInnerHTML`. The HTML variant is required when using `useChatHistory.persist()` since it stores HTML, not raw markdown.
 >
 > **Citation numbering contract:** The parser maps `[N]` in the LLM text to `citations[N-1]` (0-based). The backend returns `citations` sorted by **relevance score**, not by mention order. For inline badges to point at the right source, your LLM prompt must instruct the model to number citations in the order they appear in the `citations` array (e.g., "cite sources as [1], [2], ... in the order provided"). If your LLM renumbers freely, the badges will open the wrong source.
 
@@ -1470,7 +1470,7 @@ export function MessageWithCitations({ text, citations, query }: Props) {
             />
           );
         }
-        // Invalid citation — render as plain text
+        // Invalid citation: render as plain text
         return <span key={i} style={{ color: "#9ca3af" }}>{seg.content}</span>;
       })}
     </div>
@@ -1481,7 +1481,7 @@ export function MessageWithCitations({ text, citations, query }: Props) {
 **HTML variant** (LLM returns markdown, or message was restored from `useChatHistory`):
 
 ```tsx
-// Pass marked(llmReply) as `text` — citation markers survive the markdown→HTML conversion.
+// Pass marked(llmReply) as `text`; citation markers survive the markdown→HTML conversion.
 // Text segments are injected via dangerouslySetInnerHTML to preserve formatting.
 
 export function MessageWithCitationsHtml({ text, citations, query }: Props) {
@@ -1887,7 +1887,7 @@ export function RAGConfigPanel({ config, onPatch }: Props) {
 Wire everything together into a complete RAG chat UI with per-message citation persistence that survives page refreshes.
 
 ```tsx
-// App.tsx — Complete RAG Chat Application (with persistence)
+// App.tsx: Complete RAG Chat Application (with persistence)
 
 import React, { useState, useRef } from "react";
 import { marked } from "marked";
@@ -1957,7 +1957,7 @@ export default function RAGChat() {
 
   const handleSend = async () => {
     if (!input.trim()) return;
-    // Capture query synchronously — avoids stale closure in the async callback below
+    // Capture query synchronously to avoid a stale closure in the async callback below
     const query = input;
     setInput("");
 
@@ -1974,10 +1974,10 @@ export default function RAGChat() {
       // Replace with your actual LLM call; inject result.context into the prompt
       const assistantMarkdown = `Based on the documents:\n\n${result.context}`;
 
-      // Extract chunks once — used for both immediate render and persistence below
+      // Extract chunks once, for both the immediate render and persistence below
       const chunks = result.results.map((r) => r.chunk);
       // Convert markdown → HTML once; reuse for both display and persistence.
-      // marked.parse() is the explicit synchronous form — marked() returns string|Promise<string>.
+      // marked.parse() is the explicit synchronous form; marked() returns string|Promise<string>.
       const assistantHtml = marked.parse(assistantMarkdown) as string;
 
       setMessages((prev) => [
@@ -1991,7 +1991,7 @@ export default function RAGChat() {
         },
       ]);
 
-      // Persist — pass HTML (already converted above), not raw markdown
+      // Persist: pass HTML (already converted above), not raw markdown
       chatHistory.persist(query, assistantHtml, result.citations, chunks);
     } catch {
       setMessages((prev) => [
@@ -2069,7 +2069,7 @@ export default function RAGChat() {
                   {msg.isRestored && (
                     <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>↺ Restored from previous session</div>
                   )}
-                  {/* Both live and restored messages store HTML — use the HTML variant */}
+                  {/* Both live and restored messages store HTML, so use the HTML variant */}
                   <MessageWithCitationsHtml
                     text={msg.content}
                     citations={msg.citations ?? []}
@@ -2145,7 +2145,7 @@ This gives you a complete RAG chat UI with:
 - Document upload panel with drag-and-drop
 - Profile switcher (speed / standard / balanced / max_quality)
 - Chat with inline citation badges and hover previews
-- Per-message citations — each message owns its own `citations` + `chunks` array
+- Per-message citations: each message owns its own `citations` + `chunks` array
 - Page-refresh persistence via `useChatHistory` (sessionStorage)
 - "/" command for document-focused search
 - Sources sidebar showing the most-recent query's sources

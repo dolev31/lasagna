@@ -6,7 +6,7 @@ from your documents (see [Synthetic questions](#synthetic-questions-from-your-do
 
 ```bash
 lasagna benchmark validate-data my_data.jsonl              # check it, see what it supports
-lasagna benchmark run my_data.jsonl --profile speed --tracks retrieval
+lasagna benchmark run my_data.jsonl --profile speed            # retrieval, keyless
 ```
 
 In a sweep, name the file with `path:` instead of `name:`. A relative path is
@@ -133,8 +133,10 @@ and why.
 calls) and a token estimate, calls no LLM and writes nothing. Without
 `--dry-run` an LLM is needed: set an API key variable such as `OPENAI_API_KEY` or
 `ANTHROPIC_API_KEY` (without one, the error lists every variable read), and
-`MODEL_NAME` or `--model` to choose the model. Calls are made at temperature 0. The same folder, seed and model give the same plan and the same
-prompts.
+`MODEL_NAME` or `--model` to choose the model. Calls ask for temperature 0
+(a model that takes no temperature is sent none; see
+[Configuration](configuration.md#temperature-and-repeatable-runs)). The same
+folder, seed and model give the same plan and the same prompts.
 
 The output is the JSONL format above. Each row records how it was made:
 

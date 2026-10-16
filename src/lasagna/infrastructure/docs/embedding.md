@@ -1,4 +1,4 @@
-# Embedding Manager -- Deep Dive
+# Embedding Manager: Deep Dive
 
 ## Overview
 
@@ -43,7 +43,7 @@ embedding_backend = "auto" (default)
 | Nomic | `search_query: ` | `search_document: ` |
 | anything else (MiniLM, GTE, ...) | none | none |
 
-BGE-M3 used to get the BGE v1.5 instruction on the sentence-transformers backend; it no longer does, which changes its query vectors there. FlagEmbedding never applied a prefix.
+BGE-M3 gets no query instruction on either backend: the table maps it to none, and FlagEmbedding applies no prefix.
 
 ### Late Chunking
 
@@ -58,7 +58,7 @@ use_gpu = true?
 ├── No → CPU
 └── Yes
     ├── torch.cuda.is_available()? → CUDA (fp16 enabled for FlagEmbedding)
-    ├── torch.backends.mps.is_available()? → MPS (fp16 disabled — MPS limitation)
+    ├── torch.backends.mps.is_available()? → MPS (fp16 disabled: MPS limitation)
     └── Neither → CPU (warning logged)
 ```
 
@@ -161,7 +161,7 @@ Registered in `core/registry.py` as the default `"embedder"` component.
 
 ## Config-Drift Reload
 
-The singleton detects config changes via a 9-field signature tuple:
+The singleton detects config changes via a 10-field signature tuple (`_config_signature` in `embedding/manager.py`):
 
 ```python
 signature = (
@@ -174,11 +174,12 @@ signature = (
     config.enable_embedding_cache,
     config.embedding_cache_size,
     config.embedding_backend,
+    getattr(config, "embedding_truncate_dim", None),
 )
 ```
 
 On mismatch, a new `EmbeddingManager` is created under `_embedding_lock` (double-checked). The old manager is NOT explicitly destroyed to avoid breaking in-flight requests. Best-effort `torch.cuda.empty_cache()` is called after the swap.
 
-**Thread safety**: `get_embedding_manager()` captures a local snapshot of the global reference before any checks. All return paths use either the local snapshot or a value read under `_embedding_lock` — never the bare global — so a concurrent `reset_embedding_manager()` cannot cause the function to return `None`.
+**Thread safety**: `get_embedding_manager()` captures a local snapshot of the global reference before any checks. All return paths use either the local snapshot or a value read under `_embedding_lock`, never the bare global, so a concurrent `reset_embedding_manager()` cannot cause the function to return `None`.
 
 **GPU memory implication**: Until all references to the old manager are dropped, both old and new models coexist in GPU memory. For BGE-M3 (~1.5 GB), this means a brief spike to ~3 GB during reload. In practice, config drift is rare (typically only during development or profile switching).

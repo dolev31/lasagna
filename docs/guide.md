@@ -5,8 +5,8 @@ component actually helps.**
 
 Every Python block below is executed by the release gate on each run
 (`e2e/phases/p3_docs.py`). If one stops working, the build fails. Blocks that
-cannot run hermetically — anything needing a model download or a populated
-store — are marked and say why.
+cannot run hermetically (anything needing a model download or a populated
+store) are marked and say why.
 
 **Contents**
 
@@ -18,20 +18,21 @@ store — are marked and say why.
 6. [Compare it against a baseline](#6-compare-it-against-a-baseline)
 7. [Swap it into a pipeline](#7-swap-it-into-a-pipeline)
 8. [Measure it on a benchmark](#8-measure-it-on-a-benchmark)
-9. [Where to go next](#9-where-to-go-next)
+9. [Read and publish the result](#9-read-and-publish-the-result)
+10. [Where to go next](#10-where-to-go-next)
 
 ---
 
 ## 1. The question this answers
 
-You have an idea for a reranker — or a chunker, or a query rewriter. The
+You have an idea for a reranker, or a chunker, or a query rewriter. The
 literature says the technique gives +4 NDCG. You want to know whether it helps
 *your* corpus, and you want a number you would be willing to publish.
 
-Doing that honestly is harder than it sounds, because the usual approach —
-fork a RAG pipeline, patch your component in, run it — changes more than one
-thing at once. Different chunking, a different embedding model, a different
-top-k, and the +4 you measured belongs to something other than your idea.
+Doing that honestly is harder than it sounds, because the usual approach (fork
+a RAG pipeline, patch your component in, run it) changes more than one thing at
+once. Different chunking, a different embedding model, a different top-k, and
+the +4 you measured belongs to something other than your idea.
 
 Lasagna's answer is that the eight stages are isolated behind typed contracts.
 You swap exactly one and everything else stays fixed, so a difference in the
@@ -45,27 +46,108 @@ The rest of this guide walks that workflow end to end.
 ## 2. Install
 
 ```bash
-pip install lasagna-rag
+pip install lasagna-rag                    # core: ingest, embed, search, serve
+python -m nltk.downloader punkt_tab        # once: nltk's sentence tokenizer data
 ```
+
+Lasagna never downloads the tokenizer data by itself. Without it, sentences are
+split with a regular expression, which can move chunk boundaries, and run
+bundles record that as the `sentence_split_without_punkt` fallback.
 
 **First run downloads models.** The default profile pulls an embedding model
 *and* a reranker: about **4.5 GB**, and between 7 and 40 minutes to your first
 search result depending on your connection, as measured on every release-gate
 run to date. After that, a warm search on the speed profile takes tens of
 milliseconds (median 32 ms over 18,442 chunks on Milvus Lite). The default
-profile takes 7–9 s on two CPU threads, because its large reranker scores every
-query; more cores or a GPU cut that.
+profile takes 7 to 9 s on two CPU threads, because its large reranker scores
+every query; more cores or a GPU cut that.
 
-To try it faster, start on the `speed` profile: pure vector search on an 80 MB
-model, no reranker.
+To try it faster, start on the `speed` profile: dense vector search on a
+91 MB model, no reranker and no API key.
 
 ```bash
 lasagna configure --profile speed
 ```
 
-Nothing in sections 3 to 7 needs a model or a network — components are plain
+[Configuration](configuration.md#profiles) lists the five profiles and what
+each one downloads, and explains which settings win when a profile, the
+settings file and the environment disagree.
+
+Nothing in sections 3 to 7 needs a model or a network: components are plain
 Python objects, and you can exercise them directly. Only section 8 needs a
 corpus.
+
+### Extras
+
+| Extra | Adds |
+|---|---|
+| `eval` | RAGAS metrics, benchmark loaders, statistics, plots |
+| `ingest` | EasyOCR for scanned documents |
+| `docling` | structure-aware document conversion (the `docling` processor) |
+| `markitdown` | Microsoft MarkItDown: PDF, Office and HTML to Markdown (the `markitdown` processor) |
+| `pymupdf4llm` | PDF to Markdown (the `pymupdf4llm` processor); AGPL-3.0 |
+| `vector-backends` | Pinecone, Qdrant, Weaviate clients |
+| `opensearch` / `pgvector` | those backends |
+| `flag-embedding` | BGE-M3 dense+sparse+ColBERT |
+| `graphrag` | entity-linked retrieval |
+| `llamaindex` | wrapping LlamaIndex components as stages |
+| `storage-all` | S3, GCS, Azure document storage |
+| `local` | local LLM inference (HF, Ollama) |
+| `providers` | LLM providers beyond OpenAI: Anthropic, Google, Mistral, Cohere, NVIDIA |
+| `ocr` | Tesseract and PaddleOCR engines (Tesseract also needs the `tesseract` program) |
+| `web` | web search fallback for corrective RAG |
+| `lifecycle` | scheduled document expiry and cleanup |
+| `production` | Redis, Celery, Prometheus, OpenTelemetry and PostgreSQL: what `settings.lasagna_production.toml` turns on |
+| `all` | everything above except `markitdown`, `pymupdf4llm` and `llamaindex` |
+
+A few components need a package or an API key of their own: the `flashrank`
+reranker (`pip install flashrank`), the `cohere` reranker and embedder
+(`pip install cohere`, `COHERE_API_KEY`), the `voyage` embedder
+(`pip install voyageai`, `VOYAGE_API_KEY`) and the `openai` embedder
+(`OPENAI_API_KEY`). Each raises naming what is missing.
+
+**`pip` cannot resolve `eval` together with `storage-all`**, and so cannot
+resolve `all` either. The requirement set is satisfiable; pip's resolver just
+fails to find the solution. Use `uv`, or hand pip the versions it misses:
+
+```bash
+uv pip install "lasagna-rag[all]"
+pip install "lasagna-rag[eval,storage-all]" s3fs==2026.6.0 fsspec==2026.6.0
+```
+
+`eval` and `storage-all` each resolve fine on their own; only the combination
+defeats pip.
+
+### Platform notes
+
+On Linux x86_64, `pip` installs the CUDA build of torch, about 3.2 GB of
+downloads. For CPU only, install torch from the PyTorch CPU index first:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install lasagna-rag
+```
+
+On Apple Silicon, model calls on the GPU (MPS) run one at a time, because two at
+once crash Metal; concurrent sweep arms wait for each other there. To run
+everything on the CPU instead, set `RAG_USE_GPU=false`.
+
+**Name collision.** `pip install lasagna` installs a different project
+(`lasagna-ai`, an LLM-agent framework), which also provides a top-level
+`lasagna` import package. Installing both in one environment makes them
+overwrite each other. This package is `lasagna-rag`.
+
+`import lasagna` loads no torch, transformers, sentence-transformers or
+pymilvus; those arrive only when something needs them, so a remote-backend
+client stays light.
+
+**No usage telemetry.** Lasagna collects none. ragas, the library behind the
+generation metrics, sends its authors a usage event (its version, the LLM
+provider and model name, and a random id) each time a judge is built. Importing
+`lasagna` turns that off by setting `RAGAS_DO_NOT_TRACK=true`, unless you have
+already set it. To send ragas those events, set `RAGAS_DO_NOT_TRACK=false`
+before importing `lasagna`. ragas still writes its random id to a file in your
+user data folder, but with tracking off it sends nothing.
 
 ---
 
@@ -79,8 +161,11 @@ for stage, names in sorted(registry.list_all().items()):
     print(f"{stage}: {len(names)} registered -> {', '.join(sorted(names)[:3])}")
 ```
 
+From the shell, `lasagna component list` (or `lasagna component list reranker`)
+prints the same, with each component's description and paper.
+
 Each stage has a typed abstract base class. Implementing it is the whole
-contract — there is no plugin manifest and no registration ceremony beyond one
+contract: there is no plugin manifest and no registration ceremony beyond one
 decorator.
 
 | Stage | Base class | Swap it to change |
@@ -138,6 +223,12 @@ this design exists to prevent.
 
 **Return at most `top_k`.** The caller decides how many results it wants.
 
+A function is enough for most techniques: `@lasagna.reranker("name")` on
+`f(query, text) -> score` wraps it in this interface, and the other stages have
+decorators of their own. The [README](../README.md#compare-a-component) shows
+one, and [Contributing components](contributing-components.md) lists every
+stage's function signature.
+
 ---
 
 ## 5. Register it, and see it listed
@@ -173,8 +264,8 @@ print("claims:", entry["claims"])
 ```
 
 `implements_contract` is the field to look at. It is `True` when the class
-genuinely satisfies the abstract base class — not merely that it was
-registered. A component that registers but does not conform is listed with
+satisfies the abstract base class, not merely when it was registered. A
+component that registers but does not conform is listed with
 `implements_contract: False`, which is how you find out before your results
 depend on it.
 
@@ -219,7 +310,7 @@ Three things to know:
 ## 6. Compare it against a baseline
 
 This is the part that makes a number defensible. Run the same input through two
-components and compare the outputs — nothing else varies, so any difference is
+components and compare the outputs. Nothing else varies, so any difference is
 the component.
 
 ```python
@@ -267,8 +358,8 @@ assert [d.score for d in candidates] == [0.9, 0.5, 0.7]
 print("inputs intact:  True")
 ```
 
-Always run the control. `changed: False` has two very different causes — your
-component agreed with retrieval order, or it never ran — and only the control
+Always run the control. `changed: False` has two very different causes (your
+component agreed with retrieval order, or it never ran), and only the control
 tells them apart.
 
 ### Picking a baseline that means something
@@ -313,7 +404,7 @@ print("after: ", type(pipeline.get_component("reranker")).__name__)
 ```
 
 Check `get_component()` after replacing, as above. It confirms the swap reached
-execution rather than only updating a name — a pipeline that kept serving a
+execution rather than only updating a name: a pipeline that kept serving a
 cached instance would leave you measuring the old component while believing you
 had changed it.
 
@@ -327,15 +418,21 @@ Sections 4 to 7 prove your component behaves. This section is about whether it
 ### Check the setup first
 
 ```bash
-lasagna benchmark run smoke --profile speed --tracks retrieval
+lasagna benchmark run smoke --profile speed
 ```
 
-`smoke` is 24 documents and 12 queries held inside the package — no dataset
-download and no API key; on `speed` the only model is an 80 MB embedder. It runs
-the real retrieval pipeline end to end, so a green run means the stack is wired
-up. Drop `--tracks retrieval` once an LLM and the `[eval]` extra are set up, to
-check answer generation too. It is deliberately easy, so the scores mean "this works", never "this
-is good".
+`smoke` is 24 documents and 12 queries held inside the package: no dataset
+download and no API key, and on `speed` the only model is a 91 MB embedder. It
+runs the real retrieval pipeline end to end, so a green run means the stack is
+wired up. `lasagna benchmark run` measures retrieval unless asked for more; add
+`--tracks retrieval,generation` once an LLM key and the `[eval]` extra are set
+up, to check answer generation too. It is deliberately easy, so the scores mean
+"this works", never "this is good".
+
+`lasagna benchmark list` names every benchmark and `lasagna benchmark info`
+describes one. To run on your own questions, see
+[Your own data](own-data.md): a JSONL or CSV file, or a BEIR folder, runs with
+no adapter to write.
 
 ### Then the real thing
 
@@ -346,24 +443,28 @@ from lasagna.knowledge_evaluation_sdk.experiment import BenchmarkSpec, PipelineS
 config = ExperimentConfig(
     name="does my reranker help",
     benchmarks=[BenchmarkSpec(name="beir/scifact", n_samples=200)],
-    # Sweep across rerankers with everything else fixed. The comparison is
-    # only meaningful because the other seven stages do not move.
-    pipeline=PipelineSweepSpec(rerankers=["cross_encoder", "length_demo"]),
+    tracks=["retrieval"],  # NDCG, recall and the rest; no LLM, no judge
+    pipeline=PipelineSweepSpec(
+        base_profile="speed",  # a 91 MB embedder and no API key
+        # Sweep across rerankers with everything else fixed. The comparison is
+        # only meaningful because the other seven stages do not move.
+        rerankers=["cross_encoder", "length_demo"],
+    ),
     # `mode` defaults to "auto": live when the benchmark ships a corpus, so
     # retrieval is actually measured. Say mode="generation_only" only when you
     # want answer quality scored against gold context, with no retrieval.
-    n_runs=3,
+    n_runs=1,  # retrieval with fixed models gives the same lists every run
 )
 print(config.mode, "->", len(config.benchmarks), "benchmark(s)")
 ```
 
-As written, this is not the small path. It runs the `standard` profile on both
-tracks, so it needs an LLM API key (to write answers and to judge them), the
-`[eval]` extra, and `BAAI/bge-m3` plus a large reranker (about 4.5 GB on first
-use). For a keyless run on small models, pass `tracks=["retrieval"]` to
-`ExperimentConfig` and `base_profile="speed"` to `PipelineSweepSpec`. Run it,
-and look at the failed tasks before the scores: a task that failed is listed
-there, not in the table.
+This one is keyless: `speed` embeds with a 91 MB model and the cross-encoder
+control is 91 MB. The same file in YAML runs with
+`lasagna benchmark experiment sweep.yaml`, which is what the
+[README](../README.md#compare-a-component) and
+[Contributing components](contributing-components.md#4-check-it-helps) show.
+Run it, and look at the failed tasks before the scores: a task that failed is
+listed there, not in the table.
 
 ```python
 import asyncio
@@ -375,11 +476,11 @@ print(results.to_markdown("ndcg@10"))
 ```
 
 **A component override is only measured in live mode.** `generation_only` never
-constructs the pipeline, so passing `reranker=` there is now a hard error rather
+constructs the pipeline, so passing `reranker=` there is a hard error rather
 than a plausible number scored from gold context. `auto` picks the right mode
 and logs which it chose and why.
 
-**Benchmarks with no corpus can still measure retrieval — against a pooled
+**Benchmarks with no corpus can still measure retrieval, against a pooled
 corpus, which is easier.** SQuAD v2, HotpotQA, MuSiQue and RAGBench ship each
 question's supporting passages inline and no corpus to search. `auto` assembles
 one by pooling those passages across every sample in the run, so each query has
@@ -387,17 +488,27 @@ to find its own among all the others'. This is a real retrieval task, but a
 gentler one: HotpotQA and MuSiQue drop their distractor paragraphs at
 conversion, so the pool holds no hard negatives and recall reads higher than it
 would against a corpus of the same size. Runs are stamped
-`corpus_provenance: pooled_gold`, which is part of the comparability key — a
+`corpus_provenance: pooled_gold`, which is part of the comparability key, so a
 pooled number can never share a leaderboard row with a BEIR one. For the same
 questions against a real corpus, use `beir/hotpotqa`.
 
 Natural Questions and TriviaQA carry no context at all and stay
 `generation_only`. There is nothing to pool.
 
-`n_runs=3` is not decoration. Retrieval metrics move between runs; a single run
-tells you nothing about whether a gap is real. The evaluation SDK carries
-per-sample scores through so significance testing is possible — and pairs them
-by sample identity, so the comparison is between the same queries on both sides.
+### How many runs
+
+Retrieval with fixed models is deterministic: the same queries return the same
+ranked lists on every run. Significance tests pair arms query by query, so the
+spread they need comes from the queries, and `n_runs: 1` gives the same answer
+as three runs, three times faster. A sweep that repeats identical runs says so
+when it ends.
+
+Repeat runs when an LLM stage is in the loop. An answer generator, an LLM
+reranker, HyDE or an agentic pipeline samples, and a model that takes no
+temperature (see [Configuration](configuration.md#temperature-and-repeatable-runs))
+varies from run to run whatever you ask for. There, `n_runs: 3` or more
+measures that spread, and `variance_source: run` keeps the queries fixed so the
+spread is run to run rather than a resampled subset.
 
 ### Sweep the other stages
 
@@ -420,10 +531,10 @@ pipeline:
     - {name: dense, retriever: dense}           # the control
     - {name: bm25, retriever: bm25}
     - {name: hybrid_rrf, retriever: hybrid_rrf}
-n_runs: 3
+n_runs: 1
 ```
 
-This one is keyless: BM25 needs no model, and `speed` embeds with the 80 MB one.
+This one is keyless: BM25 needs no model, and `speed` embeds with the 91 MB one.
 
 **A generator.** List the answer strategies under `generators:`. Every arm
 retrieves the same way, so a difference comes from how the answer was written.
@@ -439,7 +550,7 @@ tracks: [generation]
 pipeline:
   base_profile: speed
   generators: [concise, cited, chain_of_note]
-n_runs: 3
+n_runs: 3          # repeat runs when an LLM stage is in the loop
 ```
 
 This one needs an LLM API key and the `[eval]` extra. `cited` answers carry
@@ -456,6 +567,116 @@ each hop it makes searches with the arm's components. Document processors do not
 sweep: benchmark corpora are loaded as text, so check a processor on your own
 files.
 
+### The baselines a reviewer asks for
+
+"Does retrieval help at all?" and "would a long context window do as well?" are
+answered by arms, not by a separate tool:
+
+```yaml
+# baselines.yaml
+name: is retrieval worth it
+benchmarks:
+  - name: hotpotqa
+    n_samples: 100
+tracks: [generation]
+pipeline:
+  base_profile: speed
+  config_overrides:
+    - {name: rag}                                # the pipeline as configured
+    - {name: no_retrieval, no_rag: true}         # answers from the question alone
+    - {name: long_context, generator: long_context}
+n_runs: 3
+```
+
+- `no_rag: true` retrieves nothing: the arm's retrieval track is skipped and it
+  answers with the `closed_book` generator. It is scored on generation only, so
+  a sweep with `tracks: [retrieval]` refuses it before anything runs.
+- `closed_book` is that generator on its own, if you name it under
+  `generators:`.
+- `long_context` reads all ten retrieved passages, in rank order, where the
+  default reads five, and the judge sees the same ten.
+
+An arm whose generator reads no passages is not scored on faithfulness or the
+context metrics, which would be meaningless with no context; the report and the
+leaderboard say so and point at exact match, token F1 and factual correctness
+instead. The isolation check files a `no_rag` arm under the retriever stage.
+
+### Before a long run: `--dry-run`
+
+```bash
+lasagna benchmark experiment sweep.yaml --dry-run              # with a 3-sample probe
+lasagna benchmark experiment sweep.yaml --dry-run --no-probe   # nothing runs at all
+```
+
+A dry run prints the arms, the tasks, the models the run loads and whether each
+is already downloaded, and a token estimate. Unless `--no-probe` is given it
+runs three samples per benchmark and extrapolates tokens and time to the whole
+sweep. Every number is labeled an estimate, and nothing is written under the
+results folder. For the plugin template's sweep it printed:
+
+```text
+Arms (2): reranker=cross_encoder, reranker=template_length
+Tasks (2): 1 benchmark x 2 arms x 1 run
+  smoke  split=test  12 samples
+Models:
+  embedder           all-MiniLM-L6-v2  downloaded
+  reranker           cross-encoder/ms-marco-MiniLM-L-6-v2  downloaded
+  reranker           component template_length
+Tokens: no generation track, so no answer is generated or judged; an arm still calls an LLM if its pipeline does (HyDE, an agentic pipeline, an LLM reranker).
+Probe of smoke (estimate): arm 'reranker=cross_encoder' on 3 samples took 2.8 s including setup (loading models, ingesting), 0.12 s per query, 0 LLM calls
+  Extrapolated to 24 queries (estimate, every arm assumed to spend what this one did): about 3 s of query time plus setup, 0 system tokens and 0 judge tokens
+```
+
+**Dollars only if you ask.** A run records tokens, which are observed. Add
+`prices:` to the sweep file for an estimate in dollars:
+
+```yaml
+prices: builtin          # the dated table in the package (builtin-2026-10)
+# or your own rates, in USD per million tokens, which win over the table:
+# prices: {gpt-6-luna: {input_per_1m: 0.10, output_per_1m: 0.50}}
+```
+
+Each task whose tokens all have a rate gets `cost_usd_estimate`, and the run
+metadata records the table and the rates used. A rate that holds only for
+shorter prompts gives no estimate for a task whose calls average longer. With
+no `prices:`, a run reports tokens only.
+
+### Re-running a sweep replays LLM calls
+
+Inside `lasagna benchmark experiment`, a request asked at temperature 0 that an
+earlier run made with the same seed is answered from
+`~/.lasagna/cache/llm.sqlite`. A second run of the same sweep, after a crash or
+with one arm added, then spends no tokens on what it already asked. Token
+counts read as in the cold run; `llm_cache_hits` and `llm_cache_misses` on each
+task and a hit rate in `results.json` and the bundle say what was replayed.
+
+What is never replayed:
+
+- **Sampled calls.** A response at temperature 0.7 is one draw; replaying it
+  would make repeated runs identical and hide the spread `n_runs` is meant to
+  measure.
+- **The RAGAS judge**, which asks for temperature 0.01, unless you set
+  `llm_cache: {deterministic_only: false}`.
+- **Models that take no temperature.** The cache replays a call only when
+  temperature 0 was actually sent, so a model the request builder sends no
+  temperature (Claude 4.7 and later, some OpenAI reasoning models) is always
+  called.
+
+Turn it off with `llm_cache: false` in the sweep, `--no-cache` on the command,
+or `LASAGNA_LLM_CACHE=0`. `llm_cache: {path: ...}` puts the file elsewhere.
+Nothing is cached outside an experiment, so `lasagna serve` and the MCP server
+write no prompt to disk.
+
+### A development set from your own documents
+
+`lasagna benchmark synthesize ./docs --n 200` has an LLM write factoid,
+multi-hop and unanswerable questions from your files, checks each one with a
+second call, and writes a JSONL file that `lasagna benchmark run` takes as is.
+It is for comparing configurations while you build, not for reported results:
+questions a model wrote favor systems like that model.
+[Your own data](own-data.md#synthetic-questions-from-your-documents) explains
+why and shows the options.
+
 For what the metrics mean and which are trustworthy, see
 [metrics](../src/lasagna/knowledge_evaluation_sdk/docs/metrics.md); for the
 available datasets, see
@@ -463,36 +684,93 @@ available datasets, see
 
 ---
 
-## 9. Where to go next
+## 9. Read and publish the result
 
-| I want to… | Read |
+Every run writes a `results.json` and prints its path. Each command below takes
+it.
+
+| Question | Command |
 |---|---|
+| Is the gap real, across every pair of arms? | `lasagna results significance results.json --all` |
+| Could this run have detected the effect I care about? | `lasagna results power results.json baseline candidate` |
+| Do two techniques compose, or overlap? | `lasagna results interaction results.json` (a 2x2 run) |
+| Which queries did an arm lose, at retrieval or generation? | `lasagna results per-query results.json --sort-by ndcg@10` |
+| Are two runs comparable at all? | `lasagna results compare a.json b.json` |
+
+`significance` runs a paired sign-flip test on every pair of arms and corrects
+the p-values with Holm-Bonferroni, then ends in a box that says what the table
+supports: green names each pair that survives and which side won; yellow says
+nothing survived and points at `power`.
+
+**Hand someone the whole run as one page:**
+
+```bash
+lasagna results view results.json -o view.html
+```
+
+The page carries the versions and run id, the stage isolation check, and per
+benchmark the leaderboard, the significance table with its verdict, every
+metric per arm, and a per-query diff between two arms (`--diff A B`, default the
+top two) with what each one retrieved. It is one file with no external
+requests, so it opens offline and can be attached to a review.
+
+**Put a leaderboard in a paper:**
+
+```bash
+mkdir -p bundles
+lasagna results bundle results.json -o bundles/run.json
+lasagna results leaderboard bundles/ --format latex
+```
+
+`--format latex` prints one booktabs table per comparability group (rows in
+one table held the same configuration fixed; rows in different tables are
+never ranked together), or writes one `.tex` file per benchmark with `-o`.
+Arm names are escaped for LaTeX.
+
+**Publish a number someone else can check:**
+
+```bash
+lasagna results bundle results.json -o run.json
+lasagna results validate run.json
+```
+
+The bundle carries the library versions, hardware, resolved sweep, corpus
+fingerprint and comparability key, and `validate` recomputes the key, the run
+id and every aggregate from the per-query scores. It also lists integrity
+warnings that do not invalidate a bundle, such as `SINGLE_RUN` (one run) or
+`UNRESOLVED_JUDGE_ALIAS` (a judge named by a floating alias); `--strict` turns
+them into failures. The [results hub](../hub/README.md) runs a public
+leaderboard from such bundles, and marks a row verified only when someone else's
+bundle reproduces it, which needs at least two runs to compare against.
+
+---
+
+## 10. Where to go next
+
+| I want to... | Read |
+|---|---|
+| **Run on my own questions or documents** | [Your own data](own-data.md) |
 | **Publish my component as a package** | [Plugin template](../examples/lasagna-plugin-template/) |
 | **Check my component satisfies its contract** | `lasagna component validate <module:Class>` |
 | **See which plugins are installed (and which failed)** | `lasagna plugins list` |
-| **Publish a result someone else can check** | `lasagna results bundle` then `validate` |
-| **Ask whether two techniques compose or overlap** | `lasagna results interaction` |
-| **See which queries a config lost, and at which stage** | `lasagna results per-query` |
-| **Hand someone the whole run as one page** | `lasagna results view results.json -o view.html` |
-| **Put a leaderboard in a paper** | `lasagna results leaderboard <dir> --format latex` |
-| **Find out whether a null result was inconclusive** | `lasagna results power` |
-| **Run a leaderboard for those results** | [Results hub](../hub/README.md) |
 | **Know a dataset's terms before publishing** | [Dataset licenses](../src/lasagna/knowledge_evaluation_sdk/research/DATASETS.md) |
+| Know which settings apply, and where data lives | [Configuration](configuration.md) |
+| Look up any setting | [Settings reference](reference/settings.md) |
 | Use the Python SDK in an application | [SDK user guide](../src/lasagna/sdk/docs/user_guide.md) |
 | Add a component type, not just an implementation | [Extending](../src/lasagna/sdk/docs/extending.md) |
-| Configure retrieval behaviour | [Configuration](../src/lasagna/sdk/docs/configuration.md) |
 | Call it over HTTP | [REST endpoints](../src/lasagna/api/docs/endpoints.md) |
+| Give an agent search over documents | [MCP server](../src/lasagna/mcp/README.md) |
 | Run a different vector database | [Vector backends](../src/lasagna/vector_backends/README.md) |
 | Understand the retrieval internals | [Architecture](../src/lasagna/core/docs/architecture.md) |
 | Deploy it | [Deployment](../src/lasagna/deploy/README.md) |
 
 ### Two honest warnings
 
-**Check the model licence before publishing.** Several strong rerankers are
+**Check the model license before publishing.** Several strong rerankers are
 non-commercial. `lasagna.core.model_licenses` warns once at load, and
 [model-licenses](model-licenses.md) lists the terms per model.
 
 **A component that conforms is not a component that helps.** Everything up to
 section 7 proves your code is wired in correctly. Only section 8 tells you
-whether it improves retrieval, and only with enough runs to distinguish a real
-gap from noise.
+whether it improves retrieval, and only a significance test over enough queries
+tells a real gap from noise.

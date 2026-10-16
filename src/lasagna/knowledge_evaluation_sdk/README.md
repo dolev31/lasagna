@@ -1,218 +1,83 @@
-# Knowledge Evaluation SDK
+# knowledge_evaluation_sdk: benchmarks, sweeps, results
 
-## Overview
+This package measures pipelines. It loads benchmark samples through adapters, runs every
+(benchmark, arm, run) task through the real pipeline, scores retrieval and answers, and turns
+the per-sample scores into result files, significance tests, bundles and leaderboards. The
+`lasagna benchmark` and `lasagna results` commands in `cli.py` (package root) are thin wrappers
+over it.
 
-The Knowledge Evaluation SDK provides three complementary evaluation workflows for the Lasagna RAG knowledge system:
+Running a benchmark or a sweep: [docs/guide.md](../../../docs/guide.md#8-measure-it-on-a-benchmark).
+Your own data: [docs/own-data.md](../../../docs/own-data.md). Metric definitions:
+[docs/metrics.md](docs/metrics.md). Benchmark catalogue: [docs/benchmarks.md](docs/benchmarks.md).
+Example sweep files: [research/](research/README.md).
 
-1. **QA testing with LLM-as-Judge** -- Upload a knowledge document, run queries from a ground-truth JSONL file through the RAG pipeline, and score each response on a 1--5 scale using an LLM judge. Produces per-case scores for relevance, completeness, and factual accuracy alongside aggregate pass rates and latency statistics.
+## Two paths
 
-2. **IR benchmark evaluation** -- Evaluate retrieval quality against 31 standard academic benchmarks (BEIR, SQuAD, HotpotQA, TriviaQA, MS MARCO, Natural Questions, PopQA, MuSiQue, Bamboogle, KILT, FEVER, and more) via a unified benchmark adapter registry. Computes NDCG@k, MAP, MRR, Precision, Recall, F1, Hit Rate, R-precision and complete (all-gold) recall using pure-Python IR metric implementations. Answers are scored too: exact match, token F1, ROUGE-L, answer containment, answer similarity, ALCE citation recall and precision, abstention, and the judged RAGAS metrics. [docs/metrics.md](docs/metrics.md) defines each one.
+**Experiment path (benchmarks and sweeps).** `experiment.py`:
+`ExperimentConfig` (parsed from YAML or TOML by `Experiment.from_file`, unknown keys refused)
+-> `Experiment.generate_tasks()` (benchmarks x arms x runs) -> `BenchmarkRunner.run_tasks()`
+(`runner.py`: bounded concurrency, a session id per task from its config hash,
+`CheckpointManager` for `--resume`)
+-> the eval function for the task's mode -> `BenchmarkResults` (`results.py`) ->
+`results.json`, `report.md`, `table.tex` (`_save_outputs`). Default output is
+`~/.lasagna/research/results/<name>_<timestamp>/` (`_results_root`).
 
-3. **Ablation / grid-search research** -- Sweep pipeline components across variant lists: rerankers, query enhancers, retrievers, agentic pipelines and generators as components; chunkers and embedders as components too, each arm on a corpus it chunked or embedded itself; and any setting, with every chunking and embedding setting re-ingesting per arm. Document processors do not sweep, since benchmark corpora are loaded as text. Sweeps collect per-sample scores and run paired sign-flip significance tests with t intervals and Holm--Bonferroni correction. Export results to Markdown tables, LaTeX (publication-ready), pandas DataFrames, and matplotlib plots (radar, heatmap).
+The eval functions: `_eval_live` ingests the benchmark corpus once per corpus key (shared
+across arms that do not change ingestion), searches through the pipeline, and scores
+retrieval and generated answers; `_eval_offline` answers from the gold context and scores the
+answers, with no retrieval and no vector store. `resolve_mode` maps `auto` to `live` when the adapter ships a corpus and to
+`generation_only` otherwise (`offline` is an alias).
 
----
+**Evaluator path (one document, LLM judge).** `evaluator.py`: `KnowledgeEvaluator` uploads a
+document through `lasagna.sdk.KnowledgeClient`, answers each ground-truth question from the
+retrieved context, and scores it with `LLMJudge` (`judge.py`, 1 to 5 for relevance,
+completeness and factual accuracy). With `use_full_agent=True` it goes through
+`lasagna.integrations.cuga_agent` instead, which keeps the agent framework out of this package.
+`python -m lasagna.knowledge_evaluation_sdk --help` lists its CLI flags; the exit code is 0 at
+a pass rate of 80% or more, 1 below it, 2 on error.
 
-## Quick Start
+## Module map
 
-### Use Case 1: QA evaluation with LLM-as-Judge
+| File | Responsibility |
+| ---- | -------------- |
+| `__init__.py` | Lazy public API (`Experiment`, `run_benchmark`, `BenchmarkResults`, `sweep`, `grid_search`, the IR metrics, the adapter types, ...) |
+| `experiment.py` | Config parsing and checks, arm generation, task eval functions, corpus ingestion cache, `run_benchmark` |
+| `runner.py` | `BenchmarkTask`, `TaskResult`, `BenchmarkRunner` |
+| `_fast_ingest.py` | Corpus ingestion for evaluation: chunks in memory, batches embeddings across documents, inserts in bulk, skipping the per-upload path |
+| `stages.py` | Which stage each setting belongs to, per-task stage manifests, `isolation_report` (undeclared and inert changes) |
+| `ir_metrics.py`, `answer_metrics.py` | Retrieval metrics and judge-free answer metrics |
+| `ragas_evaluator.py` | `RAGASEvaluator`: the judged RAGAS metrics (`eval` extra) |
+| `judge.py`, `models.py`, `evaluator.py`, `cli.py`, `__main__.py` | The evaluator path |
+| `results.py` | `BenchmarkResults`: aggregation, paired sign-flip tests with Holm correction, leaderboard, Markdown and LaTeX |
+| `bundle.py`, `run_provenance.py`, `leaderboard.py`, `viewer.py` | Results bundles and their comparability key (`METRICS_VERSION`), run provenance, leaderboard rendering, the static HTML view (`lasagna results view`) |
+| `ablation.py` | `sweep`, `grid_search`, `AblationResults` over `KnowledgePipeline` (Python API, not used by the CLI) |
+| `cost.py`, `seeding.py`, `checkpoint.py`, `_helpers.py` | Dry-run cost estimates, `seed_everything`, atomic task checkpoints, dependency-free helpers for tests |
+| `synthesize.py` | `lasagna benchmark synthesize`: LLM-written question sets from a folder of documents |
+| `datasets.py`, `reporting.py` | Hugging Face loaders for `KnowledgePipeline.run_and_evaluate`; `ReportGenerator` (Markdown, LaTeX, plots) |
+| `benchmarks/` | `_base.py` (`BaseBenchmarkAdapter`, `BenchmarkSample`, `BenchmarkInfo`, ...), `_registry.py` (`benchmark_registry`, entry-point group `lasagna_benchmarks`), `adapters/` (one file per benchmark family, plus `smoke` and `local_files`) |
+| `private_eval/` | Builder for a two-track (retrieval, generation) evaluation set assembled from public benchmarks |
+| `research/` | Shipped example sweep files and the generated `DATASETS.md` |
+| `docs/` | `metrics.md`, `benchmarks.md`, `architecture.md` (shipped in the wheel) |
 
-```python
-from lasagna.knowledge_evaluation_sdk import (
-    KnowledgeEvaluator, EvalConfig,
-)
+## Design notes
 
-evaluator = KnowledgeEvaluator(
-    config=EvalConfig(
-        document_path="./data/knowledge_base.docx",
-        ground_truth_path="./data/ground_truth.jsonl",
-    )
-)
-metrics = await evaluator.run()
-print(metrics.summary())
-```
+**Strict stages.** `_default_eval_fn` runs `_eval_live` inside `core.strict.strict()`, so a
+stage that cannot run (no LLM for expansion, an agentic search that errors) fails the task
+instead of scoring the baseline under the arm's name.
 
-### Use Case 2: IR benchmark evaluation
+**Isolation is checked, not assumed.** Every task records its stage manifest; `stages.py`
+compares arms and flags a stage that changed without being named, or a named change that never
+reached the pipeline. `lasagna results validate` refuses a bundle with undeclared changes.
 
-```python
-from lasagna.knowledge_evaluation_sdk import (
-    Experiment, ExperimentConfig, run_benchmark,
-)
+**Comparability.** `bundle.py` decides which rows may be compared: everything except the arm
+must be held fixed. `METRICS_VERSION` is part of that key; bump it, with a comment saying what
+changed, when a metric definition changes, so old and new numbers are not compared.
 
-# One-liner
-results = await run_benchmark("beir/nfcorpus", n_samples=100, mode="live")
-print(results.to_markdown())
+**Seeds and caches.** `seeding.seed_everything` seeds every source a task can reach. The LLM
+response cache (`llm_cache:` in a sweep, `lasagna.utils.llm_cache`) opens one scope per task,
+seeded with `seed + run_index`, so repeated runs of an arm keep their own responses.
 
-# Or from a YAML config file
-exp = Experiment.from_file("beir_sweep.yaml")
-results = await exp.run()
-```
-
-### Use Case 3: Ablation study
-
-```python
-from lasagna.knowledge_evaluation_sdk import sweep
-from lasagna.core.pipeline import KnowledgePipeline
-
-pipeline = KnowledgePipeline.from_profile("standard")
-results = sweep(
-    pipeline=pipeline,
-    component="reranker",
-    variants=["mxbai-rerank-large", "bge-reranker-v2", "ms-marco-MiniLM"],
-    dataset=my_dataset,
-    metrics=["faithfulness", "context_precision"],
-    evaluator=my_evaluator,
-)
-print(results.to_markdown())
-sig = results.significance_test("mxbai-rerank-large", "bge-reranker-v2", "faithfulness")
-print(f"p={sig['p_value']:.4f}, significant={sig['significant']}")
-```
-
----
-
-## Module Structure
-
-| File | Purpose |
-|---|---|
-| `__init__.py` | Public API with lazy-loading for optional heavy dependencies |
-| `__main__.py` | `python -m ...` entry point (delegates to `cli.main()`) |
-| `models.py` | Data models: `EvalCase`, `EvalResult`, `EvalMetrics`, `EvalConfig`, `JudgeScore`, `ScoreLevel` |
-| `evaluator.py` | `KnowledgeEvaluator` -- main orchestrator for document upload, RAG query, and LLM-as-Judge scoring |
-| `judge.py` | `LLMJudge` -- structured 1--5 scoring with relevance/completeness/factual accuracy sub-scores |
-| `experiment.py` | `Experiment` / `ExperimentConfig` -- YAML/TOML config loader, Cartesian product task generation, execution orchestrator |
-| `runner.py` | `BenchmarkRunner` / `BenchmarkTask` / `TaskResult` -- parallel execution engine with semaphore, session isolation, and checkpoint resumption |
-| `ir_metrics.py` | Pure-Python IR metrics: `ndcg_at_k`, `precision_at_k`, `recall_at_k`, `mrr`, `map_score`, `f1_at_k`, `hit_rate_at_k`, `r_precision`, `complete_recall_at_k`, `corpus_metrics` |
-| `answer_metrics.py` | Answer metrics without a judge: exact match, token F1, ROUGE-L, answer containment, abstention, answer similarity, ALCE citation precision and recall |
-| `stages.py` | Which stage each setting belongs to, the per-task stage manifest, and the isolation check across arms |
-| `datasets.py` | HuggingFace dataset loaders with local caching, format converters for 14 benchmark formats |
-| `ablation.py` | `sweep()` (single-component), `grid_search()` (multi-component Cartesian), `AblationResults` with significance testing |
-| `results.py` | `BenchmarkResults` -- multi-dimensional aggregation (benchmark x config x run), leaderboard, pairwise significance, export |
-| `reporting.py` | `ReportGenerator` -- Markdown reports, LaTeX tables with significance markers, radar plots, heatmaps |
-| `checkpoint.py` | `CheckpointManager` -- atomic JSON checkpointing for experiment resumption |
-| `ragas_evaluator.py` | `RAGASEvaluator` / `DetailedEvalResult` -- optional RAGAS integration (faithfulness, context precision/recall, factual correctness) |
-| (see `lasagna/integrations/cuga_agent.py`) | Optional CUGA agent adapter, kept outside this package so the evaluator has no agent-framework coupling |
-| `cli.py` | argparse CLI: `--document`, `--ground-truth`, `--judge-platform`, `--verbose`, `--full-agent` |
-| `benchmarks/` | Benchmark adapter framework |
-| `benchmarks/_base.py` | `BaseBenchmarkAdapter` ABC, `BenchmarkSample`, `BenchmarkInfo`, `BenchmarkCategory`, `BenchmarkEvalMode` |
-| `benchmarks/_registry.py` | `BenchmarkRegistry` singleton -- auto-discovers and registers adapters |
-| `benchmarks/adapters/` | 14 concrete adapters: BEIR, SQuAD, Natural Questions, MS MARCO, TriviaQA, HotpotQA, PopQA, MuSiQue, 2WikiMultiHop, MultiHop-RAG, Bamboogle, RAGBench, KILT, FEVER |
-| `data/` | Static data files (knowledge documents, ground-truth JSONL) |
-| `research/` | Research experiment configs and scripts |
-
----
-
-## Architecture
-
-The SDK has two primary execution paths:
-
-### Path A: Evaluator (document-centric QA testing)
-
-```
-EvalConfig --> KnowledgeEvaluator
-                  |
-                  +--> KnowledgeClient.upload(document)
-                  +--> KnowledgeClient.get_context(query)  [or full agent invoke]
-                  +--> LLM answering model (RAG context + question --> answer)
-                  +--> LLMJudge.evaluate(question, expected, response, context)
-                  +--> EvalMetrics.from_results(results)
-                  +--> Save: JSONL results, JSON metrics, text report
-```
-
-`KnowledgeEvaluator` loads cases from a ground-truth JSONL file, uploads a knowledge document via `KnowledgeClient`, retrieves RAG context for each query, generates answers through an LLM, and scores responses with `LLMJudge`. Supports both RAG-only mode (standalone) and full-agent mode (via `lasagna.integrations.cuga_agent`).
-
-### Path B: Experiment (benchmark-centric IR/pipeline evaluation)
-
-```
-ExperimentConfig --> Experiment
-                       |
-                       +--> generate_tasks()  [benchmarks x pipeline_configs x runs]
-                       +--> BenchmarkRunner.run_tasks()
-                       |       +--> benchmark_registry.get(name).load(samples)
-                       |       +--> eval_fn(task, samples)  [offline or live mode]
-                       |       +--> CheckpointManager.save(task_key, result)
-                       +--> BenchmarkResults
-                       |       +--> aggregate_by_benchmark() / aggregate_by_pipeline()
-                       |       +--> significance_test() / pairwise_significance()
-                       |       +--> leaderboard() / to_markdown() / to_latex()
-                       +--> ReportGenerator.save_all(output_dir)
-```
-
-`Experiment` loads config from YAML/TOML, generates the Cartesian product of (benchmarks x pipeline configurations x run indices), and delegates execution to `BenchmarkRunner`. Each task loads samples from the benchmark registry, runs either offline (gold-label scoring) or live (corpus ingestion + real retrieval + IR metrics) evaluation, and checkpoints results atomically. `BenchmarkResults` aggregates across dimensions with mean/std, produces leaderboards, and supports paired sign-flip significance testing.
-
----
-
-## External Dependencies
-
-### Required
-
-| Package | Usage |
-|---|---|
-| `loguru` | Structured logging throughout the SDK |
-| `pydantic` | `JudgeScore` structured output model |
-| `langchain-core` | `BaseChatModel`, `ChatPromptTemplate`, `HumanMessage`, `SystemMessage` |
-
-### Optional
-
-| Package | Usage | Install |
-|---|---|---|
-| `ragas` | RAGAS evaluation metrics (faithfulness, context precision/recall) | `pip install lasagna-rag[eval]` |
-| `datasets` | HuggingFace benchmark dataset loading | `pip install datasets` |
-| `pandas` | `AblationResults.to_dataframe()`, `BenchmarkResults.to_dataframe()` | `pip install lasagna-rag[eval]` |
-| `matplotlib` | `AblationResults.plot()`, `ReportGenerator.radar_plot()`, `ReportGenerator.heatmap()` | `pip install lasagna-rag[eval]` |
-| `numpy` | Sign-flip significance tests, vectorized metric computation | `pip install lasagna-rag[eval]` |
-| `seaborn` | Enhanced heatmap rendering (falls back to matplotlib if absent) | `pip install seaborn` |
-| `pyyaml` | YAML experiment config loading | `pip install pyyaml` |
-
-All optional dependencies are lazy-imported at call sites. The core evaluation path (evaluator + judge + IR metrics) works without any optional packages installed.
-
----
-
-## CLI
-
-### QA evaluation
-
-```bash
-# Basic usage
-python -m lasagna.knowledge_evaluation_sdk \
-    -d ./data/knowledge_base.docx \
-    -g ./data/ground_truth.jsonl
-
-# Custom judge model and verbose output
-python -m lasagna.knowledge_evaluation_sdk \
-    -d ./data/knowledge_base.docx \
-    -g ./data/ground_truth.jsonl \
-    -o ./my_results \
-    --judge-platform openai \
-    --judge-model gpt-6-luna \
-    --verbose
-
-# Full agent mode (requires cuga.sdk)
-python -m lasagna.knowledge_evaluation_sdk \
-    -d ./data/knowledge_base.docx \
-    -g ./data/ground_truth.jsonl \
-    --full-agent
-```
-
-### CLI flags
-
-| Flag | Default | Description |
-|---|---|---|
-| `-d`, `--document` | (required) | Path to knowledge document (PDF, DOCX, TXT) |
-| `-g`, `--ground-truth` | (required) | Path to JSONL ground truth file |
-| `-o`, `--output` | `./eval_results` | Output directory |
-| `--top-k` | `5` | Number of chunks to retrieve |
-| `--no-reranking` | `false` | Disable reranking |
-| `--use-hyde` | `false` | Enable HyDE query expansion |
-| `--judge-platform` | `openai` | LLM judge platform (openai, azure, groq, watsonx, google-genai, openrouter) |
-| `--judge-model` | platform default | Judge model name |
-| `--max-concurrent` | `3` | Maximum concurrent evaluations |
-| `-v`, `--verbose` | `false` | Verbose logging |
-| `--full-agent` | `false` | Use full SDK agent invoke flow |
-
-Exit codes: `0` = pass rate >= 80%, `1` = pass rate < 80%, `2` = evaluation error.
-
----
-
-## Links
-
-- [Research experiments](./research/README.md) -- experiment configs, reproduction scripts, and research notes.
-- [SDK Documentation](../sdk/README.md) -- Knowledge SDK overview and documentation index.
+**Adding a benchmark.** Subclass `BaseBenchmarkAdapter` in `benchmarks/adapters/`, register it,
+then regenerate the dataset terms with
+`lasagna benchmark licenses -o src/lasagna/knowledge_evaluation_sdk/research/DATASETS.md`;
+`tests/test_dataset_licenses.py` fails when a registered benchmark is missing from it.

@@ -41,7 +41,7 @@ async with KnowledgeClient() as client:
 
 ### Remote Client (`from_url`)
 
-Connect to a deployed RAG server without heavy ML dependencies (only `httpx` required):
+Connect to a Lasagna REST server (`lasagna serve`) over HTTP. The remote client sends every operation to the server with `httpx` and loads no models in your process:
 
 ```python
 from lasagna.sdk import KnowledgeClient
@@ -62,7 +62,7 @@ context = await client.get_context("key findings")
 await client.close()
 ```
 
-The remote client delegates all operations to the REST API. It supports upload, search, search with citations, document listing, and deletion. Ideal for SaaS integrations where the RAG engine runs as a service.
+The remote client delegates all operations to the REST API. It supports upload, search, search with citations, document listing, and deletion. Use it when Lasagna runs as a separate service and your application only calls it.
 
 ### Core Methods
 
@@ -104,7 +104,7 @@ is_valid = await client.citations.verify("citation_id")
 # Simple upload
 result = await client.upload("./document.pdf")
 print(f"ID: {result.document_id}")
-print(f"Status: {result.status}")  # DocumentStatus.PROCESSING — upload is async
+print(f"Status: {result.status}")  # DocumentStatus.PROCESSING: upload is async
 
 # chunk_count is 0 until processing completes. Wait for the real numbers:
 await client.documents.wait_for_processing(result.document_id)
@@ -140,31 +140,23 @@ results = await client.documents.upload_batch(
 )
 ```
 
-### Batch Upload Performance
+### Batch Uploads
 
-The SDK and backend are optimized for efficient batch uploads:
-
-| Feature | Description |
-| ------- | ----------- |
-| **Parallel uploads** | `upload_batch()` processes files concurrently with configurable `max_concurrent` |
-| **Batch vector inserts** | Chunks are inserted in a single database call per document |
-| **Single HTTP request** | Frontend sends all files in one request when using the UI |
-
-```python
-# Performance comparison (10 documents, ~100 chunks each)
-# Sequential: ~30 seconds
-# Parallel (max_concurrent=5): ~8 seconds
-```
+`upload_batch()` uploads files concurrently, up to `max_concurrent` at a time (default 5), and the backend inserts each document's chunks into the vector store in batches rather than one at a time.
 
 ### Supported File Types
+
+Uploads accept the extensions in the `supported_extensions` setting. By default:
 
 | Type | Extensions |
 |------|------------|
 | PDF | `.pdf` |
-| Text | `.txt`, `.md`, `.rst` |
-| Office | `.docx`, `.doc`, `.pptx`, `.xlsx` |
-| Web | `.html`, `.htm` |
-| Code | `.py`, `.js`, `.ts`, `.java`, etc. |
+| Word | `.docx` |
+| Text | `.txt`, `.md` |
+| Data | `.csv`, `.json`, `.xml` |
+| Web | `.html` |
+
+With `docling_enabled` on and Docling installed (`pip install "lasagna-rag[docling]"`), PDF, Word and HTML files are converted with Docling's layout and table analysis instead of the plain extractors.
 
 ### Listing Documents
 
@@ -307,14 +299,14 @@ The Knowledge SDK provides built-in multi-tenancy support through session-based 
 | **API Layer** | Every operation validates and uses `session_id` |
 | **BM25 Index** | Separate indices per session |
 
-**Scalability considerations:**
+**One session per tenant:**
 
 ```python
 # Each tenant/user gets their own session
 async def create_tenant_client(tenant_id: str) -> KnowledgeClient:
     return KnowledgeClient(session_id=f"tenant_{tenant_id}")
 
-# Batch uploads are processed efficiently
+# Upload a tenant's files in parallel
 client = await create_tenant_client("acme_corp")
 results = await client.documents.upload_batch(
     files,
@@ -325,11 +317,7 @@ results = await client.documents.upload_batch(
 # tenant_a cannot see tenant_b's documents
 ```
 
-**Performance notes:**
-
-- Session isolation adds no significant overhead (simple filter)
-- Batch vector inserts reduce database round-trips by 50-90%
-- Parallel uploads scale with `max_concurrent` setting
+Session isolation is a filter on the `session_id` field in each query. For hard isolation between tenants on one server, `tenant_isolation="partition"` (set by `config_for_production()`) keeps each tenant in its own vector store partition.
 
 ---
 
@@ -433,15 +421,17 @@ for query, result in zip(queries, results):
 
 ### Query Routing (Adaptive-RAG)
 
-The SDK supports intelligent per-query routing that automatically selects the
-optimal retrieval tier based on query complexity. This is enabled by default.
+Each query can be sent to one of three retrieval tiers. A router reads the
+query (its type, length, and words that signal several hops) and picks the
+tier; the rules are in `retrieval/routing/strategies.py`. Routing is on by
+default (`enable_query_routing=True`).
 
 ```python
-# Auto-routing (default) — router picks the best tier
-results = await client.search_documents("What is X?")           # -> FAST
-results = await client.search_documents("Compare X with Y")     # -> STANDARD
+# Routing (default): the router picks the tier
+results = await client.search_documents("What is X?")           # short factual: usually fast
+results = await client.search_documents("Compare X with Y")     # comparative: standard
 results = await client.search_documents(
-    "Summarize all findings across documents"                    # -> COMPREHENSIVE
+    "Summarize all findings across documents"                    # multi-hop or complex: comprehensive
 )
 
 # Force a specific tier
@@ -455,9 +445,9 @@ results = await client.search.search("query", routing_tier="standard")
 
 Three tiers are available:
 
-- **fast** — Vector-only search (~50-100ms). Skips HyDE, reranking, hybrid search, and MMR.
-- **standard** — Full pipeline (~200-400ms). Hybrid search + reranking + HyDE + MMR.
-- **comprehensive** — Agentic multi-hop retrieval (~1-5s). For complex cross-document queries.
+- **fast**: vector-only search. HyDE, reranking, hybrid search, MMR, context reordering and auto-merge are off for the query.
+- **standard**: the pipeline as configured (by default hybrid search, reranking and MMR; HyDE only when `enable_hyde` is on).
+- **comprehensive**: agentic multi-hop retrieval, which calls an LLM. For questions that need several documents or several steps.
 
 Configure routing behavior via config:
 
@@ -511,7 +501,7 @@ results = await client.search_documents(
 
 ## Error Handling
 
-The SDK provides a comprehensive exception hierarchy for proper error handling.
+Every exception the SDK raises on its own is a subclass of `KnowledgeError`.
 
 ### Exception Hierarchy
 
@@ -609,9 +599,10 @@ except CitationNotFoundError as e:
 
 try:
     await client.config_manager.set_profile("nonexistent")
+except ProfileNotFoundError as e:
+    print(f"No profile named {e.profile_name}")
 except ConfigurationError as e:
-    # An unknown profile name currently raises ConfigurationError, the parent
-    # of ProfileNotFoundError, so catch the parent
+    # The parent class: the profile exists but could not be applied
     print(f"Could not switch profile: {e}")
 ```
 
@@ -630,31 +621,34 @@ except KnowledgeError as e:
 
 ### Handling Rate Limits (HTTP 429)
 
-When using the REST API (or SDK against a remote deployment), requests may
-be rate-limited. The response includes a `Retry-After` header with the
-recommended wait time in seconds.
+A REST server with `rate_limiting_enabled` on answers 429 when a client sends too many
+requests, with a `Retry-After` header giving the wait in seconds. A remote client
+(`KnowledgeClient.from_url`) raises `SearchError` for it, with the `httpx` error as its cause:
 
 ```python
-import httpx, asyncio
+import asyncio
+
+import httpx
+from lasagna.sdk import SearchError
 
 async def search_with_retry(client, query, max_retries=3):
     for attempt in range(max_retries):
         try:
             return await client.search_documents(query)
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429:
-                wait = int(e.response.headers.get("Retry-After", 2))
-                print(f"Rate limited — retrying in {wait}s (attempt {attempt + 1})")
+        except SearchError as e:
+            cause = e.__cause__
+            if isinstance(cause, httpx.HTTPStatusError) and cause.response.status_code == 429:
+                wait = int(cause.response.headers.get("Retry-After", 2))
+                print(f"Rate limited, retrying in {wait}s (attempt {attempt + 1})")
                 await asyncio.sleep(wait)
             else:
                 raise
     raise RuntimeError("Max retries exceeded")
 ```
 
-For the Python SDK (in-process), rate limits are enforced at the middleware
-level and surface as `TimeoutError` or `BackendError`. Use the built-in
-retry configuration (see [Retry and Resilience](configuration.md#retry-and-resilience))
-for automatic handling.
+Rate limiting is applied by the REST server's middleware, so an in-process client is never
+rate limited. For other transient failures, use the retry helpers in
+[Retry and Resilience](configuration.md#retry-and-resilience).
 
 ---
 
@@ -665,8 +659,8 @@ for automatic handling.
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `upload(path, filename?, metadata?)` | `UploadResult` | Upload document |
-| `search_documents(query, top_k?, min_score?, document_ids?)` | `SearchResults` | Search |
-| `get_context(query, document_ids?, max_chunks?)` | `str` | Get LLM context |
+| `search_documents(query, top_k?, min_score?, document_ids?, routing_tier?)` | `SearchResults` | Search |
+| `get_context(query, document_ids?, max_chunks?, routing_tier?)` | `str` | Get LLM context |
 | `list_documents(status?)` | `List[Document]` | List documents |
 | `delete_document(id)` | `bool` | Delete document |
 | `agentic_search(query, max_iterations?, document_ids?)` | `AgenticSearchResults` | Multi-hop |
@@ -688,14 +682,15 @@ for automatic handling.
 | `delete(id)` | `bool` | Delete document |
 | `delete_all(confirm)` | `int` | Delete all |
 | `get_chunks(id, offset?, limit?)` | `List[DocumentChunk]` | Get chunks |
+| `wait_for_processing(id, timeout?, poll_interval?)` | `Document` | Wait until indexing finishes |
 | `reindex(id)` | `UploadResult` | Reindex document |
 
 ### SearchManager
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `search(query, top_k?, min_score?, document_ids?, use_reranking?, use_hyde?)` | `SearchResults` | Search |
-| `get_context(query, document_ids?, max_chunks?)` | `str` | Get context |
+| `search(query, top_k?, min_score?, document_ids?, use_reranking?, use_hyde?, routing_tier?)` | `SearchResults` | Search |
+| `get_context(query, document_ids?, max_chunks?, routing_tier?)` | `str` | Get context |
 | `search_with_citations(query, top_k?, document_ids?)` | `Tuple[SearchResults, str]` | Search + context |
 | `hybrid_search(query, top_k?, alpha?, document_ids?)` | `SearchResults` | Hybrid search (thread-safe) |
 | `multi_query_search(queries, top_k?, document_ids?, deduplicate?)` | `SearchResults` | Multi-query |

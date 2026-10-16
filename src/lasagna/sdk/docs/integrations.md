@@ -79,32 +79,32 @@ docs = await loader.aload()
 
 ### Standalone MCP Server (recommended)
 
-The full-featured MCP server runs standalone with 23 tools covering search, documents, profiles, configuration, focus, and system management:
+`lasagna-mcp` serves the knowledge base as MCP tools: search, documents, profiles, configuration, focus and system status. It has 31 tools. By default it serves the `safe` set, which leaves out the six that delete data or reset configuration; `--tools all` (or `LASAGNA_MCP_TOOLS=all`) adds them. The tool list is in the [MCP server README](../../mcp/README.md).
 
 ```bash
-# Set any supported API key and run
+# Set any supported API key, then run it the way an MCP client launches it (stdio, the default)
 export OPENAI_API_KEY=sk-...
-python -m lasagna.mcp --transport sse --port 8005
+lasagna-mcp
 
-# Or stdio, the default, for a client that launches the server itself
-python -m lasagna.mcp
+# Or serve it on a port, for several clients
+lasagna-mcp --transport sse --host 127.0.0.1 --port 8005
 ```
 
-Any MCP client (Claude Desktop, Cursor, custom agents) connects to `http://localhost:8005/sse`.
+`python -m lasagna.mcp` runs the same server. Over SSE, an MCP client (Claude Desktop, Cursor, your own agent) connects to `http://localhost:8005/sse`.
 
 ### MCPKnowledgeClient (Programmatic Access)
 
-For agents and applications that need programmatic access to the MCP server, use `MCPKnowledgeClient` — the SDK's persistent-connection client with auto-reconnection and optional query caching:
+For agents and applications that call the MCP server from Python, `MCPKnowledgeClient` keeps one connection open, reconnects when it drops, and can cache query results (`enable_query_cache=True`). It connects over SSE, so start the server with `--transport sse`:
 
 ```python
 from lasagna.sdk import MCPKnowledgeClient
 
 async with MCPKnowledgeClient(url="http://localhost:8005/sse") as client:
-    # Search with inline citations
-    response = await client.search_with_context("quarterly results", "session-1")
+    # Search: formatted context with inline citations
+    response = await client.search("quarterly results", "session-1")
 
     # Extract structured citations from the response
-    # (search_with_context appends a <search_metadata> JSON block)
+    # (search appends a <search_metadata> JSON block)
     metadata = MCPKnowledgeClient.parse_search_metadata(response)
     citations = metadata.get("citations", [])
     chunks = metadata.get("chunks", [])
@@ -123,18 +123,18 @@ Key methods:
 
 | Method | Description |
 | ------ | ----------- |
-| `search_knowledge()` | SOTA semantic search (plain text results) |
-| `search_with_context()` | Search + formatted context with `<search_metadata>` citations |
-| `get_document_context()` | Adaptive document awareness for agent prompts |
+| `search()` | Search with the session's configuration; returns formatted context with a `<search_metadata>` block |
+| `search_knowledge()`, `search_with_context()` | Deprecated aliases of `search()` |
+| `get_document_context()` | Document awareness text for agent prompts |
 | `parse_search_metadata()` | Static utility to extract citations/chunks from responses |
 | `upload_document()` | Upload and index a document |
 | `list_documents()` | List all documents in a session |
 | `get_config()` / `patch_config()` | Read/modify RAG configuration |
 | `set_focused_documents()` | Scope searches to specific documents |
 
-### Response Format: search_with_context
+### Response Format: search
 
-The `search_with_context` tool returns LLM-ready formatted context followed by a machine-parseable metadata block:
+The `search` tool returns LLM-ready formatted context followed by a machine-parseable metadata block:
 
 ```text
 <knowledge_base>
@@ -145,23 +145,11 @@ CONTENT: [Source 1] ... [Source 2] ...
 <search_metadata>{"citations": [...], "chunks": [...]}</search_metadata>
 ```
 
-The `<knowledge_base>` section is designed for LLM consumption. The `<search_metadata>` block is for programmatic use — parse it with `MCPKnowledgeClient.parse_search_metadata(response)` to get structured citation and chunk data without a separate API call.
+The `<knowledge_base>` section is for the LLM. The `<search_metadata>` block is for your code: parse it with `MCPKnowledgeClient.parse_search_metadata(response)` to get structured citation and chunk data without a separate call.
 
-### Agent Integration
+### Giving an Agent the Tools
 
-When running inside a host application, the MCP server module and transport are configurable via `settings.toml`:
-
-```toml
-[knowledge]
-mcp_module = "lasagna.mcp"
-mcp_transport = "sse"
-mcp_host = "127.0.0.1"
-
-[server_ports]
-rag_knowledge_mcp = 8005
-```
-
-Lasagna's tool registry automatically prefixes MCP tools with `knowledge_` (e.g., `knowledge_search_with_context`, `knowledge_get_document_context`) and auto-injects `session_id` for seamless agent integration.
+Register `lasagna-mcp` with your MCP client as a stdio server. The tools take a `session_id`, which selects the session whose documents and settings they use. The [MCP server README](../../mcp/README.md) has the client configuration and the full tool list.
 
 ---
 

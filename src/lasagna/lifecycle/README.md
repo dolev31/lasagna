@@ -1,385 +1,249 @@
-# Document Lifecycle & Garbage Collector
+# Document lifecycle and garbage collection
 
-Production-grade document lifecycle management for the RAG knowledge package. Provides
-**recoverable deletion**, **automatic TTL expiry**, **cross-store consistency**, **scheduled GC**,
-and **bulk session operations** — all with quota accuracy guarantees and multi-process safety.
+This package lets a deleted document be restored for a while, expires
+documents after a set number of days, cleans up on a schedule, and finds
+documents whose metadata row and vectors have come apart.
 
-## Soft-delete & restore
+- **Archive and restore.** Archiving a document (a soft delete) hides it from
+  search and listings but keeps its vectors and file. Within the grace window
+  (24 hours by default) a restore brings it back without re-ingesting.
+- **Expiry.** With `document_ttl_days` set, each upload gets an `expires_at`
+  date, and garbage collection archives it once that date passes.
+- **Garbage collection.** A six-phase cycle removes archived documents past
+  their grace window, archives expired and failed documents, drops expired
+  citations and idle session settings, and rebuilds the quota counters from
+  the database.
+- **Orphan detection.** Compares the metadata database with the vector
+  collection and reports documents that exist in only one of them.
+- **Whole-session delete.** Deletes every document of a session in one call.
 
-A deleted document enters a **grace window** (default 24 h) before it is permanently removed.
-During this window it is hidden from search results but can be fully restored with a single API
-call — no re-ingestion needed.  This protects against accidental deletions that would otherwise
-require uploading and re-processing the original file.
+`RAGBackend` builds a `DocumentLifecycleManager` and starts the
+`LifecycleScheduler` when it starts; there is nothing to wire up yourself.
 
-## TTL-based expiry
-
-Documents can be given an expiry date at upload time (`document_ttl_days`).  When the date
-passes, GC automatically soft-deletes them so they enter the grace window before being purged.
-This is useful for compliance requirements (e.g. "retain for 90 days") or for temporary knowledge
-bases such as per-meeting or per-sprint document sets that should not accumulate indefinitely.
-
-## Orphan detection
-
-A two-store system (metadata DB + vector store) can become inconsistent after partial failures:
-a crash mid-ingestion leaves a DB record with no vectors; a failed hard-delete leaves vectors
-with no DB record.  The orphan detector compares document IDs across both stores and classifies
-each discrepancy so it can be repaired automatically or reviewed first via a dry-run report.
-
-## Scheduled GC
-
-Without automated cleanup, error documents, expired documents, and idle sessions accumulate
-silently and inflate storage costs and quota usage.  A 6-phase GC cycle runs on a configurable
-schedule (daily by default) and handles every cleanup category in a single pass, with an advisory
-lock that prevents duplicate runs across multiple API workers.
-
-## Bulk session operations
-
-Deleting a session that contains hundreds of documents would otherwise require one API call per
-document.  The bulk session delete removes every document, its vectors, and its citations in a
-single operation with accurate per-document quota accounting — useful for multi-tenant
-deployments where a tenant's entire data set must be wiped cleanly.
-
-## Quota reconciliation
-
-In-memory quota counters can drift from the source-of-truth DB over time (e.g. after a crash,
-a rolled-back transaction, or a manual DB edit).  Every GC cycle overwrites the in-memory
-counters from the DB, so storage limits remain accurate without requiring a process restart.
-
----
-
-## 1. State Machine
+## States
 
 ```text
-UPLOADING ──→ PROCESSING ──→ INDEXING ──→ READY
-                   │                        │
-                 ERROR             POST /archive  (soft delete)
-                   │                        │
-          (error_retention_days)      SOFT_DELETED ──→ (grace expires) ──→ [hard-deleted]
-                   │
-          soft-delete + Phase 3
+UPLOADING -> PROCESSING -> INDEXING -> READY
+any state -> ERROR
+any state -> SOFT_DELETED          archive, or expiry (phase 2)
+ERROR -> SOFT_DELETED              error retention (phase 3)
+SOFT_DELETED -> READY              restore, within the grace window
+SOFT_DELETED -> removed            garbage collection phase 1, after the grace window
+any state -> removed               DELETE /api/v1/documents/{id}, at once
 ```
 
-### Transitions
+Archiving sets `status = soft_deleted` and `deleted_at`. Restoring sets the
+status to `ready` and fails with `DocumentExpiredError` once the grace window
+has passed.
 
-| From | To | Trigger | Initiator |
-|------|----|---------|-----------|
-| READY | SOFT_DELETED | `POST /documents/{id}/archive` | User / SDK / MCP |
-| SOFT_DELETED | READY | `POST /documents/{id}/restore` (within grace window) | User / SDK / MCP |
-| SOFT_DELETED | *(purged)* | GC Phase 1 (grace window expired) | Scheduler |
-| ERROR | SOFT_DELETED | GC Phase 3 (`error_retention_days` exceeded) | Scheduler |
-| READY | *(TTL expiry)* | GC Phase 2 (`expires_at` in past) | Scheduler |
-| Any | *(purged)* | `DELETE /documents/{id}` | User (immediate, irreversible) |
+## Garbage collection
 
----
+`GarbageCollector.run_full_cycle()` runs the phases in order. Each writes one
+row to the `gc_audit_log` table. Given a `session_id`, phases 1 to 3 are limited
+to that session; phases 4 to 6 always cover everything.
 
-## 3. GC Phases
+| Phase (name in reports) | Selects | Does |
+| --- | --- | --- |
+| 1 `phase1_hard_delete_soft_deleted` | archived documents whose `deleted_at` is older than `soft_delete_grace_hours` | Deletes each through the document pipeline: vectors, file, row, quota |
+| 2 `phase2_expire_by_ttl` | documents whose `expires_at` has passed | Archives them. Skipped when `document_ttl_days` is unset or 0 |
+| 3 `phase3_cleanup_error_documents` | `error` documents uploaded more than `error_retention_days` ago | Archives them. Skipped when `error_retention_days` is 0 |
+| 4 `phase4_cleanup_citations` | citations past their expiry | Deletes them |
+| 5 `phase5_cleanup_idle_sessions` | session settings rows not used for `session_idle_days` | Deletes them; documents are untouched |
+| 6 `phase6_reconcile_quotas` | every session | Overwrites the quota counters with the counts in the database, whether or not quotas are enforced |
 
-| Phase | Name | Trigger Condition | Action | Default Frequency |
-|-------|------|-------------------|--------|-------------------|
-| 1 | hard_delete_soft_deleted | `deleted_at < now() - grace_hours` | Hard-delete via `pipeline.delete_document()` | Daily |
-| 2 | expire_by_ttl | `expires_at < now()` | Soft-delete (enters grace window) | Daily |
-| 3 | cleanup_error_documents | ERROR status, `upload_date < now() - error_retention_days` | Soft-delete | Daily |
-| 4 | cleanup_expired_citations | (existing logic) | Delete expired citation records | Daily |
-| 5 | cleanup_idle_sessions | (existing logic) | Clear session config/cache for idle sessions | Daily |
-| 6 | reconcile_quotas | Every GC cycle — unconditional DB-to-memory counter sync | Overwrite in-memory QuotaManager counters from authoritative DB values (works even when quota enforcement is disabled) | Daily |
+**Safety threshold.** If phase 1 would delete more than
+`safety_threshold_percent` (default 0.25) of all documents in the database, it
+deletes none and marks its result `safety_aborted`. The other phases still run.
 
-All phases:
-- Run in sequence within a single GC cycle
-- Write per-phase results to the `gc_audit_log` DB table
-- Check the **safety threshold** (default 25%) before Phase 1 — if >25% of all docs
-  would be hard-deleted, the phase is aborted to prevent runaway deletes
+**One cycle at a time.** A cycle takes a lock in the `gc_lock` table (held for
+at most 3 hours) and releases it when done. A cycle that finds the lock held
+returns at once with `aborted: true`. The orphan scan APScheduler runs takes
+the same lock. Processes that share the metadata database therefore never run two
+cycles at once, though each process that schedules its own cycles still runs
+them.
 
----
+## Scheduling
 
-## 4. Orphan Detection
+At startup `LifecycleScheduler` picks one of two schedulers:
 
-### Algorithm
+- **Celery Beat**, when Celery is installed (the `production` extra) and its
+  broker answers. Lasagna then schedules nothing itself. Beat sends
+  `knowledge.gc.run_full_cycle` every `gc_cycle_hours` and
+  `knowledge.gc.orphan_scan` (detection only) every `orphan_scan_hours`, read
+  from the policy when Beat starts. Run a worker and one Beat process:
 
-```text
-db_ids  = set of document_id from metadata DB  (status != soft_deleted)
-vec_ids = set of document_id from vector store  (via list_document_ids())
+  ```bash
+  celery -A lasagna.infrastructure.tasks.celery_app worker --loglevel=info
+  celery -A lasagna.infrastructure.tasks.celery_app beat --loglevel=info
+  ```
 
-db_only  = db_ids - vec_ids   ← DB record, no vectors  (failed ingestion)
-vec_only = vec_ids - db_ids   ← Vectors, no DB record  (leaked vectors)
-```
+  The compose stack's `celery` profile runs both.
+- **APScheduler** in the same process, otherwise. It needs the `lifecycle`
+  extra (`pip install "lasagna-rag[lifecycle]"`); without it a warning is
+  logged and garbage collection runs only when you trigger it. It runs a cycle
+  every `gc_cycle_hours` and an orphan scan, which only logs what it finds,
+  every `orphan_scan_hours`.
 
-### Actions
+Both count intervals from when they start, not from a time of day.
 
-| Orphan Type | Meaning | Repair Action |
-|-------------|---------|---------------|
-| `db_only` | Ingestion failed mid-way | Soft-delete the DB record (vectors were never written) |
-| `vec_only` | DB delete succeeded but vector delete failed | Delete matching vectors from the backend |
+## Policy
 
-### Limitations
+`LifecyclePolicy.load()` (also `LifecyclePolicy.from_env()`) reads the
+`[rag.lifecycle]` section of `settings.lasagna.toml`, then lets the variables
+below override it. These variables have only the `RAG_` form.
 
-- **Pre-migration docs**: Documents without a `collection_name` field (ingested before this
-  migration) are skipped with a warning.
-- **Pinecone**: `list_document_ids()` uses a paginated fetch (O(N) scan) because Pinecone has
-  no native aggregation API.  For very large indexes, this can be slow.
-- **File orphans** (files in storage with no DB record): Out of scope for now.
-  The storage backend has no `list_files()` API.
-
----
-
-## 5. Scheduler Safety
-
-### Celery Beat (production)
-
-In production, periodic GC tasks are driven by Celery Beat:
-
-```bash
-# Start worker
-celery -A lasagna.infrastructure.tasks.celery_app worker --loglevel=info
-
-# Start beat scheduler (one instance per cluster)
-celery -A lasagna.infrastructure.tasks.celery_app beat --loglevel=info
-```
-
-Beat schedule (configured in `celery_app.py`):
-
-| Task | Schedule |
-|------|----------|
-| `knowledge.gc.run_full_cycle` | Daily at 03:00 UTC |
-| `knowledge.gc.orphan_scan` | Weekly, Sunday at 04:00 UTC |
-
-### APScheduler (single-node / dev fallback)
-
-When no Celery broker is reachable, `LifecycleScheduler` falls back to APScheduler:
-
-```python
-from lasagna.lifecycle import LifecycleScheduler, DocumentLifecycleManager
-from lasagna.lifecycle.policy import LifecyclePolicy
-
-policy = LifecyclePolicy.from_env()
-# lifecycle_manager is a DocumentLifecycleManager instance
-scheduler = LifecycleScheduler(gc=lifecycle_manager._gc, policy=policy)
-scheduler.start()  # Auto-detects Celery or falls back to APScheduler
-```
-
-### Multi-process Safety (DB Advisory Lock)
-
-Both schedulers guard against duplicate GC runs in multi-worker deployments via the
-`gc_lock` DB table:
-
-1. Before each GC cycle, acquire a row in `gc_lock` (owner_id = UUID, expires_at = now + TTL)
-2. If another process holds the lock (non-expired row), skip the run silently
-3. On completion, release the lock
-
-This ensures exactly one GC run per cycle even with multiple Gunicorn workers.
-
----
-
-## 6. Configuration Reference
-
-Policy is loaded with a three-tier priority chain (highest wins):
-
-1. **Environment variables** (`RAG_GC_*`)
-2. **`[rag.lifecycle]` section** of `settings.lasagna.toml`
-3. **Dataclass defaults**
-
-| Field | Default | Env Var | Description |
-|-------|---------|---------|-------------|
-| `soft_delete_grace_hours` | 24 | `RAG_GC_GRACE_HOURS` | Hours before GC hard-deletes soft-deleted docs |
-| `document_ttl_days` | `None` | `RAG_GC_TTL_DAYS` | Auto-expire documents after N days (`None` or `0` = disabled; env `RAG_GC_TTL_DAYS=0` also disables) |
-| `error_retention_days` | 7 | `RAG_GC_ERROR_RETENTION_DAYS` | Days before ERROR docs are soft-deleted |
-| `session_idle_days` | 30 | `RAG_GC_SESSION_IDLE_DAYS` | Days before idle sessions are cleaned |
-| `gc_cycle_hours` | 24 | `RAG_GC_CYCLE_HOURS` | Full GC cycle interval (APScheduler **and** Celery Beat) |
-| `orphan_scan_hours` | 168 | `RAG_GC_ORPHAN_SCAN_HOURS` | Orphan scan interval (APScheduler **and** Celery Beat) |
-| `safety_threshold_percent` | 0.25 | `RAG_GC_SAFETY_THRESHOLD` | Abort if >25% of docs would be hard-deleted in one cycle |
-| `batch_size` | 100 | `RAG_GC_BATCH_SIZE` | Docs per DB/vector batch in GC phases |
-| `reconcile_quota_on_startup` | `True` | `RAG_GC_RECONCILE_QUOTA` | Rebuild quota counters from DB at startup |
+| Field | Default | Environment | Meaning |
+| --- | --- | --- | --- |
+| `soft_delete_grace_hours` | 24 | `RAG_GC_GRACE_HOURS` | Hours an archived document can be restored |
+| `document_ttl_days` | unset | `RAG_GC_TTL_DAYS` | Days from upload to expiry; unset or 0 turns expiry off |
+| `error_retention_days` | 7 | `RAG_GC_ERROR_RETENTION_DAYS` | Days before an `error` document is archived; 0 turns this off |
+| `session_idle_days` | 30 | `RAG_GC_SESSION_IDLE_DAYS` | Days before an unused session's settings are deleted |
+| `gc_cycle_hours` | 24 | `RAG_GC_CYCLE_HOURS` | Hours between cycles |
+| `orphan_scan_hours` | 168 | `RAG_GC_ORPHAN_SCAN_HOURS` | Hours between orphan scans |
+| `safety_threshold_percent` | 0.25 | `RAG_GC_SAFETY_THRESHOLD` | Fraction of all documents above which phase 1 deletes nothing |
+| `batch_size` | 100 | `RAG_GC_BATCH_SIZE` | Accepted and reported; no phase reads it |
+| `reconcile_quota_on_startup` | true | `RAG_GC_RECONCILE_QUOTA` | Accepted and reported; nothing reconciles quotas at startup (phase 6 does it each cycle) |
 
 ```python
 from lasagna.lifecycle import LifecyclePolicy
 
-# Programmatic — explicit values override everything
-policy = LifecyclePolicy(
-    soft_delete_grace_hours=48,   # 2-day grace window
-    document_ttl_days=90,         # Auto-expire after 90 days
-    safety_threshold_percent=0.1, # More conservative: abort if >10%
-)
-
-# Recommended: load from TOML + env overrides
-policy = LifecyclePolicy.load()   # reads [rag.lifecycle] TOML, then RAG_GC_* env vars
-
-# Backward-compatible alias
-policy = LifecyclePolicy.from_env()  # same as load()
+policy = LifecyclePolicy.load()
+policy = LifecyclePolicy(soft_delete_grace_hours=48, document_ttl_days=90, safety_threshold_percent=0.1)
 ```
 
-To change the policy at runtime without a restart, use `PATCH /api/v1/admin/gc/policy`
-or the `set_lifecycle_policy` MCP tool (see §7 below).
+`PATCH /api/v1/admin/gc/policy` and the `set_lifecycle_policy` MCP tool change
+the running process's policy until it restarts; with APScheduler they also
+reschedule the jobs, while Celery Beat keeps its intervals until it restarts.
+An upload's `expires_at` comes from the configured policy (settings file and
+environment), not from one changed at runtime.
 
----
+## Orphan detection
 
-## 7. Admin API
+`OrphanDetector.detect()` compares two sets for the collection of the server's
+default configuration:
 
-All admin endpoints require the `X-Admin-Token` header. Configure via:
+- the `ready` documents in the metadata database, and
+- the distinct `document_id` values in the vector collection, read through the
+  backend's `list_document_ids()`, at most 50,000 of them (past that the report
+  sets `scan_limited`).
+
+| Kind | Meaning | `repair(dry_run=False)` |
+| --- | --- | --- |
+| `db_only` | A `ready` row with no vectors, for example after a crash during ingestion. A row whose `collection_name` names another collection is not counted | Archives the row, so phase 1 removes it after the grace window |
+| `vector_only` | Vectors with no `ready` row | Deletes the vectors |
+
+Vectors of a document that is archived or still being processed have no `ready`
+row, so they are reported as `vector_only`, and a repair deletes them. Run a
+repair when no document is in its grace window or mid-ingestion, or check the
+dry run's list first. Files in storage with no row are not detected, because
+storage backends cannot list their files.
+
+## REST API
+
+The admin routes need `RAG_ADMIN_TOKEN` (32 characters or more, not a
+placeholder; there is no `LASAGNA_` form) in the server's environment and the
+same value in the `X-Admin-Token` header. Without a usable token they return
+503.
 
 ```bash
-export RAG_ADMIN_TOKEN=my-secret-admin-token
+export RAG_ADMIN_TOKEN=$(openssl rand -hex 32)
 ```
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/v1/admin/gc/run` | Trigger a full GC cycle |
-| `GET` | `/api/v1/admin/gc/orphans` | Detect orphans (read-only); includes `scan_limited` flag |
-| `POST` | `/api/v1/admin/gc/repair?dry_run=false` | Repair orphans |
-| `GET` | `/api/v1/admin/gc/policy` | Return current lifecycle policy |
-| `PATCH` | `/api/v1/admin/gc/policy` | Update policy fields at runtime (not persisted) |
-| `DELETE` | `/api/v1/admin/sessions/{session_id}` | Bulk-delete entire session |
+| Method | Path | Does |
+| --- | --- | --- |
+| `POST` | `/api/v1/admin/gc/run` | Runs a cycle (optional `?session_id=`) and returns each phase's counts |
+| `GET` | `/api/v1/admin/gc/orphans` | Detects orphans; changes nothing |
+| `POST` | `/api/v1/admin/gc/repair` | Detects and repairs; `dry_run` defaults to `true` |
+| `GET` | `/api/v1/admin/gc/policy` | Returns the running policy |
+| `PATCH` | `/api/v1/admin/gc/policy` | Changes policy fields until restart; unknown fields are refused with 422 |
+| `DELETE` | `/api/v1/admin/sessions/{session_id}` | Deletes every document of a session, archived ones included |
 
-### Document Lifecycle Endpoints (no admin token needed)
+The document routes use the ordinary session authentication:
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/v1/documents/{id}/archive` | Soft-delete a document |
-| `POST` | `/api/v1/documents/{id}/restore` | Restore a soft-deleted document |
-| `DELETE` | `/api/v1/documents/{id}` | Hard-delete (unchanged, non-breaking) |
+| Method | Path | Does |
+| --- | --- | --- |
+| `POST` | `/api/v1/documents/{id}/archive` | Archives the document |
+| `POST` | `/api/v1/documents/{id}/restore` | Restores it within the grace window |
+| `DELETE` | `/api/v1/documents/{id}` | Deletes it at once |
 
----
+```bash
+H="X-Admin-Token: $RAG_ADMIN_TOKEN"
+curl -H "$H" http://localhost:8000/api/v1/admin/gc/orphans
+curl -X POST -H "$H" "http://localhost:8000/api/v1/admin/gc/repair?dry_run=true"
+curl -X POST -H "$H" "http://localhost:8000/api/v1/admin/gc/repair?dry_run=false"
+curl -X POST -H "$H" http://localhost:8000/api/v1/admin/gc/run
+curl -X DELETE -H "$H" http://localhost:8000/api/v1/admin/sessions/session_abc123
+```
 
-## 8. SDK Usage
+If phase 1 reports `"safety_aborted": true`, find out why so many documents are
+archived before you raise the threshold:
+
+```bash
+curl -X PATCH -H "$H" -H "Content-Type: application/json" \
+  -d '{"safety_threshold_percent": 0.5}' http://localhost:8000/api/v1/admin/gc/policy
+curl -X POST -H "$H" http://localhost:8000/api/v1/admin/gc/run
+```
+
+The audit log is in the metadata database (`~/.lasagna/dbs/rag.db` with the
+default SQLite backend):
+
+```sql
+SELECT run_id, phase, docs_scanned, docs_cleaned, bytes_freed, errors, started_at
+FROM gc_audit_log ORDER BY started_at DESC LIMIT 30;
+```
+
+## SDK
 
 ```python
 from lasagna.sdk import KnowledgeClient
 
-async with KnowledgeClient.from_url("http://localhost:8000") as client:
-    # Soft-delete (recoverable)
+async with KnowledgeClient(session_id="demo") as client:
     doc = await client.documents.archive("doc_abc123")
-    print(doc.status)  # DocumentStatus.SOFT_DELETED
-
-    # Restore within grace window
+    print(doc.status)                       # soft_deleted
     doc = await client.documents.restore("doc_abc123")
-    print(doc.status)  # DocumentStatus.READY
+    print(doc.status)                       # ready
 
-    # Bulk delete specific documents
-    deleted = await client.documents.bulk_delete(["doc_1", "doc_2", "doc_3"])
-
-    # Delete entire session efficiently
+    deleted = await client.documents.bulk_delete(["doc_1", "doc_2"])   # number deleted
     result = await client.documents.delete_session(confirm=True)
-    print(f"Deleted {result['deleted']} docs, freed {result['bytes_freed']} bytes")
+    print(result["deleted"], result["bytes_freed"])
 ```
 
----
+The same calls work on `KnowledgeClient.from_url(...)`. There, `delete_session`
+calls the admin route and sends `RAG_ADMIN_TOKEN` from the client's environment.
 
-## 9. MCP Tools
+## MCP tools
 
-Six lifecycle MCP tools are registered in the server:
+| Tool | Does |
+| --- | --- |
+| `archive_document(document_id, session_id)` | Archives a document |
+| `restore_document(document_id, session_id)` | Restores it within the grace window |
+| `get_gc_status(session_id)` | Returns the 20 most recent audit log rows (for the whole instance) |
+| `get_lifecycle_policy()` | Returns the running policy |
+| `set_lifecycle_policy(session_id, policy_updates)` | Changes policy fields (a JSON object) until restart |
+| `bulk_delete_session(session_id, confirm=True)` | Deletes every document of the session |
 
-| Tool | Description |
-|------|-------------|
-| `archive_document(document_id, session_id)` | Soft-delete a document |
-| `restore_document(document_id, session_id)` | Restore within grace window |
-| `bulk_delete_session(session_id, confirm=True)` | Wipe entire session |
-| `get_gc_status(session_id)` | View recent GC audit log entries |
-| `get_lifecycle_policy()` | Return the current lifecycle policy |
-| `set_lifecycle_policy(policy_updates)` | Update policy fields at runtime (not persisted) |
+`bulk_delete_session` is left out of the default `safe` tool set; start the
+server with `--tools all` (or `LASAGNA_MCP_TOOLS=all`) to register it. On a
+networked transport with `RAG_REQUIRE_AUTH` set, the four tools that act on the
+whole instance (`get_gc_status`, `get_lifecycle_policy`, `set_lifecycle_policy`,
+`bulk_delete_session`) also take `admin_token`.
 
----
+## Quota
 
-## 10. Quota Semantics
+| Event | Quota |
+| --- | --- |
+| Upload | Reserved at upload |
+| Archive | Unchanged: an archived document still counts |
+| Phase 1, `DELETE /documents/{id}`, session delete | Released, per document, by the pipeline's delete |
+| Phase 6 | Counters overwritten with the database's counts |
 
-| Event | Quota Impact |
-|-------|-------------|
-| Upload | Quota reserved immediately |
-| Soft-delete | **No change** — quota still consumed during grace window |
-| GC Phase 1 (hard-delete) | **Quota freed** — `record_delete(bytes, chunks)` called |
-| `DELETE /documents/{id}` (hard-delete) | Quota freed immediately |
-| `DELETE /admin/sessions/{id}` | Quota freed per-document (pipeline deletes each doc individually) |
+## Vector backends
 
-This ensures quota is freed exactly once (on hard delete) without risk of double-decrement.
+The orphan detector calls `list_document_ids(collection_name, session_id, limit=..., offset=...)`.
+The default in `VectorStoreAdapter` scans every row with `iter_all()`, which
+pages through `query()`. PgVector and OpenSearch override `list_document_ids`,
+and Milvus overrides `iter_all` with a native cursor. A backend that can list distinct document
+ids natively should override it too (see
+[the vector backends page](../vector_backends/README.md#add-a-backend)).
 
----
-
-## 11. Operational Runbook
-
-### Check orphan / consistency status (read-only)
-
-```bash
-# Read-only orphan scan — does NOT modify any data
-curl -H "X-Admin-Token: $RAG_ADMIN_TOKEN" \
-  http://localhost:8000/api/v1/admin/gc/orphans
-# Or via MCP:
-get_gc_status(session_id="any_session")
-```
-
-### Manually trigger GC
-
-```bash
-# POST triggers a full GC cycle (destructive, acquires advisory lock)
-curl -X POST -H "X-Admin-Token: $RAG_ADMIN_TOKEN" \
-  "http://localhost:8000/api/v1/admin/gc/run"
-```
-
-### Diagnose orphans
-
-```bash
-# Detect (read-only)
-curl -H "X-Admin-Token: $RAG_ADMIN_TOKEN" \
-  "http://localhost:8000/api/v1/admin/gc/orphans"
-
-# Repair (preview first, then apply)
-curl -X POST -H "X-Admin-Token: $RAG_ADMIN_TOKEN" \
-  "http://localhost:8000/api/v1/admin/gc/repair?dry_run=true"
-
-curl -X POST -H "X-Admin-Token: $RAG_ADMIN_TOKEN" \
-  "http://localhost:8000/api/v1/admin/gc/repair?dry_run=false"
-```
-
-### Bulk-delete a session
-
-```bash
-curl -X DELETE -H "X-Admin-Token: $RAG_ADMIN_TOKEN" \
-  "http://localhost:8000/api/v1/admin/sessions/session_abc123"
-```
-
-### Interpret the audit log
-
-The `gc_audit_log` table has one row per GC phase per run:
-
-```sql
-SELECT run_id, phase, docs_scanned, docs_cleaned, bytes_freed, errors, started_at
-FROM gc_audit_log
-ORDER BY started_at DESC
-LIMIT 30;
-```
-
-### Safety threshold triggered
-
-If you see `aborted=true` in a GC report, the safety threshold fired. This means the GC
-detected that >25% of docs (or >25% of the session's docs) would be hard-deleted. Investigate
-why before re-running with a higher threshold:
-
-```python
-from lasagna.lifecycle import LifecyclePolicy
-policy = LifecyclePolicy(safety_threshold_percent=0.5)
-backend._lifecycle_manager._gc._policy = policy
-backend.run_gc()
-```
-
----
-
-## 12. Extension Guide — New Vector Backend
-
-When implementing a new vector backend, override `list_document_ids()` for efficient
-orphan detection. The base class provides a fallback via `query()` but it may be
-inefficient for large collections.
-
-```python
-class MyNewBackend(VectorStoreAdapter):
-    # ...plus the abstract methods every backend implements (see vector_backends/README.md)
-
-    def list_document_ids(
-        self,
-        collection_name: str,
-        session_id: Optional[str] = None,
-        *,
-        limit: int = 10_000,
-        offset: int = 0,
-    ) -> List[str]:
-        """Return distinct document_ids from the vector store."""
-        # Use your backend's native aggregation/distinct API:
-        # e.g. SQL: SELECT DISTINCT document_id FROM ... LIMIT ? OFFSET ?
-        # e.g. aggregation: {"aggs": {"doc_ids": {"terms": {"field": "document_id", "size": limit}}}}
-        ...
-```
+Tests: `tests/test_lifecycle.py`, `tests/test_gc.py`, `tests/test_orphan_detector.py`.

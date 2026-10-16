@@ -2,12 +2,12 @@
 
 ## Overview
 
-`RAGConfig` in `config.py` exposes **over 180 `@property` decorators** providing
+`RAGConfig` in `config.py` exposes **over 230 `@property` decorators** providing
 type-safe access to the merged configuration. Properties resolve through a
 4-level priority chain:
 
 ```
-Session override  →  Environment variable (RAG_*)  →  TOML setting  →  Default
+Session override  →  Environment variable (LASAGNA_* or RAG_*)  →  TOML setting  →  Default
 ```
 
 ## Resolution Mechanism
@@ -23,30 +23,30 @@ def vector_backend(self) -> str:
 ```
 
 The method checks in order:
-1. **Session overrides** — from `session_provider.get_resolved_config(session_id)`
-2. **Environment variables** — `self._env_overrides[leaf_key]`, type-coerced
-3. **TOML settings** — `self._knowledge_settings` (Dynaconf)
-4. **Default parameter** — typically from `self._config[key]`
+1. **Session overrides**: from `session_provider.get_resolved_config(session_id)`
+2. **Environment variables**: `self._env_overrides[leaf_key]`, type-coerced
+3. **TOML settings**: `self._knowledge_settings` (Dynaconf)
+4. **Default parameter**: typically from `self._config[key]`
 
 ## Environment Variable Override
 
-Any config key can be overridden via `RAG_` prefix:
+Any config key can be overridden with the `RAG_` prefix, or with `LASAGNA_`, which wins when both are set:
 
 ```bash
 export RAG_VECTOR_BACKEND=weaviate
-export RAG_DEFAULT_TOP_K=10
+export LASAGNA_DEFAULT_TOP_K=10
 export RAG_ENABLE_RERANKING=true
 export RAG_EMBEDDING_DIM=384
 ```
 
-Type coercion rules:
-- If default is `bool` → `"true"/"1"/"yes"` → `True`
+Type coercion rules (`_parse_env_value`):
+- If default is `bool` → `true`/`1`/`yes`/`on` → `True`, `false`/`0`/`no`/`off` → `False`; anything else is an error
 - If default is `int` → `int(value)`
 - If default is `float` → `float(value)`
-- If default is `list` → `value.split(",")` (comma-separated)
+- If default is a `list` or `dict` → parsed as JSON, and it must be a JSON list or object
 - Otherwise → `str`
 
-Numeric range validation is applied to known keys (e.g., `default_top_k` must be between 1 and 1000).
+An empty value counts as unset. Numeric range validation is applied to known keys (e.g., `default_top_k` must be between 1 and 1000), and some string settings take one of a fixed set (`database_backend`, `cache_backend`, `tenant_isolation`, `log_level`, `routing_default_tier`, `routing_strategy`). An invalid value raises `ConfigError` when the config loads, naming the variable; a `RAG_` name that is no setting logs a warning with the closest one.
 
 ## Property Categories
 
@@ -122,13 +122,13 @@ A Milvus server address is read from `MILVUS_URI` (and `MILVUS_TOKEN`) by the ba
 | `database_dsn` | str | `""` | PostgreSQL connection string |
 | `database_pool_min` | int | 2 | Min pool connections |
 | `database_pool_max` | int | 10 | Max pool connections |
-| `db_path` | str | (derived) | SQLite database file path |
+| `db_path` | str | (derived) | SQLite database file path, `~/.lasagna/dbs/rag.db` by default (`LASAGNA_DB_DIR` or `RAG_DB_DIR` moves the directory) |
 
 ### Storage & Upload
 
 | Property | Type | Default | Description |
 |---|---|---|---|
-| `upload_dir` | str | `"~/.rag_knowledge/uploads"` | Document upload directory |
+| `upload_dir` | str | `"~/.lasagna/uploads"` | Document upload directory (`LASAGNA_UPLOAD_DIR` or `RAG_UPLOAD_DIR`; under `LASAGNA_DATA_DIR` when that is set) |
 | `max_file_size` | int | 52428800 | Max file upload size in bytes (50 MB) |
 | `storage_backend` | str | `"local"` | File storage backend |
 
@@ -176,7 +176,7 @@ via `patch_config()`.
 
 Default location: `src/lasagna/settings.lasagna.toml`
 
-Override with: `RAG_SETTINGS_FILE=/path/to/custom.toml`
+Override with: `LASAGNA_SETTINGS_FILE=/path/to/custom.toml` (or `RAG_SETTINGS_FILE`)
 
 ```toml
 [rag]

@@ -6,7 +6,7 @@ description: Use when Lasagna errors, hangs, returns no results, or behaves unex
 # Report a Lasagna problem
 
 The goal is a report a maintainer can act on without a round trip. That means
-diagnostics, a reproduction, and the right template — all of which are
+diagnostics, a reproduction, and the right template, all of which are
 mechanical, so do them mechanically.
 
 ## 1. Rule out the common causes first
@@ -19,13 +19,18 @@ lasagna doctor
 
 | `doctor` says | It is not a bug |
 |---|---|
-| `model_cache: no Hugging Face cache found` | First run downloads ~5 GB. It is not hung. |
-| `llm_credentials: no LLM API key detected` | Keyless retrieval works only on a non-agentic profile — the default enables agentic RAG, which needs a key. Try `--profile speed`. |
+| `model_cache: no Hugging Face cache found` | The first run downloads about 4.5 GB on the default profile. It is not hung. |
+| `llm_credentials: no LLM API key detected` | On the default profile, a search the router sends to agentic retrieval needs a key. `lasagna configure --profile speed` never calls an LLM. |
 | `import:X not installed` | Missing extra. Run the `pip install` it prints. |
 | `plugin:X failed to load` | Their plugin is broken. Results silently used the default. |
 
-If `doctor` reports `FAIL` on `vector_backend` or `storage`, fix that first —
+If `doctor` reports `FAIL` on `vector_backend` or `storage`, fix that first:
 everything downstream will misbehave.
+
+The first lines of `doctor` name the session, profile, settings file and data
+directory in force. A profile set with `lasagna configure -s NAME` applies to
+that session only (`docs/configuration.md`); check that the session in the
+report is the one the user searches.
 
 ## 2. Reduce it to something runnable
 
@@ -37,7 +42,7 @@ lasagna upload ./one-file.md -s repro
 lasagna search "the query" -s repro -k 5
 ```
 
-If it only reproduces with a specific document, say so — and say what kind
+If it only reproduces with a specific document, say so, and say what kind
 (scanned PDF, huge table, non-English), not the document itself.
 
 ## 3. Capture diagnostics
@@ -47,7 +52,7 @@ lasagna doctor --issue
 ```
 
 Emits a collapsible block: version, install source, platform, GPU, and every
-check. **Already redacted** — no absolute paths, no credential values.
+check. **Already redacted**: no absolute paths, no credential values.
 
 Do not hand-write this section. The redaction is what makes it safe to paste.
 
@@ -87,7 +92,7 @@ EOF
 $(lasagna doctor --issue)"
 ```
 
-For a **result dispute**, run the comparison first and paste its output — it
+For a **result dispute**, run the comparison first and paste its output; it
 usually resolves the question without anyone having to rule:
 
 ```bash

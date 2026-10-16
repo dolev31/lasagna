@@ -1,4 +1,4 @@
-# Evaluation SDK -- Metrics Reference
+# Evaluation SDK: Metrics Reference
 
 This document describes every metric used in the Knowledge Evaluation SDK,
 including formulas, implementation details, and statistical testing procedures.
@@ -31,7 +31,7 @@ In live mode the harness scores each query's ranked list of `metric_k`
 distinct documents (default 10), and every per-query key carries that cutoff:
 `ndcg@10`, `map@10`, `mrr@10`, `r_precision@10` and so on.
 
-### NDCG@k (Normalised Discounted Cumulative Gain)
+### NDCG@k (Normalized Discounted Cumulative Gain)
 
 Primary ranking metric. Accounts for both relevance grades and rank position.
 
@@ -45,7 +45,7 @@ NDCG_k = DCG_k / IDCG_k
 Linear gain, as in `trec_eval` and therefore BEIR. A negative grade gains
 nothing, as in `trec_eval`. Pass `exponential_gain=True` for the Burges
 `2^rel - 1` convention when comparing with work that uses it; on binary
-judgements the two agree.
+judgments the two agree.
 
 Returns a value in `[0, 1]`. Returns `0.0` when there are no relevant
 documents (IDCG is zero).
@@ -254,16 +254,16 @@ answer over five contexts). `answer_relevancy` needs an embedding endpoint for
 the judge, which the harness does not configure.
 
 A judged metric scores only answerable questions (it needs a reference). A
-metric whose every judgement failed is reported in `failed_metrics`, fails the
+metric whose every judgment failed is reported in `failed_metrics`, fails the
 task, and is never recorded as 0.0. For agentic configurations the per-query
 keys are suffixed `_regen` and `_agentic`, and an unsuffixed canonical key
 (agentic score where present) is emitted for every requested metric.
 
 ### Evaluation Modes
 
-- **`evaluate_from_samples()`** -- Aggregate scores only. Accepts raw lists of
+- **`evaluate_from_samples()`**: aggregate scores only. Accepts raw lists of
   questions, answers, contexts, and ground truths.
-- **`evaluate_detailed()`** -- Returns a `DetailedEvalResult` with both
+- **`evaluate_detailed()`**: returns a `DetailedEvalResult` with both
   `.aggregate` (dict of corpus-level scores) and `.per_sample` (list of
   per-query score dicts). Per-sample scores are essential for paired
   significance testing via `BenchmarkResults.significance_test()`.
@@ -407,7 +407,7 @@ run left in the cache, so they rank nothing.
 
 ## 7. Metrics Considered and Left Out
 
-- **bpref, infAP, Judged@k**: for incomplete judgements. The BEIR loader keeps
+- **bpref, infAP, Judged@k**: for incomplete judgments. The BEIR loader keeps
   only positive qrels, so Judged@k would equal P@k.
 - **Capped recall (R_cap@k)**: equals Recall@k whenever R <= k, which holds for
   every registered QA benchmark; for many-relevant sets use a larger
@@ -417,7 +417,7 @@ run left in the cache, so they rank nothing.
 - **BLEU, BERTScore**: BLEU is precision-only n-gram overlap, poor on short
   answers; BERTScore needs a large model and answer similarity covers semantic
   overlap.
-- **ARES**: needs judges fine-tuned on the target domain and a human-labelled
+- **ARES**: needs judges fine-tuned on the target domain and a human-labeled
   validation set.
 - **RAGChecker's claim-level diagnostics** (context utilization, self-knowledge,
   hallucination): `noise_sensitivity` is the RAGAS form of the closest one.
@@ -578,9 +578,9 @@ and is `0.0` for a single run.
 `EvalMetrics.from_results(results)` computes aggregate statistics across all
 evaluation cases from a single run:
 
-- `avg_score` -- mean judge score (1--5)
-- `avg_relevance`, `avg_completeness`, `avg_factual_accuracy` -- mean sub-criteria
-- `pass_rate` -- percentage of cases with `score >= 3`
-- `score_distribution` -- count of cases per score level (1 through 5)
-- `avg_latency_ms`, `avg_rag_latency_ms` -- mean latency statistics
-- `rag_usage_rate` -- percentage of cases where RAG context was used
+- `avg_score`: mean judge score (1 to 5)
+- `avg_relevance`, `avg_completeness`, `avg_factual_accuracy`: mean sub-criteria
+- `pass_rate`: percentage of cases with `score >= 3`
+- `score_distribution`: count of cases per score level (1 through 5)
+- `avg_latency_ms`, `avg_rag_latency_ms`: mean latency statistics
+- `rag_usage_rate`: percentage of cases where RAG context was used

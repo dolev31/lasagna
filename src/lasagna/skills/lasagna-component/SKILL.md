@@ -7,7 +7,7 @@ description: Use when implementing, validating, benchmarking or publishing a Las
 
 Eight stages are pluggable. Implement one abstract base class and the pipeline
 will use your component in place of the built-in, with everything else held
-fixed — which is what makes a measured difference attributable to your change.
+fixed, which is what makes a measured difference attributable to your change.
 
 | Stage | Base class |
 |---|---|
@@ -58,7 +58,7 @@ lasagna component validate my_package.module:MyReranker
 ```
 
 This is the difference between "registered" and "interchangeable". Registration
-alone does not mean the class satisfies its ABC — a non-conforming component is
+alone does not mean the class satisfies its ABC: a non-conforming component is
 listed with `implements_contract: False`, which is how you find out **before**
 your results depend on it.
 
@@ -68,7 +68,7 @@ Conforming is not the same as helping. Measure against a baseline with
 everything else fixed:
 
 ```bash
-lasagna benchmark run smoke --reranker my_reranker --profile speed --tracks retrieval
+lasagna benchmark run smoke --reranker my_reranker --profile speed
 lasagna benchmark experiment sweep.yaml        # the comparison, from a sweep file
 ```
 
@@ -80,15 +80,17 @@ tracks: [retrieval]
 pipeline:
   base_profile: speed
   rerankers: [cross_encoder, my_reranker]       # a control and yours
-n_runs: 3
+n_runs: 1
 ```
 
 Always include a baseline arm. Without it you cannot distinguish "my component
-reordered things" from "my component never ran" — the two look identical from
+reordered things" from "my component never ran"; the two look identical from
 outside.
 
-`n_runs: 3` is not decoration: retrieval metrics move between runs, and a
-single run says nothing about whether a gap is real.
+`n_runs: 1` is enough here: retrieval with fixed models returns the same lists
+on every run, and the significance test pairs the arms query by query. Repeat
+runs when an LLM stage is in the loop (an LLM reranker, HyDE, an agentic
+pipeline, answer generation), with `n_runs: 3` or more.
 
 **Component overrides only apply in live mode.** `generation_only` never
 constructs the pipeline, so passing a component there is a hard error rather
@@ -98,20 +100,21 @@ than a plausible number scored from gold context.
 
 ```bash
 lasagna results bundle results.json -o run.json
-lasagna results validate run.json --strict
+lasagna results validate run.json
 ```
 
 The bundle carries versions, hardware, resolved sweep, corpus fingerprint and a
 comparability key. `validate` recomputes the key and the run id, so an edited
 number no longer matches its own bundle.
 
-`--strict` blocks on warnings that do not block a local run: a single run cannot
-support a variance claim, and a floating judge alias points at different weights
-over time.
+`--strict` also fails on the warnings, which do not block a local run:
+`SINGLE_RUN` (one run reports no spread, so the results hub can never mark the
+row verified), `UNRESOLVED_JUDGE_ALIAS` (a floating judge alias points at
+different weights over time) and `UNPINNED_DATASET`, among others.
 
 ## 5. Ship it as a package
 
-Copy `examples/lasagna-plugin-template/` — an installable package registering
+Copy `examples/lasagna-plugin-template/`: an installable package registering
 one reranker and one benchmark through entry points, with tests.
 
 ```toml
@@ -122,7 +125,7 @@ reranker.my_reranker = "my_pkg:MyReranker"
 my_dataset = "my_pkg:MyBenchmarkAdapter"
 ```
 
-Verify discovery actually found it — a broken entry point is logged and skipped,
+Verify discovery actually found it: a broken entry point is logged and skipped,
 so the symptom is your component silently not being used:
 
 ```bash
@@ -136,5 +139,5 @@ lasagna plugins list
 - Never compare across different `n_samples`, splits, or embedding models.
   `lasagna results compare` will tell you when two runs are not comparable, and
   which field differs.
-- Check the model licence before publishing a number. Several strong rerankers
+- Check the model license before publishing a number. Several strong rerankers
   are non-commercial; see `docs/model-licenses.md`.

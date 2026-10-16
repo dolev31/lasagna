@@ -1,4 +1,4 @@
-# Caching -- Deep Dive
+# Caching: Deep Dive
 
 ## Two-Tier Cache Design
 
@@ -38,10 +38,10 @@ class CacheBackend(Protocol):
 
 ### InMemoryCacheBackend
 
-- Storage: `OrderedDict[str, (bytes, float)]` — LRU-ordered, `(value, expires_at)`
+- Storage: `OrderedDict[str, (bytes, float)]`, LRU-ordered, `(value, expires_at)`
 - Lock: `threading.Lock`
 - Max size: 10,000 entries (default)
-- Eviction: **expired-first, then LRU** — on `set()`, purges expired entries before evicting the least recently used
+- Eviction: **expired-first, then LRU**: on `set()`, purges expired entries before evicting the least recently used
 - TTL: `time.monotonic()` based (immune to clock skew)
 - `exists()` delegates to `get()` (checks expiry + updates LRU)
 
@@ -52,7 +52,7 @@ class CacheBackend(Protocol):
 - TTL: Redis-native `SETEX`
 - Pattern delete: `SCAN` + `DELETE` (no `KEYS` for safety)
 - **Fail-open**: all operations catch exceptions, log warnings, and return `None`/`False`/`0`
-- No `close()` method — acceptable for singleton lifetime
+- No `close()` method, which is acceptable for a singleton that lives as long as the process
 
 ### Implementation Symmetry
 
@@ -90,16 +90,14 @@ key_parts = {
 }
 ```
 
-The `component_fingerprint` encodes the active reranker, embedder, and query enhancer. This ensures that swapping a pipeline component (e.g., changing the reranker model) automatically invalidates cached results.
-
-**Not included in key** (intentionally): similarity_threshold, reranker_batch_size, context_reordering. These affect post-processing of results, not the search itself.
+The `component_fingerprint` joins the identity of the active reranker, retriever override, query enhancer and embedder with `config.settings_fingerprint()`, a hash of the session's resolved config and any per-query overrides. Swapping a component or changing any session or per-query setting (a threshold, the reranker model, the candidate depth) therefore gives a different key, so one sweep arm is never served another arm's results. Process-wide base settings are not hashed: they are fixed for the life of the process, and so is this in-memory cache.
 
 ### Eviction Policy: LRU + TTL
 
 ```
 get(key)
 ├── Lock acquired (RLock)
-├── _maybe_cleanup() — periodic expired entry purge
+├── _maybe_cleanup(): periodic expired entry purge
 ├── Key exists?
 │   ├── No → miss++, return None
 │   └── Yes → expired?
@@ -110,7 +108,7 @@ get(key)
 put(key, results)
 ├── Lock acquired (RLock)
 ├── At capacity?
-│   └── Yes → popitem(last=False) — evict LRU entry
+│   └── Yes → popitem(last=False): evict LRU entry
 │       └── Clean up session→keys mapping
 ├── Store entry with expires_at = now + ttl
 ├── Update session→keys mapping
@@ -141,14 +139,15 @@ This is O(k) where k = number of cached queries for that session, instead of O(n
 | Document uploaded (async) | `invalidate_session(session_id)` | `tasks/document_tasks.py` |
 | Document uploaded (sync) | `invalidate_session(session_id)` | `api/_document_pipeline.py` |
 | Document deleted | `invalidate_session(session_id)` | `api/_document_pipeline.py` |
+| Session state cleared | `invalidate_session(session_id)` | `api/rag_backend.py` (`clear_session_state`) |
 | Specific query re-search | `invalidate_query(query, session_id)` | Available but rarely used |
-| Config change | Implicit (different `component_fingerprint` = different key) | Automatic |
+| Config or component change | Implicit (different `component_fingerprint` = different key) | Automatic |
 
 ### TTL Enforcement
 
 - **Lazy**: on every `get()`, expired entries are returned as misses
 - **Periodic**: `_maybe_cleanup()` runs every `cleanup_interval` seconds (default 60), scanning all entries and removing expired ones
-- **Under low traffic**: expired entries persist until the next access or cleanup. This is acceptable — they consume memory but never return stale results.
+- **Under low traffic**: expired entries persist until the next access or cleanup. This is acceptable: they consume memory but never return stale results.
 
 ### Statistics
 
@@ -178,8 +177,8 @@ To force reconfiguration: call `reset_search_cache()` first, then `get_search_ca
 ### SearchCache
 
 Each `CachedSearchResult` contains:
-- `results: List[Dict]` — serialized chunks (~1-5 KB per chunk, 5-20 chunks typical)
-- `query_embedding: List[float]` — 1024 floats (~8 KB)
+- `results: List[Dict]`: serialized chunks (~1-5 KB per chunk, 5-20 chunks typical)
+- `query_embedding: List[float]`: 1024 floats (~8 KB) with the default `BAAI/bge-m3`
 - Metadata fields (~200 bytes)
 
 Estimate per entry: **10-100 KB** (depends on result count and chunk size).
@@ -188,4 +187,4 @@ At `max_size=1000`: **10-100 MB** total.
 
 ### EmbeddingCache
 
-See [embedding.md](embedding.md#memory-footprint) — ~40 MB at default settings.
+See [embedding.md](embedding.md#memory-footprint): about 40 MB at default settings.

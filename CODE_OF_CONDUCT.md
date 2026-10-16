@@ -9,18 +9,18 @@ Be straightforward and be kind. Disagree about the work, not about the person.
 This applies to issues, pull requests, discussions, and any other space the
 project uses.
 
-## Expected behaviour
+## Expected behavior
 
 - **Argue from evidence.** This is a measurement framework. "I think X is
   faster" and "here is a bundle showing X is faster" are different
   contributions, and the second is the one that settles things.
 - **Assume the other person ran into something real.** A confusing error, a
-  number that will not reproduce, a document that is wrong — these are reports
+  number that will not reproduce, a document that is wrong: these are reports
   about the project, not about the reporter's competence.
 - **Say when you are unsure.** A question asked early costs less than a wrong
   number published late.
 
-## Unacceptable behaviour
+## Unacceptable behavior
 
 Harassment, personal attacks, demeaning comments, or sustained disruption.
 Publishing someone's private information. Deliberately submitting results you

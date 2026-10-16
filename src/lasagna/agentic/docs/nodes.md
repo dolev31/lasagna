@@ -1,6 +1,6 @@
 # Node Reference
 
-13 graph nodes implemented across 11 files in `nodes/`. Each node is an async function that receives `RAGGraphState` and returns a partial state update dict.
+13 graph nodes implemented across 12 files in `nodes/` (`quality_gates.py` holds two). Each node is an async function that receives `RAGGraphState` and returns a partial state update dict.
 
 ---
 
@@ -100,10 +100,10 @@
 
 **Logic:** Applies one of four strategies from `chunk_cite_retrieval` config:
 
-- **`agent_decides`** -- LLM evaluates which chunks actually support the generation
-- **`fixed`** -- Takes first `fixed_size` citations
-- **`above_threshold`** -- Filters by `threshold_score`, capped at `max_chunks`
-- **`adaptive`** -- Score-gap analysis via `adaptive_k_selection()` with configurable buffer
+- **`agent_decides`**: LLM evaluates which chunks actually support the generation
+- **`fixed`**: takes the first `fixed_size` citations
+- **`above_threshold`**: filters by `threshold_score`, capped at `max_chunks`
+- **`adaptive`**: score-gap analysis via `adaptive_k_selection()` with configurable buffer
 
 Falls back to first 5 citations if strategy is unrecognized.
 
@@ -113,13 +113,13 @@ Falls back to first 5 citations if strategy is unrecognized.
 
 **File:** `nodes/format_output.py`
 
-**Purpose:** Terminal node -- assemble final result with reindexed citations and comprehensive metrics.
+**Purpose:** Terminal node: assemble the final result with reindexed citations and the full `AgenticRAGMetrics`.
 
 **Reads:** `filtered_citations`, `hop_data`, `session_config`, `total_start_time`, `rag_metrics_list`, `stop_reason`, `final_search_results`, `seen_content_hashes`
 
 **Writes:** `formatted_context`, `final_chunks`, `final_citations`, `final_metrics`, `stop_reason`
 
-**Logic:** Looks up full chunk content from `hop_data` for each citation. Reindexes citations to contiguous `[1, 2, 3...]` indices. Merges optional final-search results using configured mode (`merge` or `replace`). Builds `<knowledge_base>` XML context block. Computes `AgenticRAGMetrics` with latency breakdown, token reduction stats, CRAG flags, and quality booster status. Sets `stop_reason = "graph_complete"` if not already set.
+**Logic:** Looks up full chunk content from `hop_data` for each citation. Reindexes citations to contiguous `[1, 2, 3...]` indices. Merges optional final-search results using configured mode (`merge` or `replace`). Builds `<knowledge_base>` XML context block. Computes `AgenticRAGMetrics` with latency breakdown, token reduction stats, CRAG flags, and which retrieval features (hybrid, reranking, MMR, HyDE) were on. Sets `stop_reason = "graph_complete"` if not already set.
 
 ---
 
@@ -127,13 +127,13 @@ Falls back to first 5 citations if strategy is unrecognized.
 
 **File:** `nodes/final_search.py`
 
-**Purpose:** Optional comprehensive search on the original question before output assembly.
+**Purpose:** Optional extra search on the original question before output assembly.
 
 **Reads:** `session_config`, `original_question`, `session_id`, `document_filter`, `top_k`, `trace_id`, `hop_data`
 
 **Writes:** `final_search_results`
 
-**Logic:** Executes when `use_final_search` or `enable_final_search` is enabled. Makes adaptive HyDE decision with `is_final=True` flag. Performs backend search using original question. Converts results to citation-format dicts with `full_content` field and `hop_index = -1` sentinel for downstream merge identification.
+**Logic:** Executes when `use_final_search` (or its alias `enable_final_search`) is enabled. Makes adaptive HyDE decision with `is_final=True` flag. Performs backend search using original question. Converts results to citation-format dicts with `full_content` field and `hop_index = -1` sentinel for downstream merge identification.
 
 ---
 
@@ -169,7 +169,7 @@ Falls back to first 5 citations if strategy is unrecognized.
 
 **File:** `nodes/quality_gates.py`
 
-**Purpose:** Self-RAG ISSUP grounding verification -- checks whether the generation is supported by source documents.
+**Purpose:** Self-RAG ISSUP grounding verification: checks whether the generation is supported by source documents.
 
 **Reads:** `llm`, `generation`, `graded_chunks` (fallback: `refined_chunks`, then `retrieved_chunks`), `quality_check_attempts`, `timing_spans`
 
@@ -183,10 +183,10 @@ Falls back to first 5 citations if strategy is unrecognized.
 
 **File:** `nodes/quality_gates.py`
 
-**Purpose:** Self-RAG ISUSE relevance verification -- checks whether the generation addresses the original question.
+**Purpose:** Self-RAG ISUSE relevance verification: checks whether the generation addresses the original question.
 
 **Reads:** `llm`, `generation`, `original_question`, `quality_check_attempts`, `timing_spans`
 
 **Writes:** `answer_quality`, `quality_check_attempts`, `timing_spans`
 
-**Logic:** Formats original question and generation into the ISUSE prompt. LLM classifies as `"addresses_question"`, `"partially_addresses"`, or `"does_not_address"`. Uses safe defaults and robust label extraction. Increments `quality_check_attempts` for budget tracking.
+**Logic:** Formats original question and generation into the ISUSE prompt. LLM classifies as `"addresses_question"`, `"partially_addresses"`, or `"does_not_address"`. Uses longest-first label matching, and falls back to `"addresses_question"` when the reply matches no label or the LLM call fails. Increments `quality_check_attempts` for budget tracking.

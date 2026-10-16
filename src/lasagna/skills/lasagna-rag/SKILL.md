@@ -1,6 +1,6 @@
 ---
 name: lasagna-rag
-description: Use when an agent or application needs retrieval over its own documents — ingesting files, searching them, or wiring Lasagna's MCP server into Claude Code, Claude Desktop, Cursor or any MCP client. Covers the fastest path from zero to a working answer.
+description: Use when an agent or application needs retrieval over its own documents: ingesting files, searching them, or wiring Lasagna's MCP server into Claude Code, Claude Desktop, Cursor or any MCP client. Covers the fastest path from zero to a working answer.
 ---
 
 # Give an agent retrieval over a corpus
@@ -15,14 +15,14 @@ lasagna doctor
 ```
 
 Reports version, backend, credentials, model cache and anything that failed to
-load quietly. Read it before debugging anything else — most "it hangs" reports
+load quietly. Read it before debugging anything else: most "it hangs" reports
 are the first-run model download, which this names explicitly.
 
-## Path A — MCP (the agent calls retrieval as a tool)
+## Path A: MCP (the agent calls retrieval as a tool)
 
 ```bash
 pip install lasagna-rag
-lasagna configure --profile speed -s my-corpus   # 80 MB model; skip for the 5 GB default
+lasagna configure --profile speed -s my-corpus   # 91 MB model, no API key
 for f in ./docs/*.md; do lasagna upload "$f" -s my-corpus; done
 ```
 
@@ -33,14 +33,15 @@ Then register the server. **Claude Code** (`.mcp.json` in the project):
   "mcpServers": {
     "lasagna": {
       "command": "lasagna-mcp",
-      "args": ["--transport", "stdio"],
       "env": { "RAG_SESSION_ID": "my-corpus" }
     }
   }
 }
 ```
 
-**Claude Desktop** — same block inside `claude_desktop_config.json`.
+**Claude Desktop**: the same block inside `claude_desktop_config.json`.
+`lasagna-mcp` speaks stdio, which is how both launch it; `--transport sse`
+serves a port instead.
 
 Tools the agent gets: 31 tools, in six groups.
 
@@ -56,7 +57,8 @@ Tools the agent gets: 31 tools, in six groups.
 By default the server runs with `--tools safe`, which leaves out the six tools
 that delete data or reset configuration: `delete_document`, `clear_session`,
 `bulk_delete_session`, `rebuild_collection`, `delete_rag_profile` and
-`reset_rag_config`. Add `"--tools", "all"` to the server's arguments to serve them.
+`reset_rag_config`. Add `"args": ["--tools", "all"]` to the server's entry (or set
+`LASAGNA_MCP_TOOLS=all`) to serve them.
 
 Use `search` for every search. `search_knowledge` and `search_with_context` are
 deprecated aliases of it: they still answer, but are listed only under
@@ -68,16 +70,17 @@ Prefer `archive_document` over `delete_document` when a human might want it
 back: archive is recoverable during the grace window and drops out of search
 immediately.
 
-## Path B — Python (the application calls retrieval directly)
+## Path B: Python (the application calls retrieval directly)
 
 ```python
 from lasagna.sdk import KnowledgeClient
 
 client = KnowledgeClient(session_id="my-corpus")
-await client.upload("report.pdf")
-results = await client.search("what were Q3 revenues?", top_k=5)
-for r in results:
-    print(r.score, r.content[:200])
+doc = await client.upload("report.pdf")
+await client.documents.wait_for_processing(doc.document_id)  # upload returns once queued
+results = await client.search_documents("what were Q3 revenues?", top_k=5)
+for r in results.results:
+    print(r.score, r.chunk.content[:200])
 await client.close()
 ```
 
@@ -86,23 +89,29 @@ documents. Use one per tenant, per user, or per experiment.
 
 ## Choosing a profile
 
-| Profile | What it does | When |
+| Profile | What it does | Needs an LLM key |
 |---|---|---|
-| `speed` | pure vector search, 80 MB model | demos, CI, first run |
-| `standard` | + reranking + hybrid search | most production use |
-| `max_quality` | + agentic retrieval | when accuracy beats latency |
+| `speed` | dense vector search only, 91 MB model | no |
+| `standard` | hybrid search, reranking, MMR and agentic retrieval, BGE-M3 (3.1 GB) | yes |
+| `balanced` | `standard` plus hierarchical chunking, the structured agentic graph and adaptive routing | yes |
+| `max_quality` | `balanced` plus HyDE, query expansion, RAG fusion, CRAG and contextual retrieval | yes |
 
 ```bash
-lasagna configure --profile standard
+lasagna configure --profile standard -s my-corpus
 ```
+
+A profile applies to the session named with `-s`, and wins over the settings
+file and environment for that session (`docs/configuration.md`). Each embedding
+model keeps its own collection, so after switching to a profile with another
+model, upload the documents again to search them with it.
 
 ## When results are bad
 
-Work in this order — the first two explain most cases:
+Work in this order; the first two explain most cases:
 
-1. `lasagna status -s my-corpus` — are the documents actually ingested, and is
+1. `lasagna status -s my-corpus`: are the documents actually ingested, and is
    the chunk count what you expect? Zero chunks means ingestion failed quietly.
-2. `lasagna search "..." -s my-corpus -k 20` — if the right chunk appears at
+2. `lasagna search "..." -s my-corpus -k 20`: if the right chunk appears at
    rank 15, this is a ranking problem (enable reranking); if it never appears,
    it is a retrieval or chunking problem.
 3. Only then change the profile. Changing several things at once means you will
@@ -112,12 +121,13 @@ Work in this order — the first two explain most cases:
 
 - **Never** put an API key in `.mcp.json` or any committed file. Use the
   environment.
-- The first search downloads a model. On the default profile that is ~5 GB and
-  11–26 minutes. Say so before a user thinks it has hung.
-- **Retrieval itself needs no LLM key, but the shipped default does.**
-  `use_agentic_rag = true` by default, and the agentic path calls an LLM — so
-  a keyless `search` fails with "No LLMProvider configured". Run
-  `lasagna configure --profile speed` (which disables it) or set
+- The first search downloads a model. On the default profile that is about
+  4.5 GB and 7 to 40 minutes. Say so before a user thinks it has hung.
+- **Retrieval itself needs no LLM key, but the shipped default can call one.**
+  `use_agentic_rag = true` by default, and the router sends a query it judges
+  complex to the agentic path, which calls an LLM; without a key that search
+  fails with "No LLMProvider configured". Run
+  `lasagna configure --profile speed` (which turns it off) or set
   `use_agentic_rag = false` for keyless retrieval.
 
 ## If something is broken

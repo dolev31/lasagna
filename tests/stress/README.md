@@ -1,6 +1,6 @@
 # RAG Stress Tests
 
-End-to-end stress tests that validate Lasagna under load across all supported vector backends.
+End-to-end stress tests that run Lasagna's Docker stack under load, one vector backend at a time.
 
 ## Quick Start
 
@@ -8,7 +8,7 @@ End-to-end stress tests that validate Lasagna under load across all supported ve
 # Prerequisites: Docker running, .env configured
 cd src/lasagna/deploy
 cp .env.example .env
-# Edit .env: set RAG_JWT_SECRET (generate with: openssl rand -hex 32)
+# Edit .env: set RAG_JWT_SECRET (generate with: openssl rand -hex 32) and POSTGRES_PASSWORD
 
 # Build the Docker image (one-time, downloads embedding models)
 make build
@@ -17,7 +17,7 @@ make build
 cd /path/to/lasagna
 make -C src/lasagna/deploy stress-test
 
-# Run against all backends (~27 min)
+# Run against pgvector, qdrant, weaviate and milvus-lite in turn (~27 min)
 make -C src/lasagna/deploy stress-test-all
 ```
 
@@ -55,20 +55,25 @@ done
 | `test_rag_quality_under_load` | 4 | IR metrics baseline, IR under load, feature comparison, routing quality |
 | `test_endurance` | 2 | Sustained load (latency drift), memory leak indicators |
 
-**Total: 28 tests per backend, 140 across all 5 backends.**
+**Total: 28 tests per backend.** Without `STRESS_BACKEND_ONLY`, pytest runs them
+against every backend the machine's architecture supports (five, plus pinecone
+when `PINECONE_API_KEY` is set). `make stress-test-all` and the loop above cover
+four: pgvector, qdrant, weaviate and milvus-lite.
 
 ## Supported Backends
 
 | Backend | ARM64 | x86 | Notes |
 |---------|-------|-----|-------|
-| pgvector | Yes | Yes | Reuses PostgreSQL — simplest deployment |
+| pgvector | Yes | Yes | Reuses PostgreSQL, so the simplest deployment |
 | qdrant | Yes | Yes | Separate container |
 | weaviate | Yes | Yes | Separate container, slower startup |
-| milvus-lite | Yes | — | Embedded single-process, no celery |
-| milvus | — | Yes | Full Milvus, requires x86 Docker |
+| milvus-lite | Yes | No | Embedded single-process, no celery, one uvicorn worker |
+| milvus | No | Yes | Full Milvus, requires x86 Docker |
 | opensearch | Yes | Yes | Separate container, native BM25 + k-NN hybrid |
+| pinecone | Cloud | Cloud | Only when `PINECONE_API_KEY` is set |
 
-Architecture is auto-detected. On ARM64, milvus-lite is used instead of milvus.
+Architecture is auto-detected (`tests/stress/conftest.py`). On anything other
+than x86_64, milvus-lite is used instead of milvus.
 
 ## Environment Variables
 
@@ -115,7 +120,7 @@ python -m pytest tests/stress/ -m stress -v
 2. **DockerComposeManager** starts the compose stack (API + Redis + PostgreSQL + vector DB)
 3. **loaded_backend** fixture uploads test documents and waits for readiness
 4. Tests run against the live API using **StressAPIClient** (async HTTP)
-5. Docker is session-scoped — starts once, reuses across all 8 test modules
+5. Docker is session-scoped: it starts once and is reused across all 8 test modules
 6. When testing multiple backends, Docker tears down and restarts between backends
 
 ## Troubleshooting

@@ -39,14 +39,15 @@ Each mixin expects the host class to provide:
 
 ## Persistence Backends
 
-Selected at import time via `RAG_DATABASE_BACKEND` env var:
+Selected at import time via the `RAG_DATABASE_BACKEND` env var (read under that name only; `LASAGNA_DATABASE_BACKEND` does not switch it):
 
-### File-based (default, SQLite mode)
+### SQLite mode (default)
 
-- Profiles: `{data_dir}/rag_profiles.json` (atomic write via tempfile + os.replace)
-- Sessions: `{data_dir}/rag_sessions.json` (same atomic write)
-- Citations: `{data_dir}/citations_{session_id}.json` (per-session files)
-- Reload check: File mtime comparison, max every 2 seconds
+- Profiles: the `rag_profiles` table in `rag.db` (`~/.lasagna/dbs/rag.db` by default)
+- Sessions: the `rag_sessions` table in `rag.db`
+- Legacy JSON state (`knowledge_config_state.json`, `knowledge_profiles.json`, `knowledge_sessions.json`) is imported once, and each file is renamed to `.migrated`
+- Citations: `{data_dir}/citations_{session_id}.json` (per-session files, atomic write via tempfile + os.replace)
+- Cleanup: throttled to once per 60 seconds
 
 ### PostgreSQL + Redis mode
 
@@ -169,6 +170,6 @@ There are two distinct citation limit scopes:
 ## Thread Safety
 
 - All state mutations go through `self._lock` (RLock)
-- File persistence uses atomic write (tempfile + os.replace)
+- Citation files use atomic write (tempfile + os.replace)
 - PostgreSQL singleton (`_get_pg_db()`) uses double-check locking with `_pg_db_lock`
 - Session cleanup throttle uses module-level `_cleanup_lock`
