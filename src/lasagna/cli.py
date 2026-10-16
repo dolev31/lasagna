@@ -224,8 +224,12 @@ def _load_profile_config(session_id: str):
         profile_config: dict = {}
         for profile in state.profiles:
             if profile.name == profile_name:
-                profile_config = profile.config or {}
+                profile_config = dict(profile.config or {})
                 break
+        # And what the session set over it: a Python client saves its settings
+        # there on its first upload, and they were ignored, so `status` showed
+        # the default model for a corpus built with another.
+        profile_config.update(getattr(state, "session_overrides", None) or {})
 
         if not profile_config:
             return KnowledgeConfig()

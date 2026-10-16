@@ -195,7 +195,9 @@ lasagna serve                      # REST API and configuration page on 127.0.0.
 > The `speed` profile downloads 91 MB and never calls an LLM: choose it in
 > `lasagna init`, run `lasagna configure --profile speed`, or from Python pass
 > `config=config_for_speed()` (from `lasagna.sdk`) to `KnowledgeClient`; the
-> embedding model is process-wide, so two clients in one process share it. The other
+> embedding model is process-wide, so two clients in one process share it. A
+> client saves its settings as its session's on the session's first upload, so
+> the CLI, REST API and MCP server search that corpus with the same model. The other
 > profiles send queries they judge complex to an agentic loop, which needs an
 > LLM API key.
 > [Configuration](https://github.com/dolev31/lasagna/blob/main/docs/configuration.md)

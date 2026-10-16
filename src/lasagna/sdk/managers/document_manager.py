@@ -152,6 +152,8 @@ class DocumentManager:
         # Get backend
         backend = await self._client._get_backend()
         session_id = self._client.session_id
+        # So the CLI, REST and MCP read this session with the model that builds it.
+        self._client._remember_session_config()
 
         logger.info(f"Uploading document: {display_name} (session={session_id})")
         start_time = datetime.now(timezone.utc)

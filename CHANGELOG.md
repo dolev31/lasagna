@@ -597,6 +597,12 @@ Requests to current models:
 
 Servers and deployment:
 
+- **A corpus built from Python could not be searched from anywhere else.**
+  After an SDK upload with `config_for_speed()`, `lasagna status` showed
+  BGE-M3 and the CLI, REST and MCP searched with it: the client's settings
+  lived in its process only. A client saves its settings as its session's on
+  the session's first upload, as `lasagna configure` does; a session with
+  settings of its own keeps them. `lasagna status` shows them.
 - **An unconfigured session answered `500 Internal server error`.** The
   README's curl with no session header, or on a session not yet configured,
   started a 2.3 GB BGE-M3 download inside the request or, offline, failed with
