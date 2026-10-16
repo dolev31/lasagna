@@ -691,6 +691,18 @@ Servers and deployment:
   does, and with `--full` the release build, the distribution check
   (`scripts/check_dist.py`, shared with the release workflow) and the wheel
   smoke test.
+- **Each API worker's keyword index went stale.** The in-memory BM25 index
+  was filled from the store once per session per process, and only the
+  process that uploaded or deleted a document updated its own. With several
+  workers and Celery, a document processed elsewhere never reached a worker's
+  keyword search, and a deleted document kept matching in the others. The
+  metadata database keeps a content generation per session, bumped on every
+  upload and delete, and a process whose index is behind reads the store
+  again on its next search. Keyword-only hits whose chunk is gone from the
+  store are dropped.
+- After an upload, the uploading process indexed the chunks for keyword
+  search under their position instead of their stored id, held each chunk
+  twice once it read the store, and could return the same chunk twice.
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except

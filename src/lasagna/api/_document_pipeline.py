@@ -716,7 +716,10 @@ class DocumentPipeline:
                 batch_data.append(insert_doc)
                 chunks_for_bm25.append(
                     {
-                        "chunk_id": idx,
+                        # The stored id, which dense hits carry: indexed by its
+                        # position, the chunk never fused with its dense hit and,
+                        # once the index read the store, was in it twice.
+                        "chunk_id": chunk_id,
                         "document_id": document.document_id,
                         "content": content,
                         "metadata": metadata,
@@ -815,6 +818,7 @@ class DocumentPipeline:
         # Index for BM25 hybrid search
         if config.enable_hybrid_search:
             self.hybrid_searcher.index_chunks(chunks_for_bm25, document.session_id, build_now=False)
+        self._record_content_change(document.session_id, indexed_here=config.enable_hybrid_search)
 
         # Store parent chunks in SQLite for auto-merge retrieval
         if parent_chunks_data:
@@ -1039,6 +1043,27 @@ class DocumentPipeline:
             storage_backend_name=row.get("storage_backend_name", "local"),
         )
 
+    def _record_content_change(self, session_id: str, *, indexed_here: bool) -> None:
+        """Bump the session's content generation after its chunks changed.
+
+        Every process keeps its own BM25 index; the others rebuild theirs when
+        they see the generation move. ``indexed_here``: this process's index
+        already has the change, so it is not rebuilt for it.
+        """
+        from lasagna.core.database import get_rag_database
+
+        try:
+            bump = getattr(get_rag_database(), "bump_content_generation", None)
+            generation = bump(session_id) if bump is not None else None
+        except Exception as e:
+            logger.warning(
+                f"Could not record the change to session {session_id[:8]}'s documents: {e}. "
+                "Other API or worker processes keep their keyword index until the next change."
+            )
+            return
+        if indexed_here:
+            self.hybrid_searcher.note_local_change(session_id, generation)
+
     def delete_document(
         self, document_id: str, session_id: str, *, keep_file: bool = False
     ) -> bool:
@@ -1091,6 +1116,7 @@ class DocumentPipeline:
         # Remove from BM25 fallback index
         if rag_config.enable_hybrid_search:
             self.hybrid_searcher.remove_document(document_id, session_id)
+        self._record_content_change(session_id, indexed_here=rag_config.enable_hybrid_search)
 
         # Clean up parent chunks from SQLite
         parent_deleted = rag_db.delete_parent_chunks_by_document(document_id)

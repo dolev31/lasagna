@@ -455,6 +455,9 @@ class BM25FallbackIndex:
         # the scans in progress (a concurrent first search waits on them).
         self.hydrated_from: set = set()
         self.hydrating: Dict[str, threading.Event] = {}
+        # The session's content generation in the metadata database that this
+        # index reflects; None until a search first compares it.
+        self.generation: Optional[int] = None
 
         # Version counter for CAS-safe concurrent builds.
         # Incremented on every mutation (add/remove/clear).
@@ -647,6 +650,22 @@ class BM25FallbackIndex:
         added, removed, or cleared since the last successful build.
         """
         return self._is_built and self._built_version == self._version
+
+
+def _stored_generation(session_id: str) -> Optional[int]:
+    """The session's content generation in the metadata database; None if unreadable.
+
+    None leaves the index as it is: a database that cannot be read must not
+    empty the keyword index on every search.
+    """
+    try:
+        from lasagna.core.database import get_rag_database
+
+        read = getattr(get_rag_database(), "get_content_generation", None)
+        return None if read is None else int(read(session_id))
+    except Exception as e:
+        logger.debug(f"Could not read the content generation of session {session_id[:8]}: {e}")
+        return None
 
 
 class HybridSearcher:
@@ -1150,6 +1169,7 @@ class HybridSearcher:
             alpha=alpha,
             document_ids=document_ids,
             config=config,
+            partition_key=partition_key,
         )
         metrics.update(fallback_metrics)
         return (results, metrics) if return_metrics else results
@@ -1163,6 +1183,7 @@ class HybridSearcher:
         alpha: float,
         document_ids: Optional[List[str]] = None,
         config=None,
+        partition_key: Optional[str] = None,
     ) -> tuple[List[HybridSearchResult], Dict[str, Any]]:
         """Fallback hybrid search using rank_bm25 or SPLADE.
 
@@ -1242,6 +1263,9 @@ class HybridSearcher:
         metrics["merge_ms"] = (time.perf_counter() - merge_timer) * 1000.0
 
         combined.sort(key=lambda x: x.combined_score, reverse=True)
+        combined = self._without_chunks_gone_from_store(
+            combined, session_id, top_k, partition_key=partition_key
+        )
 
         logger.debug(
             f"Fallback hybrid search: {len(dense_results)} dense + "
@@ -1249,6 +1273,60 @@ class HybridSearcher:
         )
 
         return combined[:top_k], metrics
+
+    def _without_chunks_gone_from_store(
+        self,
+        ranked: List[HybridSearchResult],
+        session_id: str,
+        top_k: int,
+        *,
+        partition_key: Optional[str] = None,
+    ) -> List[HybridSearchResult]:
+        """``ranked`` without keyword-only hits whose chunk left the vector store.
+
+        A dense hit comes from the store, so it exists. A keyword-only hit comes
+        from this process's BM25 index, which still holds a chunk another
+        process deleted until the content generation makes it read the store
+        again (or forever, if that process died before bumping it). The hits
+        that would be returned are checked in one query, repeated only for the
+        ones that move up to replace a dropped hit; a store that cannot answer
+        leaves the list as it was.
+        """
+        backend, collection_name = self._get_session_backend(session_id)
+        if backend is None or not collection_name or not hasattr(backend, "query"):
+            return ranked
+        from lasagna.vector_backends.filters import FilterExpression
+
+        checked: set = set()
+        gone: set = set()
+        while True:
+            window = [r for r in ranked if r.chunk_id not in gone][:top_k]
+            unchecked = [
+                r.chunk_id for r in window if r.dense_rank is None and r.chunk_id not in checked
+            ]
+            if not unchecked:
+                break
+            try:
+                rows = backend.query(
+                    collection_name=collection_name,
+                    filter_expr=FilterExpression.in_list("chunk_id", unchecked),
+                    output_fields=["chunk_id"],
+                    limit=len(unchecked),
+                    partition_key=partition_key,
+                )
+            except Exception as e:
+                logger.debug(f"Could not check keyword hits against the vector store: {e}")
+                break
+            present = {str(row.get("chunk_id")) for row in rows or []}
+            checked.update(unchecked)
+            gone.update(c for c in unchecked if c not in present)
+        if not gone:
+            return ranked
+        logger.info(
+            f"Dropped {len(gone)} keyword-only hit(s) whose chunks are no longer in the "
+            f"vector store (session {session_id[:8]})"
+        )
+        return [r for r in ranked if r.chunk_id not in gone]
 
     def _reciprocal_rank_fusion(
         self,
@@ -1443,13 +1521,34 @@ class HybridSearcher:
         that uploaded already has every chunk and adds none, and a new process
         that uploads more gets the earlier chunks too.
 
+        Another process (an API worker, the Celery worker) can upload or delete
+        documents after this index was filled. Every upload and delete bumps
+        the session's content generation in the metadata database; when it
+        differs from the one this index was built at, the index is emptied and
+        filled again from the store. One primary-key read per call.
+
         Returns:
             The number of chunks added.
         """
         if not BM25_FALLBACK_AVAILABLE:
             return 0
+        generation = _stored_generation(session_id)
         with self._session_lock:
             index = self._get_or_create_session_locked(session_id)
+            if generation is not None and generation != index.generation:
+                if index.generation is None:
+                    index.generation = generation
+                elif not index.hydrating:
+                    # A scan still running was started before the change; the
+                    # next search sees the generation differ and comes here.
+                    logger.debug(
+                        f"BM25 index for session {session_id[:8]} was built at content "
+                        f"generation {index.generation}, the store is at {generation}: "
+                        "reading it again"
+                    )
+                    index.clear()
+                    index.hydrated_from.clear()
+                    index.generation = generation
             # Marked on the index itself, so an evicted session that comes
             # back with a fresh index is filled again.
             if collection_name in index.hydrated_from:
@@ -1529,6 +1628,21 @@ class HybridSearcher:
                 return False
         # Build outside lock — CAS handles races.
         return index.build_index()
+
+    def note_local_change(self, session_id: str, generation: Optional[int]) -> None:
+        """This process made the change that took the session to ``generation``.
+
+        Its index already holds the change (``index_chunks`` or
+        ``remove_document`` ran here), so it is current at the new generation
+        and needs no rebuild, unless another process changed the session in
+        between, which shows as a gap of more than one.
+        """
+        if generation is None:
+            return
+        with self._session_lock:
+            index = self._session_indices.get(session_id)
+            if index is not None and index.generation == generation - 1:
+                index.generation = generation
 
     def get_session_stats(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Return observability stats for a session's BM25 index.
