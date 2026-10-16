@@ -31,7 +31,7 @@ from ..retrieval.search.hybrid import HybridSearcher
 from ..retrieval.search.ranker import CombinedReranker, RerankedResult
 from ..retrieval.enhancement.enhancer import QueryEnhancer
 from ..retrieval.routing import get_query_router, RoutingTier
-from ..core.strict import strict_stages
+from ..core.strict import claim_context_presentation, lost_in_the_middle, strict_stages
 from lasagna.agentic.citation_manager import CitationManager, Citation
 from lasagna.utils.monitoring import METRICS, log_json, log_json_debug, hash_text
 from lasagna.utils.tracing import TRACER
@@ -295,6 +295,9 @@ class SearchOrchestrator:
         Returns:
             List of search results
         """
+        # The outermost search of a caller that presents the passages itself
+        # (the evaluation's generation track) returns them in ranked order.
+        presentation = None if (_from_routing or _from_fusion) else claim_context_presentation()
         if _from_routing:
             # A search an agentic pipeline issued: the arm's components, unless
             # the pipeline named its own.
@@ -371,33 +374,42 @@ class SearchOrchestrator:
                 )
                 METRICS.histogram("rag.routing.decision_ms", routing_ms)
 
-                # COMPREHENSIVE → early-return via agentic retrieval
-                if routing_decision.tier == RoutingTier.COMPREHENSIVE:
-                    return self._search_comprehensive(
-                        query=query,
-                        session_id=session_id,
-                        top_k=top_k,
-                        min_score=min_score,
-                        document_ids=document_ids,
-                        trace_id=trace_id,
-                        routing_decision=routing_decision,
-                        _reranker_override=_reranker_override,
-                        _retriever_override=_retriever_override,
-                        _enhancer_override=_enhancer_override,
-                        _embedder_override=_embedder_override,
-                        _agentic_pipeline_override=_agentic_pipeline_override,
-                        _graph_node_overrides=_graph_node_overrides,
-                        query_config_overrides=query_config_overrides,
-                    )
-
                 # FAST → override heavyweight features
                 if routing_decision.tier == RoutingTier.FAST:
                     overrides = routing_decision.overrides
                     use_hyde = overrides.get("use_hyde", use_hyde)
                     use_reranking = overrides.get("use_reranking", use_reranking)
             except Exception as e:
+                if strict_stages():
+                    raise RuntimeError(f"Query routing failed: {e}") from e
                 logger.warning(f"Query routing failed, using standard pipeline: {e}")
+                _degraded.record("routing", e)
                 routing_decision = None
+
+            # COMPREHENSIVE → early-return via agentic retrieval. Outside the
+            # routing `try` on purpose: _search_comprehensive has its own
+            # fallback, which records the `agentic` stage and marks the results
+            # it substitutes, and it raises what must not fall back (a
+            # configuration error, strict evaluation, a running event loop).
+            # The routing `except` caught all of that, and any error raised
+            # after the agent had run, and reran the standard pipeline unmarked.
+            if routing_decision is not None and routing_decision.tier == RoutingTier.COMPREHENSIVE:
+                return self._search_comprehensive(
+                    query=query,
+                    session_id=session_id,
+                    top_k=top_k,
+                    min_score=min_score,
+                    document_ids=document_ids,
+                    trace_id=trace_id,
+                    routing_decision=routing_decision,
+                    _reranker_override=_reranker_override,
+                    _retriever_override=_retriever_override,
+                    _enhancer_override=_enhancer_override,
+                    _embedder_override=_embedder_override,
+                    _agentic_pipeline_override=_agentic_pipeline_override,
+                    _graph_node_overrides=_graph_node_overrides,
+                    query_config_overrides=query_config_overrides,
+                )
 
         # Track effective values for features that may be overridden by FAST tier.
         # These local vars shadow config properties so the pipeline uses the
@@ -406,6 +418,7 @@ class SearchOrchestrator:
         _effective_mmr = config.enable_mmr
         _effective_context_reordering = config.enable_context_reordering
         _effective_hierarchical = config.enable_hierarchical
+        _metrics_tier = routing_decision.tier.value if routing_decision else "standard"
         if routing_decision and routing_decision.tier == RoutingTier.FAST:
             overrides = routing_decision.overrides
             _effective_hybrid_search = overrides.get(
@@ -443,10 +456,13 @@ class SearchOrchestrator:
                 n_variations=n_queries,
                 trace_id=trace_id,
                 _reranker_override=_reranker_override,
+                _retriever_override=_retriever_override,
                 _enhancer_override=_enhancer_override,
                 _embedder_override=_embedder_override,
                 _from_routing=True,
                 query_config_overrides=query_config_overrides,
+                _context_reordering=_effective_context_reordering,
+                _presentation=presentation,
             )
 
         # Quota enforcement — early reject if rate limit exceeded
@@ -948,7 +964,7 @@ class SearchOrchestrator:
             METRICS.histogram("rag.search.dense_ms", dense_ms)
             METRICS.histogram("rag.search.encode_ms", encode_ms)
             METRICS.histogram("rag.search.hyde_ms", hyde_ms)
-            METRICS.histogram("rag.search.total_ms", total_ms)
+            METRICS.histogram("rag.search.total_ms", total_ms, tags={"tier": _metrics_tier})
             METRICS.counter("rag.search.calls", 1)
             logger.info(
                 f"No results from dense search for session_id={session_id}, query_hash={query_hash}"
@@ -1136,8 +1152,10 @@ class SearchOrchestrator:
 
         # Lost-in-the-middle reordering: place best results at start and end
         # LLMs attend better to the beginning and end of context (arXiv:2406.16008)
-        if _effective_context_reordering and len(reranked) > 2:
-            reranked = self._reorder_for_context(reranked)
+        # Not for a query variation: fusion reads its list as ranks, and
+        # reorders the fused list instead.
+        if not _from_fusion:
+            reranked = self._present(reranked, _effective_context_reordering, presentation)
 
         # Context compression: reduce chunk content to query-relevant portions
         if getattr(config, "enable_context_compression", False) and reranked:
@@ -1312,7 +1330,7 @@ class SearchOrchestrator:
         METRICS.histogram("rag.search.auto_merge_ms", auto_merge_ms)
         METRICS.histogram("rag.search.postprocess_ms", postprocess_ms)
         METRICS.histogram("rag.search.overhead_ms", overhead_ms)
-        METRICS.histogram("rag.search.total_ms", total_ms)
+        METRICS.histogram("rag.search.total_ms", total_ms, tags={"tier": _metrics_tier})
         METRICS.counter("rag.search.calls", 1)
 
         logger.debug(
@@ -1577,8 +1595,57 @@ class SearchOrchestrator:
         _embedder_override: Optional[Any] = None,
         _from_routing: bool = False,
         query_config_overrides: Optional[Dict[str, Any]] = None,
+        _context_reordering: Optional[bool] = None,
+        _presentation: Optional[Any] = None,
     ) -> List[SearchResult]:
-        """Search with query expansion and RRF-based result fusion.
+        """Search with query expansion and RRF-based result fusion, then present the list.
+
+        The variations are searched and fused in ranked order; context
+        reordering, when on, applies to the fused list. Each variation's list
+        used to come back reordered, so the fusion read rank 2 as the last
+        rank, and the fused list was never reordered.
+
+        ``_context_reordering`` is the calling search's effective setting (the
+        routing tier can turn it off); ``_presentation`` is its
+        :class:`~lasagna.core.strict.ContextPresentation`, if any.
+        """
+        if _presentation is None and not _from_routing:
+            _presentation = claim_context_presentation()
+        results = self._search_multi_query_ranked(
+            query=query,
+            session_id=session_id,
+            top_k=top_k,
+            document_ids=document_ids,
+            n_variations=n_variations,
+            trace_id=trace_id,
+            _reranker_override=_reranker_override,
+            _retriever_override=_retriever_override,
+            _enhancer_override=_enhancer_override,
+            _embedder_override=_embedder_override,
+            query_config_overrides=query_config_overrides,
+        )
+        if _context_reordering is None:
+            config = self._get_session_config(session_id)
+            if query_config_overrides:
+                config = config.with_query_overrides(query_config_overrides)
+            _context_reordering = getattr(config, "enable_context_reordering", False)
+        return self._present(results, _context_reordering, _presentation)
+
+    def _search_multi_query_ranked(
+        self,
+        query: str,
+        session_id: str,
+        top_k: Optional[int] = None,
+        document_ids: Optional[List[str]] = None,
+        n_variations: int = 3,
+        trace_id: Optional[str] = None,
+        _reranker_override: Optional[Any] = None,
+        _retriever_override: Optional[Any] = None,
+        _enhancer_override: Optional[Any] = None,
+        _embedder_override: Optional[Any] = None,
+        query_config_overrides: Optional[Dict[str, Any]] = None,
+    ) -> List[SearchResult]:
+        """Search with query expansion and RRF-based result fusion, in ranked order.
 
         This technique:
         1. Generates query variations using the QueryExpander
@@ -1627,6 +1694,7 @@ class SearchOrchestrator:
                 _from_fusion=True,
                 _from_routing=True,
                 _reranker_override=_reranker_override,
+                _retriever_override=_retriever_override,
                 _enhancer_override=_enhancer_override,
                 _embedder_override=_embedder_override,
                 query_config_overrides=query_config_overrides,
@@ -1668,6 +1736,7 @@ class SearchOrchestrator:
                 _from_fusion=True,
                 _from_routing=True,
                 _reranker_override=_reranker_override,
+                _retriever_override=_retriever_override,
                 _enhancer_override=_enhancer_override,
                 _embedder_override=_embedder_override,
                 query_config_overrides=query_config_overrides,
@@ -1683,6 +1752,7 @@ class SearchOrchestrator:
             backend.backend_name == "opensearch"
             and hasattr(backend, "multi_hybrid_search")
             and len(all_queries) > 1
+            and _retriever_override is None
         ):
             try:
                 return self._search_multi_query_msearch(
@@ -1727,6 +1797,10 @@ class SearchOrchestrator:
                     _from_fusion=True,
                     _from_routing=True,
                     _reranker_override=_reranker_override,
+                    # The arm's retriever: without it each variation searched
+                    # the store's dense index, and a retriever arm with query
+                    # expansion measured dense search under its name.
+                    _retriever_override=_retriever_override,
                     _enhancer_override=_enhancer_override,
                     _embedder_override=_embedder_override,
                     # Without these each variation searched under the session
@@ -2175,11 +2249,10 @@ class SearchOrchestrator:
                 "query_len": len(query) if query else 0,
             },
         )
-        METRICS.histogram(
-            "rag.search.total_ms",
-            total_ms,
-            tags={"tier": "comprehensive", "pipeline": pipeline_identity},
-        )
+        # One label set per metric: the standard path records this histogram
+        # by tier too, and Prometheus refuses a name registered twice with
+        # different labels. The pipeline is in the log line above.
+        METRICS.histogram("rag.search.total_ms", total_ms, tags={"tier": "comprehensive"})
         METRICS.counter("rag.search.calls", 1)
 
         quota_mgr.record_search(session_id)
@@ -2283,6 +2356,21 @@ class SearchOrchestrator:
     # Internal Helpers
     # =========================================================================
 
+    @classmethod
+    def _present(cls, results: List, reorder: bool, presentation: Optional[Any]) -> List:
+        """The list a search returns: reordered for the generator when ``reorder`` is on.
+
+        Inside :func:`~lasagna.core.strict.present_context_order` the caller
+        presents the passages it keeps, so the list stays in ranked order and
+        the record says it would have been reordered.
+        """
+        if not reorder or len(results) <= 2:
+            return results
+        if presentation is not None:
+            presentation.reorder = True
+            return results
+        return cls._reorder_for_context(results)
+
     @staticmethod
     def _reorder_for_context(results: List) -> List:
         """Reorder results to mitigate lost-in-the-middle effect.
@@ -2295,12 +2383,8 @@ class SearchOrchestrator:
 
         Reference: arXiv:2406.16008 (+15 percentage points improvement)
         """
-        start = results[0::2]  # Ranks 0, 2, 4, ... (best at start)
-        end = results[1::2]  # Ranks 1, 3, 5, ... (placed at end, reversed)
-        reordered = start + end[::-1]
-        logger.debug(
-            f"Context reordering: {len(results)} results reordered (start={len(start)}, end={len(end)})"
-        )
+        reordered = lost_in_the_middle(results)
+        logger.debug(f"Context reordering: {len(results)} results reordered")
         return reordered
 
     def _fetch_chunks_by_ids(

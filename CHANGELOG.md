@@ -13,15 +13,15 @@ each one that implements a published method naming its paper; an evaluation
 harness with paired significance tests, interaction tests and checkable result
 bundles; and the same pipeline served over MCP, REST and a Docker Compose stack.
 
-Its metric definitions are `METRICS_VERSION` 1.5: NDCG with linear gain and
+Its metric definitions are `METRICS_VERSION` 1.6: NDCG with linear gain and
 zero gain for a negative grade (as `trec_eval`), cutoff metrics over `k`
-documents, exact match and token F1 normalized in the official SQuAD order with
+documents in ranked order, exact match and token F1 normalized in the official SQuAD order with
 `[n]` citation markers removed and abstention counted only when an answer opens
 with one, and `factual_correctness` among the judged metrics
 ([metrics.md](src/lasagna/knowledge_evaluation_sdk/docs/metrics.md) defines
 each). The version is part of every comparability key, so results from the
 internal 0.1.0a1 pre-release (1.1) or from development builds since (1.2 to
-1.4) never share a leaderboard group with results from this release.
+1.5) never share a leaderboard group with results from this release.
 
 ### Added
 
@@ -204,8 +204,8 @@ Defaults and naming:
 
 - **One vector collection per embedding model.** The default collection name is
   `rag_documents_v2__<model>__<dim>`, so sessions on different profiles never
-  share vectors. A name set explicitly (settings file, `RAG_COLLECTION_NAME`, a
-  session) is used as given; the evaluation harness's per-arm names are
+  share vectors. A name set explicitly (settings file or `RAG_COLLECTION_NAME`)
+  is used as given; the evaluation harness's per-arm names are
   unchanged. Each collection's model is recorded in a `collection_meta`
   table, and opening a collection with another model, even at the same size
   (bge-large and bge-m3 are both 1024), is refused with the command that
@@ -262,8 +262,23 @@ Defaults and naming:
   `lasagna plugins list` load no model code, and `lasagna-mcp --help` takes
   under half a second (it took 8).
 
-Metric definitions and results (`METRICS_VERSION` 1.5):
+Metric definitions and results (`METRICS_VERSION` 1.6):
 
+- The retrieval track scores the ranked list. Under a profile with context
+  reordering on (standard, the default `base_profile`, balanced and
+  max_quality) it scored the order the generator reads, best passages at both
+  ends, so the second-ranked document fell below the cut to `k`. Retrieval
+  numbers from those profiles change; the speed profile's do not. The stage
+  manifest records the order each track used (`context_order`).
+- Under those profiles the generator reads the top five passages reordered.
+  The search reordered all ten it returned and the harness kept the first
+  five, so the generator read ranks 1, 3, 5, 7 and 9 and never the second
+  best. The judge sees the same five in ranked order. Query fusion
+  (`enable_rag_fusion`, `enable_query_expansion`) fuses each variation's ranked
+  list and reorders the fused list; it read reordered positions as ranks.
+- A retriever arm with query fusion or expansion searches every variation with
+  its own retriever. The variations searched the store's dense index, so the
+  arm measured dense search under the retriever's name.
 - An answer counts as an abstention only when it opens with one, so a hedge
   later in the answer no longer zeroes exact match and token F1. Answers are
   normalized in the official SQuAD order.
@@ -431,6 +446,88 @@ Each of these still works in 0.1.x, says so when used, and is removed in 0.2.0.
   They still answer, but are listed only under `--tools all`.
 
 ### Fixed
+
+Server and deployment:
+
+- **A session can no longer point the server at another vector store.**
+  Session settings (REST `/api/v1/config`, `/api/config/knowledge/profile` and
+  `/import`, the MCP config tools, the config manager) accepted any key, and
+  search resolved them: `vector_backend_config` with any URL made the server
+  connect there, and a session could name another collection, a database or
+  upload path, a Redis URL or `reranker_trust_remote_code`. A session now sets
+  retrieval and generation settings only; every other key, unknown keys and
+  models named by a path or URL are refused with an error naming each key.
+- **A foreign `Host` is refused while auth is off.** With `RAG_REQUIRE_AUTH`
+  off, the REST API and the MCP server over HTTP answer only to localhost,
+  127.0.0.1, [::1] and the names in `RAG_ALLOWED_HOSTS`, and refuse any other
+  `Host` with 421, so a web page cannot reach them by DNS rebinding. Health and
+  metrics paths answer any `Host`. Compose allows `api:*,mcp:*`.
+- **Removing a key from `RAG_API_KEYS` ends the sessions it minted**, on REST
+  and MCP. A token used to stay valid for its seven days.
+- 413 and 429 responses to an allowed origin carry the CORS headers (CORS was
+  the innermost middleware).
+- The CLI follows `serve.json` only when the current user owns it, only that
+  user can write it, and it names a loopback http URL with a live process of
+  that user; `lasagna serve` writes it with mode 0600.
+- **With Prometheus on, an agentic or CRAG search keeps its results.**
+  `rag.search.total_ms` was registered with two label sets, the real client
+  raised, and the routing fallback reran the standard pipeline after the agent
+  had run. Each metric now has one label set (`rag_search_total_ms` is labelled
+  by `tier` only), a metrics error never changes a request, and a routing
+  failure is reported in `degraded_stages` as `routing`. Under evaluation a
+  failed agentic search fails the task instead of being scored with standard
+  results.
+- **A Milvus collection whose row count cannot be read is no longer treated as
+  empty and dropped.** `get_collection_stats` returned 0 on any error, which
+  the identity check, an insert rebuild and MCP `reindex_document`
+  with `force_rebuild` took for an empty collection. OpenSearch raises the same
+  way.
+- OpenSearch hosts and the tracing endpoint are logged without their passwords.
+- MCP `reindex_document` and `rebuild_collection` no longer replace the
+  server's shared embedder and reranker; they use the session's embedder for
+  that request alone.
+- A Milvus server's unflushed rows are counted before an emptiness check
+  decides a drop: a server counts only flushed segments, so a collection
+  written seconds earlier read as empty.
+- **Kubernetes secrets stay out of the image and the wheel.** The deploy README
+  told operators to edit `k8s/base/secrets.yaml`, which the Docker build
+  context and the package data both included. The build context leaves out
+  `src/lasagna/deploy/k8s/`, and secrets go in a git-ignored `overlays/local/`
+  (copied from `overlays/local.example`) that the wheel and sdist exclude.
+- **The Kubernetes defaults fit their models.** Each gunicorn worker and Celery
+  process loads its own models after the fork (about 3 GiB), so the api runs
+  one worker per pod and requests 4Gi, and the worker runs `--concurrency=2`
+  and requests 5Gi; the api autoscaler scales on CPU (its memory target was
+  always exceeded and pinned it at 10 replicas); a `lasagna-celery-beat`
+  Deployment runs garbage collection, which never ran;
+  `RAG_PROCESSING_TIMEOUT=20` keeps the shutdown drain inside the grace period,
+  as in compose. `make validate-k8s` checks each of these.
+- The Kubernetes worker's liveness probe pings its own pod's worker
+  (`celery@$HOSTNAME`).
+- CI pins detect-secrets 1.5.0, the version that wrote `.secrets.baseline`.
+- The release workflow pins `pypa/gh-action-pypi-publish` to the commit v1.14.2
+  names; the pin was the tag object.
+- **`--resume` no longer restores results computed with another LLM.** The
+  resume key was the same for gpt-6-luna on OpenAI and Claude on Anthropic; it
+  now includes the LLM provider and model (`MODEL_NAME`, the detected API key),
+  the judge's model and base URL, and the local commit of each model the arm
+  loads. Earlier checkpoints are not restored.
+- Archiving, restoring and GC expiry bump the session's content generation, so
+  other workers stop serving an archived document (or keep missing a restored
+  one) from their search cache.
+- **Documents left "processing" by a dead worker are failed with the reason.**
+  A new GC phase, also run when the lifecycle scheduler starts, fails documents
+  still processing after twelve times the longest a document may take (the
+  Celery task limits with Celery on, else `processing_timeout`; at least an
+  hour). A redelivered Celery task skips a finished document.
+- The orphan scan covers every embedding model's collection, not only the
+  default model's. A scan that cannot read which collection a document was
+  written to is marked incomplete and repair refuses it; repair re-checks each
+  database-only orphan before archiving it.
+- A `rag_documents_v2` collection from before 0.1.0 is adopted only by the
+  model `LASAGNA_LEGACY_COLLECTION_MODEL` names. The first model with a
+  matching size adopted it, so bge-large could claim bge-m3's vectors (both
+  1024).
 
 Numbers that were wrong:
 

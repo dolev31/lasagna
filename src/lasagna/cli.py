@@ -822,9 +822,8 @@ def status(
         console.print(
             f"[yellow]Unused: collection {escape(collection['name'])} holds "
             f"{collection['rows']:,} chunks at {size} from before 0.1.0, and no configured "
-            f"model reads it. To search it again, set "
-            f"RAG_COLLECTION_NAME={escape(collection['name'])} with the embedding model "
-            f"that wrote it.[/yellow]"
+            f"model reads it. To search it again, configure the embedding model that "
+            f"wrote it and set LASAGNA_LEGACY_COLLECTION_MODEL to that model's name.[/yellow]"
         )
 
     # Config summary

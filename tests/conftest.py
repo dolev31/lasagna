@@ -83,6 +83,12 @@ os.environ["HOME"] = os.path.join(_ISOLATED_DATA_DIR, "home")
 os.makedirs(os.environ["HOME"], exist_ok=True)
 os.environ["RAGAS_DO_NOT_TRACK"] = "true"
 
+# Starlette's TestClient sends ``Host: testserver``, and with auth off the API
+# answers only to loopback names and those in RAG_ALLOWED_HOSTS
+# (tests/test_loopback_servers_refuse_a_foreign_host.py). Name the test client
+# here rather than in every test that builds one.
+os.environ["RAG_ALLOWED_HOSTS"] = "testserver"
+
 # gRPC's fork handlers. Once a test has opened a Milvus connection, every later
 # subprocess the suite starts gets gRPC's "FD from fork parent still in poll
 # list" lines on its stderr, written by this process's handlers between fork

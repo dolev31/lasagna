@@ -1,0 +1,19 @@
+# Your deployment: one vector store overlay plus your secrets.
+#
+# Copy this directory to overlays/local/ and edit the copy, never this file
+# or base/secrets.yaml:
+#
+#   cp -r k8s/overlays/local.example k8s/overlays/local
+#   kubectl apply -k k8s/overlays/local/
+#
+# overlays/local/ is git-ignored, the image build does not send k8s/ to Docker,
+# and the wheel and sdist leave it out, so your values reach only the cluster.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # The vector store: milvus, pgvector, pinecone, qdrant or weaviate.
+  - ../pgvector
+
+patches:
+  - path: secrets.yaml

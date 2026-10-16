@@ -7,7 +7,8 @@ Run by `.github/workflows/release.yml` after the build and by
 sdist for the version. The wheel must carry the settings file, `py.typed`, the
 built configurator UI (gitignored, so a build without `npm run build` has no
 UI) and the LICENSE and NOTICE files; neither file may carry tests, a
-`conftest.py`, `node_modules` or a `.env` other than `.env.example`.
+`conftest.py`, `node_modules`, a `.env` other than `.env.example`, or the
+Kubernetes overlay that holds an operator's secrets (`deploy/k8s/overlays/local/`).
 """
 
 from __future__ import annotations
@@ -23,7 +24,9 @@ REQUIRED = [
     "lasagna/py.typed",
     "lasagna/configurator/frontend/dist/index.html",
 ]
-UNWANTED = re.compile(r"(^|/)(tests/|conftest\.py|node_modules/|\.env$|\.env\.(?!example))")
+UNWANTED = re.compile(
+    r"(^|/)(tests/|conftest\.py|node_modules/|\.env$|\.env\.(?!example)|deploy/k8s/overlays/local/)"
+)
 
 
 def problems(dist: Path, version: str) -> list[str]:

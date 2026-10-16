@@ -119,7 +119,8 @@ task_key = "{benchmark_name}|{config_name}|{config_hash}|{sampling_hash}|{mode}|
 
 When the experiment sets a `resume_fingerprint` (from `run_provenance`), the key gains a
 `|env_{fingerprint}` suffix (a hash of the metric definitions, the package version, the judge and
-the settings), so a resumed run never restores results computed under any other of those.
+its base URL, the settings, the LLM provider and model, and the local commit of each model the arm
+loads), so a resumed run never restores results computed under any other of those.
 
 ---
 

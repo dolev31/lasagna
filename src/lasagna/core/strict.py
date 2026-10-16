@@ -67,3 +67,59 @@ def observe_reranking() -> Iterator[List[bool]]:
         yield seen
     finally:
         _RERANK_OBSERVATIONS.reset(token)
+
+
+class ContextPresentation:
+    """A caller that cuts a search's results and presents them itself.
+
+    Context reordering is applied to the list a search returns. A caller that
+    then keeps only the first k (the evaluation's generation track asks for ten
+    passages and gives the generator five) keeps every other rank instead of
+    the top k. Inside :func:`present_context_order` the outermost search
+    returns its list in ranked order and sets ``reorder`` when it would have
+    reordered it, so the caller can reorder the passages it keeps.
+    """
+
+    __slots__ = ("claimed", "reorder")
+
+    def __init__(self) -> None:
+        self.claimed = False
+        self.reorder = False
+
+
+_PRESENTATION: contextvars.ContextVar[Optional[ContextPresentation]] = contextvars.ContextVar(
+    "lasagna_context_presentation", default=None
+)
+
+
+@contextmanager
+def present_context_order() -> Iterator[ContextPresentation]:
+    """Run a search whose caller presents the passages it keeps (see ContextPresentation)."""
+    record = ContextPresentation()
+    token = _PRESENTATION.set(record)
+    try:
+        yield record
+    finally:
+        _PRESENTATION.reset(token)
+
+
+def claim_context_presentation() -> Optional[ContextPresentation]:
+    """The record for the outermost search in the block, once; None for any other search.
+
+    Searches made inside the outermost one (an agentic pipeline's hops, query
+    variations) see the record already claimed and order their lists as usual.
+    """
+    record = _PRESENTATION.get()
+    if record is None or record.claimed:
+        return None
+    record.claimed = True
+    return record
+
+
+def lost_in_the_middle(items: List) -> List:
+    """Context reordering's order: even ranks first, odd ranks reversed at the end.
+
+    The best items take the start and end of the list, where a language model
+    attends most.
+    """
+    return list(items[0::2]) + list(items[1::2])[::-1]

@@ -42,7 +42,7 @@ docker compose -f docker-compose.yml -f backends/milvus.yml up -d --wait
 | [`.env.example`](.env.example) | Template for `.env`, which the Makefile, compose and the containers all read |
 | [`Makefile`](Makefile) | `make up`, `make validate` and the targets below |
 | [`Dockerfile`](Dockerfile) | One image for the api, worker, beat and mcp services, built from the repository root |
-| `k8s/` | Kustomize base and one overlay per vector store |
+| `k8s/` | Kustomize base, one overlay per vector store, and `overlays/local.example`, the template for the overlay that holds your secrets |
 
 Every line of `.env` reaches the api, celery-worker, celery-beat and mcp containers
 (`env_file`), so LLM API keys and `RAG_*` overrides set there take effect. The exception
@@ -253,8 +253,11 @@ collection, deleting a session) and returns 503 for them while unset.
 `RAG_CORS_ORIGINS` lists the browser origins allowed to call the API (none by default).
 `FORWARDED_ALLOW_IPS` names the proxies whose `X-Forwarded-For` gunicorn trusts for the
 client address (compose default `127.0.0.1`); `RAG_FORWARDED_ALLOW_IPS` is the name
-`lasagna serve` reads. `RAG_ALLOWED_HOSTS` adds `Host` values the embedded `/mcp` mount
-accepts, such as a service name.
+`lasagna serve` reads. With auth off, the api and mcp answer only to `localhost`,
+`127.0.0.1`, `[::1]` and the `Host` names in `RAG_ALLOWED_HOSTS` (comma-separated, `name:*`
+for any port), and refuse any other with 421; compose sets `api:*,mcp:*` so containers on
+its network can call them by service name. Add the name a reverse proxy forwards, if you put
+one in front. Health and `/metrics` answer any `Host`.
 
 ## Request limits
 
@@ -348,7 +351,7 @@ are processed in the worker container, which serves no `/metrics`, so the api's
 `lasagna_ingests_total` counts only the documents the api processed itself.
 
 `lasagna_degraded_fallbacks_total{stage}` counts a pipeline stage that failed and fell back
-to a lesser result (`hyde`, `graphrag`, `hybrid`, `query_expansion`, `agentic`). The
+to a lesser result (`hyde`, `graphrag`, `hybrid`, `query_expansion`, `agentic`, `routing`). The
 search response names the same stages in `degraded_stages`, empty when every configured
 stage ran.
 
@@ -385,29 +388,38 @@ is documented in [src/lasagna/mcp/README.md](../mcp/README.md).
 ## Kubernetes
 
 `k8s/base` holds the namespace `lasagna`, a ConfigMap and a Secret, the
-`lasagna-api` Deployment (2 replicas, image `lasagna:latest`, port 8000), the
-`lasagna-celery` worker Deployment (2 replicas, `--concurrency=4`), a ClusterIP
-Service on port 80 and two HorizontalPodAutoscalers. Each overlay sets
-`RAG_VECTOR_BACKEND` and its connection: `milvus`, `pgvector`, `pinecone`, `qdrant`,
-`weaviate`. There is no overlay for OpenSearch or Milvus Lite.
+`lasagna-api` Deployment (2 replicas of one gunicorn worker each, image `lasagna:latest`,
+port 8000), the `lasagna-celery` worker Deployment (2 replicas, `--concurrency=2`), the
+`lasagna-celery-beat` Deployment (1 replica), a ClusterIP Service on port 80 and two
+HorizontalPodAutoscalers. Each overlay sets `RAG_VECTOR_BACKEND` and its connection:
+`milvus`, `pgvector`, `pinecone`, `qdrant`, `weaviate`. There is no overlay for OpenSearch
+or Milvus Lite.
 
 ```bash
 # From the repository root: build the image the manifests name, then push it where
 # your cluster pulls images from.
 docker build -t lasagna:latest -f src/lasagna/deploy/Dockerfile .
 
-# From src/lasagna/deploy
-kubectl apply -k k8s/overlays/pgvector/
+# From src/lasagna/deploy: your own overlay, for your secrets (step 1 below)
+cp -r k8s/overlays/local.example k8s/overlays/local
+kubectl apply -k k8s/overlays/local/
 ```
 
 Before you apply:
 
-1. **Replace every `CHANGE_ME`** in `base/secrets.yaml` and the overlay:
-   `RAG_JWT_SECRET`, `RAG_ADMIN_TOKEN`, `RAG_API_KEYS`, the PostgreSQL password in the
-   DSNs and `PINECONE_API_KEY`. A placeholder counts as unset: the api pods do not start
-   until `RAG_JWT_SECRET` is real, because the ConfigMap sets `RAG_REQUIRE_AUTH=true`, and
-   `POST /api/v1/sessions` answers 503 until `RAG_API_KEYS` is. Prefer sealed-secrets or
-   an external secrets operator to a plain manifest.
+1. **Put your secrets in `k8s/overlays/local/`, never in the shipped files.** Its
+   `kustomization.yaml` names the vector store overlay (`../pgvector` as copied), and its
+   `secrets.yaml` is merged over `base/secrets.yaml`: replace every `CHANGE_ME` there
+   (`RAG_JWT_SECRET`, `RAG_ADMIN_TOKEN`, `RAG_API_KEYS`, the PostgreSQL password in the
+   DSNs, and the store's credential, such as `PINECONE_API_KEY`). git ignores
+   `overlays/local/`, `docker build` does not send `k8s/` to Docker, and the wheel and
+   sdist leave the directory out. Values edited into `base/secrets.yaml` went into every
+   image built from that checkout. A Secret made with `kubectl create secret` does not
+   last: the next `kubectl apply -k` writes the placeholders back over it. A placeholder
+   counts as unset: the api pods do not start until `RAG_JWT_SECRET` is real, because the
+   ConfigMap sets `RAG_REQUIRE_AUTH=true`, and `POST /api/v1/sessions` answers 503 until
+   `RAG_API_KEYS` is. Prefer sealed-secrets or an external secrets operator to a plain
+   manifest.
 2. **Provide PostgreSQL, Redis and the vector store.** The manifests deploy none of them;
    the Secret and overlays point at `postgres.lasagna:5432`,
    `redis.lasagna:6379`, `milvus.lasagna:19530`, `qdrant.lasagna:6333`
@@ -420,29 +432,42 @@ Before you apply:
    `LASAGNA_UPLOAD_DIR`. The claim is ReadWriteMany, so set `storageClassName` to a class
    that offers it (NFS, Amazon EFS, Azure Files, Google Filestore, CephFS). Without one the
    claim stays Pending and the pods do not start; then set `RAG_CELERY_ENABLED: "false"`
-   (the api processes its own uploads) and remove the claim and the `uploads` volume, or
-   use S3 storage (`RAG_STORAGE_BACKEND=s3`). `make validate-k8s K8S_OVERLAY=pgvector`
-   checks a rendered overlay for this.
-4. **Fit the shutdown drain.** The api pods get `terminationGracePeriodSeconds: 45` and
-   gunicorn waits 30 s, but the ConfigMap leaves `RAG_PROCESSING_TIMEOUT` at 300; set it
-   below 30, as compose does.
+   (the api processes its own uploads) and remove the claim, the `uploads` volume and the
+   worker and beat Deployments (garbage collection then runs when asked:
+   `POST /api/v1/admin/gc/run`), or use S3 storage (`RAG_STORAGE_BACKEND=s3`).
+   `make validate-k8s K8S_OVERLAY=local` checks a rendered overlay for this.
+4. **Keep the shutdown drain in order.** On SIGTERM the api waits `RAG_PROCESSING_TIMEOUT`
+   (20 s in the ConfigMap) for documents in its own threads, inside gunicorn's
+   `--graceful-timeout` (30 s in the image), inside `terminationGracePeriodSeconds` (45 s).
+   Raising one means raising the ones after it; `make validate-k8s` refuses an order in
+   which the api is killed mid-drain.
 5. **Check tracing.** The ConfigMap turns tracing on and sends it to
    `http://otel-collector.observability:4317`.
-6. **Size the pods** for your embedding model: the api requests 500m CPU and 2Gi (limit 2
-   CPUs, 6Gi), the worker 1 CPU and 2Gi (limit 4 CPUs, 8Gi).
+6. **Size the pods for your models.** Each gunicorn worker and each Celery worker process
+   loads the models itself, after the fork (the image's `--preload` shares the imports,
+   not the models). With `BAAI/bge-large-en-v1.5` and `mxbai-rerank-large-v1` the api runs
+   one worker per pod (`WEB_CONCURRENCY=1`) and requests 500m CPU and 4Gi (limit 2 CPUs,
+   6Gi); the worker runs two processes and requests 1 CPU and 5Gi (limit 4 CPUs, 8Gi).
+   `make validate-k8s` counts about 1 GiB per process plus its models (`MODEL_GIB` in
+   `k8s/check_manifests.py`) and refuses a memory request or limit below that, or an
+   autoscaler memory target the loaded models alone pass. A session that selects another
+   model loads it as well.
 
-No Celery beat runs in these manifests, so the periodic garbage collection and orphan
-scans that compose schedules do not run. The ConfigMap embeds with
+`lasagna-celery-beat` schedules the garbage collection and orphan scans, as compose's
+celery-beat does; with Celery on, the api leaves them to beat. It runs one replica with
+`strategy: Recreate`, so two never schedule at once, and keeps its schedule on an
+emptyDir, so a new pod starts the intervals over. The ConfigMap embeds with
 `BAAI/bge-large-en-v1.5` (compose uses `BAAI/bge-m3`) and sets `RAG_DEFAULT_TOP_K=75`,
 `RAG_RERANK_TOP_K=10`, partition tenant isolation, quotas and adaptive rate limiting.
 
 Probes: the api has a startup probe on `/api/v1/health/live` (up to 30 tries, 5 s apart),
 liveness on `/api/v1/health/live` every 15 s and readiness on `/api/v1/health/ready` every
-10 s; the worker's liveness runs `celery inspect ping --timeout=5` every 30 s.
+10 s; the worker's liveness runs `celery inspect ping -d celery@$HOSTNAME --timeout 10`
+every 60 s, which only this pod's worker answers.
 
 | Autoscaler | Replicas | Scales up on |
 | --- | --- | --- |
-| api | 2 to 10 | CPU over 70% or memory over 80% |
+| api | 2 to 10 | CPU over 70% |
 | worker | 1 to 8 | CPU over 75% |
 
 ## Configuration

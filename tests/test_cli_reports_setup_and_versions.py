@@ -181,7 +181,9 @@ def test_status_names_a_collection_no_model_reads(monkeypatch):
     assert result.exit_code == 0, said
     assert seen == ["the-store"]
     assert "rag_documents_v2 holds 1,234 chunks at 1024 dimensions" in said
-    assert "RAG_COLLECTION_NAME=rag_documents_v2" in said
+    # RAG_COLLECTION_NAME=rag_documents_v2 is the shipped default, which names
+    # one collection per model, so it never reached the old collection.
+    assert "set LASAGNA_LEGACY_COLLECTION_MODEL to that model's name" in said
 
 
 # -- init -----------------------------------------------------------------------------

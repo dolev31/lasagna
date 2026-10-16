@@ -58,6 +58,57 @@ class ValidationMixin:
             messages = "; ".join(f"{e['key']}: {e['message']}" for e in result.errors)
             raise ValueError(f"Invalid configuration: {messages}")
 
+    def _session_settings(
+        self,
+        config: Dict[str, Any],
+        *,
+        trusted: bool = False,
+        document: bool = False,
+        builtin: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """``config`` as a session may store it; raises ``SessionSettingRefused``.
+
+        Called by every write that takes settings from a caller (patch, profile
+        switch with settings, save, import), before anything is applied. A key
+        only the server may set is dropped, never stored, when it repeats the
+        value in force on this server, and refused otherwise. A whole
+        configuration (``document``: a saved or imported profile, the
+        configurator page's form) also repeats packaged values the server does
+        not run with (an export carries the default profile's
+        ``vector_backend`` whatever the environment chose), so there the
+        default profile's, the configurator's and ``builtin`` (the built-in
+        profile an import names) count too. A patch is a request to change
+        something: a packaged value that is not in force is refused, not
+        dropped with a 200. ``trusted`` skips the check, for in-process callers
+        writing the process's own configuration (the evaluation harness, a
+        local SDK client).
+        """
+        if trusted or not config:
+            return config
+        from lasagna.core.config import get_rag_config
+
+        from ._session_keys import check_session_settings
+
+        server = get_rag_config()
+        in_force = {}
+        for key in config:
+            try:
+                in_force[key] = getattr(server, key)
+            except Exception:
+                in_force[key] = server._config.get(key)
+        echoes = [in_force]
+        if document:
+            default = next((p for p in self._default_profiles if p.name == "default"), None)
+            echoes += [default.config if default else {}, builtin or {}]
+            try:
+                from lasagna.configurator.schema import get_defaults
+
+                # What the configurator page sends for a field nobody touched.
+                echoes.append(get_defaults())
+            except Exception:  # pragma: no cover - the page is optional
+                pass
+        return check_session_settings(config, echoes=echoes)
+
     def _refuse_unsearchable(
         self,
         state: Any,

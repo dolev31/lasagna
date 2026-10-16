@@ -91,6 +91,12 @@ x-env: &common-env
   RAG_BIND_IS_PROTECTED: "${RAG_BIND_IS_PROTECTED:-true}"
   # Cross-origin browser access is denied unless origins are named here.
   RAG_CORS_ORIGINS: "${RAG_CORS_ORIGINS:-}"
+  # With auth off, the api and mcp answer only to localhost, 127.0.0.1, [::1]
+  # and the Host names listed here, so a web page cannot reach them by pointing
+  # its own domain at this machine (DNS rebinding). The service names let other
+  # containers on this network call http://api:8000 and http://mcp:8005. Add the
+  # name a reverse proxy forwards, if you put one in front.
+  RAG_ALLOWED_HOSTS: "${RAG_ALLOWED_HOSTS:-api:*,mcp:*}"
   # Model and retrieval config
   RAG_EMBEDDING_MODEL: "${RAG_EMBEDDING_MODEL:-BAAI/bge-m3}"
   RAG_EMBEDDING_DIM: "${RAG_EMBEDDING_DIM:-1024}"

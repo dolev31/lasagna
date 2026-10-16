@@ -58,6 +58,7 @@ What this phase does NOT prove
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import re
 import shutil
@@ -318,14 +319,22 @@ def _package_data_files() -> Tuple[Optional[List[str]], str]:
 
     Expanded from the source tree rather than guessed, so a pattern added
     tomorrow is enforced tomorrow. Patterns that match nothing (a bundle CI
-    builds and a laptop does not) contribute nothing and cannot fail.
+    builds and a laptop does not) contribute nothing and cannot fail. A file
+    [tool.setuptools.exclude-package-data] drops (an operator's k8s secrets)
+    is not expected, matched with fnmatch as setuptools does.
     """
     data, reason = _load_pyproject()
     if data is None:
         return None, reason
-    table = data.get("tool", {}).get("setuptools", {}).get("package-data", {})
+    setuptools_table = data.get("tool", {}).get("setuptools", {})
+    table = setuptools_table.get("package-data", {})
     if not isinstance(table, dict) or not table:
         return None, "pyproject.toml declares no [tool.setuptools.package-data]"
+    excluded = [
+        f"{pkg.replace('.', '/')}/{pattern}"
+        for pkg, patterns in (setuptools_table.get("exclude-package-data") or {}).items()
+        for pattern in patterns or []
+    ]
     found: List[str] = []
     for pkg, patterns in table.items():
         base = SRC_ROOT if pkg == "*" else SRC_ROOT / str(pkg).replace(".", "/")
@@ -335,8 +344,10 @@ def _package_data_files() -> Tuple[Optional[List[str]], str]:
             except (ValueError, OSError):  # a malformed pattern is not a wheel defect
                 continue
             for f in matches:
+                arcname = f.relative_to(SRC_ROOT).as_posix()
                 if f.is_file() and "__pycache__" not in f.parts:
-                    found.append(f.relative_to(SRC_ROOT).as_posix())
+                    if not any(fnmatch.fnmatch(arcname, x) for x in excluded):
+                        found.append(arcname)
     return sorted(set(found)), ""
 
 

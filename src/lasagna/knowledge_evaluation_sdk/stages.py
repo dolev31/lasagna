@@ -247,12 +247,14 @@ _PREFIXES: Tuple[Tuple[str, str], ...] = (
 
 #: Harness settings: the IR cutoff and the over-fetch set how deep retrieval
 #: goes, so they count as retriever changes, and ``no_rag`` replaces retrieval
-#: with nothing, so it is the retriever's change too; the rest only steer
-#: recording.
+#: with nothing, so it is the retriever's change too. ``context_order`` (which
+#: order each track read) belongs with ``enable_context_reordering``, under the
+#: reranker. The rest only steer recording.
 _HARNESS_STAGES: Dict[str, Optional[str]] = {
     "metric_k": "retriever",
     "retrieval_chunk_overfetch": "retriever",
     "no_rag": "retriever",
+    "context_order": "reranker",
     "allow_inert_overrides": None,
     "save_trajectories": None,
 }

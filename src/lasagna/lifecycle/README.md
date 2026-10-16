@@ -39,11 +39,12 @@ has passed.
 ## Garbage collection
 
 `GarbageCollector.run_full_cycle()` runs the phases in order. Each writes one
-row to the `gc_audit_log` table. Given a `session_id`, phases 1 to 3 are limited
+row to the `gc_audit_log` table. Given a `session_id`, phases 0 to 3 are limited
 to that session; phases 4 to 6 always cover everything.
 
 | Phase (name in reports) | Selects | Does |
 | --- | --- | --- |
+| 0 `phase0_fail_stale_processing` | documents still `uploading`, `processing` or `indexing` after 12 times the longest a document may take: `processing_timeout`, or with Celery enabled three attempts of up to 600 s each (6.2 h); at least 1 h | Marks them `error`, with the reason: the worker processing them stopped (out of memory, a crash, or Celery's 600 s limit). Also runs when a process builds its backend (the lifecycle scheduler starts) |
 | 1 `phase1_hard_delete_soft_deleted` | archived documents whose `deleted_at` is older than `soft_delete_grace_hours` | Deletes each through the document pipeline: vectors, file, row, quota |
 | 2 `phase2_expire_by_ttl` | documents whose `expires_at` has passed | Archives them. Skipped when `document_ttl_days` is unset or 0 |
 | 3 `phase3_cleanup_error_documents` | `error` documents uploaded more than `error_retention_days` ago | Archives them. Skipped when `error_retention_days` is 0 |
@@ -120,10 +121,14 @@ environment), not from one changed at runtime.
 ## Orphan detection
 
 `OrphanDetector.detect()` compares the metadata database with the distinct
-`document_id` values in the collection of the server's default configuration,
-read through the backend's `list_document_ids()`, at most 50,000 of them.
+`document_id` values in each collection, read through the backend's
+`list_document_ids()`, at most 50,000 per collection. The scan covers the
+collection of the server's default configuration and every other collection
+`collection_meta` records for the vector backend (each embedding model writes
+its own); each orphan names its `collection`.
 
-When that scan fails or stops at the limit, the report sets `incomplete` and
+When a scan fails or stops at the limit, or the database cannot say which
+collection each document was written to, the report sets `incomplete` and
 `incomplete_reason` and lists no orphans, because a document the scan did not
 reach is not missing its vectors. Repair then changes nothing and returns
 `aborted: true` with the reason. For a larger collection, scan one session at
@@ -138,6 +143,9 @@ A document still uploading, processing or indexing, one in `error` and an
 archived one all own their vectors, so a repair keeps them. Repair reads the
 rows again before deleting, so a document saved after the scan keeps its
 vectors, and when the rows cannot be read no vectors are reported as orphans.
+It also scans each collection again before archiving a `db_only` row, so a
+document whose vectors were written after the report, or that is no longer
+`ready`, is kept.
 Files in storage with no row are not detected, because storage backends cannot
 list their files.
 

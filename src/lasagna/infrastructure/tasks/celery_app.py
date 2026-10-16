@@ -25,6 +25,8 @@ from datetime import timedelta
 
 from loguru import logger
 
+from . import TASK_SOFT_TIME_LIMIT_S, TASK_TIME_LIMIT_S
+
 try:
     from celery import Celery
 except ImportError:
@@ -103,9 +105,16 @@ def create_celery_app() -> "Celery":
         result_serializer="json",
         timezone="UTC",
         enable_utc=True,
-        task_soft_time_limit=540,  # 9 min soft limit
-        task_time_limit=600,  # 10 min hard limit
-        task_acks_late=True,  # Requeue on worker crash
+        task_soft_time_limit=TASK_SOFT_TIME_LIMIT_S,  # 9 min soft limit
+        task_time_limit=TASK_TIME_LIMIT_S,  # 10 min hard limit
+        # A worker that dies as a whole leaves its message unacknowledged, and
+        # the broker delivers it again; the task skips a document that is no
+        # longer processing. A worker *child* that dies (out of memory, a
+        # crash in a parser, the hard limit) would die again on the same file,
+        # so its task fails instead of being requeued without end, and GC
+        # phase 0 marks the document failed.
+        task_acks_late=True,
+        task_reject_on_worker_lost=False,
         worker_prefetch_multiplier=1,  # Fair dispatch
         # Beat schedule is policy-driven — see _build_beat_schedule()
         beat_schedule=_build_beat_schedule(),

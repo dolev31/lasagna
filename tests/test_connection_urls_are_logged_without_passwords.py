@@ -4,12 +4,14 @@ The Redis cache and the Redis session store logged ``redis://:<password>@host``
 at INFO on every start, after the broker and database lines had been fixed;
 the Milvus, Qdrant and Weaviate URLs and the SDK's server URL were logged the
 same way. Every logger call that formats a URL, URI or DSN goes through
-``redact_url``.
+``redact_url``. So do OpenSearch's hosts, which are URLs that opensearch-py
+reads credentials from, and the tracing endpoint: both were logged verbatim.
 """
 
 from __future__ import annotations
 
 import ast
+import logging
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +24,7 @@ import lasagna
 PACKAGE = Path(lasagna.__file__).parent
 SECRET = "s3cret-pw"  # pragma: allowlist secret
 LEVELS = {"trace", "debug", "info", "success", "warning", "error", "critical", "exception"}
-WORDS = ("url", "uri", "dsn", "broker")
+WORDS = ("url", "uri", "dsn", "broker", "hosts", "endpoint")
 
 
 @pytest.fixture
@@ -56,6 +58,24 @@ def test_the_redis_session_store_logs_its_url_without_the_password(fake_redis, l
 
     said = "".join(logs)
     assert "sessions:6379" in said and SECRET not in said
+
+
+def test_opensearch_logs_its_hosts_without_the_password(monkeypatch, caplog, logs):
+    from lasagna.vector_backends import opensearch_backend, registry
+
+    monkeypatch.setenv(
+        "OPENSEARCH_HOSTS", f"https://admin:{SECRET}@search:9200,admin:{SECRET}@b:9200"
+    )
+    monkeypatch.setattr(opensearch_backend, "OPENSEARCH_AVAILABLE", True)
+    monkeypatch.setattr(opensearch_backend, "OpenSearch", lambda **kw: object(), raising=False)
+    monkeypatch.setattr(opensearch_backend, "RequestsHttpConnection", object, raising=False)
+    caplog.set_level(logging.DEBUG, logger=opensearch_backend.__name__)
+
+    registry._get_default_opensearch_config()
+    opensearch_backend.OpenSearchBackend().connect()
+
+    said = "".join(logs) + caplog.text
+    assert "search:9200" in said and "b:9200" in said and SECRET not in said
 
 
 @pytest.mark.parametrize(

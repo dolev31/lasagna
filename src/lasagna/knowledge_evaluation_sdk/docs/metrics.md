@@ -31,6 +31,18 @@ In live mode the harness scores each query's ranked list of `metric_k`
 distinct documents (default 10), and every per-query key carries that cutoff:
 `ndcg@10`, `map@10`, `mrr@10`, `r_precision@10` and so on.
 
+The ranked list is the retriever's order, or the reranker's when the pipeline
+reranks. Context reordering (`enable_context_reordering`, on in the standard,
+balanced and max_quality profiles) is off for the retrieval track: it puts the
+best passages at both ends of the generator's context, which is a choice about
+what the generator reads, not a ranking. Before `METRICS_VERSION` 1.6 the
+retrieval track scored the reordered list. The stage manifest records the order
+each track used under the reranker stage's `context_order`.
+
+In the generation track the generator reads the first five passages (or its
+`context_k`), reordered when the arm turns reordering on, and the judge scores
+the same passages in ranked order.
+
 ### NDCG@k (Normalized Discounted Cumulative Gain)
 
 Primary ranking metric. Accounts for both relevance grades and rank position.

@@ -367,9 +367,13 @@ jobs:
       #
       # The unowned name is also a supply-chain hazard: anyone could register
       # `detect-secrets-hook` on PyPI and this workflow would install and run it.
+      #
+      # Pinned to the release that wrote the baseline (its version field), as
+      # .pre-commit-config.yaml is: a newer release brings plugins and filters
+      # the baseline never saw, and the scan fails on an unchanged tree.
       - name: Scan for secrets
         run: |
-          git ls-files -z | xargs -0 uvx --from detect-secrets detect-secrets-hook \
+          git ls-files -z | xargs -0 uvx --from detect-secrets@1.5.0 detect-secrets-hook \
             --baseline .secrets.baseline
 
       # Lasagna is Apache 2.0; copyleft in the dependency graph would make that

@@ -73,7 +73,10 @@ def get_session_id(
     if x_session_token and not from_token:
         raise HTTPException(
             status_code=401,
-            detail="X-Session-Token is invalid or expired.",
+            detail=(
+                "X-Session-Token is invalid or expired, or the API key that minted it "
+                "is no longer in RAG_API_KEYS. Get a new one from POST /api/v1/sessions."
+            ),
         )
 
     try:

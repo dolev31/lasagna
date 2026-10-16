@@ -125,18 +125,40 @@ class MetricsClient:
     The singleton ``METRICS`` object is imported by reference throughout the
     codebase.  The facade pattern ensures those references stay valid when the
     backend is swapped at runtime.
+
+    Never raises: a backend error is logged once per metric name and the
+    call returns, so recording a metric cannot change what a request does.
     """
 
     def __init__(self) -> None:
         self._backend: _MetricsBackend = _MetricsBackend()  # no-op by default
+        self._failed: set = set()
 
     # -- public API (unchanged signature) ----------------------------------
 
     def counter(self, name: str, value: int = 1, tags: Optional[Dict[str, str]] = None) -> None:
-        self._backend.counter(name, value, tags)
+        try:
+            self._backend.counter(name, value, tags)
+        except Exception as exc:
+            self._failed_once(name, exc)
 
     def histogram(self, name: str, value: float, tags: Optional[Dict[str, str]] = None) -> None:
-        self._backend.histogram(name, value, tags)
+        try:
+            self._backend.histogram(name, value, tags)
+        except Exception as exc:
+            self._failed_once(name, exc)
+
+    def _failed_once(self, name: str, exc: Exception) -> None:
+        # Metrics are best-effort. A raise here used to reach the search's
+        # routing `except`, which reran the standard pipeline and discarded
+        # the agentic results it had just paid for.
+        if name in self._failed:
+            return
+        self._failed.add(name)
+        logger.warning(
+            f"Could not record the metric {name} ({type(exc).__name__}: {exc}). "
+            "The request it measures is unaffected; this is logged once per metric."
+        )
 
     # -- lifecycle ---------------------------------------------------------
 

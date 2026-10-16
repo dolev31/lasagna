@@ -3,7 +3,10 @@
 There was no .dockerignore, the build context is the repository root, and the
 Dockerfile copies all of src/lasagna/. deploy/README.md tells operators to put
 the JWT secret, the Postgres password and API keys in src/lasagna/deploy/.env,
-so every image built from a configured checkout carried them in a layer.
+so every image built from a configured checkout carried them in a layer. The
+same went for the Kubernetes secrets: the README said to edit
+k8s/base/secrets.yaml in place, and the build sent k8s/ with the rest of
+src/lasagna/. Nothing in the image reads the manifests, so k8s/ stays out.
 
 The rules are checked with a port of Docker's own matcher
 (github.com/moby/patternmatcher, used by BuildKit for .dockerignore): `*` and
@@ -89,6 +92,9 @@ def rules():
         ".env",
         "examples/demo/.env.local",
         "src/lasagna/deploy/k8s/tls.key",
+        "src/lasagna/deploy/k8s/base/secrets.yaml",
+        "src/lasagna/deploy/k8s/overlays/pgvector/kustomization.yaml",
+        "src/lasagna/deploy/k8s/overlays/local/secrets.yaml",
         ".venv-ci/bin/python",
         ".venv/lib/site.py",
         ".git/config",
@@ -141,7 +147,9 @@ def test_every_file_the_image_copies_is_still_in_the_build(rules):
     ).stdout.split()
     if not tracked:
         pytest.skip("not a git checkout")
-    dropped = [p for p in tracked if _excluded(p, rules)]
+    # The Kubernetes manifests are left out on purpose (see the module docstring).
+    k8s = "src/lasagna/deploy/k8s/"
+    dropped = [p for p in tracked if _excluded(p, rules) and not p.startswith(k8s)]
     assert not dropped, f"tracked files the image needs are ignored: {dropped[:10]}"
     assert not _excluded("src/lasagna/deploy/.env.example", rules)
     assert not _excluded("src/lasagna/configurator/frontend/dist/index.html", rules)

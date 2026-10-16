@@ -478,9 +478,13 @@ class PersistentSessionProvider(SessionConfigProvider):
             manager.set_excluded_document_ids(doc_ids, session_id)
 
     def set_config_overrides(self, session_id: str, overrides: Dict[str, Any]) -> None:
+        # In-process callers only (the evaluation harness, a local SDK client):
+        # they write the process's own configuration, collection names
+        # included. Clients' settings reach the manager through its own
+        # methods, which check every key.
         manager = self._get_manager()
         if hasattr(manager, "patch_config"):
-            manager.patch_config(overrides, session_id=session_id)
+            manager.patch_config(overrides, session_id=session_id, trusted=True)
 
     def remove_config_overrides(self, session_id: str, keys: Iterable[str]) -> None:
         manager = self._get_manager()

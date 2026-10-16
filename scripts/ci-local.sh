@@ -75,7 +75,7 @@ if command -v gitleaks >/dev/null; then
 else
   echo "   skipped: gitleaks is not installed (brew install gitleaks)"
 fi
-run "detect-secrets" sh -c 'git ls-files -z | xargs -0 uvx --quiet --from detect-secrets detect-secrets-hook --baseline .secrets.baseline'
+run "detect-secrets" sh -c 'git ls-files -z | xargs -0 uvx --quiet --from detect-secrets@1.5.0 detect-secrets-hook --baseline .secrets.baseline'
 
 step "tests with coverage floor (test order seed: $SEED)"
 run "pytest" env HOME="$HOME_CI" "$PY" -m pytest tests/ --ignore=tests/live --ignore=tests/stress \

@@ -514,16 +514,17 @@ class MilvusBackend(VectorStoreAdapter):
         return self._describe(collection_name)[1]
 
     def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
-        """Get collection statistics."""
+        """Get collection statistics. Raises when the server cannot say.
+
+        An error used to read as ``row_count: 0``, and the callers that drop
+        an empty collection (`collection_is_empty`) took that for "empty":
+        a timeout on a populated collection rebuilt it, deleting every
+        session's documents.
+        """
         client = self._ensure_connected()
-        try:
-            stats = client.get_collection_stats(collection_name)
-            if isinstance(stats, dict):
-                return {"row_count": stats.get("row_count", 0)}
-            return {"row_count": getattr(stats, "row_count", 0)}
-        except Exception as e:
-            logger.debug(f"Could not get stats for {collection_name}: {e}")
-            return {"row_count": 0}
+        stats = client.get_collection_stats(collection_name)
+        rows = stats["row_count"] if isinstance(stats, dict) else stats.row_count
+        return {"row_count": int(rows)}
 
     def session_filter(self, collection_name: str, session_id: str) -> FilterExpression:
         """Select one session's rows: by the scalar column when the collection has one.
@@ -1058,9 +1059,16 @@ class MilvusBackend(VectorStoreAdapter):
     # =========================================================================
 
     def flush(self, collection_name: str) -> None:
-        """Flush pending writes."""
-        # MilvusClient doesn't expose flush directly
-        pass
+        """Seal the collection's growing segments, on a Milvus server.
+
+        A server's collection statistics count flushed segments only, so rows
+        written moments ago (here or by another process) can read as zero;
+        `collection_is_empty` flushes before it counts. Milvus Lite counts
+        unflushed rows, so there this does nothing.
+        """
+        if self.is_lite:
+            return
+        self._ensure_connected().flush(collection_name)
 
     def _to_milvus_schema(self, schema: CollectionSchema) -> MilvusCollectionSchema:
         """Convert our schema to Milvus schema."""

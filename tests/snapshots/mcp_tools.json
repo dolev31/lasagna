@@ -618,7 +618,7 @@
     ]
   },
   "patch_rag_config": {
-    "description": "Apply configuration overrides to the current session.\n\nMerges the provided settings with the active profile's config.\nThese overrides persist for the session duration.\n\n:param session_id: Session identifier.\n:param config_patch: JSON string with config keys to override.\n    Example: '{\"top_k\": 10, \"enable_reranking\": false}'\n:returns: JSON object with updated configuration.",
+    "description": "Apply configuration overrides to the current session.\n\nMerges the provided settings with the active profile's config.\nThese overrides persist for the session duration. Only retrieval and\ngeneration settings: the vector store, collection, paths, URLs and\ncredentials are the server's, and a patch naming one is refused.\n\n:param session_id: Session identifier.\n:param config_patch: JSON string with config keys to override.\n    Example: '{\"rerank_top_k\": 10, \"enable_reranking\": false}'\n:returns: JSON object with updated configuration.",
     "input_schema": {
       "properties": {
         "config_patch": {

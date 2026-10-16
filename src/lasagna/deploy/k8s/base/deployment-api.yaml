@@ -27,6 +27,9 @@ spec:
         prometheus.io/port: "8000"
         prometheus.io/path: "/metrics"
     spec:
+      # Longer than gunicorn's --graceful-timeout (30 s in the image), which is
+      # longer than RAG_PROCESSING_TIMEOUT (configmap.yaml), so the api finishes
+      # or fails its in-flight documents before Kubernetes kills it.
       terminationGracePeriodSeconds: 45
       # The image's rag user (uid and gid 1000) owns the uploads volume.
       securityContext:
@@ -48,13 +51,24 @@ spec:
                 name: lasagna-config
             - secretRef:
                 name: lasagna-secrets
+          env:
+            # One gunicorn worker per pod; the autoscaler adds pods. Each worker
+            # loads the embedding model and the reranker itself, on first use
+            # and after the fork (the image's --preload shares the imports, not
+            # the models): about 4 GiB with the ConfigMap's models. The image's
+            # default of 4 workers needed about 16 GiB against the 6Gi limit.
+            - name: WEB_CONCURRENCY
+              value: "1"
           volumeMounts:
             - name: uploads
               mountPath: /data/uploads
+          # Sized for one worker with BAAI/bge-large-en-v1.5 and
+          # mxbai-rerank-large-v1 (k8s/check_manifests.py, MODEL_GIB). A
+          # larger model or more workers needs more: `make validate-k8s`.
           resources:
             requests:
               cpu: "500m"
-              memory: "2Gi"
+              memory: "4Gi"
             limits:
               cpu: "2"
               memory: "6Gi"
