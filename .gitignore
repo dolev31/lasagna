@@ -26,6 +26,10 @@ env/
 .secrets.*
 !.secrets.baseline
 
+# A Kubernetes overlay holding an operator's own secrets (copied from
+# overlays/local.example; src/lasagna/deploy/README.md, "Kubernetes").
+src/lasagna/deploy/k8s/overlays/local/
+
 # Credential material. No file of these types is tracked today, and none should
 # ever be: the patterns exist so that a key dropped into the tree while
 # debugging a deployment cannot become a commit via `git add -A`. The k8s

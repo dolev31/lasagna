@@ -489,6 +489,11 @@ Server and deployment:
 - A Milvus server's unflushed rows are counted before an emptiness check
   decides a drop: a server counts only flushed segments, so a collection
   written seconds earlier read as empty.
+- **Kubernetes secrets stay out of the image and the wheel.** The deploy README
+  told operators to edit `k8s/base/secrets.yaml`, which the Docker build
+  context and the package data both included. The build context leaves out
+  `src/lasagna/deploy/k8s/`, and secrets go in a git-ignored `overlays/local/`
+  (copied from `overlays/local.example`) that the wheel and sdist exclude.
 
 Numbers that were wrong:
 

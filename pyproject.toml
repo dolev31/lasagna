@@ -355,6 +355,12 @@ lasagna = [
     "skills/*/SKILL.md",
 ]
 
+[tool.setuptools.exclude-package-data]
+# An operator's Kubernetes secrets (deploy/README.md, "Kubernetes"). The glob
+# above matches the file system, not git, so a wheel or sdist built from a
+# configured checkout carried them. `*` here spans directories.
+lasagna = ["deploy/k8s/overlays/local/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

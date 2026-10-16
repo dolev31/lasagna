@@ -42,7 +42,7 @@ docker compose -f docker-compose.yml -f backends/milvus.yml up -d --wait
 | [`.env.example`](.env.example) | Template for `.env`, which the Makefile, compose and the containers all read |
 | [`Makefile`](Makefile) | `make up`, `make validate` and the targets below |
 | [`Dockerfile`](Dockerfile) | One image for the api, worker, beat and mcp services, built from the repository root |
-| `k8s/` | Kustomize base and one overlay per vector store |
+| `k8s/` | Kustomize base, one overlay per vector store, and `overlays/local.example`, the template for the overlay that holds your secrets |
 
 Every line of `.env` reaches the api, celery-worker, celery-beat and mcp containers
 (`env_file`), so LLM API keys and `RAG_*` overrides set there take effect. The exception
@@ -399,18 +399,26 @@ Service on port 80 and two HorizontalPodAutoscalers. Each overlay sets
 # your cluster pulls images from.
 docker build -t lasagna:latest -f src/lasagna/deploy/Dockerfile .
 
-# From src/lasagna/deploy
-kubectl apply -k k8s/overlays/pgvector/
+# From src/lasagna/deploy: your own overlay, for your secrets (step 1 below)
+cp -r k8s/overlays/local.example k8s/overlays/local
+kubectl apply -k k8s/overlays/local/
 ```
 
 Before you apply:
 
-1. **Replace every `CHANGE_ME`** in `base/secrets.yaml` and the overlay:
-   `RAG_JWT_SECRET`, `RAG_ADMIN_TOKEN`, `RAG_API_KEYS`, the PostgreSQL password in the
-   DSNs and `PINECONE_API_KEY`. A placeholder counts as unset: the api pods do not start
-   until `RAG_JWT_SECRET` is real, because the ConfigMap sets `RAG_REQUIRE_AUTH=true`, and
-   `POST /api/v1/sessions` answers 503 until `RAG_API_KEYS` is. Prefer sealed-secrets or
-   an external secrets operator to a plain manifest.
+1. **Put your secrets in `k8s/overlays/local/`, never in the shipped files.** Its
+   `kustomization.yaml` names the vector store overlay (`../pgvector` as copied), and its
+   `secrets.yaml` is merged over `base/secrets.yaml`: replace every `CHANGE_ME` there
+   (`RAG_JWT_SECRET`, `RAG_ADMIN_TOKEN`, `RAG_API_KEYS`, the PostgreSQL password in the
+   DSNs, and the store's credential, such as `PINECONE_API_KEY`). git ignores
+   `overlays/local/`, `docker build` does not send `k8s/` to Docker, and the wheel and
+   sdist leave the directory out. Values edited into `base/secrets.yaml` went into every
+   image built from that checkout. A Secret made with `kubectl create secret` does not
+   last: the next `kubectl apply -k` writes the placeholders back over it. A placeholder
+   counts as unset: the api pods do not start until `RAG_JWT_SECRET` is real, because the
+   ConfigMap sets `RAG_REQUIRE_AUTH=true`, and `POST /api/v1/sessions` answers 503 until
+   `RAG_API_KEYS` is. Prefer sealed-secrets or an external secrets operator to a plain
+   manifest.
 2. **Provide PostgreSQL, Redis and the vector store.** The manifests deploy none of them;
    the Secret and overlays point at `postgres.lasagna:5432`,
    `redis.lasagna:6379`, `milvus.lasagna:19530`, `qdrant.lasagna:6333`
@@ -424,7 +432,7 @@ Before you apply:
    that offers it (NFS, Amazon EFS, Azure Files, Google Filestore, CephFS). Without one the
    claim stays Pending and the pods do not start; then set `RAG_CELERY_ENABLED: "false"`
    (the api processes its own uploads) and remove the claim and the `uploads` volume, or
-   use S3 storage (`RAG_STORAGE_BACKEND=s3`). `make validate-k8s K8S_OVERLAY=pgvector`
+   use S3 storage (`RAG_STORAGE_BACKEND=s3`). `make validate-k8s K8S_OVERLAY=local`
    checks a rendered overlay for this.
 4. **Fit the shutdown drain.** The api pods get `terminationGracePeriodSeconds: 45` and
    gunicorn waits 30 s, but the ConfigMap leaves `RAG_PROCESSING_TIMEOUT` at 300; set it
