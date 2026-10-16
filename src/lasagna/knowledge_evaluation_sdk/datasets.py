@@ -66,14 +66,10 @@ class DatasetNotCached(ValueError):
 
 
 def _offline() -> bool:
+    from lasagna.core.config import env_flag
     from lasagna.core.model_downloads import offline
 
-    return offline() or os.environ.get("HF_DATASETS_OFFLINE", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+    return offline() or env_flag("HF_DATASETS_OFFLINE")
 
 
 def dataset_cached(hf_name: str) -> bool:
