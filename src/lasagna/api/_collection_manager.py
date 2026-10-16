@@ -553,14 +553,23 @@ class CollectionManager:
                         return dim
             return None
 
+        def _is_vector(field: Any) -> bool:
+            # Milvus names it "embedding"; Qdrant reports "vector" and Pinecone
+            # "values", each typed FLOAT_VECTOR. Looking for the name alone
+            # read every Qdrant collection's size as unknown, and the profile
+            # guard then refused to switch to a model whose collection existed.
+            kind = str(_field_value(field, "type") or _field_value(field, "dtype") or "")
+            dense = kind.endswith("FLOAT_VECTOR") and "SPARSE" not in kind
+            return _field_value(field, "name") == "embedding" or dense
+
         try:
             # Runs on every search; the fields alone skip a count of the rows.
             fields = backend.describe_fields(collection_name) or []
-
-            for field in fields:
-                name = _field_value(field, "name")
-                if name != "embedding":
-                    continue
+            vectors = sorted(
+                (f for f in fields if _is_vector(f)),
+                key=lambda f: _field_value(f, "name") != "embedding",
+            )
+            for field in vectors:
                 params = _field_value(field, "params")
                 dim = _extract_dim(params)
                 if dim is None:
@@ -568,7 +577,8 @@ class CollectionManager:
                     dim = _extract_dim(params)
                 if dim is None:
                     dim = _extract_dim(field)
-                return dim
+                if dim is not None:
+                    return dim
         except Exception as exc:
             logger.debug(f"Could not read collection schema for {collection_name}: {exc}")
         return None

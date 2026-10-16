@@ -621,6 +621,11 @@ Servers and deployment:
   worker indexed with the model it had loaded, not the session's, into a
   collection nobody had created. Sessions are re-read once a second, and the
   task makes the session's embedder and collection current before indexing.
+- **On Qdrant and Pinecone a profile could not be applied once its model's
+  collection existed** (409, "could not read the embedding size"): the size
+  was read only from a field named `embedding`, Milvus's name. Any dense
+  vector field is read now. Weaviate, pgvector and OpenSearch still report no
+  size.
 - **`KnowledgeClient.from_url` failed against a server with auth on, and its
   `close()` raised `AttributeError`.** It never sent `X-Session-Token`, so
   `RAG_REQUIRE_AUTH=true` answered 401 to every call. With `api_key` (a key
