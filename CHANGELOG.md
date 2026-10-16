@@ -483,6 +483,9 @@ Server and deployment:
   --force_rebuild` took for an empty collection. OpenSearch raises the same
   way.
 - OpenSearch hosts and the tracing endpoint are logged without their passwords.
+- MCP `reindex_document` and `rebuild_collection` no longer replace the
+  server's shared embedder and reranker; they use the session's embedder for
+  that request alone.
 
 Numbers that were wrong:
 

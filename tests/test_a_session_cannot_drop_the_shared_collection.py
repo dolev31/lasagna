@@ -80,7 +80,7 @@ class _Backend:
     def ensure_collection_for_config(self, config):
         pass
 
-    def reload_embedding_manager(self, config):
+    def embedder_for(self, config):
         pass
 
     def process_document(self, doc, path, config=None):

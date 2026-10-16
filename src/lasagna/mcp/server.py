@@ -2116,7 +2116,9 @@ def rebuild_collection(
             else:
                 backend.ensure_collection_for_config(config)
 
-            backend.reload_embedding_manager(config)
+            # Checks the collection for this session's model. Not the shared
+            # default: other sessions' requests read that at the same time.
+            backend.embedder_for(config)
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("rebuild_collection", True, "Collection rebuilt", duration_ms)
         return (
@@ -2233,7 +2235,10 @@ def reindex_document(
                         backend.ensure_collection_for_config(config)
                     _set_rebuild_signature(rebuild_signature)
 
-        backend.reload_embedding_manager(config)
+        # The collection is checked for this session's model before its chunks
+        # are deleted; process_document embeds with the same model. The shared
+        # default embedder is left alone: other sessions' requests read it.
+        backend.embedder_for(config)
         # Delete existing chunks using session-aware backend (BYOVDB support)
         vb = backend.get_vector_backend(session_id)
         from lasagna.vector_backends.base import FilterExpression
