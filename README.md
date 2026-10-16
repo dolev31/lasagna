@@ -195,7 +195,9 @@ lasagna serve                      # REST API and configuration page on 127.0.0.
 > The `speed` profile downloads 91 MB and never calls an LLM: choose it in
 > `lasagna init`, run `lasagna configure --profile speed`, or from Python pass
 > `config=config_for_speed()` (from `lasagna.sdk`) to `KnowledgeClient`; the
-> embedding model is process-wide, so two clients in one process share it. The other
+> embedding model is process-wide, so two clients in one process share it. A
+> client saves its settings as its session's on the session's first upload, so
+> the CLI, REST API and MCP server search that corpus with the same model. The other
 > profiles send queries they judge complex to an agentic loop, which needs an
 > LLM API key.
 > [Configuration](https://github.com/dolev31/lasagna/blob/main/docs/configuration.md)
@@ -243,9 +245,12 @@ Then register the server. **Claude Code**: `.mcp.json` in your project.
 `lasagna-mcp` speaks stdio, which is how these clients launch a server; if it
 is not on the client's `PATH`, give the absolute path inside your virtualenv.
 The server has 31 tools (search, upload, document lifecycle, profiles and
-configuration). By default it serves the `safe` set, which leaves out the six
-that delete documents, profiles or collections or reset a session's
-configuration; `--tools all` adds them. `--transport sse` serves a port for
+configuration), two of them deprecated aliases of `search`. By default it
+serves the `safe` set, 22 tools: it leaves out the seven that delete documents,
+profiles or collections, reset a session's configuration or change the
+server-wide retention policy, and does not list the aliases; `--tools all`
+serves all 31. A tool acts on the session `RAG_SESSION_ID` names unless its
+`session_id` argument names another. `--transport sse` serves a port for
 several clients at once. The
 [MCP guide](https://github.com/dolev31/lasagna/blob/main/src/lasagna/mcp/README.md)
 lists every tool.
@@ -266,6 +271,19 @@ The OpenAPI reference is at `/docs`, and every endpoint is listed in
 [endpoints.md](https://github.com/dolev31/lasagna/blob/main/src/lasagna/api/docs/endpoints.md).
 `lasagna serve` binds to loopback and is unauthenticated; for anything shared,
 use the Compose stack.
+
+A local store opens in one process at a time. While `lasagna serve` runs,
+`lasagna status`, `search` and `upload` go through it, and `lasagna-mcp` cannot
+open the store. To give an agent the same store, start the server with the MCP
+endpoint and register it by URL instead of the command:
+
+```bash
+lasagna serve --mcp           # REST API, and MCP over SSE at /mcp/sse
+```
+
+```json
+{ "mcpServers": { "lasagna": { "type": "sse", "url": "http://127.0.0.1:8000/mcp/sse" } } }
+```
 
 ### Docker Compose
 
@@ -303,33 +321,37 @@ config applies.
 
 Adding a technique is one decorator on a plain function. The function becomes
 a component of its stage, interchangeable with every built-in, and runs inside
-the complete pipeline. This runs as is, with no model download and no corpus:
+the complete pipeline. Save this as `my_ideas.py`; `python my_ideas.py` runs as
+is, with no model download and no corpus:
 
 ```python
+# my_ideas.py
 import lasagna
-from lasagna.core.base_components import ScoredDocument
-from lasagna.core.registry import registry
 
 
-@lasagna.reranker("readme_demo", paper="Doe et al. 2026", claims={"ndcg@10": 0.456})
+@lasagna.reranker(paper="Doe et al. 2026", claims={"ndcg@10": 0.456})
 def longer_first(query, text):
     return len(text.split())  # your technique: score one passage
 
 
-candidates = [
-    ScoredDocument(content="short", score=0.9, document_id="d1", chunk_id="c1"),
-    ScoredDocument(content="a considerably longer passage of text", score=0.5,
-                   document_id="d2", chunk_id="c2"),
-    ScoredDocument(content="middling length here", score=0.7,
-                   document_id="d3", chunk_id="c3"),
-]
+if __name__ == "__main__":  # try it on three passages
+    from lasagna.core.base_components import ScoredDocument
+    from lasagna.core.registry import registry
 
-mine = registry.get("reranker", "readme_demo").rerank("q", candidates)
-entry = next(e for e in registry.list_rerankers() if e["name"] == "readme_demo")
-print("retrieval order:", [d.document_id for d in candidates])
-print("my reranker:    ", [d.document_id for d in mine])
-print("claims recorded:", entry["claims"])
-print("interchangeable:", entry["implements_contract"])
+    candidates = [
+        ScoredDocument(content="short", score=0.9, document_id="d1", chunk_id="c1"),
+        ScoredDocument(content="a considerably longer passage of text", score=0.5,
+                       document_id="d2", chunk_id="c2"),
+        ScoredDocument(content="middling length here", score=0.7,
+                       document_id="d3", chunk_id="c3"),
+    ]
+
+    mine = registry.get("reranker", "longer_first").rerank("q", candidates)
+    entry = next(e for e in registry.list_rerankers() if e["name"] == "longer_first")
+    print("retrieval order:", [d.document_id for d in candidates])
+    print("my reranker:    ", [d.document_id for d in mine])
+    print("claims recorded:", entry["claims"])
+    print("interchangeable:", entry["implements_contract"])
 ```
 
 ```text
@@ -352,8 +374,8 @@ agentic loop, subclass the stage's interface (`BaseReranker`,
 `BaseAgenticPipeline` and so on) and register the class with
 `@registry.register` instead.
 
-Then measure it. A sweep names the function by its import path, with no
-registration call and no package:
+Then measure it. A sweep names the function by its import path,
+`my_ideas:longer_first`, with no registration call and no package:
 
 ```yaml
 # sweep.yaml, next to my_ideas.py
@@ -376,8 +398,10 @@ implements its stage and passes its behavioral contract (return types, `top_k`,
 empty input, no mutation of its input). It then runs both arms on the same
 queries and ends by confirming that the configuration reaching each stage
 differed only at the reranker, and that the reranker arm's ranked lists moved:
-an arm whose lists never moved is flagged inert. Every listed built-in
-implements its stage's interface, so any of them is a like-for-like control:
+an arm whose lists never moved is flagged inert, and so is a reranker that hands
+back its candidates in retrieval order on every query, with no reranker-free arm
+needed to compare against. Every listed built-in implements its stage's
+interface, so any of them is a like-for-like control:
 
 ```python
 from lasagna.core.registry import registry
@@ -558,8 +582,7 @@ pip install "lasagna-rag[eval]==0.1.0" -c https://raw.githubusercontent.com/dole
 
 `eval` adds the RAGAS metrics, benchmark loaders and statistics; the other
 extras (vector backends, document processors, LLM providers, the production
-stack) and the platform notes (CPU-only torch on Linux, Apple Silicon, a pip
-resolver issue with `all`) are in
+stack) and the platform notes (CPU-only torch on Linux, Apple Silicon) are in
 [the guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md#2-install).
 `pip install lasagna` installs a different project; this one is `lasagna-rag`.
 

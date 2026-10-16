@@ -155,7 +155,7 @@
     ]
   },
   "delete_rag_profile": {
-    "description": "Delete a custom RAG profile.\n\nBuilt-in profiles (default, minimal, deep_search) cannot be deleted.\n\n:param session_id: Session identifier.\n:param profile_name: Name of the profile to delete.\n:returns: Confirmation message.",
+    "description": "Delete a custom RAG profile.\n\nBuilt-in profiles (default, speed, standard, balanced, max_quality) cannot be deleted.\n\n:param session_id: Session identifier.\n:param profile_name: Name of the profile to delete.\n:returns: Confirmation message.",
     "input_schema": {
       "properties": {
         "profile_name": {
@@ -1103,7 +1103,7 @@
     ]
   },
   "set_active_profile": {
-    "description": "Set the active RAG profile for a session.\n\nSwitches the session to use the specified profile for all subsequent\nRAG operations. This affects embedding model, chunking strategy,\nreranking settings, and more.\n\n:param session_id: Session identifier.\n:param profile_name: Name of the profile to activate (e.g., \"default\", \"deep_search\").\n:returns: Confirmation message or error.",
+    "description": "Set the active RAG profile for a session.\n\nSwitches the session to use the specified profile for all subsequent\nRAG operations. This affects embedding model, chunking strategy,\nreranking settings, and more.\n\n:param session_id: Session identifier.\n:param profile_name: Name of the profile to activate: a preset (speed, standard,\n    balanced, max_quality, default) or one saved with save_rag_profile.\n:returns: Confirmation message or error.",
     "input_schema": {
       "properties": {
         "profile_name": {
@@ -1209,8 +1209,7 @@
       "type": "object"
     },
     "listed_in": [
-      "all",
-      "safe"
+      "all"
     ]
   },
   "upload_document": {

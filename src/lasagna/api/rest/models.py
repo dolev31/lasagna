@@ -21,7 +21,13 @@ from pydantic import BaseModel, Field, field_validator
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=10000, description="Search query")
     top_k: int = Field(default=5, ge=1, le=100, description="Number of results")
-    min_score: float = Field(default=-100.0, description="Minimum score threshold")
+    min_score: Optional[float] = Field(
+        default=None,
+        description="Drop results whose score is below this. Scores are absolute: a "
+        "cross-encoder's probability when the profile reranks, else the retrieval score "
+        "((cosine similarity + 1) / 2 for dense search). Default: no threshold, as in "
+        "the CLI, the MCP server and the Python SDK.",
+    )
     document_ids: Optional[List[str]] = Field(
         default=None, description="Filter to specific documents"
     )
@@ -45,7 +51,12 @@ class ChunkResponse(BaseModel):
 
 class SearchResultResponse(BaseModel):
     chunk: ChunkResponse
-    score: float
+    score: float = Field(
+        description="Absolute relevance: the reranker's score when the profile reranks, "
+        "else the retrieval score ((cosine similarity + 1) / 2 for dense search, the "
+        "fused score for hybrid search)"
+    )
+    rank: int = Field(default=0, description="Position in the results, from 1")
     document_id: str
     filename: str
 

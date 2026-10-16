@@ -122,6 +122,8 @@ class KnowledgeClient:
 
         # Lazy-initialized backend
         self._backend = None
+        #: Whether this client's settings were saved as its session's (first write).
+        self._session_config_saved = False
         #: Uploads still processing; close() waits for them.
         self._in_flight_documents: set = set()
         self._backend_lock = asyncio.Lock()
@@ -237,6 +239,7 @@ class KnowledgeClient:
         self._focused_document_ids = None
         # Reset tracked keys so the new session gets a fresh set of overrides
         self._bridged_runtime_keys = set()
+        self._session_config_saved = False
         if self._backend is not None:
             self._apply_runtime_config()
         logger.info(f"Session ID changed to: {value}")
@@ -503,6 +506,41 @@ class KnowledgeClient:
         except Exception as e:
             logger.debug(f"Runtime config bridge skipped: {e}")
 
+    def _remember_session_config(self) -> None:
+        """Save this client's settings as its session's, on the session's first write.
+
+        ``lasagna configure`` saves a session's profile to disk. A client's
+        configuration lived in its process only (the in-memory session store,
+        and the process-wide embedder), so after an SDK upload with
+        ``config_for_speed()``, ``lasagna status`` showed BGE-M3 and the CLI,
+        REST and MCP searched that corpus with a model that had not built it.
+        A session that already has settings of its own keeps them.
+        """
+        if self._session_config_saved or self._is_remote:
+            return
+        self._session_config_saved = True
+        from ..api._profile_guard import EmbeddingSizeConflict
+
+        try:
+            from ..core.session_config import get_knowledge_config_manager
+            from ._config_bridge import get_runtime_overrides
+
+            overrides = get_runtime_overrides(self._config)
+            if not overrides:
+                return
+            mgr = get_knowledge_config_manager(session_id=self._session_id)
+            if mgr.get_chosen_config(self._session_id):
+                return
+            mgr.patch_config(overrides, session_id=self._session_id)
+        except EmbeddingSizeConflict:
+            raise
+        except Exception as e:
+            logger.warning(
+                f"This client's settings could not be saved for session {self._session_id!r}, "
+                f"so the CLI, REST API and MCP server will search it with their defaults: {e}. "
+                f"Run: lasagna configure --profile <name> -s {self._session_id}"
+            )
+
     # =========================================================================
     # Core Operations (Convenience Methods)
     # =========================================================================
@@ -543,7 +581,7 @@ class KnowledgeClient:
         self,
         query: str,
         top_k: int = 5,
-        min_score: float = 0.0,
+        min_score: Optional[float] = None,
         document_ids: Optional[List[str]] = None,
         routing_tier: Optional[str] = None,
     ) -> SearchResults:
@@ -552,7 +590,9 @@ class KnowledgeClient:
         Args:
             query: Natural language search query
             top_k: Maximum number of results
-            min_score: Minimum similarity score threshold (0-1)
+            min_score: Drop results whose score is below this. A score is the
+                reranker's when the profile reranks, else the retrieval score
+                ((cosine similarity + 1) / 2 for dense search). Default: no threshold.
             document_ids: Optional filter by document IDs (overrides focus)
             routing_tier: Force a routing tier ("fast", "standard",
                 "comprehensive"). If None, the router auto-selects.

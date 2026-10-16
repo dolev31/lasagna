@@ -9,15 +9,15 @@ patches:
       apiVersion: v1
       kind: ConfigMap
       metadata:
-        name: rag-knowledge-config
-        namespace: rag-knowledge
+        name: lasagna-config
+        namespace: lasagna
       data:
         RAG_VECTOR_BACKEND: "qdrant"
   - patch: |-
       apiVersion: v1
       kind: Secret
       metadata:
-        name: rag-knowledge-secrets
-        namespace: rag-knowledge
+        name: lasagna-secrets
+        namespace: lasagna
       stringData:
-        QDRANT_URL: "http://qdrant.rag-knowledge:6333"
+        QDRANT_URL: "http://qdrant.lasagna:6333"

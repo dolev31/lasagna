@@ -149,6 +149,10 @@ def test_benchmark_run_measures_retrieval_unless_asked(monkeypatch, args, tracks
         seen["tracks"] = config.tracks
         raise _Stop
 
+    import lasagna.providers as providers
+
+    # Generation is checked for an LLM key before anything runs.
+    monkeypatch.setattr(providers, "get_llm_provider", lambda: object())
     monkeypatch.setattr(experiment, "Experiment", fake_experiment)
     CliRunner().invoke(cli.app, ["benchmark", "run", "smoke", *args])
     assert seen["tracks"] == tracks

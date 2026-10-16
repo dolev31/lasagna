@@ -5,13 +5,13 @@
 # downloads.  Supports both API-only and Celery worker modes via CMD override.
 #
 # Build:
-#   docker build -t rag-knowledge -f src/lasagna/deploy/Dockerfile .
+#   docker build -t lasagna -f src/lasagna/deploy/Dockerfile .
 #
 # Run API server:
-#   docker run -p 8000:8000 --env-file .env rag-knowledge
+#   docker run -p 8000:8000 --env-file .env lasagna
 #
 # Run Celery worker:
-#   docker run --env-file .env rag-knowledge celery \
+#   docker run --env-file .env lasagna celery \
 #       -A lasagna.infrastructure.tasks.celery_app worker \
 #       --loglevel=info --concurrency=4
 # ============================================================================

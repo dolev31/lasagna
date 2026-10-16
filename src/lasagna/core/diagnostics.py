@@ -183,6 +183,10 @@ def _check_model_cache() -> Check:
     return Check("model_cache", _OK, f"{len(entries)} model(s) cached")
 
 
+#: The vector stores Lasagna ships an adapter for (``vector_backends/``).
+_BUILTIN_VECTOR_BACKENDS = ("milvus", "pgvector", "qdrant", "weaviate", "pinecone", "opensearch")
+
+
 def _check_vector_backend() -> Check:
     try:
         from .config import rag_config
@@ -190,6 +194,26 @@ def _check_vector_backend() -> Check:
         name = getattr(rag_config, "vector_backend", None) or "milvus"
     except Exception as exc:  # pragma: no cover - config import is exercised elsewhere
         return Check("vector_backend", _FAIL, f"could not read config: {exc}")
+
+    if name not in _BUILTIN_VECTOR_BACKENDS:
+        # A typo ("milvuss") was reported as "ok", and the first upload failed.
+        known = set(_BUILTIN_VECTOR_BACKENDS)
+        try:
+            from lasagna.vector_backends.registry import discover_backends, get_registry
+
+            discover_backends()  # plugins: lasagna_vector_* packages
+            known |= set(get_registry().list_backends())
+        except Exception:  # noqa: BLE001 - a broken plugin must not hide the answer
+            pass
+        if name not in known:
+            from ._text import did_you_mean
+
+            return Check(
+                "vector_backend",
+                _FAIL,
+                f"unknown backend {name!r}{did_you_mean(name, known)}",
+                f"set RAG_VECTOR_BACKEND to one of: {', '.join(sorted(known))}",
+            )
 
     module = {"milvus": "pymilvus", "qdrant": "qdrant_client", "chroma": "chromadb"}.get(name)
     if module and not _installed(module):

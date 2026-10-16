@@ -164,7 +164,7 @@ class KnowledgeConfigManager(
 
 # Global singleton instance (file-based backend only)
 _knowledge_config_manager: Optional[KnowledgeConfigManager] = None
-# CRITICAL FIX: Lock for thread-safe singleton initialization
+# Lock for thread-safe singleton initialization
 # Without this, multiple threads could create multiple instances during startup
 _knowledge_config_manager_lock = Lock()
 

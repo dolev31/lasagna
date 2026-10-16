@@ -1985,10 +1985,16 @@
             "title": "Document Ids"
           },
           "min_score": {
-            "default": -100.0,
-            "description": "Minimum score threshold",
-            "title": "Min Score",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Drop results whose score is below this. Scores are absolute: a cross-encoder's probability when the profile reranks, else the retrieval score ((cosine similarity + 1) / 2 for dense search). Default: no threshold, as in the CLI, the MCP server and the Python SDK.",
+            "title": "Min Score"
           },
           "query": {
             "description": "Search query",
@@ -2094,7 +2100,14 @@
             "title": "Filename",
             "type": "string"
           },
+          "rank": {
+            "default": 0,
+            "description": "Position in the results, from 1",
+            "title": "Rank",
+            "type": "integer"
+          },
           "score": {
+            "description": "Absolute relevance: the reranker's score when the profile reranks, else the retrieval score ((cosine similarity + 1) / 2 for dense search, the fused score for hybrid search)",
             "title": "Score",
             "type": "number"
           }

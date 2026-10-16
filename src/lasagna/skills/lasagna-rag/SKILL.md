@@ -54,10 +54,11 @@ Tools the agent gets: 31 tools, in six groups.
 | Config | `get_rag_config`, `patch_rag_config`, `reset_rag_config`, `save_rag_profile`, `list_profiles`, `get_active_profile`, `set_active_profile`, `delete_rag_profile`, `get_profile_stats` |
 | System | `get_system_status`, `rebuild_collection`, `reindex_document` |
 
-By default the server runs with `--tools safe`, which leaves out the six tools
-that delete data or reset configuration: `delete_document`, `clear_session`,
-`bulk_delete_session`, `rebuild_collection`, `delete_rag_profile` and
-`reset_rag_config`. Add `"args": ["--tools", "all"]` to the server's entry (or set
+By default the server runs with `--tools safe`, which leaves out the seven tools
+that delete data, reset configuration or change the server-wide retention
+policy: `delete_document`, `clear_session`, `bulk_delete_session`,
+`rebuild_collection`, `delete_rag_profile`, `reset_rag_config` and
+`set_lifecycle_policy`. Add `"args": ["--tools", "all"]` to the server's entry (or set
 `LASAGNA_MCP_TOOLS=all`) to serve them.
 
 Use `search` for every search. `search_knowledge` and `search_with_context` are

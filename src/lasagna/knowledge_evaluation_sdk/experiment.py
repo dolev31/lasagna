@@ -144,6 +144,7 @@ _CORPUS_ID_MAP: Dict[str, str] = {
 
 
 from lasagna.utils.token_usage import EVAL, SYSTEM, TokenUsage, UsageMeter  # noqa: E402
+from lasagna.core.strict import observe_reranking  # noqa: E402
 
 # There was a `_get_cost_rates` here, and a `_DEFAULT_COST_TABLE` behind it,
 # converting token counts to dollars. Both are gone. The token counts they
@@ -676,7 +677,15 @@ def _load_yaml(path: str) -> Dict[str, Any]:
     except ImportError:
         raise ImportError("PyYAML required for YAML configs: pip install pyyaml")
     with open(path) as f:
-        return yaml.safe_load(f)
+        try:
+            return yaml.safe_load(f)
+        except yaml.YAMLError as exc:
+            # A ValueError, so the CLI prints this one line rather than a
+            # 164-line traceback of the parser.
+            mark = getattr(exc, "problem_mark", None)
+            where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+            problem = getattr(exc, "problem", None) or str(exc)
+            raise ValueError(f"not valid YAML{where}: {problem}") from None
 
 
 def _load_toml(path: str) -> Dict[str, Any]:
@@ -724,6 +733,9 @@ def _reranker_that_ran(component: Optional[str], task_config: Dict[str, Any]) ->
     """
     if not component or component in _CROSS_ENCODER_RERANKERS:
         return task_config.get("reranker_model")
+    if component in ("ensemble", "ensemble_adapted"):
+        models = task_config.get("ensemble_reranker_models") or [task_config.get("reranker_model")]
+        return "ensemble:" + "+".join(str(m) for m in models)
     key = _RERANKER_MODEL_KEYS.get(component)
     model = task_config.get(key) if key else None
     return f"{component}:{model}" if model else component
@@ -830,20 +842,31 @@ def _check_components_exist(pipeline_configs: List[Dict[str, Any]]) -> None:
     from lasagna.core.registry import registry
 
     unknown = []
+    likely_typo = False
     for pc in pipeline_configs:
         for key, value in (pc.get("overrides") or {}).items():
             if key in _COMPONENT_KEYS and isinstance(value, str):
                 known = registry.list(key).get(key, [])
                 if not registry.has(key, value):
+                    hint = _did_you_mean(value, known)
+                    likely_typo = likely_typo or bool(hint)
                     unknown.append(
-                        f"{pc.get('name')}: {key}={value!r} (registered: {sorted(known)})"
+                        f"{pc.get('name')}: {key} {value!r}{hint} (registered: "
+                        f"{', '.join(sorted(known))})"
                     )
     if unknown:
+        # A misspelled built-in was told to install an entry point.
+        advice = (
+            "Correct the name, or name your own component by its import path "
+            "(my_ideas:my_function)."
+            if likely_typo
+            else "Name your own component by its import path (my_ideas:my_function), "
+            "or install it as a lasagna_components entry point "
+            "(see docs/contributing-components.md)."
+        )
         raise ValueError(
             "These arms name components that are not registered, so they would "
-            "measure the default component instead: " + "; ".join(unknown) + ". "
-            "Install your component as a lasagna_components entry point "
-            "(see docs/contributing-components.md)."
+            "measure the default component instead: " + "; ".join(unknown) + ". " + advice
         )
 
 
@@ -873,7 +896,11 @@ def _known_override_keys() -> set:
 
     keys = set(getattr(rag_config, "_config", {}) or {})
     keys |= {n for n, v in vars(RAGConfig).items() if isinstance(v, property)}
-    return keys | set(_COMPONENT_KEYS) | set(HARNESS_KEYS)
+    return keys | set(_COMPONENT_KEYS) | set(HARNESS_KEYS) | _COMPONENT_SETTING_KEYS
+
+
+#: Settings read by one component only, with no global default.
+_COMPONENT_SETTING_KEYS = frozenset({"ensemble_reranker_models", "ensemble_reranker_weights"})
 
 
 def _check_override_keys(pipeline_configs: List[Dict[str, Any]]) -> None:
@@ -885,7 +912,18 @@ def _check_override_keys(pipeline_configs: List[Dict[str, Any]]) -> None:
     """
     known = _known_override_keys()
     for pc in pipeline_configs:
-        _refuse_unknown(pc.get("overrides") or {}, known, f"arm {pc.get('name')!r}")
+        unknown = sorted(set(pc.get("overrides") or {}) - known)
+        if not unknown:
+            continue
+        # The likely key, and where the rest are listed: printing all ~400 known
+        # keys buried it among celery_broker_url and the like.
+        parts = ", ".join(f"{k!r}{_did_you_mean(k, known)}" for k in unknown)
+        raise ValueError(
+            f"Unknown key(s) in arm {pc.get('name')!r}: {parts}. An arm names components "
+            f"({', '.join(sorted(_COMPONENT_KEYS))}), harness keys "
+            f"({', '.join(sorted(HARNESS_KEYS))}) or settings, listed in "
+            f"docs/reference/settings.md."
+        )
 
 
 def _load_component_references(
@@ -2297,8 +2335,8 @@ def _apply_overrides_to_pipeline(
     """Apply config overrides to a KnowledgePipeline.
 
     - Component names (reranker, embedder, etc.) → ``pipeline.replace()``
-    - ``ensemble_reranker_models`` → create an EnsembleReranker instance
-      and inject it into pipeline._instances (session-scoped, not per-query)
+    - ``ensemble_reranker_models`` → the ``ensemble`` reranker, which reads
+      them (and ``ensemble_reranker_weights``) from the arm's config
     - Config keys (enable_hybrid_search, chunk_size, etc.) → dict update
       on ``pipeline._config``, then ``_apply_session_config(session_id)``
     """
@@ -2314,40 +2352,12 @@ def _apply_overrides_to_pipeline(
     # one arm's rrf_k changed the next arm's number, and the manifest agreed.
     _complete_stage_settings(pipeline._config)
 
-    # Handle ensemble reranker: create once at task init (not per-query).
-    # Intercept before normal processing so these keys don't leak into config dict.
-    if "ensemble_reranker_models" in overrides:
-        overrides = dict(overrides)  # defensive copy
-        models = overrides.pop("ensemble_reranker_models")
-        weights = overrides.pop("ensemble_reranker_weights", [1.0] * len(models))
-        if len(models) != len(weights):
-            logger.warning(
-                f"ensemble_reranker_models/weights length mismatch: "
-                f"{len(models)} vs {len(weights)}: using equal weights"
-            )
-            weights = [1.0] * len(models)
-        try:
-            from ..retrieval.search.ranker import EnsembleReranker, RerankerModelConfig
-
-            model_configs = [
-                RerankerModelConfig(model_name=m, weight=w) for m, w in zip(models, weights)
-            ]
-            from ..api.rag_backend import get_rag_backend as _get_backend
-
-            _backend = _get_backend()
-            ensemble = EnsembleReranker(
-                model_configs=model_configs,
-                embedding_manager=_backend.embedding_manager,
-            )
-            # Inject directly into the pipeline instance cache — get_component()
-            # checks _instances first, bypassing registry lookup.
-            pipeline._instances["reranker"] = ensemble
-            logger.info(
-                f"Injected EnsembleReranker with {len(ensemble.rerankers)} models: "
-                f"{ensemble.model_name}"
-            )
-        except Exception as exc:
-            logger.warning(f"Failed to create EnsembleReranker: {exc}")
+    # The ensemble reads its members from the arm's config on each call, so
+    # naming them is enough to measure it. They used to build an ensemble here
+    # that `reranker: ensemble` then replaced with one of the settings file's
+    # model, and the YAML refused the keys as unknown anyway.
+    if "ensemble_reranker_models" in overrides and not overrides.get("reranker"):
+        overrides = {**overrides, "reranker": "ensemble"}
 
     config_overrides: Dict[str, Any] = {}
 
@@ -3587,6 +3597,29 @@ async def _eval_live(
             f"{list(_ingestion_overrides.keys())}"
         )
 
+    # Generation needs an LLM. Checked before the corpus is ingested: without
+    # one every answer failed after the whole run, with a traceback, and the
+    # task's retrieval numbers were discarded with the generation ones.
+    _generation_skipped: Optional[str] = None
+    if (not task.tracks or "generation" in task.tracks) and any(
+        s.ground_truth or _is_unanswerable(s) for s in samples
+    ):
+        from .synthesize import llm_configured, missing_llm_message
+
+        if not llm_configured():
+            _generation_skipped = missing_llm_message(
+                "The generation track",
+                "To measure retrieval only, run with --tracks retrieval (tracks: [retrieval]).",
+            )
+            if task.tracks and "retrieval" not in task.tracks:
+                return TaskResult(
+                    task_key=task.task_key,
+                    benchmark_name=task.benchmark_name,
+                    config_name=task.config_name,
+                    run_index=task.run_index,
+                    error=_generation_skipped,
+                )
+
     # Ensure corpus is ingested (first caller ingests, rest reuse)
     corpus_info = await _ensure_corpus_ingested(
         task.benchmark_name,
@@ -3651,6 +3684,17 @@ async def _eval_live(
             ir_samples = []
         if "generation" not in task.tracks:
             gen_samples = []
+    if _generation_skipped and gen_samples:
+        gen_samples = []
+        if not ir_samples:
+            await _release_corpus(task.benchmark_name, corpus_key=_corpus_key)
+            return TaskResult(
+                task_key=task.task_key,
+                benchmark_name=task.benchmark_name,
+                config_name=task.config_name,
+                run_index=task.run_index,
+                error=_generation_skipped,
+            )
 
     # Build pipeline from profile and apply task-level overrides.
     pipeline = KnowledgePipeline.from_profile(task.profile)
@@ -3886,7 +3930,7 @@ async def _eval_live(
             # made deep inside the pipeline -- HyDE, query expansion, the whole
             # agentic graph -- are attributed to this sample.
             sample_meter = UsageMeter()
-            with sample_meter, sample_meter.scope(SYSTEM):
+            with sample_meter, sample_meter.scope(SYSTEM), observe_reranking() as moved:
                 search_results = await asyncio.to_thread(
                     pipeline.query,
                     sample.question,
@@ -4009,6 +4053,11 @@ async def _eval_live(
                 "_expected_docs": sorted(valid_to_corpus.get(d, d) for d in mapped_expected),
             }
 
+            if moved:
+                # Whether the reranker component changed its candidates' order:
+                # the isolation check flags an arm whose reranker never did.
+                sample_metrics["_reranker_moved"] = any(moved)
+
             # What this query actually spent, measured at the provider rather
             # than read off chunk metadata. The old code summed
             # `chunk.metadata["input_tokens"]`, a key nothing in the package
@@ -4044,6 +4093,10 @@ async def _eval_live(
                     _chunk_overfetch,
                 )
             )
+
+        # What retrieval scored, kept if generation fails below.
+        _retrieval_metric_keys = set(metrics) if ir_samples else None
+        _retrieval_rows = len(per_sample_scores)
 
         # ── Generation path ──────────────────────────────────────────────────
         # Uses gen_config (task overrides + embedding fixes, NOT IR-forced
@@ -4615,6 +4668,16 @@ async def _eval_live(
         task_config,
         reranker_component=(task.config_overrides or {}).get("reranker"),
     )
+    if _generation_skipped:
+        _eval_failures.append(_generation_skipped)
+    if _eval_failures and _retrieval_metric_keys:
+        # Retrieval ran and was scored; only generation failed. Its numbers
+        # would describe the failure, so they go, and the retrieval ones stay
+        # with the reason: the CLI names it and exits non-zero.
+        _system["generation_failed"] = "; ".join(_eval_failures)
+        metrics = {k: v for k, v in metrics.items() if k in _retrieval_metric_keys}
+        per_sample_scores = per_sample_scores[:_retrieval_rows]
+        _eval_failures = []
     # What reached each stage, from the config the search actually resolved
     # (session plus this arm's overrides) and the components it named; the
     # bundle's isolation check compares these across arms.

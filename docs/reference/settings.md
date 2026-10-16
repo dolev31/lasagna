@@ -99,7 +99,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `hybrid_alpha` | float, 0.0 to 1.0 | `0.7` | `LASAGNA_HYBRID_ALPHA`, `RAG_HYBRID_ALPHA` | Balance between understanding meaning (right) and matching exact words (left). Most documents work best around 0.7. |
 | `sparse_method` | str | `"bm25"` | `LASAGNA_SPARSE_METHOD`, `RAG_SPARSE_METHOD` | Which keyword-based retrieval method to use alongside AI vector search. |
 | `default_top_k` | int, 1 to 1000 | `20` | `LASAGNA_DEFAULT_TOP_K`, `RAG_DEFAULT_TOP_K` | Research: 75+ introduces hard negatives (ICLR 2025) |
-| `similarity_threshold` | float, -1.0 to 1.0 | `0.3` | `LASAGNA_SIMILARITY_THRESHOLD`, `RAG_SIMILARITY_THRESHOLD` | Only include results above this quality bar. Lower = more results, higher = stricter filtering. |
+| `similarity_threshold` | float, -1.0 to 1.0 | `0.3` | `LASAGNA_SIMILARITY_THRESHOLD`, `RAG_SIMILARITY_THRESHOLD` | Cut applied to the per-query normalized score when the agentic loop or an evaluation's generation track searches. Searches from the CLI, REST, MCP and the SDK apply no threshold unless the request sets min_score. |
 | `rrf_k` | int | `60` | `LASAGNA_RRF_K`, `RAG_RRF_K` | RRF constant for Reciprocal Rank Fusion. |
 | `enable_bm25_stemming` | bool | `true` | `LASAGNA_ENABLE_BM25_STEMMING`, `RAG_ENABLE_BM25_STEMMING` | Enable Porter stemming for BM25. |
 | `bm25_max_sessions` | int | `1000` | `LASAGNA_BM25_MAX_SESSIONS`, `RAG_BM25_MAX_SESSIONS` | Maximum number of in-memory BM25 session indices to keep. |
@@ -248,6 +248,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `preserve_formatting` | bool | `true` | `LASAGNA_PRESERVE_FORMATTING`, `RAG_PRESERVE_FORMATTING` | keep layout such as lists and line breaks in extracted text. |
 | `async_processing` | bool | `true` | `LASAGNA_ASYNC_PROCESSING`, `RAG_ASYNC_PROCESSING` | process uploads in the background. |
 | `processing_timeout` | int | `300` | `LASAGNA_PROCESSING_TIMEOUT`, `RAG_PROCESSING_TIMEOUT` | seconds a document may take to process. |
+| `allow_model_download_in_requests` | bool | `false` | `LASAGNA_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS`, `RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS` | Whether a server may download a missing model while it handles a request. |
 
 ## Docling Document Processing
 

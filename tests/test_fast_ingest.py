@@ -589,3 +589,39 @@ class TestTenantPartitions:
                 backend=backend,
             )
         assert recording.inserted == []
+
+
+class TestAFailureSharedByEveryDocumentIsReportedOnce:
+    """A model that cannot load failed every document alike, and ``benchmark run``
+    printed "Chunking failed for doc_..." once per document, 24 identical lines."""
+
+    @pytest.mark.asyncio
+    async def test_one_line_and_a_count(self):
+        from loguru import logger
+
+        from lasagna.knowledge_evaluation_sdk._fast_ingest import fast_ingest_corpus
+
+        class _Broken:
+            def chunk(self, text, metadata=None):
+                raise RuntimeError("Cannot load embedding model 'BAAI/bge-m3'")
+
+        corpus = _make_corpus(6)
+        lines: List[str] = []
+        sink = logger.add(lambda m: lines.append(m.record["message"]), level="WARNING")
+        try:
+            with pytest.raises(RuntimeError, match="Chunking failed for 6 of 6"):
+                await fast_ingest_corpus(
+                    corpus=corpus,
+                    corpus_to_valid=_make_corpus_to_valid(corpus),
+                    ready_ids=set(),
+                    session_id="broken",
+                    config=MockConfig(),
+                    backend=MockBackend(),
+                    chunker=_Broken(),
+                )
+        finally:
+            logger.remove(sink)
+        failed = [line for line in lines if line.startswith("Chunking failed")]
+        assert len(failed) == 2, failed
+        assert "bge-m3" in failed[0]
+        assert failed[1] == "Chunking failed the same way for 5 more document(s)"

@@ -29,13 +29,30 @@ router = APIRouter(tags=["health"])
 
 
 def _embedding_check(backend) -> HealthCheckDetail:
+    """The default embedding model: loaded, loadable from disk, or not loadable.
+
+    It said "up" from the model's name alone, while the model was not
+    downloaded and the server offline, and every search answered 500.
+    """
+    from lasagna.core.model_downloads import refusal
+
     try:
         t0 = perf_counter()
-        model_name = backend.embedding_manager.model_name
-        dim = backend.embedding_manager.dimension
+        manager = backend.embedding_manager
+        model_name = manager.model_name
+        dim = manager.dimension
+        problem = None if getattr(manager, "is_loaded", True) else refusal(model_name)
         ms = (perf_counter() - t0) * 1000
+        if problem is not None:
+            return HealthCheckDetail(
+                status="down",
+                latency_ms=round(ms, 2),
+                detail=f"{problem} Sessions on another profile still work. For the "
+                f"default: lasagna configure --profile speed, or hf download {model_name}.",
+            )
+        loaded = "" if getattr(manager, "is_loaded", True) else ", loads on first use"
         return HealthCheckDetail(
-            status="up", latency_ms=round(ms, 2), detail=f"{model_name} (dim={dim})"
+            status="up", latency_ms=round(ms, 2), detail=f"{model_name} (dim={dim}{loaded})"
         )
     except Exception as exc:
         return HealthCheckDetail(status="down", detail=str(exc))
