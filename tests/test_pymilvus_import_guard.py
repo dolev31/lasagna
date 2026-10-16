@@ -142,9 +142,19 @@ def test_the_environment_and_dotenv_are_restored(project):
 
 
 def test_a_cli_command_that_opens_the_store_does_not_load_the_dotenv(project):
-    """End to end: `lasagna status` starts Milvus Lite, so it imports pymilvus."""
+    """End to end: `lasagna status` starts Milvus Lite, so it imports pymilvus.
+
+    It opens the store only when a document could predate per-model
+    collections, so the run records one with no collection first.
+    """
     code = (
         "import os, sys\n"
+        "from lasagna.core.database import get_rag_database\n"
+        "db = get_rag_database()\n"
+        "db.save_document({'document_id': 'doc_old', 'session_id': 'default', "
+        "'filename': 'old.md', 'file_size': 1, 'file_type': 'md', 'status': 'ready', "
+        "'chunks_count': 1}, '/old.md', collection_name=None)\n"
+        "db.rebuild_quota_counters()\n"
         "sys.argv = ['lasagna', 'status']\n"
         "from lasagna.cli import app\n"
         "try:\n"
