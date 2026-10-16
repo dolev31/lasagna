@@ -868,6 +868,13 @@ def legacy_collections(backend: VectorStoreAdapter) -> List[Dict[str, Any]]:
     return [{"name": name, "rows": rows, "embedding_dim": dim}]
 
 
+def _flush_before_counting(backend: Any, collection_name: str) -> None:
+    """Make rows written moments ago countable, on a backend that has ``flush``."""
+    flush = getattr(backend, "flush", None)
+    if flush is not None:
+        flush(collection_name)
+
+
 def collection_is_empty(backend: VectorStoreAdapter, collection_name: str) -> bool:
     """Whether ``collection_name`` positively holds no rows on ``backend``.
 
@@ -877,6 +884,9 @@ def collection_is_empty(backend: VectorStoreAdapter, collection_name: str) -> bo
     try:
         if not backend.has_collection(collection_name):
             return True
+        # A Milvus server counts flushed rows only, and OpenSearch refreshed
+        # ones: rows written moments ago would read as none.
+        _flush_before_counting(backend, collection_name)
         stats = backend.get_collection_stats(collection_name)
         rows = (
             stats.get("row_count") if isinstance(stats, dict) else getattr(stats, "row_count", None)

@@ -1059,9 +1059,16 @@ class MilvusBackend(VectorStoreAdapter):
     # =========================================================================
 
     def flush(self, collection_name: str) -> None:
-        """Flush pending writes."""
-        # MilvusClient doesn't expose flush directly
-        pass
+        """Seal the collection's growing segments, on a Milvus server.
+
+        A server's collection statistics count flushed segments only, so rows
+        written moments ago (here or by another process) can read as zero;
+        `collection_is_empty` flushes before it counts. Milvus Lite counts
+        unflushed rows, so there this does nothing.
+        """
+        if self.is_lite:
+            return
+        self._ensure_connected().flush(collection_name)
 
     def _to_milvus_schema(self, schema: CollectionSchema) -> MilvusCollectionSchema:
         """Convert our schema to Milvus schema."""

@@ -486,6 +486,9 @@ Server and deployment:
 - MCP `reindex_document` and `rebuild_collection` no longer replace the
   server's shared embedder and reranker; they use the session's embedder for
   that request alone.
+- A Milvus server's unflushed rows are counted before an emptiness check
+  decides a drop: a server counts only flushed segments, so a collection
+  written seconds earlier read as empty.
 
 Numbers that were wrong:
 
