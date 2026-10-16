@@ -102,7 +102,7 @@ RUN case "$VECTOR_BACKEND" in \
       weaviate) extra=",vector-backends"; check="weaviate" ;; \
       pinecone) extra=",vector-backends"; check="pinecone" ;; \
       all) extra=",vector-backends"; check="qdrant_client weaviate pinecone" ;; \
-      *) echo "Unknown VECTOR_BACKEND=$VECTOR_BACKEND. Use one of: milvus milvus-lite pgvector opensearch qdrant weaviate pinecone all" >&2; exit 1 ;; \
+      *) echo "Unknown VECTOR_BACKEND=$VECTOR_BACKEND. Use one of: milvus milvus-lite pgvector opensearch qdrant weaviate pinecone all"; exit 1 ;; \
     esac && \
     pip install --no-cache-dir "setuptools<78" && \
     pip install --no-cache-dir ".[production,pgvector,opensearch,flag-embedding$extra]" \
