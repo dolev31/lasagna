@@ -184,7 +184,7 @@ async def main():
     from fastapi.testclient import TestClient
     from lasagna.api.rest.app import create_app
 
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), base_url="http://localhost") as c:
         rest = c.post("/api/v1/search", headers={"X-Session-ID": "corpus"},
                       json={"query": Q, "top_k": 3}).json()["results"]
     from lasagna.mcp import server

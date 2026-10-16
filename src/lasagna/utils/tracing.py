@@ -229,9 +229,11 @@ def configure_tracing(
     if enable:
         try:
             TRACER._backend = _OpenTelemetryBackend(service_name, exporter, endpoint)
+            from lasagna.core.provenance import redact_url
+
             logger.info(
                 f"OpenTelemetry tracing enabled: service={service_name}, "
-                f"exporter={exporter}, endpoint={endpoint}"
+                f"exporter={exporter}, endpoint={redact_url(endpoint)}"
             )
         except ImportError:
             TRACER._backend = _TracingBackend()

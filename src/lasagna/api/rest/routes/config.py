@@ -207,7 +207,12 @@ async def patch_config(
         # so skip the write-through to avoid double validation/persist.
         sp = get_session_provider()
         if not getattr(sp, "_delegates_to_manager", False):
-            sp.deep_merge_config_overrides(session_id, patch_dict)
+            # What the manager kept: a server setting it dropped (its value
+            # was the one in force) is not the session's either.
+            from lasagna.core.session_config._session_keys import session_key_problem
+
+            kept = {k: v for k, v in patch_dict.items() if session_key_problem(k, v) is None}
+            sp.deep_merge_config_overrides(session_id, kept)
     except EmbeddingSizeConflict as conflict:
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as ve:

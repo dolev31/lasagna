@@ -1311,7 +1311,8 @@ class RAGDatabase:
         """Mark a document as soft-deleted (sets status=soft_deleted, deleted_at=now).
 
         Does NOT remove vectors, files, or free quota.  The GC will hard-delete
-        once the grace window expires.
+        once the grace window expires. Bumps the session's content generation
+        (``record_visibility_change``).
 
         Returns:
             True if the document was found and updated.
@@ -1323,7 +1324,8 @@ class RAGDatabase:
                 "UPDATE rag_documents SET status = 'soft_deleted', deleted_at = ? WHERE document_id = ? AND status != 'soft_deleted'",
                 (now, document_id),
             )
-            return cursor.rowcount > 0
+            session_id = self._session_of(cursor, document_id) if cursor.rowcount > 0 else None
+        return record_visibility_change(self, session_id)
 
     def restore_document(self, document_id: str, grace_cutoff: Optional[datetime] = None) -> bool:
         """Restore a soft-deleted document to READY status (clears deleted_at).
@@ -1353,7 +1355,14 @@ class RAGDatabase:
                     " WHERE document_id = ? AND status = 'soft_deleted'",
                     (document_id,),
                 )
-            return cursor.rowcount > 0
+            session_id = self._session_of(cursor, document_id) if cursor.rowcount > 0 else None
+        return record_visibility_change(self, session_id)
+
+    @staticmethod
+    def _session_of(cursor, document_id: str) -> Optional[str]:
+        cursor.execute("SELECT session_id FROM rag_documents WHERE document_id = ?", (document_id,))
+        row = cursor.fetchone()
+        return row[0] if row else ""
 
     def list_soft_deleted_before(
         self, cutoff: datetime, session_id: Optional[str] = None
@@ -1419,6 +1428,33 @@ class RAGDatabase:
                     (cutoff.isoformat(),),
                 )
             return [row[0] for row in cursor.fetchall()]
+
+    def fail_stale_processing_documents(
+        self, cutoff: datetime, reason: str, session_id: Optional[str] = None
+    ) -> List[str]:
+        """Mark documents still uploading, processing or indexing since before *cutoff* as error.
+
+        Each update re-checks the status, so a document that finished between
+        the read and the write keeps its status. Used by GC Phase 0.
+        """
+        stale = f"status IN ({_UNFINISHED_SQL}) AND upload_date < ?"
+        params: List[Any] = [cutoff.isoformat()]
+        if session_id:
+            stale += " AND session_id = ?"
+            params.append(session_id)
+        failed: List[str] = []
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT document_id FROM rag_documents WHERE {stale}", params)
+            for (document_id,) in cursor.fetchall():
+                cursor.execute(
+                    f"UPDATE rag_documents SET status = 'error', error_message = ? "
+                    f"WHERE document_id = ? AND {stale}",
+                    [reason, document_id, *params],
+                )
+                if cursor.rowcount > 0:
+                    failed.append(document_id)
+        return failed
 
     def list_all_active_document_ids(
         self,
@@ -1747,6 +1783,33 @@ class RAGDatabase:
                 return int(row[0])
             finally:
                 conn.close()
+
+
+#: Statuses of a document that some process is still working on.
+_UNFINISHED_SQL = "'uploading', 'processing', 'indexing'"
+
+
+def record_visibility_change(db: Any, session_id: Optional[str]) -> bool:
+    """Bump ``session_id``'s content generation after a document was archived or restored.
+
+    Each process caches search results and checks this generation on a cache
+    hit, which skips the database. Without the bump, another worker kept
+    serving an archived document from its cache until the entry expired, and
+    kept leaving a restored one out. Returns whether a document changed (``None``:
+    none did); a failed bump is logged, and the status change stands.
+    """
+    if session_id is None:
+        return False
+    try:
+        if session_id:
+            db.bump_content_generation(session_id)
+    except Exception as e:
+        logger.warning(
+            f"Could not record the change to session {session_id[:8]}'s documents: {e}. "
+            "Other API or worker processes may serve cached results for up to "
+            "search_cache_ttl seconds."
+        )
+    return True
 
 
 #: One row per session: a counter bumped on every upload and delete, which tells

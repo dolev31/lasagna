@@ -13,7 +13,10 @@ name: Release
 # the current tree and never publishes. Use it before release day.
 #
 # Actions are pinned by commit SHA, the tag in the trailing comment: this job
-# can publish to PyPI, so a moved tag must not change what runs.
+# can publish to PyPI, so a moved tag must not change what runs. For an
+# annotated tag, `gh api repos/<owner>/<repo>/git/ref/tags/<tag>` names the tag
+# object, not the commit; pin the commit it points to:
+#   gh api repos/<owner>/<repo>/git/tags/<that sha> --jq .object.sha
 
 on:
   release:
@@ -143,4 +146,4 @@ jobs:
           name: dist
           path: dist/
 
-      - uses: pypa/gh-action-pypi-publish@a892a5a61159132606e93a2fa6f4358831b04d26 # v1.14.2
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

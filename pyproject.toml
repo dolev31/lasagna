@@ -307,6 +307,9 @@ dev = [
     # Reads and validates the Colab notebook in examples/notebooks/, which is
     # the first thing many people run and is not otherwise executed by CI.
     "nbformat>=5.7",
+    # Registers every metric with the real client (it is in `production`):
+    # the no-op backend accepted a name with two label sets, Prometheus does not.
+    "prometheus-client>=0.20,<1",
 ]
 
 [build-system]
@@ -351,6 +354,12 @@ lasagna = [
     # rather than cloned would otherwise get an empty list.
     "skills/*/SKILL.md",
 ]
+
+[tool.setuptools.exclude-package-data]
+# An operator's Kubernetes secrets (deploy/README.md, "Kubernetes"). The glob
+# above matches the file system, not git, so a wheel or sdist built from a
+# configured checkout carried them. `*` here spans directories.
+lasagna = ["deploy/k8s/overlays/local/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

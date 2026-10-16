@@ -180,6 +180,38 @@ class _LasagnaMCP(FastMCP):
     async def list_tools(self):
         return [tool for tool in await super().list_tools() if tool.name not in self.unlisted]
 
+    def sse_app(self, *args, **kwargs):
+        """FastMCP's SSE app, refusing a foreign ``Host`` with the setting that admits it.
+
+        FastMCP's own refusal says only "Invalid Host header", which leaves an
+        operator who exposed the server on purpose guessing. The same list is
+        checked first, on every path but ``/health``, which answers any Host
+        for probes, as on REST.
+        """
+        app = super().sse_app(*args, **kwargs)
+        security = self.settings.transport_security
+        if security is None or not security.enable_dns_rebinding_protection:
+            return app
+        from starlette.datastructures import Headers
+
+        from lasagna.api.rest.auth_mode import foreign_host_message, host_is_allowed
+
+        patterns = list(security.allowed_hosts)
+
+        async def checked(scope, receive, send):
+            path, root = scope.get("path", ""), scope.get("root_path", "")
+            if root and path.startswith(root):
+                path = path[len(root) :]
+            if scope["type"] == "http" and path != "/health":
+                host = Headers(scope=scope).get("host")
+                if not host_is_allowed(host, patterns):
+                    refusal = JSONResponse({"error": foreign_host_message(host)}, status_code=421)
+                    await refusal(scope, receive, send)
+                    return
+            await app(scope, receive, send)
+
+        return checked
+
 
 #: Keys a tool's JSON error reply may carry; any other key makes it a report.
 _ERROR_ONLY_KEYS = frozenset({"error", "hint", "detail"})
@@ -2129,7 +2161,9 @@ def rebuild_collection(
             else:
                 backend.ensure_collection_for_config(config)
 
-            backend.reload_embedding_manager(config)
+            # Checks the collection for this session's model. Not the shared
+            # default: other sessions' requests read that at the same time.
+            backend.embedder_for(config)
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("rebuild_collection", True, "Collection rebuilt", duration_ms)
         return (
@@ -2246,7 +2280,10 @@ def reindex_document(
                         backend.ensure_collection_for_config(config)
                     _set_rebuild_signature(rebuild_signature)
 
-        backend.reload_embedding_manager(config)
+        # The collection is checked for this session's model before its chunks
+        # are deleted; process_document embeds with the same model. The shared
+        # default embedder is left alone: other sessions' requests read it.
+        backend.embedder_for(config)
         # Delete existing chunks using session-aware backend (BYOVDB support)
         vb = backend.get_vector_backend(session_id)
         from lasagna.vector_backends.base import FilterExpression
@@ -2875,11 +2912,13 @@ def patch_rag_config(
     """Apply configuration overrides to the current session.
 
     Merges the provided settings with the active profile's config.
-    These overrides persist for the session duration.
+    These overrides persist for the session duration. Only retrieval and
+    generation settings: the vector store, collection, paths, URLs and
+    credentials are the server's, and a patch naming one is refused.
 
     :param session_id: Session identifier.
     :param config_patch: JSON string with config keys to override.
-        Example: '{"top_k": 10, "enable_reranking": false}'
+        Example: '{"rerank_top_k": 10, "enable_reranking": false}'
     :returns: JSON object with updated configuration.
     """
     session_id, user_id = _resolve_session(session_id, session_token)
@@ -4288,7 +4327,12 @@ def main():
     else:
         _eager_init = args.transport != "stdio"
 
-    mcp = create_mcp_server(host=args.host, port=args.port, tools=tool_set)
+    mcp = create_mcp_server(
+        host=args.host,
+        port=args.port,
+        tools=tool_set,
+        transport_security=transport_guard.http_transport_security(),
+    )
 
     logger.info("=" * 60)
     logger.info("Lasagna MCP Server")

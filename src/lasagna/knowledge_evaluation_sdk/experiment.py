@@ -144,7 +144,12 @@ _CORPUS_ID_MAP: Dict[str, str] = {
 
 
 from lasagna.utils.token_usage import EVAL, SYSTEM, TokenUsage, UsageMeter  # noqa: E402
-from lasagna.core.strict import observe_reranking  # noqa: E402
+from lasagna.core.strict import (  # noqa: E402
+    ContextPresentation,
+    lost_in_the_middle,
+    observe_reranking,
+    present_context_order,
+)
 
 # There was a `_get_cost_rates` here, and a `_DEFAULT_COST_TABLE` behind it,
 # converting token counts to dollars. Both are gone. The token counts they
@@ -1010,19 +1015,40 @@ def _check_no_rag_arms(pipeline_configs: List[Dict[str, Any]], tracks: List[str]
 
 
 def _fix_retrieval_depth(task_config: Dict[str, Any], depth: int) -> None:
-    """Make retrieval evaluation return ``depth`` uncached, untruncated results.
+    """Make retrieval evaluation return ``depth`` uncached, untruncated results, in rank order.
 
     Answer-time policies are right for answering and wrong for measuring
     retrieval at k: the search cache can serve a different arm's lists, the
     relative similarity threshold and adaptive-k cut lists well below k, and
-    default_top_k can cap the candidates below the requested depth.
+    default_top_k can cap the candidates below the requested depth. Context
+    reordering ("lost in the middle") is how the generator is shown its
+    passages, not a ranking: scored, it moved the second-ranked document to
+    the end of the list, below the cut to k.
     """
     task_config["enable_search_cache"] = False
+    task_config["enable_context_reordering"] = False
     task_config["similarity_threshold"] = 0.0
     ccr = dict(task_config.get("chunk_cite_retrieval") or {})
     ccr["strategy"] = "fixed"
     task_config["chunk_cite_retrieval"] = ccr
     task_config["default_top_k"] = max(int(task_config.get("default_top_k") or 0), depth)
+
+
+def _context_order(gen_config: Any) -> Dict[str, str]:
+    """The order each track reads its results in, for the stage manifest.
+
+    ``ranked`` is the retriever's (or reranker's) order: the retrieval track
+    always scores it. ``lost_in_the_middle`` is context reordering's, best
+    passages at both ends of the generator's context, which the generation
+    track uses when the arm turns reordering on. A function of the arm's
+    setting alone, so an arm that skips a track or reads no passages digests
+    like its control in this stage.
+    """
+    reordered = bool(getattr(gen_config, "enable_context_reordering", False))
+    return {
+        "retrieval": "ranked",
+        "generation": "lost_in_the_middle" if reordered else "ranked",
+    }
 
 
 def _short_list_warning(short: int, exhausted: int, n_queries: int, k: int, overfetch: int) -> str:
@@ -1526,17 +1552,6 @@ class Experiment:
         _check_components_conform(pipeline_configs)
         _check_no_rag_arms(pipeline_configs, cfg.tracks)
 
-        # What a checkpoint depends on beyond its task: metric definitions,
-        # package version, judge and environment settings. In every task key,
-        # so --resume never restores a result computed under other ones.
-        from .run_provenance import resume_fingerprint
-
-        fingerprint = resume_fingerprint(
-            os.environ.get("RAG_EVAL_JUDGE_MODEL") or cfg.judge_model or None,
-            variance_source=cfg.variance_source,
-            max_concurrency=cfg.max_concurrency,
-        )
-
         for bench_spec in cfg.benchmarks:
             for pipe_cfg in pipeline_configs:
                 for run_idx in range(cfg.n_runs):
@@ -1557,10 +1572,10 @@ class Experiment:
                         max_corpus_docs=cfg.max_corpus_docs,
                         variance_source=cfg.variance_source,
                         tracks=(tuple(cfg.tracks) if list(cfg.tracks) != list(_TRACKS) else None),
-                        resume_fingerprint=fingerprint,
                     )
                     tasks.append(task)
 
+        _set_resume_fingerprints(cfg, tasks)
         return tasks
 
     async def run(
@@ -2057,6 +2072,41 @@ DEFAULT_JUDGE_MODEL = "gpt-6-luna"
 #: forces 1.0 on gpt-5 and later; the judge client restores this one where the
 #: model takes it. See ``pin_openai_client``.
 _JUDGE_TEMPERATURE = 0.01
+
+
+def _set_resume_fingerprints(cfg: "ExperimentConfig", tasks: List[BenchmarkTask]) -> None:
+    """Put what a checkpoint depends on beyond its task into every task key.
+
+    Metric definitions, package version, judge and its endpoint, environment
+    settings, the LLM provider and model, and the local commit of each model
+    the arm loads, so --resume never restores a result computed under other
+    ones. The LLM counts on the retrieval track too: query expansion, HyDE and
+    the LLM rerankers call it there. A model not yet in the local cache has no
+    commit to hash, so after a run that downloaded one, --resume reruns its
+    tasks once.
+    """
+    from .cost import _arm_models, _platform, generator_model_name
+    from .run_provenance import model_revisions, resume_fingerprint
+
+    judge = _resolve_judge_model(cfg)
+    llms: Dict[str, Any] = {"provider": _platform(), "model": generator_model_name()}
+    if judge:
+        llms["judge_base_url"] = (
+            os.environ.get("RAG_EVAL_JUDGE_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or None
+        )
+    scorers = [_similarity_model_for_record()] if "generation" in _parse_tracks(cfg.tracks) else []
+    by_arm: Dict[str, str] = {}
+    for task in tasks:
+        if task.config_hash not in by_arm:
+            loaded = [m for _, m, _ in _arm_models(task) if not m.startswith("component ")]
+            by_arm[task.config_hash] = resume_fingerprint(
+                judge,
+                variance_source=cfg.variance_source,
+                max_concurrency=cfg.max_concurrency,
+                llms=llms,
+                model_revisions=model_revisions(n for n in loaded + scorers if n),
+            )
+        task.resume_fingerprint = by_arm[task.config_hash]
 
 
 def _resolve_judge_model(cfg: "ExperimentConfig") -> Optional[str]:
@@ -3903,7 +3953,10 @@ async def _eval_live(
     # - similarity_threshold is applied to per-query min-max-normalized scores,
     #   a relative cut that left about 4 documents per query on SciFact;
     # - adaptive-k cut reranked lists by score gap, to about 7 documents;
-    # - default_top_k capped the dense candidates below the requested depth.
+    # - default_top_k capped the dense candidates below the requested depth;
+    # - context reordering (on in standard, balanced and max_quality) put even
+    #   ranks first and odd ranks reversed at the end, so the metrics scored
+    #   the order the generator reads, with rank 2 last.
     _fix_retrieval_depth(task_config, _retrieval_depth)
     # Generation keeps its answer-time policies (they are the system under
     # test), but every run must execute rather than replay the cache.
@@ -4157,12 +4210,21 @@ async def _eval_live(
             for gen_sample in gen_samples:
                 query_start = time.monotonic()
                 search_results = []
+                # The search returns its list in ranked order and says whether
+                # it would have reordered it; the passages kept are reordered
+                # below. Reordered by the search, the first five of its ten
+                # were ranks 1, 3, 5, 7 and 9.
+                _presented = ContextPresentation()
                 if _needs_context:
                     try:
                         # 5-min per-sample timeout: guards against silent LLM gateway
                         # hangs where the TCP connection is established but the server
                         # never sends a response (no exception, just indefinite block).
-                        with gen_meter, gen_meter.scope(SYSTEM):
+                        with (
+                            gen_meter,
+                            gen_meter.scope(SYSTEM),
+                            present_context_order() as _presented,
+                        ):
                             search_results = await asyncio.wait_for(
                                 asyncio.to_thread(
                                     pipeline.query,
@@ -4181,12 +4243,17 @@ async def _eval_live(
                         search_results = []
                 query_latency_ms = (time.monotonic() - query_start) * 1000
 
-                # Extract text from retrieved chunks.
+                # Extract text from retrieved chunks, in ranked order.
                 contexts = [
                     r.chunk.content
                     for r in search_results
                     if hasattr(r, "chunk") and hasattr(r.chunk, "content") and r.chunk.content
                 ]
+
+                def _shown(k: int, _contexts=contexts, _reorder=_presented.reorder) -> List[str]:
+                    """The first k passages, in the order the generator reads them."""
+                    kept = list(_contexts[:k])
+                    return lost_in_the_middle(kept) if _reorder else kept
 
                 # Track agentic fallback. The orchestrator stamps the tier that
                 # actually ran on the first result; a failed agentic run falls
@@ -4245,7 +4312,7 @@ async def _eval_live(
                         with gen_meter, gen_meter.scope(SYSTEM):
                             answer, _drafts = await spec_rag.generate(
                                 query=gen_sample.question,
-                                contexts=contexts[:10],
+                                contexts=_shown(10),
                             )
                         _generation_ms = (time.monotonic() - _attempt_t0) * 1000
                         logger.debug(
@@ -4264,7 +4331,7 @@ async def _eval_live(
                     and (answer_llm or _generator)
                     and (contexts or not _needs_context)
                 ):
-                    ctx_text = "\n\n".join(contexts[:_context_k])
+                    ctx_text = "\n\n".join(_shown(_context_k))
                     prompt = (
                         "Answer the following question in ONE concise sentence "
                         "based only on the provided context. "
@@ -4286,7 +4353,7 @@ async def _eval_live(
                                         asyncio.to_thread(
                                             _generator.generate,
                                             gen_sample.question,
-                                            list(contexts[:_context_k]),
+                                            _shown(_context_k),
                                             llm=answer_llm,
                                             instructions=_abstain,
                                         ),
@@ -4353,7 +4420,9 @@ async def _eval_live(
                 # Pass the SAME contexts used for generation to RAGAS.
                 # Standard generation uses the generator's context_k (top 5
                 # unless it says otherwise); speculative RAG uses top 10.
-                # Must match to avoid faithfulness metric mismatch.
+                # Must match to avoid faithfulness metric mismatch. In ranked
+                # order, whatever order the generator read them in: context
+                # precision weighs each passage by its rank.
                 _ctx_k = 10 if _speculative else _context_k
                 gen_contexts.append(contexts[:_ctx_k])
                 gen_ground_truths.append(gen_sample.ground_truth)
@@ -4423,7 +4492,7 @@ async def _eval_live(
                 if _save_traj == "full":
                     _gen_sample_metrics["_generated_answer"] = answer[:2000]
                     _gen_sample_metrics["_retrieved_contexts"] = [
-                        c[:500] for c in contexts[:_context_k]
+                        c[:500] for c in _shown(_context_k)
                     ]
                     _gen_sample_metrics["_ground_truth"] = _gt[:500]
                     _gen_sample_metrics["_question"] = gen_sample.question[:500]
@@ -4701,6 +4770,14 @@ async def _eval_live(
                 # Only when set, so every other arm's retriever digest is the
                 # one it always had.
                 **({"no_rag": True} if _no_rag(task) else {}),
+                # The order each track used: the retrieval track always scores
+                # the ranked list; the generator reads its passages reordered
+                # when the arm says so. Without this the manifest showed
+                # reordering off (the retrieval setting) for an arm whose
+                # generator read the reordered list.
+                "context_order": _context_order(
+                    _rc.with_session(shared_session_id).with_query_overrides(gen_config)
+                ),
             },
         )
     except Exception as exc:  # the manifest must never cost a result

@@ -32,6 +32,17 @@ MiniLM model, no reranking and the rest of its list); the vector backend and
 every other setting it does not name still come from the environment and the
 settings file.
 
+**What a session can set.** Session overrides hold retrieval and generation
+settings: the ones that reach a pipeline stage (chunking, embedding model,
+retrieval, query enhancement, reranking, agentic retrieval, generation) and how
+results are cited. Where data lives and how the server reaches it (the vector
+backend and its connection settings, the collection, index settings, paths,
+URLs, credentials, limits) are the process's, from the environment and the
+settings file. Every surface that writes session overrides refuses those keys,
+and keys that are no setting, with an error naming each one; a value equal to
+the one already in force is dropped instead, so an exported configuration
+imports again. A model named by a path or URL is refused the same way.
+
 **Where session overrides are kept.** The `lasagna` command and `lasagna-mcp`
 store them in the metadata database (SQLite under the data directory, or
 PostgreSQL when `database_backend` is `postgresql`), so a profile set by one
@@ -144,17 +155,19 @@ each model writes to a collection of its own, named
   model's collection. Documents uploaded before the switch stay where they
   were, and a session on the old model still finds them. To search them with
   the new model, upload them again.
-- A `collection_name` you set yourself (in the settings file, as
-  `RAG_COLLECTION_NAME`, or for a session) is used as given. The evaluation
+- A `collection_name` you set yourself (in the settings file or as
+  `RAG_COLLECTION_NAME`) is used as given. The evaluation
   harness names one per sweep arm this way, so sweeps are unaffected.
 - Each collection records the model and size it was created with. Opening it
   with another model is refused with a message naming both models and the
   command that switches back, and nothing is changed.
 
 A store from before 0.1.0 has one collection, `rag_documents_v2`, shared by
-every model. The first model that opens it at its size keeps using it under
-that name; `lasagna status` lists one that no configured model reads, and how
-to search it again.
+every model, and nothing recorded which model wrote it. Name that model with
+`LASAGNA_LEGACY_COLLECTION_MODEL` (for example `BAAI/bge-m3`), and that model
+keeps using the collection under its old name; any other model gets its own.
+Until then a model of the same size logs a warning saying so, and
+`lasagna status` lists the collection.
 
 ## LLM providers and models
 

@@ -377,7 +377,7 @@ If `RAG_ADMIN_TOKEN` is not set, is a placeholder, or is shorter than 32 charact
 
 | # | Method | Path | Description |
 |---|--------|------|-------------|
-| 16 | `POST` | `/api/v1/admin/gc/run` | Run a full 6-phase GC cycle (`?session_id=` limits it to one session). Takes the database advisory lock, and returns at once if another GC run holds it. |
+| 16 | `POST` | `/api/v1/admin/gc/run` | Run a full 7-phase GC cycle (`?session_id=` limits it to one session). Takes the database advisory lock, and returns at once if another GC run holds it. |
 | 17 | `GET` | `/api/v1/admin/gc/orphans` | Read-only orphan scan: lists documents in DB-only or vector-only state. Does NOT modify data. |
 | 18 | `POST` | `/api/v1/admin/gc/repair` | Detect and repair orphans. `?dry_run=true` (default) previews changes; `?dry_run=false` applies. |
 | 19 | `GET` | `/api/v1/admin/gc/policy` | The lifecycle policy in force (grace window, TTL, GC intervals, safety thresholds). |
@@ -1009,7 +1009,7 @@ Tokens created via `POST /api/v1/sessions` contain:
 | `exp` | Expiry timestamp (default: 7 days, configurable via `RAG_SESSION_TOKEN_TTL_SECONDS`) |
 | `iss` | `"lasagna"` (tokens issued as `"rag-knowledge"` are still accepted) |
 | `typ` | `"session"` |
-| `prn` | The principal that minted it (an API key's digest, or `admin`); present only with `RAG_REQUIRE_AUTH` on |
+| `prn` | The principal that minted it (an API key's digest, or `admin`); present only with `RAG_REQUIRE_AUTH` on. A token whose key is no longer in `RAG_API_KEYS` is refused with 401 |
 
 Tokens are signed with `RAG_JWT_SECRET` (env var). If unset, an ephemeral secret is generated per process, so tokens stop working on restart. With `RAG_REQUIRE_AUTH` on, an unset or placeholder secret is a startup error.
 

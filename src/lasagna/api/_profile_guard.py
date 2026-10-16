@@ -52,7 +52,7 @@ def stored_embedding_dim(collection_name: str, vector_backend: Any = None) -> Op
     as "cannot tell", never as "nothing to protect": a Milvus Lite store locked
     by a running server read as empty, and the switch went through.
     """
-    from lasagna.api._collection_manager import CollectionManager
+    from lasagna.api._collection_manager import CollectionManager, _flush_before_counting
 
     backend = vector_backend or _in_process_backend()
     owned = backend is None
@@ -64,6 +64,7 @@ def stored_embedding_dim(collection_name: str, vector_backend: Any = None) -> Op
     try:
         if not backend.has_collection(collection_name):
             return None
+        _flush_before_counting(backend, collection_name)  # see collection_is_empty
         stats = backend.get_collection_stats(collection_name)
         rows = stats.get("row_count", 0) if isinstance(stats, dict) else stats.row_count
         if int(rows or 0) == 0:

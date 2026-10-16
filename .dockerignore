@@ -29,6 +29,12 @@
 **/.pypirc
 **/.npmrc
 
+# The Kubernetes manifests. Nothing in the image reads them, and an operator's
+# secrets live there: in overlays/local/ (src/lasagna/deploy/README.md,
+# "Kubernetes"), or in base/secrets.yaml itself, which the README used to say
+# to edit in place.
+src/lasagna/deploy/k8s
+
 # Version control and virtual environments
 .git
 .venv*

@@ -532,7 +532,8 @@ class KnowledgeClient:
             mgr = get_knowledge_config_manager(session_id=self._session_id)
             if mgr.get_chosen_config(self._session_id):
                 return
-            mgr.patch_config(overrides, session_id=self._session_id)
+            # This process's own settings, not a client's request.
+            mgr.patch_config(overrides, session_id=self._session_id, trusted=True)
         except EmbeddingSizeConflict:
             raise
         except Exception as e:

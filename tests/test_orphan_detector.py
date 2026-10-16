@@ -149,6 +149,7 @@ class TestRepairDryRun:
     def test_dry_run_makes_no_changes(self, detector, mock_db, mock_backend):
         """repair(dry_run=True) returns counts without deleting anything."""
         report = _make_report(db_only_ids=["doc_db"], vec_only_ids=["doc_vec"])
+        mock_db.list_all_active_document_ids.return_value = ["doc_db"]  # still ready
 
         repair = detector.repair(report, collection_name="test_col", dry_run=True)
 
@@ -169,6 +170,7 @@ class TestRepairApply:
     def test_repair_soft_deletes_db_only_orphans(self, detector, mock_db, mock_backend):
         """repair(dry_run=False) soft-deletes DB-only orphan records."""
         report = _make_report(db_only_ids=["doc_db_only"])
+        mock_db.list_all_active_document_ids.return_value = ["doc_db_only"]  # still ready
 
         repair = detector.repair(report, collection_name="test_col", dry_run=False)
 
@@ -189,6 +191,7 @@ class TestRepairApply:
     def test_repair_handles_partial_errors(self, detector, mock_db, mock_backend):
         """repair() counts errors when individual deletions fail."""
         report = _make_report(db_only_ids=["doc_1", "doc_2"])
+        mock_db.list_all_active_document_ids.return_value = ["doc_1", "doc_2"]  # still ready
         # First succeeds, second fails
         mock_db.soft_delete_document.side_effect = [True, RuntimeError("db error")]
 

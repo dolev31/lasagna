@@ -149,6 +149,7 @@ def _process_document_impl(
     reserved_file_size: int = 0,
     *,
     retry_ctx: Optional[TaskRetryContext] = None,
+    queued: bool = False,
 ) -> dict:
     """Core document processing logic shared by Celery task and tests.
 
@@ -168,6 +169,9 @@ def _process_document_impl(
         reservation_id: Quota reservation token (empty = legacy path).
         reserved_file_size: File size that was reserved (for rollback).
         retry_ctx: Retry state. When ``None``, no retries are attempted.
+        queued: Called for a Celery message. One the broker delivers again
+            after its worker died is not processed when the document is
+            already ready, failed or archived.
 
     Returns:
         dict with ``document_id``, ``status``, and ``chunks_count``.
@@ -191,6 +195,18 @@ def _process_document_impl(
         doc = backend._get_document_metadata(document_id)
         if doc is None:
             raise ValueError(f"Document {document_id} not found in database")
+        if queued and DocumentStatus.is_terminal(doc.status):
+            # Finished before its worker died, or failed by GC phase 0 as
+            # stuck: a file that killed the worker would kill the next one.
+            logger.warning(
+                f"[Worker] Document {document_id} is already {doc.status.value}; "
+                "not processing it again"
+            )
+            return {
+                "document_id": document_id,
+                "status": doc.status.value,
+                "chunks_count": doc.chunks_count,
+            }
 
         # Get session-scoped config. This may be another process than the one
         # that took the upload; process_document embeds with this config's
@@ -338,6 +354,7 @@ if shared_task is not None:
             reservation_id=reservation_id,
             reserved_file_size=reserved_file_size,
             retry_ctx=ctx,
+            queued=True,
         )
 
 else:

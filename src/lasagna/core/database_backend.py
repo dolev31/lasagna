@@ -263,6 +263,16 @@ class DatabaseBackend(Protocol):
         """
         ...
 
+    def fail_stale_processing_documents(
+        self, cutoff: datetime, reason: str, session_id: Optional[str] = None
+    ) -> List[str]:
+        """Mark documents still uploading, processing or indexing since before *cutoff* as error.
+
+        Sets ``error_message`` to *reason*. A document whose status changed in
+        the meantime keeps it. Returns the ids it marked. Used by GC Phase 0.
+        """
+        ...
+
     def list_all_active_document_ids(
         self,
         session_id: Optional[str] = None,

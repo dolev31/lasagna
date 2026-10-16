@@ -1,6 +1,6 @@
 """Garbage Collector for the knowledge package.
 
-``GarbageCollector`` runs a 6-phase cleanup cycle against the database and
+``GarbageCollector`` runs a 7-phase cleanup cycle against the database and
 document pipeline.  It is designed to be backend-agnostic: it receives a
 ``DatabaseBackend`` (protocol) and a ``DocumentPipeline`` reference and
 delegates all actual deletion to the pipeline's existing ``delete_document``
@@ -9,6 +9,7 @@ invalidation) are handled correctly without duplication.
 
 Phases
 ------
+0. fail_stale_processing     — docs still processing long after any worker could be
 1. hard_delete_soft_deleted  — docs past soft-delete grace window
 2. expire_by_ttl             — docs whose ``expires_at`` has passed
 3. cleanup_error_documents   — ERROR docs older than ``error_retention_days``
@@ -39,8 +40,37 @@ if TYPE_CHECKING:
     from .policy import LifecyclePolicy
 
 
+#: Multiples of the longest a document may take that it may stay unfinished
+#: before phase 0 fails it (it may wait in a queue first), and the least time
+#: it gets: the thread pool sets no time limit of its own.
+STALE_PROCESSING_FACTOR = 12
+_STALE_PROCESSING_FLOOR = timedelta(hours=1)
+
+
+def stale_processing_after() -> timedelta:
+    """How long a document may stay uploading, processing or indexing before it is failed.
+
+    ``STALE_PROCESSING_FACTOR`` times the longest a document may take on this
+    deployment: ``processing_timeout``, or with Celery enabled a task's
+    attempts of up to ``task_time_limit`` each and the waits between them.
+    ``processing_timeout`` alone is the shutdown drain bound, which compose and
+    the Kubernetes manifests set to 20 s.
+    """
+    from ..core.config import rag_config
+    from ..infrastructure.tasks import TASK_ATTEMPTS, TASK_RETRY_DELAY_S, TASK_TIME_LIMIT_S
+
+    try:
+        longest = float(rag_config._config.get("processing_timeout", 300))
+    except (TypeError, ValueError):
+        longest = 300.0
+    if getattr(rag_config, "celery_enabled", False):
+        celery = TASK_ATTEMPTS * TASK_TIME_LIMIT_S + (TASK_ATTEMPTS - 1) * TASK_RETRY_DELAY_S
+        longest = max(longest, float(celery))
+    return max(timedelta(seconds=longest * STALE_PROCESSING_FACTOR), _STALE_PROCESSING_FLOOR)
+
+
 class GarbageCollector:
-    """6-phase document lifecycle garbage collector.
+    """7-phase document lifecycle garbage collector.
 
     Thread-safe: each ``run_full_cycle()`` call acquires the DB advisory lock
     before proceeding so that concurrent processes (multiple API workers,
@@ -62,13 +92,13 @@ class GarbageCollector:
     # =========================================================================
 
     def run_full_cycle(self, *, session_id: Optional[str] = None) -> GCReport:
-        """Run all 6 GC phases and return an aggregate report.
+        """Run all 7 GC phases and return an aggregate report.
 
         Acquires the DB advisory lock before running.  Returns immediately
         (with ``aborted=True``) if another process holds the lock.
 
         Args:
-            session_id: If given, scope phases 1-3 to a single session.
+            session_id: If given, scope phases 0-3 to a single session.
                         Phase 4-6 always run globally.
         """
         run_id = str(uuid.uuid4())
@@ -85,8 +115,9 @@ class GarbageCollector:
         try:
             logger.info(f"GC cycle started (run_id={run_id})")
 
-            # Phases 1-3 accept session_id for scoped GC; phases 4-6 always global.
+            # Phases 0-3 accept session_id for scoped GC; phases 4-6 always global.
             scoped_phases: List = [
+                lambda: self.fail_stale_processing(session_id=session_id),
                 lambda: self._phase1_hard_delete_soft_deleted(session_id=session_id),
                 lambda: self._phase2_expire_by_ttl(session_id=session_id),
                 lambda: self._phase3_cleanup_error_documents(session_id=session_id),
@@ -116,6 +147,43 @@ class GarbageCollector:
     # =========================================================================
     # Phase implementations
     # =========================================================================
+
+    def fail_stale_processing(self, *, session_id: Optional[str] = None) -> GCPhaseResult:
+        """Phase 0: fail documents still unfinished long after any worker could be on them.
+
+        A worker killed by the out-of-memory killer, a crash or Celery's 600 s
+        hard limit never marks its document failed, so it stayed "processing"
+        for good. Also run when the lifecycle scheduler starts.
+        """
+        phase = "phase0_fail_stale_processing"
+        started = datetime.now(timezone.utc)
+        result = GCPhaseResult(phase=phase, started_at=started)
+        after = stale_processing_after()
+        reason = (
+            f"Processing did not finish within {after.total_seconds() / 3600:.1f} h: the "
+            "process working on it stopped, for example a worker that ran out of memory, "
+            "crashed or hit the Celery task time limit. Upload the document again, or "
+            "reindex it."
+        )
+        try:
+            failed = list(
+                self._db.fail_stale_processing_documents(
+                    started - after, reason, session_id=session_id
+                )
+            )
+        except Exception as exc:
+            logger.warning(f"GC Phase 0: could not check for documents stuck in processing: {exc}")
+            result.errors += 1
+            failed = []
+        result.docs_scanned = result.docs_cleaned = len(failed)
+        if failed:
+            result.details["document_ids"] = failed
+            logger.warning(
+                f"GC Phase 0: marked {len(failed)} document(s) failed that were still "
+                f"processing after {after}: {', '.join(failed[:10])}"
+            )
+        result.completed_at = datetime.now(timezone.utc)
+        return result
 
     def _phase1_hard_delete_soft_deleted(
         self, *, session_id: Optional[str] = None

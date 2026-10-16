@@ -28,7 +28,9 @@ class _Manager:
     def get_chosen_config(self, session_id):
         return self.chosen
 
-    def patch_config(self, patch, session_id=None):
+    def patch_config(self, patch, session_id=None, trusted=False):
+        # The client writes its own process's settings, so unchecked.
+        assert trusted
         self.patches.append((session_id, patch))
 
 

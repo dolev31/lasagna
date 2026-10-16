@@ -51,6 +51,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+from lasagna.api.rest import auth_mode as _auth_mode
 from lasagna.api.rest.auth_mode import REQUIRE_AUTH_ENV, reject_unverified_identity, require_auth
 
 #: Tools whose blast radius is the whole instance rather than one session, each
@@ -110,8 +111,9 @@ class MCPAuthError(ValueError):
 
 
 #: Extra ``Host`` values a loopback HTTP surface accepts, comma-separated
-#: (``host`` or ``host:*``), e.g. a container's service name.
-ALLOWED_HOSTS_ENV = "RAG_ALLOWED_HOSTS"
+#: (``host`` or ``host:*``), e.g. a container's service name. Defined with the
+#: REST check that reads it too.
+ALLOWED_HOSTS_ENV = _auth_mode.ALLOWED_HOSTS_ENV
 
 
 def _env_list(name: str) -> list:
@@ -134,11 +136,23 @@ def loopback_browser_guard():
     loopback = ("127.0.0.1", "localhost", "[::1]")
     return TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
-        allowed_hosts=[h for name in loopback for h in (name, f"{name}:*")]
-        + _env_list(ALLOWED_HOSTS_ENV),
+        allowed_hosts=_auth_mode.allowed_hosts(),
         allowed_origins=[o for name in loopback for o in (f"http://{name}", f"http://{name}:*")]
         + _env_list("RAG_CORS_ORIGINS"),
     )
+
+
+def http_transport_security():
+    """The ``transport_security`` to serve this server's HTTP endpoints with.
+
+    With auth off, `loopback_browser_guard`, whatever the bind address. FastMCP
+    turns its own check on only for a loopback ``host``, so the compose service
+    (``--host 0.0.0.0``, published on loopback) took any ``Host`` and a
+    rebinding page could call ``archive_document`` or ``patch_rag_config``.
+    With auth on, ``None``: every tool needs a token such a page does not have,
+    and FastMCP still applies its own check on a loopback bind.
+    """
+    return None if require_auth() else loopback_browser_guard()
 
 
 #: Directory a networked MCP surface may read server-side files from. Unset

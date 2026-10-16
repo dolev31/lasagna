@@ -14,6 +14,7 @@
 #   make stress-test                Run stress tests (~6 min, single backend)
 #   make stress-test-all            Run stress tests (~27 min, all backends)
 #   make validate                   Validate config (backend, secrets, profiles)
+#   make validate-k8s               Check a rendered k8s overlay (needs kubectl)
 #   make help                       Show all commands
 # =============================================================================
 
@@ -56,8 +57,11 @@ ps:  ## Show running containers
 health:  ## Check API health endpoint
 	@curl -sf http://localhost:$${API_PORT:-8000}/api/v1/health | python3 -m json.tool || echo "API not healthy"
 
-validate-k8s:  ## Check a rendered k8s overlay (K8S_OVERLAY=pgvector by default)
-	@kubectl kustomize k8s/overlays/$(or $(K8S_OVERLAY),pgvector) | python3 k8s/check_manifests.py
+# Your own overlay (README, "Kubernetes") when it exists, else pgvector.
+K8S_OVERLAY ?= $(if $(wildcard k8s/overlays/local/kustomization.yaml),local,pgvector)
+
+validate-k8s:  ## Check how a rendered k8s overlay fits together (K8S_OVERLAY=local or pgvector)
+	@kubectl kustomize k8s/overlays/$(K8S_OVERLAY) | python3 k8s/check_manifests.py
 
 validate:  ## Validate configuration
 	@test -n "$(VECTOR_BACKEND)" || { echo "ERROR: VECTOR_BACKEND is not set. Set it in .env or pass on command line."; exit 1; }

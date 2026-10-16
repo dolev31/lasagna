@@ -71,3 +71,13 @@ def test_a_sdist_with_a_dotenv_or_tests_is_refused(check, tmp_path):
 
 def test_any_other_file_in_the_folder_is_refused(check, tmp_path):
     assert check.main([str(_dist(tmp_path, extra=["old.whl"])), VERSION]) == 1
+
+
+def test_a_wheel_with_the_operators_k8s_secrets_is_refused(check, tmp_path):
+    """Built from a configured checkout, the package-data glob took overlays/local/."""
+    wheel = GOOD_WHEEL + ["lasagna/deploy/k8s/overlays/local/secrets.yaml"]
+    (problem,) = check.problems(_dist(tmp_path, wheel=wheel), VERSION)
+    assert "overlays/local/secrets.yaml" in problem
+    (tmp_path / "template").mkdir()
+    template = GOOD_WHEEL + ["lasagna/deploy/k8s/overlays/local.example/secrets.yaml"]
+    assert check.problems(_dist(tmp_path / "template", wheel=template), VERSION) == []

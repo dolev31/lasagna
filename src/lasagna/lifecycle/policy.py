@@ -37,7 +37,7 @@ class LifecyclePolicy:
             GC Phase 5 removes sessions not accessed within this window.
             Default: 30 days.
         gc_cycle_hours:
-            How often the full 6-phase GC cycle runs.  Default: 24 h (daily).
+            How often the full 7-phase GC cycle runs.  Default: 24 h (daily).
         orphan_scan_hours:
             How often ``OrphanDetector`` scans for cross-store inconsistencies.
             Default: 168 h (weekly).

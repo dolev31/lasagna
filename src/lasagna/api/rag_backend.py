@@ -359,8 +359,21 @@ class RAGBackend:
     # Backward-compat alias
     _get_collection_embedding_dim = get_collection_embedding_dim
 
+    def embedder_for(self, config: RAGConfig) -> EmbeddingManager:
+        """The embedder for ``config``, its collection checked and created if missing.
+
+        Returned, never stored: a request uses it alone. Assigning it to the
+        attributes every request shares handed one session's model to the
+        others (see `CollectionManager.embedder_for`).
+        """
+        return self._collection_manager.embedder_for(config)
+
     def reload_embedding_manager(self, config: RAGConfig) -> None:
-        """Reload embedding manager if the configured model changes."""
+        """Make ``config``'s embedder the backend's shared default, and rebuild the reranker.
+
+        Changes what every request reads from ``embedding_manager``; a request
+        that needs a session's embedder uses :meth:`embedder_for` instead.
+        """
         self._collection_manager.maybe_reload_embedding_manager(config)
         # Sync back any changes to local references
         self.embedding_manager = self._collection_manager.embedding_manager

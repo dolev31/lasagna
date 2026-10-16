@@ -181,8 +181,10 @@ def test_rebuilding_an_empty_collection_is_information_not_a_warning(store):
     assert not [r for r in seen if r["level"].no >= 30], [r["message"] for r in seen]
 
 
-def test_a_legacy_collection_with_documents_is_adopted_under_its_old_name(store):
+def test_a_legacy_collection_with_documents_is_adopted_under_its_old_name(store, monkeypatch):
     store.vectors.add("rag_documents_v2", 384, rows=50)
+    # Nothing recorded the model before 0.1.0: the user names it.
+    monkeypatch.setenv("LASAGNA_LEGACY_COLLECTION_MODEL", "all-MiniLM-L6-v2")
     speed = _config(**MINILM)
 
     store.manager.maybe_reload_embedding_manager(speed)
@@ -206,8 +208,9 @@ def test_a_legacy_collection_at_another_size_is_left_alone_and_listed(store):
     ]
 
 
-def test_an_adopted_legacy_collection_is_not_listed_as_unused(store):
+def test_an_adopted_legacy_collection_is_not_listed_as_unused(store, monkeypatch):
     store.vectors.add("rag_documents_v2", 384, rows=50)
+    monkeypatch.setenv("LASAGNA_LEGACY_COLLECTION_MODEL", "all-MiniLM-L6-v2")
     store.manager.maybe_reload_embedding_manager(_config(**MINILM))
     assert cm.legacy_collections(store.vectors) == []
 

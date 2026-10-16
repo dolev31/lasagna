@@ -33,6 +33,12 @@ inputs on an instance you control.
   deployment manifests fail to start rather than falling back to a default. If
   you find a code path that accepts a built-in default, treat it as a bug and
   report it.
+- **A session cannot reconfigure the server.** The settings a session may
+  set for itself (REST config routes, the MCP config tools, the configurator,
+  a config import) are retrieval and generation settings. The vector backend,
+  its connection settings, the collection, paths, URLs, credentials,
+  `*_trust_remote_code` and server limits are refused there, with the key
+  named; they come from the environment and the settings file only.
 - **The API is unauthenticated by default** and intended to run on a trusted
   network. `X-Session-ID` is accepted as identity with no credential, so
   anything that can reach the port can read or delete any session's documents.
@@ -51,6 +57,10 @@ inputs on an instance you control.
   principal (a digest of the key, never the key) is written into the token, and
   rate limits are counted per principal, so minting more sessions buys no more
   requests. Storage and document quotas are still counted per session.
+  Removing a key from `RAG_API_KEYS` ends every session it minted: the
+  principal is checked against the configured keys whenever a token is read,
+  on REST and MCP. Tokens minted with `RAG_ADMIN_TOKEN` name no key; changing
+  `RAG_JWT_SECRET` ends those, and every other token.
 
   `RAG_ADMIN_TOKEN` is a **narrower** thing and is not a password for the API.
   It guards the operations whose blast radius is the whole instance rather than
@@ -98,11 +108,16 @@ inputs on an instance you control.
   choose its own address, and with it a fresh rate-limit bucket per request.
   When you run the app under your own gunicorn or uvicorn, their
   `--forwarded-allow-ips` setting governs this instead.
-- **The embedded `/mcp` accepts only loopback `Host` names.** That blocks DNS
+- **With auth off, the HTTP surfaces accept only loopback `Host` names.** The
+  REST API, the embedded `/mcp` and `lasagna-mcp --transport sse` (on any bind
+  address) answer a request naming any other host with 421. That blocks DNS
   rebinding, where a web page points its own host name at 127.0.0.1. Inside a
-  container network, where clients use a service name, add it with
-  `RAG_ALLOWED_HOSTS` (comma-separated `host` or `host:*` entries). Origins in
-  `RAG_CORS_ORIGINS` stay allowed.
+  container network, where clients use a service name, or behind a reverse
+  proxy that forwards its own name, add it with `RAG_ALLOWED_HOSTS`
+  (comma-separated `host` or `host:*` entries); compose sets `api:*,mcp:*`.
+  The health and `/metrics` paths answer any `Host`, for probes and scrapes by
+  pod address. Origins in `RAG_CORS_ORIGINS` stay allowed. With auth on, the
+  `Host` is not checked: every request needs a token.
 - **MCP over stdio is deliberately not authenticated.** The client launched the
   process and owns its pipes, so the process boundary is the credential. Network
   transports (`--transport sse`, or the `/mcp` mount inside the REST app) are

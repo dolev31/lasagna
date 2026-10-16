@@ -97,6 +97,9 @@ class OrphanRecord:
     # Where the orphan was found:
     in_db: bool  # True  → DB record exists
     in_vector: bool  # True  → chunks exist in vector backend
+    #: The collection compared (one per embedding model); None is the one
+    #: passed to ``repair``.
+    collection_name: Optional[str] = None
 
     @property
     def kind(self) -> str:
@@ -125,6 +128,8 @@ class ConsistencyReport:
     # stopped at the limit). An incomplete report lists no orphans, and repair
     # refuses it: a document missing from a partial scan is not missing.
     incomplete_reason: Optional[str] = None
+    #: Every collection scanned, the default one first.
+    collections: List[str] = field(default_factory=list)
 
     @property
     def incomplete(self) -> bool:

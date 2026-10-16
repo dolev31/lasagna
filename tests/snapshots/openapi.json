@@ -2069,7 +2069,7 @@
       "SearchResponse": {
         "properties": {
           "degraded_stages": {
-            "description": "Pipeline stages that failed and fell back to a lesser result during this search (hyde, graphrag, hybrid, query_expansion, agentic). Empty when every configured stage ran.",
+            "description": "Pipeline stages that failed and fell back to a lesser result during this search (hyde, graphrag, hybrid, query_expansion, agentic, routing). Empty when every configured stage ran.",
             "items": {
               "type": "string"
             },
@@ -2158,7 +2158,7 @@
             "type": "string"
           },
           "degraded_stages": {
-            "description": "Pipeline stages that failed and fell back to a lesser result during this search (hyde, graphrag, hybrid, query_expansion, agentic). Empty when every configured stage ran.",
+            "description": "Pipeline stages that failed and fell back to a lesser result during this search (hyde, graphrag, hybrid, query_expansion, agentic, routing). Empty when every configured stage ran.",
             "items": {
               "type": "string"
             },
@@ -3508,7 +3508,7 @@
     },
     "/api/v1/admin/gc/orphans": {
       "get": {
-        "description": "Detect orphaned data between the metadata DB and vector store.\n\nReturns a consistency report with:\n- ``db_only``: Documents in the DB but missing from the vector store\n  (likely a failed ingestion).\n- ``vec_only``: Chunks in the vector store with no DB record\n  (likely a leaked vector after a hard-delete failure).\n- ``scan_limited``: True if the vector scan hit ``vector_scan_limit``.\n- ``incomplete``/``incomplete_reason``: the vector scan failed or hit the\n  limit, so no orphans are reported (a document the scan did not reach is\n  not missing) and repair refuses to run.\n\nThis endpoint is **read-only**: it does not modify any data.\nPass the report to ``POST /admin/gc/repair`` to fix the issues.",
+        "description": "Detect orphaned data between the metadata DB and vector store.\n\nReturns a consistency report with:\n- ``db_only``: Documents in the DB but missing from the vector store\n  (likely a failed ingestion).\n- ``vec_only``: Chunks in the vector store with no DB record\n  (likely a leaked vector after a hard-delete failure).\n- ``collections``: the collections scanned, one per embedding model.\n- ``scan_limited``: True if the vector scan hit ``vector_scan_limit``.\n- ``incomplete``/``incomplete_reason``: the vector scan failed or hit the\n  limit, so no orphans are reported (a document the scan did not reach is\n  not missing) and repair refuses to run.\n\nThis endpoint is **read-only**: it does not modify any data.\nPass the report to ``POST /admin/gc/repair`` to fix the issues.",
         "operationId": "detect_orphans_api_v1_admin_gc_orphans_get",
         "parameters": [
           {
@@ -3974,7 +3974,7 @@
     },
     "/api/v1/admin/gc/run": {
       "post": {
-        "description": "Trigger a manual full garbage-collection cycle.\n\nRuns all 6 GC phases:\n\n1. Hard-delete expired soft-deleted documents\n2. Expire documents past their TTL\n3. Clean up old ERROR documents\n4. Clean up expired citations\n5. Clean up idle sessions\n6. Reconcile quota counters\n\nIdempotent: safe to call multiple times.  Returns per-phase results.",
+        "description": "Trigger a manual full garbage-collection cycle.\n\nRuns all 7 GC phases:\n\n0. Fail documents still processing long after any worker could be on them\n1. Hard-delete expired soft-deleted documents\n2. Expire documents past their TTL\n3. Clean up old ERROR documents\n4. Clean up expired citations\n5. Clean up idle sessions\n6. Reconcile quota counters\n\nIdempotent: safe to call multiple times.  Returns per-phase results.",
         "operationId": "run_gc_api_v1_admin_gc_run_post",
         "parameters": [
           {
