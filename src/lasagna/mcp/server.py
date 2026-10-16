@@ -1601,8 +1601,9 @@ def upload_document(
             "chunks_count": doc.chunks_count,
             "file_size_kb": doc.file_size // 1024,
         }
-        if getattr(doc, "duplicate_of", None):
-            report["duplicate_of"] = doc.duplicate_of
+        duplicate_of = getattr(doc, "duplicate_of", None)
+        if isinstance(duplicate_of, str) and duplicate_of:
+            report["duplicate_of"] = duplicate_of
             report["note"] = "The session already holds this content, so it was not uploaded again."
         if status_value == "error":
             # A failed ingest went back as an ordinary report with isError=False.
