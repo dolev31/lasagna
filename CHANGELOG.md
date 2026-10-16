@@ -690,6 +690,9 @@ Results tooling:
   names the sessions with documents and how to show one, and reads the
   metadata database directly, opening the vector store only when a document
   could predate per-model collections (0.3 s).
+- `lasagna doctor` said "ok, 4 model(s) cached" while the profile's own models
+  were not downloaded. It checks the session's embedder and reranker (`-s`
+  picks the session) and names any that are missing, with their sizes.
 
 First run:
 

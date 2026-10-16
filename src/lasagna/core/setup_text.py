@@ -119,14 +119,20 @@ def llm_key_hint() -> str:
     return first + second + " Set OPENAI_API_KEY (or your provider's variable)."
 
 
-def model_cache_hint() -> str:
-    """What ``doctor`` says before anything is downloaded: how much, and the lighter choice."""
+def model_cache_hint(models: Optional[List[str]] = None, session_id: str = "default") -> str:
+    """What ``doctor`` says before anything is downloaded: how much, and the lighter choice.
+
+    ``models`` are the ones still to download (default: the default
+    configuration's embedder and reranker).
+    """
     from lasagna.core.config import rag_config
 
-    models = [rag_config.embedding_model]
-    if rag_config.enable_reranking:
-        models.append(rag_config.reranker_model)
-    hint = f"The first search on {DEFAULT_CONFIGURATION} {download_text(models)}."
+    if models is None:
+        models = [rag_config.embedding_model]
+        if rag_config.enable_reranking:
+            models.append(rag_config.reranker_model)
+    where = DEFAULT_CONFIGURATION if session_id == "default" else f"session {session_id!r}"
+    hint = f"The first search on {where} {download_text(models)}."
     light = keyless_profiles()
     if light:
         hint += (

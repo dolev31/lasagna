@@ -3184,7 +3184,7 @@ def skills_install(
         console.print("[dim]Restart the agent, or start a new session, to pick them up.[/dim]")
 
 
-def _diagnose_or_report_the_setting(diagnose):
+def _diagnose_or_report_the_setting(diagnose, session_id: str = "default"):
     """Run doctor's checks; a bad setting becomes a failed check, not a traceback.
 
     Every other command stops at an invalid setting, so this is where a user
@@ -3193,7 +3193,7 @@ def _diagnose_or_report_the_setting(diagnose):
     from .core.diagnostics import Check, Diagnosis
 
     try:
-        return diagnose(check_gh=False)
+        return diagnose(check_gh=False, session_id=session_id)
     except Exception as exc:
         config_error = _in_cause_chain(exc, "ConfigError")
         if config_error is None:
@@ -3232,7 +3232,7 @@ def doctor(
 
     from .core.diagnostics import diagnose, format_issue_body
 
-    d = _diagnose_or_report_the_setting(diagnose)
+    d = _diagnose_or_report_the_setting(diagnose, session_id)
     try:
         from .core.setup_text import doctor_context
 
