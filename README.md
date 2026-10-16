@@ -131,10 +131,14 @@ like it.
 
 Before you trust a harness with your component, check it on methods whose
 numbers are already known. On the full SciFact and NFCorpus test sets, Lasagna's
-built-in components land within 0.002 NDCG@10 of MTEB for the dense models,
-within 0.004 of the BEIR paper for BM25 followed by a MiniLM cross-encoder, and
-within 0.008 for BM25. Nothing was tuned: BM25 uses BEIR's k1 and b, and every
-model is its published checkpoint.
+built-in components land within 0.002 NDCG@10 of MTEB for the dense models, and
+within 0.004 of the BEIR paper for BM25 followed by a MiniLM cross-encoder.
+BM25 is 0.001 and 0.008 below the BEIR paper, which indexed the title and the
+text as separate fields; like for like, against Anserini's BM25 over one field
+holding both, as Lasagna's is, it is 0.015 (SciFact) and 0.005 (NFCorpus)
+below, a difference in the BM25 implementation rather than the harness.
+Nothing was tuned: BM25 uses BEIR's k1 and b, and every model is its published
+checkpoint.
 
 | Method | SciFact published | SciFact Lasagna | NFCorpus published | NFCorpus Lasagna |
 |---|---:|---:|---:|---:|

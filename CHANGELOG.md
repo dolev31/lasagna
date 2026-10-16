@@ -187,8 +187,10 @@ Documentation and examples:
   check and a validated bundle. No API key.
 - **A BEIR reproduction**, `examples/reproduction/`: BM25, two dense models,
   hybrid RRF and BM25 with a cross-encoder on the full SciFact and NFCorpus test
-  sets. The dense models land within 0.002 NDCG@10 of MTEB, BM25 with the
-  cross-encoder within 0.004 of the BEIR paper, BM25 within 0.008.
+  sets. The dense models land within 0.002 NDCG@10 of MTEB and BM25 with the
+  cross-encoder within 0.004 of the BEIR paper; BM25 is 0.015 and 0.005 below
+  Anserini's single-field BM25, the like-for-like run (0.008 below BEIR's
+  multifield one).
 - A terminal demo, `docs/assets/demo.gif`, regenerated from a real run by
   `docs/assets/demo/record.sh`.
 - `examples/acceptance/offline_demo.py` takes the features above through the
