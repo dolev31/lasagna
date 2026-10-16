@@ -466,6 +466,9 @@ Server and deployment:
   and MCP. A token used to stay valid for its seven days.
 - 413 and 429 responses to an allowed origin carry the CORS headers (CORS was
   the innermost middleware).
+- The CLI follows `serve.json` only when the current user owns it, only that
+  user can write it, and it names a loopback http URL with a live process of
+  that user; `lasagna serve` writes it with mode 0600.
 
 Numbers that were wrong:
 

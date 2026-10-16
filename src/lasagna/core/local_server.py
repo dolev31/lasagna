@@ -12,8 +12,10 @@ fix.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 from typing import Optional
@@ -30,43 +32,98 @@ def _server_file() -> Path:
 
 
 def announce(url: str) -> None:
-    """Record that this process serves the local store at ``url``."""
+    """Record that this process serves the local store at ``url``.
+
+    Written afresh with mode 0600: `running_server` follows only a record its
+    own user owns and nobody else can write, since other commands send
+    documents and queries wherever it points.
+    """
     path = _server_file()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"pid": os.getpid(), "url": url}))
+        path.unlink(missing_ok=True)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        with os.fdopen(os.open(path, flags, 0o600), "w") as f:
+            f.write(json.dumps({"pid": os.getpid(), "url": url}))
     except OSError:
         pass
 
 
-def withdraw() -> None:
-    """Remove this process's record, if it is still this process's."""
+def _read_record() -> Optional[dict]:
+    """The record, if this user wrote it and only this user can change it.
+
+    Not a symlink, owned by this user, and not writable by group or others: a
+    record someone else could write would let them choose where `status`,
+    `search` and `upload` send documents and queries.
+    """
     path = _server_file()
     try:
-        if json.loads(path.read_text()).get("pid") == os.getpid():
-            path.unlink()
+        info = os.lstat(path)
+        if not stat.S_ISREG(info.st_mode):
+            return None
+        if hasattr(os, "getuid") and (
+            info.st_uid != os.getuid() or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        ):
+            return None
+        record = json.loads(path.read_text())
     except (OSError, ValueError):
-        pass
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def withdraw() -> None:
+    """Remove this process's record, if it is still this process's."""
+    record = _read_record()
+    if record is not None and record.get("pid") == os.getpid():
+        try:
+            _server_file().unlink()
+        except OSError:
+            pass
 
 
 def _alive(pid: int) -> bool:
+    """Whether ``pid`` is a running process of this user.
+
+    A pid this user may not signal belongs to someone else: the server that
+    wrote the record has exited and the pid was reused, so it is not ours.
+    """
     try:
         os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
     except OSError:
         return False
     return True
 
 
+def _loopback_http_url(url) -> Optional[str]:
+    """``url`` if it is ``http://<loopback address>:<port>`` and nothing more."""
+    if not isinstance(url, str):
+        return None
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return None
+    if parts.scheme != "http" or port is None or parts.username or parts.password:
+        return None
+    if parts.path not in ("", "/") or parts.query or parts.fragment:
+        return None
+    host = parts.hostname or ""
+    if host != "localhost":
+        try:
+            if not ipaddress.ip_address(host).is_loopback:
+                return None
+        except ValueError:
+            return None
+    return url
+
+
 def running_server() -> Optional[str]:
     """The URL of the ``lasagna serve`` that recorded itself, if it still runs."""
-    try:
-        record = json.loads(_server_file().read_text())
-        pid, url = int(record["pid"]), str(record["url"])
-    except (OSError, ValueError, KeyError, TypeError):
+    record = _read_record() or {}
+    pid, url = record.get("pid"), _loopback_http_url(record.get("url"))
+    if type(pid) is not int or pid <= 0 or url is None:
         return None
     return url if pid != os.getpid() and _alive(pid) else None
 
