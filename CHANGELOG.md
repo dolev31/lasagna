@@ -676,6 +676,14 @@ Servers and deployment:
   the same past the limit. Such a report is `incomplete`, names the reason
   and lists no orphans, and repair returns `aborted` without changing
   anything.
+- **Two sessions on different embedding models, served at once, could mix
+  their vectors.** Uploads and searches switched an embedder every request
+  shares and read it back a few lines later, so concurrent uploads on
+  bge-large and bge-m3 (both 1024 dimensions) could write one model's vectors
+  into the other's collection, and a search could embed its query with the
+  other session's model. Each request now holds its own session's embedder.
+  A process keeps each model it has loaded (up to five) instead of reloading
+  one whenever the session changes.
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except

@@ -280,7 +280,7 @@ class SearchOrchestrator:
             _enhancer_override: Optional query enhancer instance to use instead of
                 self.query_enhancer. Used by KnowledgePipeline to inject custom components.
             _embedder_override: Optional embedder instance to use instead of
-                self.embedding_manager for query encoding. Used by KnowledgePipeline
+                the session's embedder for query encoding. Used by KnowledgePipeline
                 to inject custom embedders during ablation studies.
             _agentic_pipeline_override: A ``BaseAgenticPipeline`` instance
                 to use instead of the config-resolved pipeline for COMPREHENSIVE tier.
@@ -485,10 +485,10 @@ class SearchOrchestrator:
 
         # Use the effective document IDs for filtering
         document_ids = effective_document_ids
-        self._maybe_reload_embedding_manager(config)
-
-        # Resolve effective embedder AFTER reload (which may change self.embedding_manager)
-        effective_embedder = _embedder_override or self.embedding_manager
+        # This session's model, held locally: other sessions' searches run at
+        # the same time on other models.
+        session_embedder = self._session_embedder(config)
+        effective_embedder = _embedder_override or session_embedder
         from ..retrieval.search.ranker import bind_embedding_manager
 
         bind_embedding_manager(reranker, effective_embedder)
@@ -723,7 +723,7 @@ class SearchOrchestrator:
             )
 
         # Generate query embedding with proper prefix
-        cache_before = self.embedding_manager.get_cache_stats() or {}
+        cache_before = session_embedder.get_cache_stats() or {}
         encode_start = perf_counter()
         # Use multi-HyDE embedding if available, otherwise encode the search query
         with TRACER.span(
@@ -737,7 +737,7 @@ class SearchOrchestrator:
                 query_embedding = effective_embedder.encode_query(search_query)
                 _embed_span.set_attribute("source", "encode")
         encode_ms = (perf_counter() - encode_start) * 1000.0
-        cache_after = self.embedding_manager.get_cache_stats() or {}
+        cache_after = session_embedder.get_cache_stats() or {}
         cache_hits_delta = None
         cache_misses_delta = None
         if "hits" in cache_before and "hits" in cache_after:
@@ -990,7 +990,7 @@ class SearchOrchestrator:
                     alpha_override=effective_alpha
                     if effective_alpha != config.hybrid_alpha
                     else None,
-                    embedding_manager=self.embedding_manager,
+                    embedding_manager=session_embedder,
                 )
             sparse_ms = hybrid_metrics.get("sparse_ms", 0.0)
             merge_ms = hybrid_metrics.get("merge_ms", 0.0)
@@ -1045,7 +1045,7 @@ class SearchOrchestrator:
             try:
                 from lasagna.retrieval.graph import GraphRetriever
 
-                graph_retriever = GraphRetriever(embedding_manager=self.embedding_manager)
+                graph_retriever = GraphRetriever(embedding_manager=session_embedder)
                 existing_ids = {h.get("id") or h.get("chunk_id", "") for h in hits_for_rerank}
                 new_chunk_ids = graph_retriever.expand(
                     query=query,
@@ -1836,7 +1836,8 @@ class SearchOrchestrator:
         quota_mgr = get_quota_manager()
         quota_mgr.check_search(session_id)
 
-        effective_embedder = _embedder_override or self.embedding_manager
+        session_embedder = self._session_embedder(config)
+        effective_embedder = _embedder_override or session_embedder
 
         # Batch embed all queries (returns List[np.ndarray]). Only the built-in
         # manager has a batch method; a component embedder answers one query
@@ -1934,7 +1935,7 @@ class SearchOrchestrator:
         effective_reranker = adapt_reranker_for_pipeline(_reranker_override or self.reranker)
         from ..retrieval.search.ranker import bind_embedding_manager
 
-        bind_embedding_manager(effective_reranker, self.embedding_manager)
+        bind_embedding_manager(effective_reranker, session_embedder)
         original_query = all_queries[0]
 
         hits_for_rerank = [
@@ -2426,8 +2427,6 @@ class SearchOrchestrator:
             return rag_config.with_session(session_id)
         return rag_config
 
-    def _maybe_reload_embedding_manager(self, config: RAGConfig) -> None:
-        """Reload embedding manager if the configured model changes."""
-        self._collection_manager.maybe_reload_embedding_manager(config)
-        # Sync back any changes to local references
-        self.embedding_manager = self._collection_manager.embedding_manager
+    def _session_embedder(self, config: RAGConfig) -> EmbeddingManager:
+        """The embedder for ``config``, its collection checked (never stored on self)."""
+        return self._collection_manager.embedder_for(config)

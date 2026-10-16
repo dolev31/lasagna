@@ -24,7 +24,7 @@ from ..vector_backends import (
     get_backend,
     VectorStoreAdapter,
 )
-from ..infrastructure.embedding import get_embedding_manager, EmbeddingManager
+from ..infrastructure.embedding import EmbeddingManager
 
 
 class CollectionIdentityError(ValueError):
@@ -348,8 +348,16 @@ class CollectionManager:
         self._checked_collections().pop(collection_key, None)
         self.ensure_backend_collection(backend, config)
 
-    def ensure_backend_collection(self, backend: VectorStoreAdapter, config: RAGConfig) -> None:
+    def ensure_backend_collection(
+        self,
+        backend: VectorStoreAdapter,
+        config: RAGConfig,
+        embedder: Optional[EmbeddingManager] = None,
+    ) -> None:
         """Ensure collection exists and is indexed on the given backend.
+
+        A missing collection is created at ``embedder``'s size, or at the
+        size ``config`` declares when no embedder is given.
 
         Thread-safe, idempotent, and fully backend-agnostic.
         Uses bounded LRU tracking to prevent unbounded memory growth.
@@ -363,7 +371,7 @@ class CollectionManager:
                 return
 
             if not backend.has_collection(collection_name):
-                embedding_dim = self.embedding_manager.dimension
+                embedding_dim = embedder.dimension if embedder else _effective_dim(config)
                 logger.info(
                     f"Creating collection '{collection_name}' on {backend.backend_name} "
                     f"(dim={embedding_dim})"
@@ -609,34 +617,37 @@ class CollectionManager:
         """
         return collection_is_empty(backend or self._default_backend, collection_name)
 
-    def maybe_reload_embedding_manager(self, config: RAGConfig) -> None:
-        """Make the embedder current for ``config``, after checking its collection.
+    def embedder_for(self, config: RAGConfig) -> EmbeddingManager:
+        """The embedder for ``config``, after checking its collection.
 
         A collection holds the vectors of one model at one size. Opening it
         with another model or size is refused with the ways out; nothing is
         dropped unless it is empty. The collection is created when missing, so
         a session's first upload under a new profile simply starts one.
+
+        The embedder is returned, never stored: requests for sessions on
+        different models run at the same time, and a shared attribute set here
+        and read back later could hand one session the other's model, writing
+        its vectors into the wrong collection. Each model is loaded once per
+        process and kept (``shared_embedding_manager``), so sessions taking
+        turns do not reload it.
         """
+        from ..infrastructure.embedding import manager as embedding_managers
+
         self.adopt_legacy_collection(config)
         self.check_collection_identity(config)
-
-        from ..infrastructure.embedding.manager import _config_signature
-
-        if getattr(self.embedding_manager, "signature", None) != _config_signature(config):
-            logger.info(
-                "Reloading embedding manager for config change: "
-                f"model={self.embedding_manager.model_name} -> {config.embedding_model}"
-            )
-            from ..infrastructure.embedding import reset_embedding_manager
-            from ..retrieval.search import reset_reranker
-
-            reset_embedding_manager()
-            self.embedding_manager = get_embedding_manager(config)
-
-            reset_reranker()
-
+        embedder = embedding_managers.shared_embedding_manager(config)
         if self._uses_default_backend(config):
-            self.ensure_backend_collection(self._default_backend, config)
+            self.ensure_backend_collection(self._default_backend, config, embedder=embedder)
+        return embedder
+
+    def maybe_reload_embedding_manager(self, config: RAGConfig) -> None:
+        """Set ``embedding_manager`` to the embedder for ``config``.
+
+        For callers that read the attribute afterwards, one configuration at a
+        time. A request handler uses :meth:`embedder_for` and keeps the result.
+        """
+        self.embedding_manager = self.embedder_for(config)
 
     # =========================================================================
     # Collection Identity

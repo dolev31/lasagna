@@ -128,7 +128,7 @@ class TestASearch:
         o._collection_manager = SimpleNamespace(resolve_backend=lambda sid: backend)
         o._default_backend = backend
         o._get_session_config = lambda sid: rag_config
-        o._maybe_reload_embedding_manager = lambda config: None
+        o._session_embedder = lambda config: o.embedding_manager
         return o, client
 
     ARM = dict(

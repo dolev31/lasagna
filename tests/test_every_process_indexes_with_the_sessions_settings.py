@@ -15,7 +15,7 @@ collection that did not exist (Qdrant 404) or to another model's.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 from lasagna.core.session_config import _persistence_db as pg
 from lasagna.infrastructure.tasks import document_tasks
@@ -76,7 +76,7 @@ def test_without_redis_the_session_is_read_from_postgres(monkeypatch):
     assert stored["session_overrides"] == {"rerank_top_k": 7}
 
 
-def test_the_task_makes_the_embedder_current_before_indexing(monkeypatch):
+def test_the_task_indexes_with_the_sessions_config(monkeypatch):
     backend = MagicMock()
     config = backend.get_session_config.return_value
     backend._get_document_metadata.return_value.chunks_count = 1
@@ -84,16 +84,13 @@ def test_the_task_makes_the_embedder_current_before_indexing(monkeypatch):
 
     document_tasks._process_document_impl("doc1", "session-1", "/data/uploads/doc1/a.txt")
 
-    pipeline_calls = [
-        c
-        for c in backend._document_pipeline.mock_calls
-        if c[0] in ("use_embedder_for", "process_document")
-    ]
-    assert pipeline_calls[0] == call.use_embedder_for(config)
-    assert pipeline_calls[1][0] == "process_document"
+    backend.get_session_config.assert_any_call("session-1")
+    (process,) = [c for c in backend._document_pipeline.mock_calls if c[0] == "process_document"]
+    assert process.kwargs["config"] is config
 
 
-def test_the_pipeline_switches_to_the_session_model():
+def test_the_pipeline_embeds_with_the_session_model_without_switching_its_own():
+    """The embedder is resolved per call; the shared attribute is left alone."""
     from lasagna.api._document_pipeline import DocumentPipeline
 
     pipeline = DocumentPipeline.__new__(DocumentPipeline)
@@ -101,7 +98,8 @@ def test_the_pipeline_switches_to_the_session_model():
     pipeline.embedding_manager = "the model the process started with"
     config = MagicMock()
 
-    pipeline.use_embedder_for(config)
+    embedder = pipeline.use_embedder_for(config)
 
-    pipeline._collection_manager.maybe_reload_embedding_manager.assert_called_once_with(config)
-    assert pipeline.embedding_manager is pipeline._collection_manager.embedding_manager
+    pipeline._collection_manager.embedder_for.assert_called_once_with(config)
+    assert embedder is pipeline._collection_manager.embedder_for.return_value
+    assert pipeline.embedding_manager == "the model the process started with"

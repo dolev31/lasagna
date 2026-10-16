@@ -134,10 +134,10 @@ def _process_document_impl(
         if doc is None:
             raise ValueError(f"Document {document_id} not found in database")
 
-        # Get session-scoped config
+        # Get session-scoped config. This may be another process than the one
+        # that took the upload; process_document embeds with this config's
+        # model and makes its collection ready.
         config = backend.get_session_config(session_id)
-        # This may be another process than the one that took the upload.
-        backend._document_pipeline.use_embedder_for(config)
 
         # Run the full processing pipeline
         backend._document_pipeline.process_document(doc, file_path, config=config)

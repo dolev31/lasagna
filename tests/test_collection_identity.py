@@ -83,7 +83,7 @@ def store(tmp_path, monkeypatch):
     import lasagna.infrastructure.embedding as embedding
     import lasagna.retrieval.search as search
 
-    monkeypatch.setattr(cm, "get_embedding_manager", _manager)
+    monkeypatch.setattr(embedding.manager, "shared_embedding_manager", _manager)
     monkeypatch.setattr(embedding, "reset_embedding_manager", lambda: None)
     monkeypatch.setattr(search, "reset_reranker", lambda: None)
 
@@ -387,7 +387,7 @@ def test_hybrid_search_is_pointed_at_the_sessions_own_collection(monkeypatch):
     o._default_backend = vectors
     speed = _config(**MINILM)
     o._get_session_config = lambda sid: speed
-    o._maybe_reload_embedding_manager = lambda config: None
+    o._session_embedder = lambda config: o.embedding_manager
     arm = dict(
         enable_hybrid_search=False,
         enable_reranking=False,
