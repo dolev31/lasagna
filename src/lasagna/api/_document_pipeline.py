@@ -124,6 +124,7 @@ class DocumentPipeline:
         _chunker_override: Any = None,
         _document_processor_override: Any = None,
         refuse_when_busy: bool = False,
+        wait_when_busy: float = 0.0,
     ) -> Document:
         """Upload a document and run it through extraction, chunking and indexing.
 
@@ -223,6 +224,7 @@ class DocumentPipeline:
                 reservation_id=reservation_id,
                 reserved_file_size=file_size_for_quota,
                 refuse_when_busy=refuse_when_busy,
+                wait_when_busy=wait_when_busy,
             )
         except ProcessingAtCapacity:
             # Refused before any processing: leave nothing behind, so the

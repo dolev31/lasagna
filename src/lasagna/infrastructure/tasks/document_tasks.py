@@ -582,6 +582,7 @@ def dispatch_processing(
     reservation_id: str = "",
     reserved_file_size: int = 0,
     refuse_when_busy: bool = False,
+    wait_when_busy: float = 0.0,
 ) -> bool:
     """Dispatch document processing to a background worker.
 
@@ -603,6 +604,9 @@ def dispatch_processing(
         reserved_file_size: File size that was reserved (for rollback on failure).
         refuse_when_busy: Raise `ProcessingAtCapacity` instead of returning
             ``False`` when the thread pool is full.
+        wait_when_busy: Seconds to wait for a thread to free up when the pool
+            is full, then raise `ProcessingAtCapacity`. A batch upload waits,
+            so it is processed in full by the pool's threads; 0 does not wait.
 
     Returns:
         ``True`` if the task was dispatched (Celery or thread pool),
@@ -647,7 +651,15 @@ def dispatch_processing(
     max_workers = getattr(rag_config, "max_concurrent_uploads", 5)
     semaphore = _get_doc_semaphore(max_workers)
 
-    if not semaphore.acquire(blocking=False):
+    if not semaphore.acquire(blocking=False) and not (
+        wait_when_busy > 0 and semaphore.acquire(timeout=wait_when_busy)
+    ):
+        if wait_when_busy > 0:
+            raise ProcessingAtCapacity(
+                f"All {max_workers} document-processing threads stayed busy for "
+                f"{wait_when_busy:.0f} s, so this file was not accepted. Send it again, "
+                f"or raise RAG_MAX_CONCURRENT_UPLOADS."
+            )
         if refuse_when_busy:
             raise ProcessingAtCapacity(
                 f"All {max_workers} document-processing threads are busy, so the upload "

@@ -429,6 +429,7 @@ class RAGBackend:
         _chunker_override: Any = None,
         _document_processor_override: Any = None,
         refuse_when_busy: bool = False,
+        wait_when_busy: float = 0.0,
     ) -> Document:
         """Upload a document and run it through extraction, chunking and indexing.
 
@@ -440,6 +441,8 @@ class RAGBackend:
         ``refuse_when_busy`` raises ``ProcessingAtCapacity`` when every
         background processing thread is busy, instead of processing in the
         calling thread. A server request handler passes it; a script does not.
+        ``wait_when_busy`` waits that many seconds for a thread first (the
+        batch route does, so a batch larger than the pool is processed whole).
         """
         return self._document_pipeline.upload_document(
             file_path,
@@ -449,6 +452,7 @@ class RAGBackend:
             _chunker_override=_chunker_override,
             _document_processor_override=_document_processor_override,
             refuse_when_busy=refuse_when_busy,
+            wait_when_busy=wait_when_busy,
         )
 
     def process_document(

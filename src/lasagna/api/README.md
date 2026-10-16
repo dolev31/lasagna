@@ -71,7 +71,8 @@ deletes the stored file). It then calls `infrastructure.tasks.document_tasks.dis
 2. A bounded thread pool, when `async_processing` is on (the default): `max_concurrent_uploads`
    threads (`RAG_MAX_CONCURRENT_UPLOADS`, default 5). The REST routes pass
    `refuse_when_busy=True`, so a full pool is a 503 with `Retry-After: 5` and the upload is
-   rolled back; other callers (SDK, CLI, MCP) fall through.
+   rolled back; the batch route also passes `wait_when_busy` (`processing_timeout`), so each
+   of its files waits for a thread instead. Other callers (SDK, CLI, MCP) fall through.
 3. Inline, in the caller's thread.
 
 A dispatched upload returns at once with status `processing`; clients poll (the SDK's

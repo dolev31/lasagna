@@ -703,6 +703,11 @@ Servers and deployment:
 - After an upload, the uploading process indexed the chunks for keyword
   search under their position instead of their stored id, held each chunk
   twice once it read the store, and could return the same chunk twice.
+- **Batch uploads mostly failed without Celery.** A batch may hold 20 files
+  but the processing pool has 5 threads, and the batch route refused a file
+  whenever every thread was busy, so files 6 to 20 came back "threads are
+  busy". Each file of a batch now waits for a thread (at most
+  `processing_timeout`); a single upload into a full pool is still a 503.
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except

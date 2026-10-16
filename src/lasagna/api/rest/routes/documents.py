@@ -194,7 +194,10 @@ async def upload_documents_batch(
     Files are processed concurrently up to the configured
     ``max_concurrent_uploads`` limit.  Each file goes through the same
     pipeline as the single-upload endpoint (text extraction, chunking,
-    embedding, vector indexing).
+    embedding, vector indexing). Without Celery, a file that finds every
+    processing thread busy waits for one to free up (at most
+    ``processing_timeout`` seconds), so a batch larger than the pool is
+    processed in full; the response returns once every file is accepted.
 
     A batch may hold at most ``RAG_MAX_BATCH_FILES`` files (default 20) and
     ``RAG_MAX_BATCH_BYTES`` in total (default 200 MiB, refused with 413 before
@@ -215,6 +218,7 @@ async def upload_documents_batch(
 
     max_concurrent = getattr(rag_config, "max_concurrent_uploads", 5)
     max_upload_bytes = rag_config.max_file_size
+    wait_for_thread = float(rag_config._config.get("processing_timeout", 300))
     semaphore = asyncio.Semaphore(max_concurrent)
 
     async def _process_one(upload_file: UploadFile) -> BatchUploadItemResponse:
@@ -243,6 +247,7 @@ async def upload_documents_batch(
                     session_id=session_id,
                     filename=upload_file.filename,
                     refuse_when_busy=True,
+                    wait_when_busy=wait_for_thread,
                 )
                 return BatchUploadItemResponse(
                     document_id=doc.document_id,

@@ -216,7 +216,7 @@ curl -X POST http://localhost:8000/api/v1/documents \
 
 #### `POST /api/v1/documents/batch`
 
-Upload several documents in one request: multipart form data with one or more `files` fields. Files are processed concurrently, up to `max_concurrent_uploads` (default 5) at a time, each through the same pipeline as the single upload. A batch may hold at most `RAG_MAX_BATCH_FILES` files (default 20, 400 above it) and `RAG_MAX_BATCH_BYTES` in total (default 200 MiB, 413 before the body is read).
+Upload several documents in one request: multipart form data with one or more `files` fields. Files are processed concurrently, up to `max_concurrent_uploads` (default 5) at a time, each through the same pipeline as the single upload. Without Celery, a file that finds every processing thread busy waits for one (at most `processing_timeout`, 300 s), so a batch larger than the pool is processed whole and the response returns once every file is accepted. A batch may hold at most `RAG_MAX_BATCH_FILES` files (default 20, 400 above it) and `RAG_MAX_BATCH_BYTES` in total (default 200 MiB, 413 before the body is read).
 
 **Response:** `BatchUploadResponse`: `total`, `succeeded`, `failed`, and one `results` entry per file (`document_id`, `filename`, `status`, `file_type`, `file_size`, `chunks_count`, `error`).
 

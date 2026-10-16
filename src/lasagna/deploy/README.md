@@ -241,6 +241,7 @@ accepts, such as a service name.
 | Any other request body | 1 MiB, fixed | 413 |
 | Search time, `POST /api/v1/search`, `/search/citations`, `/search/multi-query`, `/search/agentic` | `RAG_SEARCH_TIMEOUT` = 120 s | 504; the search thread finishes on its own |
 | Processing threads, single upload without Celery | `RAG_MAX_CONCURRENT_UPLOADS` = 5 | 503 with `Retry-After: 5`; nothing is stored, so a retry is a clean upload |
+| Processing threads, a file in a batch without Celery | `RAG_MAX_CONCURRENT_UPLOADS` = 5 | waits for a thread, at most `processing_timeout` (300 s); after that, that item reports `status: "error"` |
 | Request rate | 60 per minute, burst 10, `adaptive` | 429 with `Retry-After` (seconds, rounded up) |
 | Quota per session | 1,000 documents, 5 GiB, 100,000 chunks, 600 searches per minute, 200 uploads per hour | 429 |
 
