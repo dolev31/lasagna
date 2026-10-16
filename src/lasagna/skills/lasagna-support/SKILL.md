@@ -19,7 +19,7 @@ lasagna doctor
 
 | `doctor` says | It is not a bug |
 |---|---|
-| `model_cache: no Hugging Face cache found` | The first run downloads about 4.5 GB on the default profile. It is not hung. |
+| `model_cache: no Hugging Face cache found` | The first run on the default configuration downloads 3.1 GB (BAAI/bge-m3 and mixedbread-ai/mxbai-rerank-large-v1). It is not hung. |
 | `llm_credentials: no LLM API key detected` | On the default profile, a search the router sends to agentic retrieval needs a key. `lasagna configure --profile speed` never calls an LLM. |
 | `import:X not installed` | Missing extra. Run the `pip install` it prints. |
 | `plugin:X failed to load` | Their plugin is broken. Results silently used the default. |

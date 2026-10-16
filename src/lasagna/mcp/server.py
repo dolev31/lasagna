@@ -4160,7 +4160,7 @@ def main():
         logger.info(
             "RAG backend will be initialized on the first tool call. The first "
             "search may take several minutes if models are not cached "
-            "(`lasagna configure --profile speed` uses an 80 MB model)."
+            "(the speed profile, `lasagna configure --profile speed`, downloads 91 MB)."
         )
 
     if args.transport == "stdio":

@@ -233,7 +233,7 @@ PARAMETERS: list[ParameterDef] = [
         open_enum=True,
         label="AI Understanding Model",
         description="Determines how well your system understands document content. Better models find more relevant results but use more memory.",
-        help_text="Technical: Sentence-transformer embedding model. Larger models produce higher-quality vectors but are slower. MiniLM (80MB) is fast; BGE-large (1.3GB) is highest quality.",
+        help_text="Technical: Sentence-transformer embedding model. Larger models produce higher-quality vectors but are slower. MiniLM (91 MB) is fast; BGE-large (1.3 GB) is highest quality.",
         tab="essential",
         group="embedding",
         default="BAAI/bge-m3",
@@ -242,7 +242,7 @@ PARAMETERS: list[ParameterDef] = [
             EnumOption(
                 "all-MiniLM-L6-v2",
                 "Fast & Light",
-                "Quick processing, good for most use cases (80MB)",
+                "Quick processing, good for most use cases (91 MB)",
             ),
             EnumOption(
                 "BAAI/bge-small-en-v1.5", "Improved Light", "Better quality, same speed as Fast"
@@ -251,12 +251,12 @@ PARAMETERS: list[ParameterDef] = [
             EnumOption(
                 "BAAI/bge-large-en-v1.5",
                 "Best Quality",
-                "Highest accuracy, needs more memory (1.3GB)",
+                "Highest accuracy, needs more memory (1.3 GB)",
             ),
             EnumOption(
                 "BAAI/bge-m3",
                 "SOTA Multilingual",
-                "Dense+sparse+ColBERT, 100+ languages, 8K context (2.2GB)",
+                "Dense+sparse+ColBERT, 100+ languages, 8K context (2.3 GB)",
             ),
             EnumOption("intfloat/e5-small-v2", "E5 Small", "Fast E5 model, English only (134MB)"),
             EnumOption("intfloat/e5-base-v2", "E5 Base", "Balanced E5 model, English only (438MB)"),

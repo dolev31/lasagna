@@ -520,6 +520,13 @@ Results tooling:
 
 First run:
 
+- `lasagna doctor` said the first search downloads "~5 GB" and the speed
+  profile "an 80 MB model" (measured: 3.1 GB and 91 MB), and that retrieval
+  works without an API key, while the default configuration sends complex
+  queries through agentic retrieval. Both hints are computed from the
+  profiles and the measured sizes, and name the speed profile as the one
+  that retrieves without a key. The configurator, the settings file
+  comments and the support skill state the same sizes.
 - `lasagna-mcp` over stdio answered `tools/list` after about 7 s: the
   `--session-backend` default made every start reset the backend, which
   imported torch. It answers in under a second; a reset happens only for a

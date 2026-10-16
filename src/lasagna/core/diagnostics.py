@@ -126,13 +126,9 @@ def _check_llm_credentials(env: Dict[str, Any]) -> Check:
     """Presence only. The names of the variables are fine to print; values never are."""
     if env.get("llm_credentials_present"):
         return Check("llm_credentials", _OK, "an LLM API key is configured")
-    return Check(
-        "llm_credentials",
-        _WARN,
-        "no LLM API key detected",
-        "Retrieval works without one. Generation, LLM reranking and benchmark "
-        "judging do not. Set OPENAI_API_KEY (or your provider's variable).",
-    )
+    from .setup_text import llm_key_hint
+
+    return Check("llm_credentials", _WARN, "no LLM API key detected", llm_key_hint())
 
 
 def _check_llm_sampling() -> Optional[Check]:
@@ -170,14 +166,9 @@ def _check_model_cache() -> Check:
     home = os.environ.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface")
     hub = os.path.join(home, "hub")
     if not os.path.isdir(hub):
-        return Check(
-            "model_cache",
-            _WARN,
-            "no Hugging Face cache found",
-            "The first search downloads the embedding model (~5 GB on the "
-            "default profile). Run `lasagna configure --profile speed` for an "
-            "80 MB model instead.",
-        )
+        from .setup_text import model_cache_hint
+
+        return Check("model_cache", _WARN, "no Hugging Face cache found", model_cache_hint())
     try:
         entries = [e for e in os.listdir(hub) if e.startswith("models--")]
     except OSError:

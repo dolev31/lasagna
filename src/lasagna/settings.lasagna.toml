@@ -11,22 +11,22 @@
 #
 # 1. SPEED (Pure Vector Search):
 #    - Disables reranking, hybrid search, MMR, HyDE, agentic RAG
-#    - Uses all-MiniLM-L6-v2 (384d, 80MB)
+#    - Uses all-MiniLM-L6-v2 (384d, 91 MB)
 #    - Target latency: ~50-100ms
 #
 # 2. STANDARD (Recommended Starter):
 #    - Enables reranking, hybrid search, MMR, agentic RAG
-#    - Uses BAAI/bge-m3 (1024d, 2.2GB, dense+sparse+ColBERT, 100+ languages)
+#    - Uses BAAI/bge-m3 (1024d, 2.3 GB, dense+sparse+ColBERT, 100+ languages)
 #    - Target latency: ~200-400ms
 #
 # 3. BALANCED (Best Quality-Speed Tradeoff):
 #    - Enables reranking, hybrid search, MMR, agentic RAG
-#    - Uses BAAI/bge-m3 (1024d, 2.2GB, dense+sparse+ColBERT, 100+ languages)
+#    - Uses BAAI/bge-m3 (1024d, 2.3 GB, dense+sparse+ColBERT, 100+ languages)
 #    - Target latency: ~300-600ms
 #
 # 4. MAX QUALITY (Maximum Recall & Precision):
 #    - Enables all features including HyDE and query expansion
-#    - Uses BAAI/bge-m3 (1024d, 2.2GB, dense+sparse+ColBERT, 100+ languages)
+#    - Uses BAAI/bge-m3 (1024d, 2.3 GB, dense+sparse+ColBERT, 100+ languages)
 #    - All features: HyDE, query expansion, RAG Fusion, CRAG, quality gates
 #    - Target latency: ~1-3 seconds
 #
@@ -84,11 +84,11 @@ enable_ocr = false
 # Larger models = better quality but slower and more memory.
 #
 # RECOMMENDED MODELS (from fastest to best quality):
-#   "all-MiniLM-L6-v2"        - 384 dim, 80MB,  fastest, good for dev/testing
+#   "all-MiniLM-L6-v2"        - 384 dim, 91 MB, fastest, good for dev/testing
 #   "BAAI/bge-small-en-v1.5"  - 384 dim, 130MB, fast, good quality
 #   "BAAI/bge-base-en-v1.5"   - 768 dim, 440MB, balanced choice
-#   "BAAI/bge-large-en-v1.5"  - 1024 dim, 1.3GB, good quality
-#   "BAAI/bge-m3"             - 1024 dim, 2.2GB, SOTA (dense+sparse+ColBERT, 8K ctx, 100+ languages)
+#   "BAAI/bge-large-en-v1.5"  - 1024 dim, 1.3 GB, good quality
+#   "BAAI/bge-m3"             - 1024 dim, 2.3 GB, dense+sparse+ColBERT, 8K ctx, 100+ languages
 #
 # NOTE: Changing embedding model requires reindexing all documents.
 
