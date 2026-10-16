@@ -138,6 +138,12 @@ def _cli(
     from loguru import logger
 
     logger.enable("lasagna")
+    # A sweep whose every task failed warns from Python, where logs are off by
+    # default; the CLI prints each failure itself, so the warning only repeated
+    # the first one with a source line ("cli.py:1333: RuntimeWarning: ...").
+    import warnings
+
+    warnings.filterwarnings("ignore", message=r"All \d+ task\(s\) of ", category=RuntimeWarning)
     # Profiles and settings saved by one command must apply in the next process
     # (`configure` then `upload`, `search`, `serve`): keep sessions on disk.
     os.environ.setdefault("RAG_SESSION_BACKEND", "persistent")
@@ -1245,7 +1251,11 @@ def benchmark_run(
     ),
     seed: int = typer.Option(42, "--seed", help="Random seed for sampling queries."),
     profile: str = typer.Option(
-        "standard", "--profile", "-p", help="Profile every arm starts from."
+        "speed",
+        "--profile",
+        "-p",
+        help="Profile every arm starts from. speed needs no API key and downloads 91 MB; "
+        "standard downloads about 3 GB and sends complex queries to an LLM.",
     ),
     tracks: Optional[str] = typer.Option(
         None,

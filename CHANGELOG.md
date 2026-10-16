@@ -296,7 +296,11 @@ Command line:
 
 - `-s` means `--session` in every command; `benchmark run` spells out
   `--split` and `--mode`. `benchmark run` measures retrieval unless `--tracks`
-  names generation or `--generator` is given (generation needs an API key).
+  names generation or `--generator` is given (generation needs an API key),
+  and starts from the keyless `speed` profile (`--profile standard` for the
+  3 GB one). A chunking error shared by every document prints once, with a
+  count, and a run where every task failed no longer ends in a
+  `RuntimeWarning`.
   `benchmark experiment` ends with the leaderboard, as `benchmark run` does,
   and says when every run of every arm was identical, so `n_runs: 1` would
   give the same answer.

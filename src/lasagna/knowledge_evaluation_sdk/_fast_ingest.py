@@ -704,6 +704,7 @@ async def fast_ingest_corpus(
         # Stage A: parallel chunking
         t0 = time.perf_counter()
         first_chunk_error = ""
+        chunk_errors_seen: Dict[str, int] = {}
         with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="ingest-chunk") as pool:
             futures = []
             for corpus_id, text, valid_id in docs_to_ingest:
@@ -732,8 +733,14 @@ async def fast_ingest_corpus(
                     full_text = text if enable_late_chunking else None
                     chunk_queue.put((doc_id, chunks, full_text))
                 except Exception as exc:
-                    logger.warning(f"Chunking failed for {valid_id}: {exc}")
-                    first_chunk_error = first_chunk_error or f"{type(exc).__name__}: {exc}"
+                    # One line per distinct error: a model that cannot load
+                    # fails every document the same way, and the same message
+                    # printed once per document buried everything else.
+                    reason = f"{type(exc).__name__}: {exc}"
+                    if reason not in chunk_errors_seen:
+                        logger.warning(f"Chunking failed for {valid_id}: {exc}")
+                    chunk_errors_seen[reason] = chunk_errors_seen.get(reason, 0) + 1
+                    first_chunk_error = first_chunk_error or reason
                     error_doc_ids.add(valid_id)
                     # Push empty to keep doc count accurate for Stage B
                     chunk_queue.put((valid_id, [], None))
@@ -743,6 +750,9 @@ async def fast_ingest_corpus(
                     rate = (i + 1) / elapsed * 60 if elapsed > 0 else 0
                     logger.info(f"  Chunking progress: {i + 1}/{total_docs} ({rate:.0f} docs/min)")
 
+        for count in chunk_errors_seen.values():
+            if count > 1:
+                logger.warning(f"Chunking failed the same way for {count - 1} more document(s)")
         # Wait for pipeline to drain
         embed_thread.join(timeout=600)
         insert_thread.join(timeout=600)
