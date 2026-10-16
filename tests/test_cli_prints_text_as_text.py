@@ -22,10 +22,18 @@ def _hit(text):
     )
 
 
+def _documents_unknown(monkeypatch):
+    """Skip the check for an empty session: there is no store behind these fakes."""
+    from lasagna.core import model_downloads
+
+    monkeypatch.setattr(model_downloads, "sessions_with_documents", lambda: None)
+
+
 def test_search_prints_brackets_and_the_filename(monkeypatch):
     text = "see [metrics](../x) and out = [copy.deepcopy(d) for d in docs] [/x]"
     monkeypatch.setattr(cli, "_run", lambda coro: (coro.close(), [_hit(text)])[1])
     monkeypatch.setattr(cli, "_get_client", lambda *a, **k: None)
+    _documents_unknown(monkeypatch)
     out = CliRunner().invoke(cli.app, ["search", "q"], terminal_width=400).output
     assert "[metrics]" in out and "[copy.deepcopy(d)" in out and "[/x]" in out
     assert "notes.md" in out
@@ -38,6 +46,7 @@ def test_error_text_with_brackets_does_not_crash(monkeypatch):
 
     monkeypatch.setattr(cli, "_run", boom)
     monkeypatch.setattr(cli, "_get_client", lambda *a, **k: None)
+    _documents_unknown(monkeypatch)
     r = CliRunner().invoke(cli.app, ["search", "q"], terminal_width=400)
     assert r.exit_code == 1
     assert "[/x]" in r.output and "[session]" in r.output

@@ -805,6 +805,9 @@ class RAGConfig:
             "preserve_formatting": True,  # keep layout such as lists and line breaks in extracted text
             "async_processing": True,  # process uploads in the background
             "processing_timeout": 300,  # seconds a document may take to process
+            # A server (serve, the MCP server) refuses a request whose model is not
+            # downloaded rather than fetch gigabytes inside it.
+            "allow_model_download_in_requests": False,
             # =================================================================
             # Docling Document Processing
             # =================================================================
@@ -2447,6 +2450,15 @@ class RAGConfig:
     def embedding_cache_size(self) -> int:
         return self._get_knowledge_setting(
             "rag", "embedding_cache_size", default=self._config["embedding_cache_size"]
+        )
+
+    @property
+    def allow_model_download_in_requests(self) -> bool:
+        """Whether a server may download a missing model while it handles a request."""
+        return self._get_knowledge_setting(
+            "rag",
+            "allow_model_download_in_requests",
+            default=self._config["allow_model_download_in_requests"],
         )
 
     @property

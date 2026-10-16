@@ -116,7 +116,12 @@ async def _lifespan(app: FastAPI):
     except Exception as exc:
         logger.debug(f"Could not log config summary: {exc}")
 
-    yield  # app is running
+    # A request never downloads a model: one that is not on disk answers 503
+    # with the fix (lasagna.core.model_downloads).
+    from lasagna.core.model_downloads import refuse_downloads_in_requests
+
+    with refuse_downloads_in_requests():
+        yield  # app is running
 
     logger.info("RAG REST API shutting down: releasing resources...")
     try:

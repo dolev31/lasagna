@@ -36,6 +36,7 @@ from lasagna.core.model_licenses import warn_if_restricted
 from lasagna.core.strict import strict_stages
 from lasagna.core.config import rag_config, RAGConfig
 from lasagna._quiet import loading_bar_hidden
+from lasagna.core import model_downloads
 
 #: Fewer batches than this encode without a progress bar.
 _PROGRESS_MIN_BATCHES = 8
@@ -317,6 +318,9 @@ class EmbeddingManager:
                 # every query, each time with a download attempt and a stack trace.
                 raise RuntimeError(self._load_error)
             configured = self.model_name
+            # A server refuses a model it would have to download; not recorded
+            # as a load error, so it loads once the model is on disk.
+            model_downloads.check(configured)
             try:
                 self._load_model()
             except Exception as exc:

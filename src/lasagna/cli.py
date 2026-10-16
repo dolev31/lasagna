@@ -661,6 +661,23 @@ def search(
     context: bool = typer.Option(False, "--context", "-c", help="Show formatted LLM context"),
 ):
     """Search the knowledge base."""
+    from lasagna.core.model_downloads import sessions_with_documents
+
+    # Before any model loads: searching a session with no documents loaded the
+    # default model (or failed to, offline) to return nothing.
+    populated = sessions_with_documents()
+    if populated is not None and session_id not in populated:
+        if populated:
+            listed = ", ".join(f"{s} ({n})" for s, n in sorted(populated.items()))
+            first = sorted(populated)[0]
+            _error(
+                f"Session {session_id!r} has no documents. Sessions with documents: "
+                f"{listed}. Search one with: lasagna search {shlex.quote(query)} -s {first}"
+            )
+        _error(
+            f"Session {session_id!r} has no documents, and no session has any. Add one "
+            f"with: lasagna upload <file> -s {session_id}"
+        )
 
     async def _search():
         client = _get_client(session_id)
@@ -674,7 +691,9 @@ def search(
     try:
         result = _run(_search())
     except Exception as exc:
-        _error(f"Search failed: {exc}", exc=exc)
+        # The SDK's SearchError already says "Search failed: ...".
+        cause = exc.__cause__ if type(exc).__name__ == "SearchError" and exc.__cause__ else exc
+        _error(f"Search failed: {cause}", exc=exc)
 
     if context:
         # Chunk text is data, not markup: Rich deleted "[metrics](...)" and

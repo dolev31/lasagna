@@ -27,6 +27,7 @@ from lasagna.core.config import rag_config
 from lasagna.core.model_licenses import warn_if_restricted
 from lasagna.core.strict import rerank_observations
 from lasagna._quiet import loading_bar_hidden
+from lasagna.core import model_downloads
 from lasagna.utils.normalization import (
     normalize_score_sigmoid as _normalize_score_sigmoid,
     normalize_scores_minmax as _normalize_scores_minmax,
@@ -266,6 +267,9 @@ class CrossEncoderReranker:
                 raise RuntimeError(
                     "Reranking is enabled but sentence-transformers is not installed"
                 )
+            # A server refuses a model it would have to download (not cached
+            # as a failure: it loads once the model is on disk).
+            model_downloads.check(name, kind="reranker model")
             try:
                 device = _detect_device()
                 logger.info(f"Loading cross-encoder reranker: {name} on {device}")

@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 from lasagna.utils import degraded as _degraded
 from lasagna.api._search_orchestrator import SearchScopeUnavailable
 from lasagna.api.rag_backend import RAGBackend
+from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_session
 from lasagna.core.quota import QuotaExceededError
 from ..dependencies import get_backend, get_session_id, get_user_id
 from ..models import (
@@ -161,6 +162,10 @@ async def search(
         )
     except HTTPException:
         raise
+    except ModelNotDownloaded as exc:
+        raise HTTPException(
+            status_code=503, detail=f"{exc} {fix_for_session(session_id, exc.model)}"
+        )
     except SearchScopeUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
@@ -260,6 +265,10 @@ async def search_with_citations(
         )
     except HTTPException:
         raise
+    except ModelNotDownloaded as exc:
+        raise HTTPException(
+            status_code=503, detail=f"{exc} {fix_for_session(session_id, exc.model)}"
+        )
     except SearchScopeUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
@@ -309,6 +318,10 @@ async def multi_query_search(
         )
     except HTTPException:
         raise
+    except ModelNotDownloaded as exc:
+        raise HTTPException(
+            status_code=503, detail=f"{exc} {fix_for_session(session_id, exc.model)}"
+        )
     except SearchScopeUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:

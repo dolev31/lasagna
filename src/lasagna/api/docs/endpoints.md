@@ -419,6 +419,12 @@ answers the query; with reranking off it is the retrieval score, (cosine
 similarity + 1) / 2 for dense search (`speed`) and the fused rank score for hybrid
 search. `rank` is the position, from 1.
 
+A server never downloads a model inside a request: when the session's embedding
+model is not on disk (for example an unconfigured session, which uses the
+settings file's BGE-M3), the search answers `503` with the command that fixes
+it, and `/health/ready` reports the default model as `down`.
+`RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS=true` lets the server download instead.
+
 **Response:** `SearchResponse`
 
 ```json

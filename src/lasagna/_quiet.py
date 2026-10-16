@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Iterator
 
 #: Each is a default: a value already in the environment wins.
@@ -58,22 +57,6 @@ def tqdm_without_process_lock() -> None:
         TqdmDefaultWriteLock.mp_lock = None
 
 
-def _cached(model: str) -> bool:
-    """Whether ``model`` loads without a download: a local folder or a cached hub copy."""
-    if not model:
-        return False
-    if Path(model).expanduser().is_dir():
-        return True
-    # sentence-transformers reads a bare name ("all-MiniLM-L6-v2") as its own org's.
-    names = [model] if "/" in model else [model, f"sentence-transformers/{model}"]
-    try:
-        from huggingface_hub import try_to_load_from_cache
-
-        return any(isinstance(try_to_load_from_cache(n, "config.json"), str) for n in names)
-    except Exception:
-        return False
-
-
 @contextmanager
 def loading_bar_hidden(model: str) -> Iterator[None]:
     """Hide transformers' "Loading weights" bar while a cached ``model`` loads.
@@ -86,7 +69,9 @@ def loading_bar_hidden(model: str) -> Iterator[None]:
         from transformers.utils import logging as hf_logging
     except Exception:
         hf_logging = None
-    if hf_logging is None or not hf_logging.is_progress_bar_enabled() or not _cached(model):
+    from lasagna.core.model_downloads import is_cached
+
+    if hf_logging is None or not hf_logging.is_progress_bar_enabled() or not is_cached(model):
         yield
         return
     hf_logging.disable_progress_bar()

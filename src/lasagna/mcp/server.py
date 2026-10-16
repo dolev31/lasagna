@@ -45,6 +45,7 @@ from lasagna.api.rest.auth_mode import (
     require_auth_or_refuse_to_start,
     warn_once_if_unauthenticated,
 )
+from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_session
 from lasagna.mcp import transport_guard
 from lasagna.utils.monitoring import hash_text
 
@@ -1231,6 +1232,9 @@ CONTENT:
 
     except _RAGDisabledError:
         return _RAG_DISABLED_MSG
+    except ModelNotDownloaded as e:
+        _log_tool_result("search", False, str(e), (time.time() - start_time) * 1000)
+        return f"Search failed: {e} {fix_for_session(session_id, e.model)}"
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_failure("search failed", e)
@@ -1844,7 +1848,13 @@ def get_system_status() -> str:
         )
 
         backend = _get_backend()
-        config = _get_config()
+        # The session's own configuration: the global one named the default
+        # collection, and a session with 76 chunks reported row_count 0.
+        session_id = os.environ.get("RAG_SESSION_ID", "").strip() or "default"
+        try:
+            config = backend.get_session_config(session_id)
+        except Exception:
+            config = _get_config()
         # The chunker that runs: structural settings decide it, so the presets
         # that name `structure_aware` or `hierarchical` were reported as not
         # chunking semantically while their sections were.
@@ -1862,6 +1872,7 @@ def get_system_status() -> str:
 
         stats = {
             "status": "healthy",
+            "session_id": session_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "backend_version": "V2" if is_v2 else "V1",
             "components": {
@@ -1871,13 +1882,13 @@ def get_system_status() -> str:
                     "collection_exists": has_collection,
                 },
                 "embedding_model": {
-                    "loaded": True,
-                    "model_name": backend.embedding_manager.model_name
-                    if is_v2
-                    else config.embedding_model,
-                    "embedding_dim": backend.embedding_manager.dimension
-                    if is_v2
-                    else config.embedding_dim,
+                    "loaded": bool(
+                        is_v2
+                        and getattr(backend.embedding_manager, "is_loaded", False)
+                        and backend.embedding_manager.model_name == config.embedding_model
+                    ),
+                    "model_name": config.embedding_model,
+                    "embedding_dim": config.embedding_dim,
                 },
                 "sqlite": {"db_path": config.db_path, "exists": os.path.exists(config.db_path)},
             },
@@ -4159,17 +4170,21 @@ def main():
         _initialize_backend()
     else:
         logger.info(
-            "RAG backend will be initialized on the first tool call. The first "
-            "search may take several minutes if models are not cached "
-            "(the speed profile, `lasagna configure --profile speed`, downloads 91 MB)."
+            "RAG backend will be initialized on the first tool call. A session whose "
+            "embedding model is not downloaded is refused with the fix rather than "
+            "downloaded inside a tool call (the speed profile, `lasagna configure "
+            "--profile speed -s <session>`, uses a 91 MB model)."
         )
 
-    if args.transport == "stdio":
-        logger.info("Starting in STDIO mode...")
-        mcp.run(transport="stdio")
-    else:
-        logger.info(f"Starting SSE server on {args.host}:{args.port}...")
-        mcp.run(transport="sse")
+    from lasagna.core.model_downloads import refuse_downloads_in_requests
+
+    with refuse_downloads_in_requests():
+        if args.transport == "stdio":
+            logger.info("Starting in STDIO mode...")
+            mcp.run(transport="stdio")
+        else:
+            logger.info(f"Starting SSE server on {args.host}:{args.port}...")
+            mcp.run(transport="sse")
 
 
 if __name__ == "__main__":

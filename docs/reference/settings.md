@@ -248,6 +248,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `preserve_formatting` | bool | `true` | `LASAGNA_PRESERVE_FORMATTING`, `RAG_PRESERVE_FORMATTING` | keep layout such as lists and line breaks in extracted text. |
 | `async_processing` | bool | `true` | `LASAGNA_ASYNC_PROCESSING`, `RAG_ASYNC_PROCESSING` | process uploads in the background. |
 | `processing_timeout` | int | `300` | `LASAGNA_PROCESSING_TIMEOUT`, `RAG_PROCESSING_TIMEOUT` | seconds a document may take to process. |
+| `allow_model_download_in_requests` | bool | `false` | `LASAGNA_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS`, `RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS` | Whether a server may download a missing model while it handles a request. |
 
 ## Docling Document Processing
 

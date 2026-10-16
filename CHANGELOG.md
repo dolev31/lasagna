@@ -597,6 +597,18 @@ Requests to current models:
 
 Servers and deployment:
 
+- **An unconfigured session answered `500 Internal server error`.** The
+  README's curl with no session header, or on a session not yet configured,
+  started a 2.3 GB BGE-M3 download inside the request or, offline, failed with
+  a 500, while `/health/ready` reported the model up from its name alone. A
+  server (`lasagna serve`, `lasagna-mcp`) now answers `503` naming the model,
+  the sessions that have documents and `lasagna configure --profile speed -s
+  <session>`, and never downloads a model inside a request unless
+  `allow_model_download_in_requests` is set; readiness reports the default
+  model as down when it cannot load. MCP `get_system_status` reports the
+  session's collection and model (it read the default one: `row_count 0` for a
+  session with 76 chunks), and `lasagna search` on a session with no documents
+  names the sessions that have some instead of loading a model.
 - **The top search result always scored 1.00, and each surface returned a
   different number of results.** Scores were min-max normalized per query, and
   REST and MCP dropped results below `similarity_threshold` on that relative

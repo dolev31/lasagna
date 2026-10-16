@@ -48,6 +48,7 @@ COMPONENT_STAGES: Dict[str, str] = {stage: stage for stage in STAGES}
 # change to the system under test.
 _OPERATIONAL = frozenset(
     {
+        "allow_model_download_in_requests",
         "async_processing",
         "batch_size",
         "bm25_max_sessions",
