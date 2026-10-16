@@ -505,6 +505,8 @@ Server and deployment:
 - The Kubernetes worker's liveness probe pings its own pod's worker
   (`celery@$HOSTNAME`).
 - CI pins detect-secrets 1.5.0, the version that wrote `.secrets.baseline`.
+- The release workflow pins `pypa/gh-action-pypi-publish` to the commit v1.14.2
+  names; the pin was the tag object.
 
 Numbers that were wrong:
 
