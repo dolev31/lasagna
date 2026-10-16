@@ -282,8 +282,11 @@ open the store. To give an agent the same store, start the server with the MCP
 endpoint and register it by URL instead of the command:
 
 ```bash
-lasagna serve --mcp           # REST API, and MCP over SSE at /mcp/sse
+lasagna serve --mcp -s my-corpus   # REST API, and MCP over SSE at /mcp/sse
 ```
+
+`-s` names the session that MCP tool calls and REST requests use when they
+name none; without it, MCP tools must pass `session_id`.
 
 ```json
 { "mcpServers": { "lasagna": { "type": "sse", "url": "http://127.0.0.1:8000/mcp/sse" } } }

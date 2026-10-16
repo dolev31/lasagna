@@ -412,7 +412,7 @@ environment only: not from the settings file, and not per session.
 |---|---|---|
 | `LASAGNA_MCP_TOOLS` | `safe` | safe leaves out the six tools that delete data or reset configuration; all serves every tool. The same as lasagna-mcp --tools. |
 | `LASAGNA_ENABLE_DOCS_API` | `false` | Turn on the /api/call tool tester, which calls any tool without authentication. For development only. |
-| `RAG_SESSION_ID` | unset | The session a tool call uses when it names none. |
+| `RAG_SESSION_ID` | unset | The session an MCP tool call, or a REST request without X-Session-ID, uses when it names none (else default). lasagna serve -s sets it. |
 | `RAG_MCP_UPLOAD_ROOT` | unset | The directory a networked MCP server may ingest server-side files from; unset, it reads none. |
 | `RAG_ALLOWED_HOSTS` | unset | Extra Host values (host or host:*) a loopback HTTP surface accepts, comma-separated, such as a container's service name. |
 

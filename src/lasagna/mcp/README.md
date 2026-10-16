@@ -48,7 +48,7 @@ By default it serves the **safe** set: every tool except the seven that delete d
 | ---- | -------- | ------- |
 | **STDIO** (default) | Claude Code, Claude Desktop, Cursor, agent frameworks | `lasagna-mcp` |
 | **SSE** | Multi-client, behind a proxy | `lasagna-mcp --transport sse --host 127.0.0.1 --port 8005` |
-| **Embedded** | Single-process with REST API | `lasagna serve --mcp` (or `RAG_EMBED_MCP=true`), at `/mcp/sse` |
+| **Embedded** | Single-process with REST API | `lasagna serve --mcp -s <session>` (or `RAG_EMBED_MCP=true`), at `/mcp/sse`; `-s` is the session for calls that name none |
 
 `--host` and `--port` apply only to `--transport sse`; passing them without it is an error rather than a stdio server waiting on input.
 

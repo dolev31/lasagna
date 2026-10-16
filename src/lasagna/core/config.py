@@ -329,7 +329,8 @@ SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
     "RAG_SESSION_ID": (
         "MCP server",
         "unset",
-        "The session a tool call uses when it names none.",
+        "The session an MCP tool call, or a REST request without X-Session-ID, uses when "
+        "it names none (else default). lasagna serve -s sets it.",
         (),
     ),
     "RAG_MCP_UPLOAD_ROOT": (

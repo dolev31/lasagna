@@ -1044,8 +1044,9 @@ def _resolve_session(
         session_id = os.environ.get("RAG_SESSION_ID", "").strip()
     if not session_id:
         raise ValueError(
-            "Either session_id or session_token is required (or set RAG_SESSION_ID "
-            "in the MCP server's environment)"
+            "No session named: pass session_id (or session_token), or start the server "
+            "with one: lasagna serve --mcp -s <session>, or RAG_SESSION_ID=<session> in "
+            "lasagna-mcp's environment."
         )
 
     if transport_guard.enforcement_active():

@@ -667,6 +667,13 @@ First run:
   the profile chooses the model), the summary names the profile's model,
   which is what `status` shows, and each provider is labeled with the model
   Lasagna calls by default (it read "OpenAI (GPT-4o)").
+- **The README's `serve --mcp` could not search.** Every MCP tool call over
+  `/mcp/sse` answered "Either session_id or session_token is required".
+  `lasagna serve --session/-s <session>` names the session that MCP tool
+  calls and REST requests without `X-Session-ID` use (it sets
+  `RAG_SESSION_ID`, which REST now honors too), the banner names it, and the
+  README block passes `-s my-corpus`. A call that names no session says
+  how to name one.
 
 Requests to current models:
 

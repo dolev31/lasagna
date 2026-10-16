@@ -1007,6 +1007,13 @@ def serve(
         help="Also serve the MCP server (SSE) at /mcp/sse, from this process. Milvus Lite "
         "admits one process per store, so this is how an agent and the REST API share one.",
     ),
+    session: Optional[str] = typer.Option(
+        None,
+        "--session",
+        "-s",
+        help="The session for MCP tool calls and REST requests that name none "
+        "(default: RAG_SESSION_ID, else 'default').",
+    ),
 ):
     """Start the REST API server, with the configurator web page.
 
@@ -1045,6 +1052,12 @@ def serve(
         os.environ["RAG_CONFIGURATOR"] = "true"
     if serve_mcp:
         os.environ["RAG_EMBED_MCP"] = "true"
+    # MCP tools and REST requests without a session use this one. Without it,
+    # every MCP search over /mcp/sse failed: "Either session_id or
+    # session_token is required".
+    if session:
+        os.environ["RAG_SESSION_ID"] = session
+    default_session = os.environ.get("RAG_SESSION_ID", "").strip() or "default"
 
     # The address a browser can use: 0.0.0.0 and :: are bind-alls, not addresses.
     shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
@@ -1059,7 +1072,7 @@ def serve(
             + (f"{_configurator_line(base)}\n" if configurator else "")
             + (f"MCP (SSE): {base}/mcp/sse\n" if serve_mcp else "")
             + "\n"
-            + "\n".join(escape(line) for line in _session_summary())
+            + "\n".join(escape(line) for line in _session_summary(default_session))
             + "\n\n[dim]Press Ctrl+C to stop.[/dim]",
         )
     )
