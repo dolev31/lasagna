@@ -279,7 +279,8 @@ def _check_plugins() -> List[Check]:
         return [Check("plugins", _OK, "no third-party plugins installed")]
 
     loaded = [e for e in entries if e.get("ok")]
-    checks = [Check("plugins", _OK, f"{len(loaded)}/{len(entries)} entry point(s) loaded")]
+    noun = "entry point" if len(entries) == 1 else "entry points"
+    checks = [Check("plugins", _OK, f"{len(loaded)} of {len(entries)} {noun} loaded")]
     for entry in entries:
         if entry.get("ok"):
             continue

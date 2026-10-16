@@ -122,7 +122,7 @@ def test_validate_says_which_fallbacks_were_active(tmp_path, strict):
     assert result.exception is None or isinstance(result.exception, SystemExit), result.exception
     assert "pip install 'lasagna-rag[eval]'" in " ".join(result.output.split())
     if strict:
-        assert "1 problem(s)" in result.output
+        assert "1 problem:" in result.output
 
 
 def test_an_older_bundle_without_the_list_still_validates(tmp_path):

@@ -866,7 +866,7 @@ def search(
         table.add_row(str(i), f"{r.score:.3f}", escape(content), escape(source))
 
     console.print(table)
-    console.print(f"[dim]{len(result)} result(s)[/dim]")
+    console.print(f"[dim]{_count(len(result), 'result')}[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -1789,7 +1789,7 @@ def benchmark_experiment(
         # When not resuming, clear any stale checkpoints from a previous run
         cleared = cp.clear()
         if cleared:
-            console.print(f"  [dim]Cleared {cleared} stale checkpoint(s)[/dim]")
+            console.print(f"  [dim]Cleared {_count(cleared, 'stale checkpoint')}[/dim]")
 
     console.print(f"Starting experiment [cyan]{exp.config.name}[/cyan]")
     console.print(f"  Benchmarks: {len(exp.config.benchmarks)}")
@@ -2448,7 +2448,7 @@ def component_validate(
         )
     else:
         console.print(
-            f"\n[red]{len(report.failures)} contract failure(s).[/red] "
+            f"\n[red]{_count(len(report.failures), 'contract failure')}.[/red] "
             f"A component that does not satisfy its contract can still be registered, "
             f"but it is not interchangeable, and a comparison against one that is "
             f"would measure the interface difference too."
@@ -2632,7 +2632,7 @@ def results_validate(
         problems.extend(f"integrity (strict): {code}" for code in warnings)
 
     if problems:
-        console.print(f"[red]INVALID[/red], {len(problems)} problem(s):")
+        console.print(f"[red]INVALID[/red], {_count(len(problems), 'problem')}:")
         # Problem lines quote arm names, which are free text: `a[/b]` is a
         # Rich closing tag and crashed the command instead of printing.
         for p in problems:
@@ -3027,7 +3027,7 @@ def results_per_query(
     console.print(table)
     if len(available) > shown:
         console.print(
-            f"[dim]{len(available) - shown} more metric column(s) not shown; "
+            f"[dim]{_count(len(available) - shown, 'more metric column')} not shown; "
             "-o rows.csv has all of them.[/dim]"
         )
     if len(rows) > limit:
@@ -3288,7 +3288,7 @@ def skills_install(
         console.print(f"  [yellow]exists[/yellow]    {name} [dim](--force to overwrite)[/dim]")
 
     console.print()
-    console.print(f"{len(written)} skill(s) written to {dest}/")
+    console.print(f"{_count(len(written), 'skill')} written to {dest}/")
     if written:
         console.print("[dim]Restart the agent, or start a new session, to pick them up.[/dim]")
 
@@ -3394,7 +3394,8 @@ def doctor(
     else:
         errors = sum(1 for c in problems if c.status == "error")
         console.print(
-            f"{len(problems)} item(s) need attention ({errors} blocking). "
+            f"{_count(len(problems), 'item')} {'needs' if len(problems) == 1 else 'need'} "
+            f"attention ({errors} blocking). "
             "Run `lasagna doctor --issue` to attach this to a bug report."
         )
     raise typer.Exit(1 if d.worst == "error" else 0)
@@ -3480,13 +3481,14 @@ def results_leaderboard(
     except (MetricsVersionError, ValueError) as exc:
         _error(str(exc))
     console.print(
-        f"[green]{index['n_rows']} row(s)[/green] from {index['n_bundles']} bundle(s) "
-        f"across {len(index['benchmarks'])} benchmark(s)"
+        f"[green]{_count(index['n_rows'], 'row')}[/green] from "
+        f"{_count(index['n_bundles'], 'bundle')} across "
+        f"{_count(len(index['benchmarks']), 'benchmark')}"
     )
     for name, info in index["benchmarks"].items():
         console.print(
-            f"  {escape(name)}: {info['n_rows']} row(s) in {info['n_groups']} "
-            f"comparability group(s), {info['n_verified']} verified"
+            f"  {escape(name)}: {_count(info['n_rows'], 'row')} in "
+            f"{_count(info['n_groups'], 'comparability group')}, {info['n_verified']} verified"
         )
     if output:
         console.print(f"[green]Wrote {escape(output)}[/green]")
@@ -3616,7 +3618,7 @@ def pipelines_list():
 
     console.print(table)
     console.print(f"\n[dim]Active pipeline: [cyan]{active}[/cyan][/dim]")
-    console.print(f"[dim]{len(pipelines)} pipeline(s) registered[/dim]")
+    console.print(f"[dim]{_count(len(pipelines), 'pipeline')} registered[/dim]")
 
 
 # ---------------------------------------------------------------------------

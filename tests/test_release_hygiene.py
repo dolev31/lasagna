@@ -55,3 +55,13 @@ def test_the_mcp_server_has_no_deprecated_aliases():
 
     names = {fn.__name__ for fn in server._TOOLS}
     assert not {"search_knowledge", "search_with_context"} & names
+
+
+def test_command_output_counts_in_plain_english():
+    """ "1 run(s)", "4 skill(s) written", "1/1 entry point(s) loaded": counts say "1 run"."""
+    found = [
+        f"{path}:{line}"
+        for path, line, text in _runtime_strings()
+        if str(path) in ("cli.py", "core/diagnostics.py") and "(s)" in text
+    ]
+    assert not found, found
