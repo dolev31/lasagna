@@ -9,8 +9,8 @@ patches:
       apiVersion: v1
       kind: ConfigMap
       metadata:
-        name: rag-knowledge-config
-        namespace: rag-knowledge
+        name: lasagna-config
+        namespace: lasagna
       data:
         RAG_VECTOR_BACKEND: "pinecone"
         PINECONE_ENVIRONMENT: "us-east-1"
@@ -18,7 +18,7 @@ patches:
       apiVersion: v1
       kind: Secret
       metadata:
-        name: rag-knowledge-secrets
-        namespace: rag-knowledge
+        name: lasagna-secrets
+        namespace: lasagna
       stringData:
         PINECONE_API_KEY: "CHANGE_ME"

@@ -1,7 +1,9 @@
 """Knowledge configuration endpoints for the configurator UI.
 
 These endpoints are mounted at ``/api/config/knowledge`` (not under ``/api/v1/``)
-to match the configurator frontend's hardcoded API paths.
+to match the configurator frontend's hardcoded API paths. Deprecated for any
+other caller, which should use ``/api/v1/config``; they move under ``/api/v1``
+in 0.2.0.
 
 All endpoints delegate to :class:`KnowledgeConfigManager` which provides
 full profile CRUD, session-scoped config, and import/export.

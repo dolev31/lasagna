@@ -113,8 +113,18 @@ async def _lifespan(app: FastAPI):
     except Exception as exc:
         logger.debug(f"Could not log config summary: {exc}")
 
-    yield  # app is running
+    # A request never downloads a model: one that is not on disk answers 503
+    # with the fix (lasagna.core.model_downloads).
+    from lasagna.core.model_downloads import refuse_downloads_in_requests
 
+    with refuse_downloads_in_requests():
+        yield  # app is running
+
+    # `lasagna serve` recorded itself for other commands; uvicorn re-raises the
+    # stop signal after shutdown, so the command's own cleanup may never run.
+    from lasagna.core import local_server
+
+    local_server.withdraw()
     logger.info("RAG REST API shutting down: releasing resources...")
     try:
         from lasagna.api.rag_backend import close_backend
@@ -127,6 +137,36 @@ async def _lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 # Middleware helpers
 # ---------------------------------------------------------------------------
+
+
+def _one_response(app):
+    """Pass on one response per request, dropping any that follows it.
+
+    The MCP SDK's SSE endpoint returns an empty response after its event stream
+    has ended. Behind this app's HTTP middleware that second response raised
+    "Unexpected message: http.response.start" with a 40-line traceback each
+    time an MCP client disconnected from ``lasagna serve --mcp``.
+    """
+
+    async def wrapped(scope, receive, send):
+        if scope.get("type") != "http":
+            await app(scope, receive, send)
+            return
+        started = discarding = False
+
+        async def guarded(message):
+            nonlocal started, discarding
+            if message["type"] == "http.response.start":
+                if started:
+                    discarding = True
+                    return
+                started = True
+            if not discarding:
+                await send(message)
+
+        await app(scope, receive, guarded)
+
+    return wrapped
 
 
 #: A client-supplied X-Request-ID is kept only if it looks like an id; anything
@@ -527,7 +567,7 @@ def create_app(
 
             # port is unused when mounted as sub-app; routing handled by FastAPI
             _mcp = create_mcp_server(host="0.0.0.0", port=8000, transport_security=guard)
-            app.mount("/mcp", _mcp.sse_app())
+            app.mount("/mcp", _one_response(_mcp.sse_app()))
             logger.info("MCP server embedded at /mcp/sse")
         except Exception as exc:
             _mcp_embedded = False

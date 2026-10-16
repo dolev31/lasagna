@@ -352,7 +352,7 @@ class RemoteRAGBackend:
         query: str,
         session_id: Optional[str] = None,
         top_k: int = 5,
-        min_score: float = -100.0,
+        min_score: Optional[float] = None,
         document_ids: Optional[List[str]] = None,
         use_hyde: bool = True,
         use_reranking: bool = True,
@@ -362,10 +362,11 @@ class RemoteRAGBackend:
         body: Dict[str, Any] = {
             "query": query,
             "top_k": top_k,
-            "min_score": min_score,
             "use_hyde": use_hyde,
             "use_reranking": use_reranking,
         }
+        if min_score is not None:
+            body["min_score"] = min_score
         if document_ids:
             body["document_ids"] = document_ids
         if routing_tier is not None:
@@ -449,7 +450,7 @@ class RemoteRAGBackend:
         query: str,
         session_id: Optional[str] = None,
         top_k: Optional[int] = None,
-        min_score: float = -100.0,
+        min_score: Optional[float] = None,
         document_ids: Optional[List[str]] = None,
         use_hyde: bool = True,
         use_reranking: bool = True,
@@ -502,6 +503,16 @@ class RemoteRAGBackend:
         falling back to the full document list otherwise.
         """
         return self._run_sync(self._async_get_document_status(document_id, session_id))
+
+    def get_document_by_id(
+        self, document_id: str, session_id: Optional[str] = None
+    ) -> Optional[RemoteDocument]:
+        """``get_document``, under the name the SDK's upload wait polls with.
+
+        Without it ``client.documents.wait_for_processing`` failed on a remote
+        client, so ``lasagna upload`` through a running server could not finish.
+        """
+        return self.get_document(document_id, session_id)
 
     async def _async_get_document_status(
         self,
@@ -583,7 +594,7 @@ class RemoteRAGBackend:
         query: str,
         session_id: Optional[str] = None,
         top_k: int = 5,
-        min_score: float = -100.0,
+        min_score: Optional[float] = None,
         document_ids: Optional[List[str]] = None,
         use_hyde: bool = True,
         use_reranking: bool = True,

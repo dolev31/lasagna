@@ -29,6 +29,7 @@ DESTRUCTIVE = {
     "delete_document",
     "delete_rag_profile",
     "reset_rag_config",
+    "set_lifecycle_policy",
 }
 ALIASES = {"search_knowledge", "search_with_context"}
 TOOLS_ENV = "LASAGNA_MCP_TOOLS"
@@ -108,8 +109,10 @@ def _run(*args, tmp_path, **env_extra) -> subprocess.CompletedProcess:
 
 class TestTheCommandLine:
     def test_the_default_transport_is_stdio(self, tmp_path):
-        """With stdin at EOF a stdio server exits cleanly; an SSE one would bind."""
-        result = _run(tmp_path=tmp_path)
+        """With stdin at EOF a stdio server exits cleanly; an SSE one would bind.
+
+        INFO, because a stdio server logs warnings only by default."""
+        result = _run("--log-level", "INFO", tmp_path=tmp_path)
         assert result.returncode == 0, result.stderr[-2000:]
         assert "Transport: stdio" in result.stderr
         assert "safe set" in result.stderr

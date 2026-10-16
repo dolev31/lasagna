@@ -44,11 +44,11 @@ def test_the_base_shares_the_uploads_between_the_api_and_the_worker(check):
 
 def test_a_worker_without_the_volume_is_refused(check):
     docs = _base()
-    worker = next(d for d in docs if d["metadata"]["name"] == "rag-knowledge-celery")
+    worker = next(d for d in docs if d["metadata"]["name"] == "lasagna-celery")
     del worker["spec"]["template"]["spec"]["containers"][0]["volumeMounts"]
 
     (problem,) = check.problems(docs)
-    assert "rag-knowledge-celery mounts no PersistentVolumeClaim at /data/uploads" in problem
+    assert "lasagna-celery mounts no PersistentVolumeClaim at /data/uploads" in problem
 
 
 def test_a_read_write_once_claim_is_refused(check):

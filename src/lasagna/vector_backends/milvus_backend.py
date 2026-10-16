@@ -93,41 +93,10 @@ logging.getLogger("milvus_lite.server_manager").addFilter(_HideLockedStoreTraceb
 
 
 def _lite_store_locked(db_path: str) -> bool:
-    """Whether another process holds the Milvus Lite store's lock.
+    """Whether another process holds the Milvus Lite store's lock (see core.local_server)."""
+    from lasagna.core.local_server import lite_store_locked
 
-    Milvus Lite admits one process per store, by an advisory lock on
-    ``<store>/LOCK``. Probing it is the only way to tell that case apart from
-    any other failure to open, since pymilvus drops the cause.
-    """
-    import os
-
-    lock_path = os.path.join(db_path, "LOCK")
-    if not os.path.exists(lock_path):
-        return False
-    try:
-        fd = os.open(lock_path, os.O_RDWR)
-    except OSError:
-        return False
-    try:
-        if sys.platform == "win32":
-            import msvcrt
-
-            try:
-                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-            except OSError:
-                return True
-            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                return True
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        return False
-    finally:
-        os.close(fd)
+    return lite_store_locked(db_path)
 
 
 def _served_by_this_process(db_path: str) -> bool:

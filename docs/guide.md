@@ -106,17 +106,8 @@ reranker (`pip install flashrank`), the `cohere` reranker and embedder
 (`pip install voyageai`, `VOYAGE_API_KEY`) and the `openai` embedder
 (`OPENAI_API_KEY`). Each raises naming what is missing.
 
-**`pip` cannot resolve `eval` together with `storage-all`**, and so cannot
-resolve `all` either. The requirement set is satisfiable; pip's resolver just
-fails to find the solution. Use `uv`, or hand pip the versions it misses:
-
-```bash
-uv pip install "lasagna-rag[all]"
-pip install "lasagna-rag[eval,storage-all]" s3fs==2026.6.0 fsspec==2026.6.0
-```
-
-`eval` and `storage-all` each resolve fine on their own; only the combination
-defeats pip.
+`all` is large: pip takes about two minutes to resolve it (measured with pip
+26.2), and `uv pip install "lasagna-rag[all]"` a few seconds.
 
 ### Platform notes
 
@@ -557,6 +548,24 @@ This one needs an LLM API key and the `[eval]` extra. `cited` answers carry
 `[n]` markers, and the citation metrics score them. From the shell,
 `lasagna benchmark run <name> --generator cited` runs one generator.
 
+**An ensemble of rerankers.** `ensemble` averages the scores of the
+cross-encoders an arm names in `ensemble_reranker_models` (weights in
+`ensemble_reranker_weights`, equal when left out). An arm with fewer than two
+models, or with one that cannot load, fails instead of scoring as one model:
+
+```yaml
+pipeline:
+  base_profile: speed
+  config_overrides:
+    - {name: minilm, reranker: cross_encoder}       # the control
+    - name: ensemble
+      reranker: ensemble
+      ensemble_reranker_models: [cross-encoder/ms-marco-MiniLM-L-6-v2, cross-encoder/ms-marco-TinyBERT-L-2-v2]
+```
+
+`mmr` and `combined` (the cross-encoder followed by MMR) run MMR whatever
+`enable_mmr` says, since naming them is what turns it on.
+
 **Chunkers and embedders sweep as components too** (`chunkers:`,
 `embedders:`). Each arm's corpus is chunked or embedded by its own component and
 kept apart from the other arms' corpora; an embedder also gets its own
@@ -619,8 +628,8 @@ Arms (2): reranker=cross_encoder, reranker=template_length
 Tasks (2): 1 benchmark x 2 arms x 1 run
   smoke  split=test  12 samples
 Models:
-  embedder           all-MiniLM-L6-v2  downloaded
-  reranker           cross-encoder/ms-marco-MiniLM-L-6-v2  downloaded
+  embedder           all-MiniLM-L6-v2  cached
+  reranker           cross-encoder/ms-marco-MiniLM-L-6-v2  cached
   reranker           component template_length
 Tokens: no generation track, so no answer is generated or judged; an arm still calls an LLM if its pipeline does (HyDE, an agentic pipeline, an LLM reranker).
 Probe of smoke (estimate): arm 'reranker=cross_encoder' on 3 samples took 2.8 s including setup (loading models, ingesting), 0.12 s per query, 0 LLM calls

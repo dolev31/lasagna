@@ -15,8 +15,8 @@ from typing import Any, Dict, Iterable, List
 
 import yaml
 
-CONFIG = "rag-knowledge-config"
-DEPLOYMENTS = ("rag-knowledge-api", "rag-knowledge-celery")
+CONFIG = "lasagna-config"
+DEPLOYMENTS = ("lasagna-api", "lasagna-celery")
 TRUTHY = {"1", "true", "yes", "on"}
 
 

@@ -472,14 +472,35 @@ def _model_name(llm: Any) -> str:
     return type(llm).__name__
 
 
-def _missing_llm_message() -> str:
+def missing_llm_message(needs: str, instead: str) -> str:
+    """What to set when an LLM is needed and none is configured.
+
+    Shared by every command that needs one, so they all name the same keys.
+    """
     from lasagna.providers import _API_KEY_TO_PLATFORM
 
     keys = ", ".join(dict.fromkeys(env for env, _ in _API_KEY_TO_PLATFORM))
     return (
-        "Writing and checking questions needs an LLM, and none is configured. Set one of "
-        f"these environment variables: {keys}. MODEL_NAME or --model picks the model. "
-        "--dry-run prints the plan without one."
+        f"{needs} needs an LLM, and none is configured. Set one of these environment "
+        f"variables: {keys}. MODEL_NAME picks the model. {instead}"
+    )
+
+
+def llm_configured() -> bool:
+    """Whether an LLM provider can be built from the environment (no call is made)."""
+    from lasagna.providers import LLMProviderNotConfigured, get_llm_provider
+
+    try:
+        get_llm_provider()
+    except LLMProviderNotConfigured:
+        return False
+    return True
+
+
+def _missing_llm_message() -> str:
+    return missing_llm_message(
+        "Writing and checking questions",
+        "--model also picks the model, and --dry-run prints the plan without one.",
     )
 
 

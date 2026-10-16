@@ -16,10 +16,10 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: rag-knowledge-uploads
-  namespace: rag-knowledge
+  name: lasagna-uploads
+  namespace: lasagna
   labels:
-    app.kubernetes.io/name: rag-knowledge
+    app.kubernetes.io/name: lasagna
 spec:
   accessModes:
     - ReadWriteMany

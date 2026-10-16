@@ -168,9 +168,12 @@ class LifecycleScheduler:
         try:
             from apscheduler.schedulers.background import BackgroundScheduler
         except ImportError:
-            logger.warning(
-                "APScheduler not installed.  Install with: pip install apscheduler>=3.10 "
-                "or add the 'lifecycle' extra.  GC will not run automatically."
+            # Optional: GC still runs when asked (POST /api/v1/admin/gc/run). A
+            # warning on every `lasagna serve` start was noise for a core
+            # install, which does not include the scheduler.
+            logger.info(
+                "Garbage collection runs when asked (POST /api/v1/admin/gc/run). To run "
+                "it on a schedule, install the scheduler: pip install 'lasagna-rag[lifecycle]'."
             )
             return
 

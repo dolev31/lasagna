@@ -503,7 +503,7 @@ class RAGBackend:
         query: str,
         session_id: str,
         top_k: Optional[int] = None,
-        min_score: float = -100.0,
+        min_score: Optional[float] = -100.0,
         document_ids: Optional[List[str]] = None,
         use_hyde: bool = True,
         use_reranking: bool = True,
@@ -554,12 +554,14 @@ class RAGBackend:
         routing_tier: Optional[str] = None,
         _reranker_override: Optional[Any] = None,
         _enhancer_override: Optional[Any] = None,
+        min_score: Optional[float] = None,
     ) -> Tuple[List[SearchResult], List[Citation], str]:
         """Search and return results with citations and formatted context."""
         return self._search_orchestrator.search_with_citations(
             query=query,
             session_id=session_id,
             top_k=top_k,
+            min_score=min_score,
             document_ids=document_ids,
             trace_id=trace_id,
             routing_tier=routing_tier,
@@ -572,7 +574,7 @@ class RAGBackend:
         query: str,
         session_id: str,
         top_k: Optional[int] = None,
-        min_score: float = -100.0,
+        min_score: Optional[float] = -100.0,
         document_ids: Optional[List[str]] = None,
         use_hyde: bool = True,
         use_reranking: bool = True,
@@ -606,12 +608,14 @@ class RAGBackend:
         routing_tier: Optional[str] = None,
         _reranker_override: Optional[Any] = None,
         _enhancer_override: Optional[Any] = None,
+        min_score: Optional[float] = None,
     ) -> Tuple[List[SearchResult], List[Citation], str]:
         """Async search with citations — suitable for FastAPI async endpoints."""
         return await self._search_orchestrator.async_search_with_citations(
             query=query,
             session_id=session_id,
             top_k=top_k,
+            min_score=min_score,
             document_ids=document_ids,
             trace_id=trace_id,
             routing_tier=routing_tier,
@@ -1068,7 +1072,7 @@ def close_backend() -> None:
 def reset_instance():
     """Reset the RAG backend singleton instance.
 
-    CRITICAL FIX: Uses lock to prevent race condition with get_rag_backend().
+    Uses lock to prevent race condition with get_rag_backend().
     Without the lock, a reset during creation could leave the system in an
     inconsistent state.
 

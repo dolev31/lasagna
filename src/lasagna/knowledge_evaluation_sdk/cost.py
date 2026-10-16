@@ -405,7 +405,8 @@ def dry_run_lines(exp: "Experiment", probe: bool = True) -> List[str]:
         if (role, name) in seen:
             continue
         seen.add((role, name))
-        state = {True: "downloaded", False: "not downloaded yet"}.get(cached, "")
+        # "cached": "downloaded" read as something this command had just done.
+        state = {True: "cached", False: "not cached: downloads on first use"}.get(cached, "")
         lines.append(f"  {role:18s} {name}  {state}".rstrip())
     gen_model = generator_model_name() if generation else None
     from .experiment import DEFAULT_JUDGE_MODEL

@@ -82,7 +82,7 @@ class SearchManager:
         self,
         query: str,
         top_k: int = 5,
-        min_score: float = 0.0,
+        min_score: Optional[float] = None,
         document_ids: Optional[List[str]] = None,
         use_reranking: Optional[bool] = None,
         use_hyde: Optional[bool] = None,
@@ -100,7 +100,9 @@ class SearchManager:
         Args:
             query: Natural language search query
             top_k: Maximum number of results to return
-            min_score: Minimum similarity score threshold (default allows all)
+            min_score: Drop results whose score is below this; the score is the
+                reranker's when the profile reranks, else the retrieval score.
+                Default: no threshold.
             document_ids: Optional filter by document IDs (overrides focus)
             use_reranking: Override config's enable_reranking
             use_hyde: Override config's enable_hyde
@@ -334,7 +336,7 @@ class SearchManager:
         self,
         query: str,
         top_k: int = 5,
-        min_score: float = 0.0,
+        min_score: Optional[float] = None,
         document_ids: Optional[List[str]] = None,
         use_reranking: Optional[bool] = None,
         use_hyde: Optional[bool] = None,

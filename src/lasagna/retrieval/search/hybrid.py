@@ -249,7 +249,7 @@ class HybridSearchResult:
     combined_score: float = 0.0
     dense_rank: Optional[int] = None
     sparse_rank: Optional[int] = None
-    # P1-3 FIX: Store pre-fetched embedding to avoid re-embedding in MMR
+    # Store pre-fetched embedding to avoid re-embedding in MMR
     embedding: Optional[List[float]] = None
     # Backend highlight fragments (e.g. from OpenSearch BM25 matching)
     highlights: Optional[List[str]] = None
@@ -716,7 +716,7 @@ class HybridSearcher:
         self._session_timestamps: Dict[str, float] = {}  # session_id -> last_access_time
         self._session_creation_times: Dict[str, float] = {}  # session_id -> creation_time
         self._session_lock = threading.Lock()  # Thread-safe session management
-        self._last_cleanup_time = time.time()  # MEDIUM PRIORITY FIX: Track last cleanup
+        self._last_cleanup_time = time.time()  # Track last cleanup
 
         # Native searcher (initialized lazily) - for Milvus-specific hybrid search
         self._native_searcher: Optional[MilvusNativeHybridSearcher] = None
@@ -730,7 +730,7 @@ class HybridSearcher:
         self._session_backends: Dict[str, tuple] = {}
         self._warned_dense_only: set = set()
 
-        # MEDIUM PRIORITY FIX: Periodic cleanup configuration
+        # Periodic cleanup configuration
         self._enable_periodic_cleanup = enable_periodic_cleanup
 
     def set_milvus_client(self, client: "MilvusClient", collection_name: str):
@@ -1369,7 +1369,7 @@ class HybridSearcher:
             chunk_id = str(chunk_id)
 
             dense_score = result.get("score", result.get("distance", 0.0))
-            # P1-3 FIX: Preserve embedding from Milvus result
+            # Preserve embedding from Milvus result
             embedding = result.get("entity", {}).get("embedding")
 
             if chunk_id not in results_map:
@@ -1448,7 +1448,7 @@ class HybridSearcher:
                 chunk_id = result.get("chunk_id")
             chunk_id = str(chunk_id) if chunk_id is not None else ""
             dense_score = result.get("score", result.get("distance", 0.0))
-            # P1-3 FIX: Preserve embedding from Milvus result to avoid re-embedding
+            # Preserve embedding from Milvus result to avoid re-embedding
             embedding = result.get("entity", {}).get("embedding")
 
             results.append(

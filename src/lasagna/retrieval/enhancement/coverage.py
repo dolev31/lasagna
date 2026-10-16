@@ -26,7 +26,7 @@ class QueryAspect:
     is_covered: bool = False
     covering_chunk_ids: List[str] = field(default_factory=list)
     coverage_strength: float = 0.0  # How well this aspect is covered (0-1)
-    # MEDIUM PRIORITY FIX: Pre-compiled regex patterns for efficient matching
+    # Pre-compiled regex patterns for efficient matching
     # This avoids recompiling patterns in the inner loop (O(n³) -> O(n²))
     keyword_patterns: Dict[str, "re.Pattern"] = field(default_factory=dict)
 
@@ -172,7 +172,7 @@ class CoverageScorer:
             }
 
             if keywords:
-                # MEDIUM PRIORITY FIX: Pre-compile regex patterns for each keyword
+                # Pre-compile regex patterns for each keyword
                 keyword_patterns = {kw: re.compile(rf"\b{re.escape(kw)}\b") for kw in keywords}
                 aspects.append(
                     QueryAspect(text=part, keywords=keywords, keyword_patterns=keyword_patterns)
@@ -185,7 +185,7 @@ class CoverageScorer:
                 w for w in words if len(w) >= self.min_keyword_length and w not in self.STOP_WORDS
             }
             if keywords:
-                # MEDIUM PRIORITY FIX: Pre-compile regex patterns
+                # Pre-compile regex patterns
                 keyword_patterns = {kw: re.compile(rf"\b{re.escape(kw)}\b") for kw in keywords}
                 aspects.append(
                     QueryAspect(text=query, keywords=keywords, keyword_patterns=keyword_patterns)
@@ -227,9 +227,9 @@ class CoverageScorer:
             chunk_id = chunk.get("chunk_id", chunk.get("id", 0))
 
             for aspect in aspects:
-                # P2-1 FIX: Use word boundary matching instead of substring matching
+                # Use word boundary matching instead of substring matching
                 # This prevents false positives like "test" matching "testing", "contest"
-                # MEDIUM PRIORITY FIX: Use pre-compiled patterns for O(1) lookup vs O(n) recompilation
+                # Use pre-compiled patterns for O(1) lookup vs O(n) recompilation
                 matches = 0
                 for kw, pattern in aspect.keyword_patterns.items():
                     if pattern.search(content):

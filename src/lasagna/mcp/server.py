@@ -45,6 +45,8 @@ from lasagna.api.rest.auth_mode import (
     require_auth_or_refuse_to_start,
     warn_once_if_unauthenticated,
 )
+from lasagna.core.local_server import StoreHeld as _StoreHeld
+from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_session
 from lasagna.mcp import transport_guard
 from lasagna.utils.monitoring import hash_text
 
@@ -60,7 +62,7 @@ def get_rag_backend():
 LOG_FORMAT = (
     "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
     "<level>{level: <8}</level> | "
-    "<cyan>rag_knowledge_mcp</cyan> | "
+    "<cyan>lasagna.mcp</cyan> | "
     "<level>{message}</level>"
 )
 
@@ -69,17 +71,24 @@ LOG_FORMAT = (
 # destroying the host app's handlers.  main() sets this to True.
 _owns_logging = False
 
+#: The level main() chose: --log-level, else LASAGNA_LOG_LEVEL or RAG_LOG_LEVEL,
+#: else WARNING on stdio and INFO on SSE. A client reads a stdio server's stderr
+#: as its log, and one search wrote 144 DEBUG lines there in ANSI color.
+_pinned_level: Optional[str] = None
+
 
 def _configure_rag_logging(level: str) -> None:
     if not _owns_logging:
         return
+    level = _pinned_level or level
     from lasagna.api.rest.limits import apply_log_format
 
     # LASAGNA_LOG_FORMAT=json: one JSON object per line, as the REST API does.
     if apply_log_format(level):
         return
     logger.remove()
-    logger.add(sys.stderr, format=LOG_FORMAT, level=level, colorize=True)
+    # Color only on a terminal: a client launching the server reads a pipe.
+    logger.add(sys.stderr, format=LOG_FORMAT, level=level, colorize=sys.stderr.isatty())
 
 
 # No-op at import time (_owns_logging is False).
@@ -112,6 +121,9 @@ DESTRUCTIVE_TOOLS = frozenset(
         "delete_document",
         "delete_rag_profile",
         "reset_rag_config",
+        # Server-wide, not the caller's session: a grace period of 0 or a
+        # document TTL makes the next GC delete other sessions' documents.
+        "set_lifecycle_policy",
     }
 )
 
@@ -138,9 +150,23 @@ def resolve_tool_set(value: Optional[str] = None) -> str:
 
 
 class _LasagnaMCP(FastMCP):
-    """FastMCP that can keep a registered tool callable without listing it."""
+    """FastMCP that can keep a registered tool callable without listing it.
+
+    It also reports Lasagna's version as ``serverInfo.version``: the MCP SDK
+    reported its own ("1.30.0").
+    """
 
     unlisted: frozenset = frozenset()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from lasagna import __version__
+
+        self._mcp_server.version = __version__
+
+    def listed_tool_count(self) -> int:
+        """How many tools ``tools/list`` returns."""
+        return len(set(self._tool_manager._tools) - set(self.unlisted))
 
     async def list_tools(self):
         return [tool for tool in await super().list_tools() if tool.name not in self.unlisted]
@@ -293,6 +319,7 @@ def _initialize_backend():
         features.append("ocr")
     logger.info(f"Enabled features: {features or ['basic']}")
 
+    _refuse_a_held_store()
     backend = get_rag_backend()
 
     elapsed = time.time() - start_time
@@ -300,11 +327,33 @@ def _initialize_backend():
     return backend
 
 
+def _refuse_a_held_store() -> None:
+    """Raise at once, with the fix, when another process holds the local store.
+
+    Milvus Lite opens a store in one process. While `lasagna serve` held it, a
+    tool call loaded models for about 7 s and then failed with "Another
+    process is using the local store".
+    """
+    from lasagna.core import local_server
+
+    if not local_server.local_store_held():
+        return
+    running = local_server.running_server()
+    raise local_server.StoreHeld(
+        f"lasagna serve at {running} holds the local store, and this MCP server cannot "
+        f"open it. Register the server's own MCP endpoint by URL instead of "
+        f"lasagna-mcp: {running}/mcp/sse (start it with `lasagna serve --mcp`)."
+        if running
+        else local_server.held_store_message("this MCP server")
+    )
+
+
 def _get_backend():
     """Return the RAG backend singleton via the shared factory.
 
     All features are controlled via configuration in settings.lasagna.toml.
     """
+    _refuse_a_held_store()
     return get_rag_backend()
 
 
@@ -386,7 +435,7 @@ def _log_tool_failure(what: str, exc: BaseException) -> None:
         held = _is_data_dir_locked(exc)
     except Exception:  # the backend module itself failed to import
         held = False
-    if held:
+    if held or isinstance(exc, (_StoreHeld, ModelNotDownloaded)):
         logger.debug("{}: {}", what, exc)
     else:
         logger.opt(exception=exc).error("{}: {}", what, exc)
@@ -576,6 +625,7 @@ def _log_citation_diagnostics(
     chunk_diagnostics = []
     pages_found = []
     missing_page_count = 0
+    paged_chunks = 0
 
     for i, (result, citation) in enumerate(zip(results, citations)):
         # Extract info from result and citation
@@ -609,11 +659,16 @@ def _log_citation_diagnostics(
         # Clean preview for logging
         preview = preview.replace("\n", " ").replace("\r", "")[:200]
 
-        # Track pages
+        # Track pages. Only a PDF has them: a Markdown or text file always
+        # "missed" its page, and every search on one warned that its citations
+        # looked suspicious.
         if page_number is not None:
             pages_found.append(page_number)
-        else:
+        elif str(filename or "").lower().endswith(".pdf"):
             missing_page_count += 1
+            paged_chunks += 1
+        if page_number is not None:
+            paged_chunks += 1
 
         chunk_diagnostics.append(
             {
@@ -651,13 +706,15 @@ def _log_citation_diagnostics(
         f"range=[{min_page}-{max_page}] | missing_page={missing_pct:.0f}%"
     )
 
-    # Check for suspicious patterns
+    # Check for suspicious patterns, among the chunks that can have a page
+    if not paged_chunks:
+        return
     _check_suspicious_citations(
         chunk_diagnostics,
         pages_found,
         unique_pages,
         missing_page_count,
-        total_chunks,
+        paged_chunks,
         query,
         session_id,
     )
@@ -1187,6 +1244,7 @@ async def search(
                 query=query,
                 session_id=session_id,
                 top_k=v1_top_k,
+                min_score=None,  # the same results as the CLI, REST and SDK
                 document_ids=doc_id_filter,
                 trace_id=trace_id,
             )
@@ -1244,6 +1302,9 @@ CONTENT:
 
     except _RAGDisabledError:
         return _RAG_DISABLED_MSG
+    except ModelNotDownloaded as e:
+        _log_tool_result("search", False, str(e), (time.time() - start_time) * 1000)
+        return f"Search failed: {e} {fix_for_session(session_id, e.model)}"
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_failure("search failed", e)
@@ -1861,7 +1922,13 @@ def get_system_status() -> str:
         )
 
         backend = _get_backend()
-        config = _get_config()
+        # The session's own configuration: the global one named the default
+        # collection, and a session with 76 chunks reported row_count 0.
+        session_id = os.environ.get("RAG_SESSION_ID", "").strip() or "default"
+        try:
+            config = backend.get_session_config(session_id)
+        except Exception:
+            config = _get_config()
         # The chunker that runs: structural settings decide it, so the presets
         # that name `structure_aware` or `hierarchical` were reported as not
         # chunking semantically while their sections were.
@@ -1879,6 +1946,7 @@ def get_system_status() -> str:
 
         stats = {
             "status": "healthy",
+            "session_id": session_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "backend_version": "V2" if is_v2 else "V1",
             "components": {
@@ -1888,13 +1956,13 @@ def get_system_status() -> str:
                     "collection_exists": has_collection,
                 },
                 "embedding_model": {
-                    "loaded": True,
-                    "model_name": backend.embedding_manager.model_name
-                    if is_v2
-                    else config.embedding_model,
-                    "embedding_dim": backend.embedding_manager.dimension
-                    if is_v2
-                    else config.embedding_dim,
+                    "loaded": bool(
+                        is_v2
+                        and getattr(backend.embedding_manager, "is_loaded", False)
+                        and backend.embedding_manager.model_name == config.embedding_model
+                    ),
+                    "model_name": config.embedding_model,
+                    "embedding_dim": config.embedding_dim,
                 },
                 "sqlite": {"db_path": config.db_path, "exists": os.path.exists(config.db_path)},
             },
@@ -2534,7 +2602,8 @@ def set_active_profile(
     reranking settings, and more.
 
     :param session_id: Session identifier.
-    :param profile_name: Name of the profile to activate (e.g., "default", "deep_search").
+    :param profile_name: Name of the profile to activate: a preset (speed, standard,
+        balanced, max_quality, default) or one saved with save_rag_profile.
     :returns: Confirmation message or error.
     """
     session_id, user_id = _resolve_session(session_id, session_token)
@@ -2873,7 +2942,7 @@ def delete_rag_profile(
 ) -> str:
     """Delete a custom RAG profile.
 
-    Built-in profiles (default, minimal, deep_search) cannot be deleted.
+    Built-in profiles (default, speed, standard, balanced, max_quality) cannot be deleted.
 
     :param session_id: Session identifier.
     :param profile_name: Name of the profile to delete.
@@ -3912,7 +3981,15 @@ def create_mcp_server(
     deprecated search aliases without removing them.
     """
     tool_set = resolve_tool_set(tools)
+    # FastMCP sets up the stdlib root logger (a rich handler at INFO) in its
+    # constructor, so "Processing request of type CallToolRequest" and every
+    # library's INFO line went to a stdio client's stderr, and into the log of
+    # the REST app it was mounted in. The root logger is put back as it was.
+    root = logging.getLogger()
+    saved = (list(root.handlers), root.level)
     server = _LasagnaMCP("lasagna", host=host, port=port, transport_security=transport_security)
+    root.handlers[:] = saved[0]
+    root.setLevel(saved[1])
     for fn in _TOOLS:
         if tool_set == "safe" and fn.__name__ in DESTRUCTIVE_TOOLS:
             continue
@@ -3960,20 +4037,29 @@ def _apply_path_flags(db_dir: Optional[str], upload_dir: Optional[str]) -> bool:
 
 def main():
     """Run the Lasagna MCP server."""
-    global mcp, _eager_init, _owns_logging
+    global mcp, _eager_init, _owns_logging, _pinned_level
     import argparse
 
     from lasagna._quiet import quiet_third_party_output
 
     quiet_third_party_output()
 
-    # Enable logging ownership — we're the main process.
+    # Enable logging ownership — we're the main process. Warnings only until
+    # the arguments say otherwise.
     logger.enable("lasagna")
     if not _owns_logging:
         _owns_logging = True
-        _configure_rag_logging("DEBUG")
+        _configure_rag_logging("WARNING")
 
-    parser = argparse.ArgumentParser(description="Lasagna MCP Server")
+    parser = argparse.ArgumentParser(
+        prog="lasagna-mcp",
+        description=(
+            "Lasagna MCP server: search and manage your documents from an MCP client. "
+            "A tool acts on the session its session_id argument names, else on "
+            "RAG_SESSION_ID (set it in the client's env block, e.g. "
+            '"env": {"RAG_SESSION_ID": "my-corpus"}).'
+        ),
+    )
     # stdio by default: that is how Claude Code, Claude Desktop and Cursor
     # launch a server, and it needs no port, no bind decision and no auth.
     parser.add_argument(
@@ -4017,7 +4103,7 @@ def main():
         "--log-level",
         default=None,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Override log level (default: from config)",
+        help="Log level on stderr (default: WARNING on stdio, INFO on sse; or LASAGNA_LOG_LEVEL)",
     )
     parser.add_argument(
         "--config-file",
@@ -4097,9 +4183,13 @@ def main():
         if "lasagna.api.rag_backend" in sys.modules:
             sys.modules["lasagna.api.rag_backend"].reset_instance()
 
-    # Apply log level override
-    if args.log_level:
-        _configure_rag_logging(args.log_level)
+    _pinned_level = (
+        args.log_level
+        or os.environ.get("LASAGNA_LOG_LEVEL")
+        or os.environ.get("RAG_LOG_LEVEL")
+        or ("WARNING" if args.transport == "stdio" else "INFO")
+    ).upper()
+    _configure_rag_logging(_pinned_level)
 
     # Stdio defaults to lazy. An MCP client sends `initialize` as soon as the
     # process starts and gives up long before a cold model download finishes,
@@ -4162,31 +4252,40 @@ def main():
         logger.info(f"Docs:     http://{args.host}:{args.port}/docs")
         logger.info(f"Health:   http://{args.host}:{args.port}/health")
         logger.info(f"SSE:      http://{args.host}:{args.port}/sse")
+    # What tools/list returns: it said 25 while a client was shown 23.
     if tool_set == "safe":
         logger.info(
-            f"Tools:    {len(mcp._tool_manager._tools)} (safe set; --tools all adds "
+            f"Tools:    {mcp.listed_tool_count()} (safe set; --tools all adds "
             f"{', '.join(sorted(DESTRUCTIVE_TOOLS))})"
         )
     else:
-        logger.info(f"Tools:    {len(mcp._tool_manager._tools)} (all)")
+        logger.info(f"Tools:    {mcp.listed_tool_count()} (all)")
     logger.info("=" * 60)
 
     if _eager_init:
         logger.info("Initializing RAG backend at startup (use --lazy-init to defer)...")
-        _initialize_backend()
+        try:
+            _initialize_backend()
+        except _StoreHeld as exc:
+            print(exc, file=sys.stderr)
+            sys.exit(1)
     else:
         logger.info(
-            "RAG backend will be initialized on the first tool call. The first "
-            "search may take several minutes if models are not cached "
-            "(the speed profile, `lasagna configure --profile speed`, downloads 91 MB)."
+            "RAG backend will be initialized on the first tool call. A session whose "
+            "embedding model is not downloaded is refused with the fix rather than "
+            "downloaded inside a tool call (the speed profile, `lasagna configure "
+            "--profile speed -s <session>`, uses a 91 MB model)."
         )
 
-    if args.transport == "stdio":
-        logger.info("Starting in STDIO mode...")
-        mcp.run(transport="stdio")
-    else:
-        logger.info(f"Starting SSE server on {args.host}:{args.port}...")
-        mcp.run(transport="sse")
+    from lasagna.core.model_downloads import refuse_downloads_in_requests
+
+    with refuse_downloads_in_requests():
+        if args.transport == "stdio":
+            logger.info("Starting in STDIO mode...")
+            mcp.run(transport="stdio")
+        else:
+            logger.info(f"Starting SSE server on {args.host}:{args.port}...")
+            mcp.run(transport="sse")
 
 
 if __name__ == "__main__":

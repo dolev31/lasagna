@@ -35,12 +35,17 @@ from lasagna.core.accelerator import device_guard
 from lasagna.core.model_licenses import warn_if_restricted
 from lasagna.core.strict import strict_stages
 from lasagna.core.config import rag_config, RAGConfig
+from lasagna._quiet import loading_bar_hidden
+from lasagna.core import model_downloads
+
+#: Fewer batches than this encode without a progress bar.
+_PROGRESS_MIN_BATCHES = 8
 
 
 class EmbeddingCache:
     """Thread-safe LRU cache for embeddings to avoid recomputation.
 
-    CRITICAL FIX: All cache operations are now protected by RLock to prevent
+    All cache operations are now protected by RLock to prevent
     race conditions in multi-threaded environments (FastAPI, concurrent requests).
     """
 
@@ -313,6 +318,9 @@ class EmbeddingManager:
                 # every query, each time with a download attempt and a stack trace.
                 raise RuntimeError(self._load_error)
             configured = self.model_name
+            # A server refuses a model it would have to download; not recorded
+            # as a load error, so it loads once the model is on disk.
+            model_downloads.check(configured)
             try:
                 self._load_model()
             except Exception as exc:
@@ -456,7 +464,7 @@ class EmbeddingManager:
             logger.info(f"Loading primary embedding model: {primary_model} on {device}")
             warn_if_restricted(primary_model, component="embedding model")
             self._device = device
-            with device_guard(device):
+            with device_guard(device), loading_bar_hidden(primary_path):
                 self.model = SentenceTransformer(primary_path, device=device)
                 # Verify embedding dimension
                 test_embedding = self.model.encode("test", convert_to_numpy=True)
@@ -486,7 +494,7 @@ class EmbeddingManager:
 
             fallback_path = self._resolve_local_snapshot(fallback_model)
             try:
-                with device_guard(device):
+                with device_guard(device), loading_bar_hidden(fallback_path):
                     self.model = SentenceTransformer(fallback_path, device=device)
                     test_embedding = self.model.encode("test", convert_to_numpy=True)
                 self.model_name = fallback_model
@@ -663,7 +671,10 @@ class EmbeddingManager:
                         convert_to_numpy=True,
                         normalize_embeddings=self._config.normalize_embeddings,
                         batch_size=batch_size,
-                        show_progress_bar=show_progress,
+                        # A bar for a few batches flashes by and is all an
+                        # upload of one document printed; a long ingest keeps it.
+                        show_progress_bar=show_progress
+                        and len(encode_texts) > _PROGRESS_MIN_BATCHES * batch_size,
                     )
 
             # Matryoshka truncation (batch)

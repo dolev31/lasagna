@@ -607,7 +607,7 @@ class Demo:
             f"Arms (5): {', '.join(ARMS)}",
             "Tasks (5): 1 benchmark x 5 arms x 1 run",
             "Models:",
-            "all-MiniLM-L6-v2 downloaded",
+            "all-MiniLM-L6-v2 cached",
             f"component {self.reranker}",
             f"generator {STUB_MODEL}",
             f"judge {STUB_JUDGE}",
@@ -620,7 +620,7 @@ class Demo:
         probe = re.search(r"Probe of \S+ \(estimate\)", ran.text)
         check(probe, "the dry run printed no probe estimate")
         return (
-            f"5 arms, 5 tasks, MiniLM downloaded, the wrapped reranker named; "
+            f"5 arms, 5 tasks, MiniLM cached, the wrapped reranker named; "
             f"a probe of {len(CALLS) - calls} LLM calls; no results written"
         )
 

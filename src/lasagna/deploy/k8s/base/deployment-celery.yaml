@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: rag-knowledge-celery
-  namespace: rag-knowledge
+  name: lasagna-celery
+  namespace: lasagna
   labels:
-    app.kubernetes.io/name: rag-knowledge
+    app.kubernetes.io/name: lasagna
     app.kubernetes.io/component: celery-worker
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app.kubernetes.io/name: rag-knowledge
+      app.kubernetes.io/name: lasagna
       app.kubernetes.io/component: celery-worker
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: rag-knowledge
+        app.kubernetes.io/name: lasagna
         app.kubernetes.io/component: celery-worker
     spec:
       terminationGracePeriodSeconds: 120
@@ -25,10 +25,10 @@ spec:
       volumes:
         - name: uploads
           persistentVolumeClaim:
-            claimName: rag-knowledge-uploads
+            claimName: lasagna-uploads
       containers:
         - name: worker
-          image: rag-knowledge:latest
+          image: lasagna:latest
           imagePullPolicy: IfNotPresent
           command:
             - celery
@@ -39,9 +39,9 @@ spec:
             - --concurrency=4
           envFrom:
             - configMapRef:
-                name: rag-knowledge-config
+                name: lasagna-config
             - secretRef:
-                name: rag-knowledge-secrets
+                name: lasagna-secrets
           volumeMounts:
             - name: uploads
               mountPath: /data/uploads

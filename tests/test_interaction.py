@@ -21,6 +21,7 @@ in the package that could produce it.
 
 from __future__ import annotations
 
+import json
 import math
 
 import pytest
@@ -430,7 +431,8 @@ class TestTheNullTrapIsAnError:
                     factorial=FactorialSpec(**(spec.get("factorial") or {})),
                 )
             )
-            seen = [tuple(sorted(c["overrides"].items())) for c in configs]
+            # JSON, not a tuple of items: an arm can name a list of models.
+            seen = [json.dumps(c["overrides"], sort_keys=True) for c in configs]
             assert len(seen) == len(set(seen)), f"{path.name}: duplicate arms in {seen}"
 
     def test_every_shipped_factorial_validates(self):

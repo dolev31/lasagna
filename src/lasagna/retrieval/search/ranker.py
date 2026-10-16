@@ -25,6 +25,9 @@ except ImportError:
 from lasagna.core.accelerator import device_guard
 from lasagna.core.config import rag_config
 from lasagna.core.model_licenses import warn_if_restricted
+from lasagna.core.strict import rerank_observations
+from lasagna._quiet import loading_bar_hidden
+from lasagna.core import model_downloads
 from lasagna.utils.normalization import (
     normalize_score_sigmoid as _normalize_score_sigmoid,
     normalize_scores_minmax as _normalize_scores_minmax,
@@ -147,7 +150,7 @@ class RerankedResult:
     normalized_score: float = 0.0  # Normalized to [0, 1] for display
     original_rank: int = 0
     final_rank: int = 0
-    # P1-3 FIX: Pre-fetched embedding from Milvus to avoid re-embedding in MMR
+    # Pre-fetched embedding from Milvus to avoid re-embedding in MMR
     embedding: Optional[List[float]] = None
     # Backend highlight fragments (e.g. from OpenSearch BM25)
     highlights: Optional[List[str]] = None
@@ -264,13 +267,16 @@ class CrossEncoderReranker:
                 raise RuntimeError(
                     "Reranking is enabled but sentence-transformers is not installed"
                 )
+            # A server refuses a model it would have to download (not cached
+            # as a failure: it loads once the model is on disk).
+            model_downloads.check(name, kind="reranker model")
             try:
                 device = _detect_device()
                 logger.info(f"Loading cross-encoder reranker: {name} on {device}")
                 warn_if_restricted(name, component="reranker")
                 _refuse_unscorable_reranker(name, trust_remote_code)
                 extra = {"trust_remote_code": True} if trust_remote_code else {}
-                with device_guard(device):
+                with device_guard(device), loading_bar_hidden(name):
                     model = CrossEncoder(name, device=device, **extra)
             except Exception as e:
                 self._failed[key] = f"Cannot load reranker model {name!r}: {e}"
@@ -362,7 +368,7 @@ class CrossEncoderReranker:
                     normalized_score=0.0,  # Will be set after sorting
                     original_rank=i,
                     final_rank=0,  # Will be set after sorting
-                    # P1-3 FIX: Preserve embedding from search result for MMR
+                    # Preserve embedding from search result for MMR
                     embedding=self._extract_embedding(result),
                     highlights=result.get("highlights"),
                 )
@@ -431,7 +437,7 @@ class CrossEncoderReranker:
                     normalized_score=norm_score,
                     original_rank=i,
                     final_rank=i,
-                    # P1-3 FIX: Preserve embedding for MMR
+                    # Preserve embedding for MMR
                     embedding=self._extract_embedding(result),
                     highlights=result.get("highlights"),
                 )
@@ -457,7 +463,12 @@ class MMRReranker:
         self.embedding_manager = embedding_manager
 
     def rerank_mmr(
-        self, query: str, results: List[RerankedResult], top_k: int = 5, config=None
+        self,
+        query: str,
+        results: List[RerankedResult],
+        top_k: int = 5,
+        config=None,
+        force: bool = False,
     ) -> List[RerankedResult]:
         """Rerank results using MMR for diversity.
 
@@ -472,6 +483,10 @@ class MMRReranker:
             query: Search query
             results: Pre-scored results
             top_k: Number of diverse results to return
+            force: Run even when ``enable_mmr`` is off. The ``mmr`` and
+                ``combined`` components pass it: naming them is what turns
+                MMR on, and under a profile with ``enable_mmr`` off (speed)
+                they returned their input unchanged.
 
         Returns:
             Diverse subset of results
@@ -485,14 +500,20 @@ class MMRReranker:
             mmr_enabled = rag_config.enable_mmr
             mmr_normalization = getattr(rag_config, "mmr_score_normalization", "sigmoid")
 
-        if not results or not mmr_enabled:
+        if not results or not (mmr_enabled or force):
             return results[:top_k]
 
         if not self.embedding_manager:
+            if force:
+                raise ValueError(
+                    "MMR compares passages by their embeddings and has no embedding "
+                    "model. Run it inside a pipeline, which hands it the pipeline's "
+                    "embedder, or construct it with embedding_manager=..."
+                )
             logger.debug("No embedding manager for MMR - skipping diversity")
             return results[:top_k]
 
-        # P1-3 FIX: Use pre-fetched embeddings from Milvus when available
+        # Use pre-fetched embeddings from Milvus when available
         # This avoids re-embedding chunks, saving ~50-100ms per search
         embeddings = []
         need_embedding_indices = []
@@ -521,7 +542,7 @@ class MMRReranker:
         else:
             logger.debug(f"MMR: Reused all {len(results)} pre-fetched embeddings (0 re-computed)")
 
-        # CRITICAL FIX: Normalize relevance scores to [0, 1] range
+        # Normalize relevance scores to [0, 1] range
         # This ensures relevance is comparable to cosine similarity (also [0, 1])
         raw_scores = [r.rerank_score for r in results]
         normalized_relevances = _normalize_scores_for_mmr(raw_scores, strategy=mmr_normalization)
@@ -638,6 +659,7 @@ class CombinedReranker:
         adaptive_max_k: int = 20,
         adaptive_buffer: int = 2,
         adaptive_min_gap_ratio: float = 0.15,
+        force_mmr: bool = False,
     ) -> List[RerankedResult]:
         """Apply full reranking pipeline.
 
@@ -655,6 +677,9 @@ class CombinedReranker:
             adaptive_max_k: Maximum results for adaptive mode (overrides top_k)
             adaptive_buffer: Buffer chunks past score gap
             adaptive_min_gap_ratio: Minimum relative gap to trigger cutoff
+            force_mmr: Apply MMR even when ``enable_mmr`` is off (the
+                ``combined`` component: without it, under a profile with MMR
+                off it ranked exactly like ``cross_encoder``)
 
         Returns:
             Reranked and diversified results
@@ -700,7 +725,8 @@ class CombinedReranker:
         # Filter irrelevant results BEFORE MMR to prevent diversity selection
         # from promoting genuinely irrelevant items. Uses sigmoid threshold since
         # cross-encoder logits are unbounded and need calibration.
-        if apply_mmr and (config.enable_mmr if config else rag_config.enable_mmr):
+        mmr_on = force_mmr or (config.enable_mmr if config else rag_config.enable_mmr)
+        if apply_mmr and mmr_on:
             pre_filter_count = len(reranked)
             relevance_floor = 0.1  # sigmoid(score) must be >= 0.1
             filtered = [
@@ -723,7 +749,9 @@ class CombinedReranker:
 
             # Step 4: MMR for diversity (if enabled)
             mmr_start = time.perf_counter()
-            reranked = self.mmr.rerank_mmr(query, reranked, top_k=top_k, config=config)
+            reranked = self.mmr.rerank_mmr(
+                query, reranked, top_k=top_k, config=config, force=force_mmr
+            )
             mmr_ms = (time.perf_counter() - mmr_start) * 1000.0
         else:
             reranked = reranked[:top_k]
@@ -731,6 +759,15 @@ class CombinedReranker:
         if return_metrics:
             return reranked, {"rerank_ms": rerank_ms, "mmr_ms": mmr_ms}
         return reranked
+
+
+def _config_setting(config: Any, key: str) -> Any:
+    """A setting with no ``RAGConfig`` property: the arm's override, else the dict."""
+    lookup = getattr(config, "_get_session_override", None)
+    value = lookup(key) if callable(lookup) else None
+    if value is None and callable(getattr(config, "get", None)):
+        value = config.get(key)
+    return value
 
 
 @dataclass
@@ -763,34 +800,95 @@ class EnsembleReranker:
         """Initialize ensemble reranker.
 
         Args:
-            model_configs: List of model configurations with weights
+            model_configs: List of model configurations with weights. When
+                None, the members come from the config of each call:
+                ``ensemble_reranker_models`` (and ``ensemble_reranker_weights``),
+                else ``reranker_model``. Building them here from the global
+                settings loaded the settings file's model instead of the arm's,
+                and when that model was not cached the ensemble passed its
+                input through unchanged.
             embedding_manager: Embedding manager for MMR
         """
         self.embedding_manager = embedding_manager
         self.rerankers: List[Tuple[CrossEncoderReranker, float]] = []
-
-        if model_configs is None:
-            # Default: single model from config
-            model_configs = [RerankerModelConfig(model_name=rag_config.reranker_model)]
+        self._from_config = model_configs is None
+        self._members: Dict[str, CrossEncoderReranker] = {}
+        self._load_errors: Dict[str, str] = {}
 
         # Initialize enabled rerankers
-        for config in model_configs:
+        for config in model_configs or []:
             if config.enabled:
-                try:
-                    reranker = CrossEncoderReranker(model_name=config.model_name)
-                    if reranker.ensure_loaded():
-                        self.rerankers.append((reranker, config.weight))
-                        logger.info(
-                            f"Ensemble: Added reranker {config.model_name} (weight={config.weight})"
-                        )
-                except Exception as e:
-                    logger.warning(f"Failed to load ensemble reranker {config.model_name}: {e}")
-
-        if not self.rerankers:
-            logger.warning("No rerankers loaded for ensemble - falling back to pass-through")
+                member = self._member(config.model_name)
+                if member is not None:
+                    self.rerankers.append((member, config.weight))
 
         # MMR reranker for diversity
         self.mmr = MMRReranker(embedding_manager=embedding_manager)
+
+    def _member(self, model_name: str) -> Optional[CrossEncoderReranker]:
+        """The loaded cross-encoder for one member, or None when it cannot load."""
+        if model_name in self._members:
+            return self._members[model_name]
+        if model_name in self._load_errors:
+            return None
+        reranker = CrossEncoderReranker(model_name=model_name)
+        try:
+            reranker._model_for(model_name)
+        except Exception as e:
+            self._load_errors[model_name] = str(e)
+            logger.warning(f"Ensemble member {model_name!r} could not load: {e}")
+            return None
+        self._members[model_name] = reranker
+        return reranker
+
+    def _members_for(self, config) -> List[Tuple[CrossEncoderReranker, float]]:
+        """The members a call ranks with, from its config unless fixed at construction.
+
+        During an evaluation (strict stages) a member that cannot load, or an
+        ensemble of fewer than two models, raises: either one would score as
+        the single cross-encoder, or the retrieval order, under this arm's name.
+        """
+        from lasagna.core.strict import strict_stages
+
+        if self._from_config:
+            cfg = config or rag_config
+            models = list(_config_setting(cfg, "ensemble_reranker_models") or [])
+            models = models or [cfg.reranker_model]
+            weights = list(_config_setting(cfg, "ensemble_reranker_weights") or [])
+            if len(weights) != len(models):
+                if weights:
+                    logger.warning(
+                        f"ensemble_reranker_weights has {len(weights)} values for "
+                        f"{len(models)} models: using equal weights"
+                    )
+                weights = [1.0] * len(models)
+            members = []
+            for model_name, weight in zip(models, weights):
+                member = self._member(model_name)
+                if member is not None:
+                    members.append((member, float(weight)))
+        else:
+            models = list(self._load_errors) + [r.model_name for r, _ in self.rerankers]
+            members = list(self.rerankers)
+        if strict_stages():
+            failed = {m: self._load_errors[m] for m in models if m in self._load_errors}
+            if failed:
+                raise RuntimeError(
+                    "The ensemble reranker could not load "
+                    + "; ".join(f"{m!r} ({reason})" for m, reason in failed.items())
+                    + ". Fix the name in ensemble_reranker_models, or download the "
+                    "model first; without it the arm would not measure the ensemble."
+                )
+            if len(members) < 2:
+                first = models[0] if models else "a cross-encoder"
+                raise ValueError(
+                    f"The ensemble reranker has {len(members)} model(s) ({', '.join(models)}), "
+                    f"so it would not score as an ensemble. Name two or more in the arm, "
+                    f"for example {{name: ens, reranker: ensemble, ensemble_reranker_models: "
+                    f"[{first}, BAAI/bge-reranker-base]}}."
+                )
+        self.rerankers = members
+        return members
 
     def rerank(
         self,
@@ -831,8 +929,10 @@ class EnsembleReranker:
             return []
 
         top_k = top_k or (config.rerank_top_k if config else rag_config.rerank_top_k)
+        self._members_for(config)
 
         if not self.rerankers:
+            logger.warning("No rerankers loaded for ensemble - falling back to pass-through")
             # Pass-through mode
             converted = self._convert_results(results, top_k)
             if return_metrics:
@@ -854,6 +954,10 @@ class EnsembleReranker:
                 all_scores.append((scores, weight))
                 total_weight += weight
             except Exception as e:
+                from lasagna.core.strict import strict_stages
+
+                if strict_stages():
+                    raise
                 logger.warning(f"Ensemble reranker failed: {e}")
         rerank_ms = (time.perf_counter() - rerank_start) * 1000.0
 
@@ -1513,6 +1617,10 @@ class PipelineRerankerAdapter:
         by_chunk = {
             str(r.get("id") or r.get("chunk_id", "")): (i, r) for i, r in enumerate(results)
         }
+        observed = rerank_observations()
+        if observed is not None and reranked:
+            given = [d.chunk_id for d in documents[: len(reranked)]]
+            observed.append([d.chunk_id for d in reranked] != given)
         out = []
         for rank, doc in enumerate(reranked):
             original_rank, original = by_chunk.get(doc.chunk_id, (rank, {}))
@@ -1548,8 +1656,19 @@ def bind_embedding_manager(reranker: Any, embedding_manager: Any) -> None:
     """
     if embedding_manager is None or not hasattr(embedding_manager, "encode_documents_batch"):
         return
-    for candidate in (reranker, getattr(reranker, "_inner", None)):
-        mmr = getattr(candidate, "mmr", None)
+    # A component reaches the orchestrator wrapped (PipelineRerankerAdapter
+    # holds it as `_component`), and the mmr component's `_inner` is the MMR
+    # stage itself. Looking only at `reranker.mmr` and `reranker._inner.mmr`
+    # bound neither, so the mmr and combined components ran with no embedder
+    # and returned their input order.
+    holders = []
+    for outer in (reranker, getattr(reranker, "_component", None)):
+        if outer is not None:
+            holders += [outer, getattr(outer, "_inner", None)]
+    for holder in holders:
+        if isinstance(holder, MMRReranker):
+            holder.embedding_manager = embedding_manager
+        mmr = getattr(holder, "mmr", None)
         if mmr is not None and hasattr(mmr, "embedding_manager"):
             mmr.embedding_manager = embedding_manager
 
@@ -1582,12 +1701,18 @@ class CombinedRerankerAdapter(BaseReranker):
         **kwargs,
     ) -> List[ScoredDocument]:
         dicts = [scored_document_to_dict(d) for d in documents]
-        results = self._inner.rerank(query, dicts, top_k=top_k, **kwargs)
+        # MMR is what this component adds to cross_encoder, so it runs whatever
+        # enable_mmr says: under a profile with MMR off it scored identically.
+        results = self._inner.rerank(query, dicts, top_k=top_k, force_mmr=True, **kwargs)
         return [scored_document_from_reranked(r) for r in results]
 
 
 class EnsembleRerankerAdapter(BaseReranker):
-    """Adapts ``EnsembleReranker`` to the public ``BaseReranker`` ABC."""
+    """Adapts ``EnsembleReranker`` to the public ``BaseReranker`` ABC.
+
+    The members come from the config of each call (``ensemble_reranker_models``
+    and ``ensemble_reranker_weights``), so a sweep arm ranks with its own models.
+    """
 
     # Wraps an internal reranker that reads the session config.
     _forwards_session_config = True
@@ -1643,5 +1768,6 @@ class MMRRerankerAdapter(BaseReranker):
             )
             for d in documents
         ]
-        results = self._inner.rerank_mmr(query, reranked_inputs, top_k, **kwargs)
+        # Naming this component is what turns MMR on, whatever enable_mmr says.
+        results = self._inner.rerank_mmr(query, reranked_inputs, top_k, force=True, **kwargs)
         return [scored_document_from_reranked(r) for r in results]

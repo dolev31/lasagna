@@ -2,7 +2,7 @@
 
 Lasagna exposes 41 HTTP endpoints across two route groups: 32 versioned endpoints under `/api/v1/` (including 2 document lifecycle and 6 admin routes) and 9 non-versioned endpoints for the configurator UI and bulk reindexing. All endpoints accept and return JSON, except the two document upload routes, which take multipart form data. Session identity is resolved from headers or tokens on every request.
 
-`tests/snapshots/openapi.json` records the full schema of every route, and `GET /openapi.json` on a running server returns the same document. When this page and that schema disagree, the schema is right.
+`tests/snapshots/openapi.json` records the full schema of every route, and `GET /openapi.json` on a running server returns the same document. When this page and that schema disagree, the schema is right. The interactive page at `/docs` loads the Swagger UI scripts and styles from cdn.jsdelivr.net, as FastAPI does, so it needs a network connection; offline, `/openapi.json` and this page have the same reference.
 
 ---
 
@@ -401,7 +401,7 @@ All search endpoints accept the same `SearchRequest` body.
 |-------|------|---------|-------------|-------------|
 | `query` | string | (required) | 1 to 10,000 chars | Search query |
 | `top_k` | int | `5` | 1 to 100 | Number of results to return |
-| `min_score` | float | `-100.0` | | Minimum score threshold |
+| `min_score` | float | `null` | | Drop results whose `score` is below this. `null`: no threshold, as in the CLI, the MCP server and the Python SDK |
 | `document_ids` | list[string] | `null` | | Filter to specific documents |
 | `use_hyde` | bool | `true` | | Enable HyDE query expansion |
 | `use_reranking` | bool | `true` | | Enable cross-encoder reranking |
@@ -412,6 +412,18 @@ All search endpoints accept the same `SearchRequest` body.
 #### `POST /api/v1/search`
 
 Search with the session's retrieval pipeline. Each stage runs as the session config sets it: hybrid dense and BM25 search, cross-encoder reranking, MMR diversity, HyDE query expansion, adaptive-k retrieval, hierarchical auto-merge. A stage that failed and fell back is named in `degraded_stages`, so an empty list means every configured stage ran.
+
+`score` is absolute, so it can be compared across queries: with reranking on
+(every profile but `speed`) it is the cross-encoder's probability that the chunk
+answers the query; with reranking off it is the retrieval score, (cosine
+similarity + 1) / 2 for dense search (`speed`) and the fused rank score for hybrid
+search. `rank` is the position, from 1.
+
+A server never downloads a model inside a request: when the session's embedding
+model is not on disk (for example an unconfigured session, which uses the
+settings file's BGE-M3), the search answers `503` with the command that fixes
+it, and `/health/ready` reports the default model as `down`.
+`RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS=true` lets the server download instead.
 
 **Response:** `SearchResponse`
 
@@ -428,6 +440,7 @@ Search with the session's retrieval pipeline. Each stage runs as the session con
         "metadata": {}
       },
       "score": 0.92,
+      "rank": 1,
       "document_id": "doc_abc123",
       "filename": "report.pdf"
     }
@@ -775,6 +788,8 @@ List all registered agentic pipelines. With `RAG_REQUIRE_AUTH=true`, this needs 
 
 These endpoints serve the configurator frontend UI. They provide full profile CRUD, session-scoped configuration, and import/export. All return `KnowledgeConfigFullResponse`.
 
+**Deprecated for other callers:** they are unversioned because the configurator calls them by these paths, and they will move under `/api/v1` in 0.2.0. A program should read and change a session's settings with `GET` and `PATCH /api/v1/config`.
+
 With `RAG_CONFIGURATOR=true`, the UI's own routes are mounted too: `GET /configurator/api/schema` and `POST /configurator/api/validate`. With `RAG_REQUIRE_AUTH=true`, they need a session token like the routes below (401 without one).
 
 | # | Method | Path | Description |
@@ -1041,7 +1056,7 @@ Request validation failures (422) use FastAPI's own shape, where `detail` is a l
 | `DocumentStatusResponse` | `document_id`, `status`, `chunks_count`, `error_message` |
 | `ChunkResponse` | `chunk_id`, `content`, `document_id`, `chunk_index`, `page_number`, `metadata` |
 | `SearchResponse` | `results: [SearchResultResponse]`, `query`, `total_results`, `routing?`, `degraded_stages` |
-| `SearchResultResponse` | `chunk: ChunkResponse`, `score`, `document_id`, `filename` |
+| `SearchResultResponse` | `chunk: ChunkResponse`, `score`, `rank`, `document_id`, `filename` |
 | `SearchWithCitationsResponse` | `results`, `citations: [CitationResponse]`, `context`, `query`, `total_results`, `routing?`, `degraded_stages` |
 | `CitationResponse` | `citation_id`, `document_id`, `document_name`, `chunk_id`, `chunk_index`, `page_number`, `score`, `content`, `highlight`, `highlights`, `highlight_ranges` |
 | `CitationListResponse` | `citations: [CitationResponse]`, `session_id`, `total` |

@@ -176,7 +176,15 @@ class FunctionReranker(_FunctionComponent, BaseReranker):
             out = list(self._fn(query, docs, top_k))
         else:
             for d in docs:
-                d.score = float(self._fn(query, d.content))
+                score = self._fn(query, d.content)
+                try:
+                    d.score = float(score)
+                except (TypeError, ValueError):
+                    # The bare float() error named neither the component nor the value.
+                    raise TypeError(
+                        f"reranker {self.name!r} returned {score!r} for a passage; it must "
+                        f"return a number, the passage's score (higher ranks first)"
+                    ) from None
             out = sorted(docs, key=lambda d: d.score, reverse=True)
         return out[:top_k]
 

@@ -25,10 +25,16 @@ benchmarks:
 
 pipeline:
   base_profile: standard
-  rerankers:
-    - cross_encoder
-    - combined
-    - ensemble
+  # An ensemble needs its members named: with one model it would score exactly
+  # like cross_encoder, so the harness refuses it.
+  config_overrides:
+    - {name: cross_encoder, reranker: cross_encoder}
+    - {name: combined, reranker: combined}
+    - name: ensemble
+      reranker: ensemble
+      ensemble_reranker_models:
+        - mixedbread-ai/mxbai-rerank-large-v1
+        - cross-encoder/ms-marco-MiniLM-L-6-v2
 
 mode: live
 # Repeat runs when an LLM stage is in the loop: this sweep writes and judges

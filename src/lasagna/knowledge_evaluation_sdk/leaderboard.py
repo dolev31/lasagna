@@ -360,31 +360,44 @@ def render_latex(
                 f" (comparability key \\texttt{{{esc(rows[0]['comparability_key'])}}}).{esc(scoped)}"
             )
             best = rows[0]["mean"]
+
+            def _varied(row) -> str:
+                levels = row.get("varied_levels") or {}
+                if levels:
+                    return ", ".join(f"{k}={levels[k]}" for k in sorted(levels))
+                return ", ".join(row["varied_dimensions"]) or "baseline"
+
+            # Columns that say something for these rows: for one local run,
+            # "Varied" repeated "Config", every submitter was "anonymous" and
+            # "Verified" was empty.
+            show_varied = any(_varied(r) != r["config"] for r in rows)
+            show_submitter = any(r["submitter"] != "anonymous" for r in rows)
+            show_verified = any(r.get("verified") for r in rows)
+            columns = ["Config"] + ["Varied"] * show_varied + ["Submitter"] * show_submitter
+            columns += ["Runs", esc(metric)] + ["Verified"] * show_verified
+            spec = "l" * (1 + show_varied + show_submitter) + "rr" + "l" * show_verified
             out += [
                 "",
                 "\\begin{table}[t]",
                 "\\centering",
                 f"\\caption{{{caption}}}",
-                "\\begin{tabular}{lllrrl}",
+                f"\\begin{{tabular}}{{{spec}}}",
                 "\\toprule",
-                f"Config & Varied & Submitter & Runs & {esc(metric)} & Verified \\\\",
+                " & ".join(columns) + " \\\\",
                 "\\midrule",
             ]
             for row in rows:
-                levels = row.get("varied_levels") or {}
-                if levels:
-                    varied = ", ".join(f"{k}={levels[k]}" for k in sorted(levels))
-                else:
-                    varied = ", ".join(row["varied_dimensions"]) or "baseline"
                 value = f"{row['mean']:.4f}"
                 if row["n_runs"] > 1:
                     value = f"{value} \\pm {row['std']:.4f}"
                 if len(rows) > 1 and row["mean"] == best:
                     value = f"\\mathbf{{{value}}}"
-                out.append(
-                    f"{esc(row['config'])} & {esc(varied)} & {esc(row['submitter'])} & "
-                    f"{row['n_runs']} & ${value}$ & {'yes' if row.get('verified') else ''} \\\\"
-                )
+                cells = [esc(row["config"])]
+                cells += [esc(_varied(row))] * show_varied
+                cells += [esc(row["submitter"])] * show_submitter
+                cells += [str(row["n_runs"]), f"${value}$"]
+                cells += ["yes" if row.get("verified") else ""] * show_verified
+                out.append(" & ".join(cells) + " \\\\")
             out += ["\\bottomrule", "\\end{tabular}", "\\end{table}"]
     return "\n".join(out) + "\n"
 

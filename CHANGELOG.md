@@ -294,9 +294,36 @@ Metric definitions and results (`METRICS_VERSION` 1.5):
 
 Command line:
 
+- `-p` means `--profile` wherever it exists; `serve --port` has no short flag
+  (it was `-p` there). The Kubernetes manifests are named `lasagna` (namespace,
+  deployments, labels and image), as the project is. The unversioned
+  `/api/config/knowledge` routes are deprecated for any caller but the
+  configurator page and move under `/api/v1` in 0.2.0; programs use
+  `/api/v1/config`. `CITATION.cff` carries the release-date placeholder until
+  the release stamps it with the changelog (it named 2026-08-18). The deploy
+  guide's "Upgrade notes" for versions before this release are gone, and the
+  claim that pip cannot resolve `[all]`: with `storage-all` bounding `fsspec`
+  and `s3fs`, pip 26.2 resolves `[eval,storage-all]` in 31 s and `[all]` in
+  about two minutes.
+- `lasagna evaluate`, an undocumented command from before the benchmark
+  harness, is removed: it checked for no API key, retried for 69 s and then
+  failed. `lasagna benchmark run <file>` measures your own data
+  ([docs/own-data.md](docs/own-data.md)). A core install no longer warns
+  "Docling enabled in config but not installed" per document: the settings
+  file turns Docling on and falls back without it by design, which is now
+  said once, at INFO, with the install command.
 - `-s` means `--session` in every command; `benchmark run` spells out
   `--split` and `--mode`. `benchmark run` measures retrieval unless `--tracks`
-  names generation or `--generator` is given (generation needs an API key).
+  names generation or `--generator` is given (generation needs an API key),
+  and starts from the keyless `speed` profile (`--profile standard` for the
+  3 GB one). A chunking error shared by every document prints once, with a
+  count, and a run where every task failed no longer ends in a
+  `RuntimeWarning`.
+- Generation without an LLM key is refused before anything is ingested,
+  naming the keys to set and `--tracks retrieval`; `benchmark validate-data`
+  suggests `--tracks retrieval` when no key is set. In a sweep that also
+  measures retrieval, a generation failure no longer discards the retrieval
+  metrics: they are reported, and the run names what failed and exits 1.
   `benchmark experiment` ends with the leaderboard, as `benchmark run` does,
   and says when every run of every arm was identical, so `n_runs: 1` would
   give the same answer.
@@ -314,8 +341,10 @@ Servers and deployment:
   Desktop and Cursor launch a server; `--transport sse` serves a port, and
   `--host` or `--port` without it is an error. The default tool set, `safe`,
   leaves out `delete_document`, `clear_session`, `bulk_delete_session`,
-  `rebuild_collection`, `delete_rag_profile` and `reset_rag_config`;
-  `--tools all` or `LASAGNA_MCP_TOOLS=all` serves them. Tool names,
+  `rebuild_collection`, `delete_rag_profile`, `reset_rag_config` and
+  `set_lifecycle_policy` (server-wide: it decides what garbage collection
+  deletes in every session); `--tools all` or `LASAGNA_MCP_TOOLS=all` serves
+  them. Tool names,
   descriptions and input schemas are recorded in
   `tests/snapshots/mcp_tools.json`.
 - **The compose stack defaults to a Milvus server.** `.env.example` sets
@@ -400,6 +429,16 @@ Each of these still works in 0.1.x, says so when used, and is removed in 0.2.0.
 
 Numbers that were wrong:
 
+- **The `mmr`, `combined` and `ensemble` rerankers ran as something else.** On
+  the speed profile `mmr` and `ensemble` returned the retrieval order and
+  `combined` scored exactly like `cross_encoder`: MMR never received the
+  pipeline's embedder and was skipped with `enable_mmr` off, and the ensemble
+  loaded the settings file's model, which failed offline. MMR now gets the
+  search's embedder and runs when named; `ensemble` ranks with the arm's
+  `ensemble_reranker_models` (and `ensemble_reranker_weights`), records them as
+  what ran, and fails under evaluation with fewer than two models or one that
+  cannot load. A reranker that returns its candidates in retrieval order on
+  every query is flagged inert without a reranker-free control arm.
 - **A bundle carried this build's metrics version, not the run's.** `results
   bundle` stamped the current `METRICS_VERSION` on any results file, so numbers
   computed under older definitions were published as current ones. A bundle
@@ -528,6 +567,25 @@ First run:
   `my_ideas:keyword_overlap`, as a sweep does.
 - The `lasagna` command prints a bad setting as one message and exits 2;
   it was a traceback around the message.
+- Messages from the first hour: a malformed sweep file is one line with its
+  line and column (it was a 164-line traceback); a misspelled component or
+  arm key gets the likely name, without the advice to install an entry point
+  or a list of every known setting; warnings print as `WARNING: <message>`
+  without loguru's timestamp and source line (`-v` keeps them); progress
+  lines name the benchmark, arm and run instead of wrapping task hashes; the
+  isolation verdict prints before the summary; `results significance` with
+  nothing significant prints no empty table and says "1 non-significant pair
+  is not shown"; the LaTeX leaderboard drops columns that say nothing for the
+  rows (Varied equal to Config, an anonymous submitter, Verified), and no
+  table prints "± 0.0000" for one run; the dry run says "cached" rather than
+  "downloaded"; names with colons print literally (`nope:x` printed as
+  "nope❌"); a function reranker that returns something other than a number
+  is named with the value; `component validate` ends by showing the sweep
+  line, not "register it". The README's component is `my_ideas.py`, the file
+  its sweep names.
+- `lasagna doctor` fails a vector backend nothing registers, with the
+  likely name: `RAG_VECTOR_BACKEND=milvuss` was "ok vector_backend:
+  configured: milvuss", and the first upload failed.
 - `lasagna doctor` names the session, profile, settings file and data
   directory in force, reports a bad setting as a failed check instead of
   crashing on it, and no longer checks for the GitHub CLI. `doctor --json`
@@ -547,6 +605,12 @@ First run:
   per model, or a warning about background GC, which only `serve` and the MCP
   server run. Progress bars that last longer than two seconds, such as a model
   download, still show.
+- The README's Python quickstart wrote gRPC fork notices (121 lines in one
+  run) and "Loading weights" bars to stderr. The fork was tqdm's: its first
+  bar creates a cross-process lock, which starts multiprocessing's resource
+  tracker while Milvus Lite's gRPC runs. Lasagna keeps tqdm on its thread lock,
+  and hides the weight-loading bar for a cached model and the encoding bar for
+  a few batches, without setting any environment variable.
 
 Requests to current models:
 
@@ -572,6 +636,67 @@ Requests to current models:
 
 Servers and deployment:
 
+- **The MCP server over stdio wrote 144 lines to the client's log per
+  search**, at DEBUG, in ANSI color, under the name `rag_knowledge_mcp`, with
+  FastMCP's "Processing request" lines and a "suspicious citations" warning for
+  every Markdown file (only a PDF has pages). It logs at WARNING on stdio (INFO
+  on SSE; `--log-level` or `LASAGNA_LOG_LEVEL` to change), in color only on a
+  terminal, as `lasagna.mcp`, and leaves the stdlib root logger alone, also
+  inside `lasagna serve --mcp`. `serverInfo.version` is Lasagna's, not the MCP
+  SDK's; the startup line counts the tools a client is shown (it said 25 while
+  `tools/list` returned 23); `--help` reads `lasagna-mcp` and names
+  `RAG_SESSION_ID`; tool descriptions name only profiles that exist. Search
+  results no longer carry an invented example sentence ("The cost was $1,370
+  [1]") among their citation instructions.
+- `set_lifecycle_policy` moves out of the default `safe` MCP tool set: it is
+  server-wide, and a grace period of zero or a document TTL makes the next
+  garbage collection delete other sessions' documents. `patch_rag_config`
+  stays: it changes only the caller's session and refuses a change that would
+  leave stored documents unsearchable.
+- `lasagna serve` on a busy port printed its banner and failed 6 s later with
+  "[Errno 48] address already in use"; it checks the port first and names
+  `--port`. It no longer warns on every start that APScheduler is missing
+  (garbage collection runs on request; the `lifecycle` extra schedules it),
+  says how to build the configurator page from a source checkout instead of
+  linking a 404, names the sessions that have documents beside the default
+  one, and stops without "1 leaked semaphore" (tqdm's cross-process lock,
+  which it no longer creates). `/docs` loads Swagger UI from a CDN, as FastAPI
+  does; endpoints.md says so and points offline readers at `/openapi.json`.
+- **Nothing else could use the store while `lasagna serve` ran.** `status`,
+  `search`, `upload` and `lasagna-mcp` loaded their models for about 7 s, then
+  failed with "Another process is using the local store". `serve` records its
+  address in `<data dir>/serve.json`; the CLI then goes through its REST API,
+  and stops at once, naming the fix, when another process holds the store.
+  `lasagna serve --mcp` serves the MCP tools at `/mcp/sse` from the same
+  process, and a `lasagna-mcp` tool call answers at once with that URL. An
+  MCP client disconnecting no longer logs a traceback.
+- **A corpus built from Python could not be searched from anywhere else.**
+  After an SDK upload with `config_for_speed()`, `lasagna status` showed
+  BGE-M3 and the CLI, REST and MCP searched with it: the client's settings
+  lived in its process only. A client saves its settings as its session's on
+  the session's first upload, as `lasagna configure` does; a session with
+  settings of its own keeps them. `lasagna status` shows them.
+- **An unconfigured session answered `500 Internal server error`.** The
+  README's curl with no session header, or on a session not yet configured,
+  started a 2.3 GB BGE-M3 download inside the request or, offline, failed with
+  a 500, while `/health/ready` reported the model up from its name alone. A
+  server (`lasagna serve`, `lasagna-mcp`) now answers `503` naming the model,
+  the sessions that have documents and `lasagna configure --profile speed -s
+  <session>`, and never downloads a model inside a request unless
+  `allow_model_download_in_requests` is set; readiness reports the default
+  model as down when it cannot load. MCP `get_system_status` reports the
+  session's collection and model (it read the default one: `row_count 0` for a
+  session with 76 chunks), and `lasagna search` on a session with no documents
+  names the sessions that have some instead of loading a model.
+- **The top search result always scored 1.00, and each surface returned a
+  different number of results.** Scores were min-max normalized per query, and
+  REST and MCP dropped results below `similarity_threshold` on that relative
+  score: one query returned 5 results from the CLI, 3 from REST at `top_k` 5
+  and 2 from MCP at `top_k` 3. A result's `score` is absolute (the reranker's
+  probability, or (cosine + 1) / 2 for dense search), REST results carry their
+  `rank`, MCP citations report the same score, and no surface applies a
+  threshold unless the request sets `min_score`. The evaluation ranks by order
+  and keeps its thresholds; only the per-document score it records changes.
 - **A stack configured for a Milvus server opened Milvus Lite.** The startup
   backend always passed a local `db_path`, which `MilvusBackend` took over the
   `uri`, so `backends/milvus.yml` and `MILVUS_URI` wrote to a file inside each
@@ -758,7 +883,7 @@ Servers and deployment:
 - **Every upload failed on the Celery worker in Kubernetes.** The manifests
   turned Celery on but mounted no volume, so a worker pod could not open a
   file an api pod stored. Both Deployments mount a ReadWriteMany claim,
-  `rag-knowledge-uploads`, at `LASAGNA_UPLOAD_DIR`, and `make validate-k8s`
+  `lasagna-uploads`, at `LASAGNA_UPLOAD_DIR`, and `make validate-k8s`
   checks a rendered overlay for it.
 - The MCP `search` tool and the SDK's `SearchResults` did not say when a
   stage fell back (hybrid running dense-only, HyDE without an LLM), which the
@@ -783,25 +908,6 @@ Servers and deployment:
   Celery worker and by garbage collection, which rebuild the counters per
   session; it is planned. `src/lasagna/deploy/README.md` (Request limits) says
   what to do meanwhile.
-
-- **`pip` cannot resolve `[eval]` together with `[storage-all]`** (and therefore
-  cannot resolve `[all]`). `pip install "lasagna-rag[eval,storage-all]"` exits
-  with `ResolutionImpossible`; `[all]` backtracks for over fifteen minutes
-  without converging. The constraint set is satisfiable: `uv pip compile`
-  solves both in seconds, and `pip` succeeds when handed the versions it fails
-  to find:
-
-  ```bash
-  uv pip install "lasagna-rag[eval,storage-all]"
-  pip install "lasagna-rag[eval,storage-all]" s3fs==2026.6.0 fsspec==2026.6.0
-  ```
-
-  Cause: `s3fs`, `gcsfs` and `adlfs` release in lockstep with `fsspec` and pin
-  it exactly, while `datasets` (via `ragas`) caps `fsspec`. Searching
-  newest-first, pip explores a large `aiobotocore`/`botocore`/`boto3` space and
-  gives up. Not "fixed" by pinning: any upper bound written here is a guess at
-  when `datasets` will raise its own cap, and would strand users on an old
-  `s3fs` once it does.
 
 ### Planned for 0.2.0
 

@@ -336,7 +336,7 @@ PARAMETERS: list[ParameterDef] = [
         key="similarity_threshold",
         type="float",
         label="Minimum Relevance Score",
-        description="Only include results above this quality bar. Lower = more results, higher = stricter filtering.",
+        description="Cut applied to the per-query normalized score when the agentic loop or an evaluation's generation track searches. Searches from the CLI, REST, MCP and the SDK apply no threshold unless the request sets min_score.",
         help_text="Technical: similarity_threshold. Cosine similarity cutoff. 0.3 is a good default; increase to 0.5+ for stricter filtering.",
         tab="essential",
         group="quick_tuning",

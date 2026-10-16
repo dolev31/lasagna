@@ -1117,6 +1117,9 @@ class RAGConfig:
             "preserve_formatting": True,  # keep layout such as lists and line breaks in extracted text
             "async_processing": True,  # process uploads in the background
             "processing_timeout": 300,  # seconds a document may take to process
+            # A server (serve, the MCP server) refuses a request whose model is not
+            # downloaded rather than fetch gigabytes inside it.
+            "allow_model_download_in_requests": False,
             # =================================================================
             # Docling Document Processing
             # =================================================================
@@ -2786,6 +2789,15 @@ class RAGConfig:
         )
 
     @property
+    def allow_model_download_in_requests(self) -> bool:
+        """Whether a server may download a missing model while it handles a request."""
+        return self._get_knowledge_setting(
+            "rag",
+            "allow_model_download_in_requests",
+            default=self._config["allow_model_download_in_requests"],
+        )
+
+    @property
     def enable_search_cache(self) -> bool:
         return self._get_knowledge_setting(
             "rag", "enable_search_cache", default=self._config["enable_search_cache"]
@@ -2808,7 +2820,7 @@ class RAGConfig:
     def max_document_ids_filter(self) -> int:
         """Maximum document IDs allowed in filter expressions.
 
-        HIGH PRIORITY FIX: Prevents Milvus filter expression overflow when
+        Prevents Milvus filter expression overflow when
         too many document IDs are passed, which can cause query failures.
         """
         return self._get_knowledge_setting(

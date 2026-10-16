@@ -326,8 +326,10 @@ class Citation:
             "document_id": self.document_id,
             "document_name": self.document_name,
             "content_preview": self.content_preview,
-            "score": round(self.normalized_score, 3),  # Use normalized for display
-            "raw_score": round(self.score, 4),  # Keep raw for debugging
+            # The score the search reported, as REST and the SDK return it.
+            # This was the min-max over the citations of one search, so the
+            # first always read 1.0 and the last 0.0, whatever their relevance.
+            "score": round(self.score, 4),
             "chunk_index": self.chunk_index,
             "page_number": self.page_number,
             "section_header": self.section_header,
@@ -1149,16 +1151,12 @@ class CitationManager:
         content = "\n\n".join(content_sections)
 
         if include_instructions:
+            # Instructions only, and no example: an invented example sentence
+            # ("The cost was $1,370 [1]") sat inside every result, where an
+            # agent could take it for something the documents said.
             return f"""<knowledge_base>
-The following information was retrieved from the user's uploaded documents.
-Use this information to help answer the user's question.
-
-IMPORTANT CITATION INSTRUCTIONS:
-- Cite sources INLINE immediately after each fact or claim you reference
-- Use citation markers like [1], [2], etc. right after the relevant sentence
-- Do NOT group all citations at the end - place each citation where you use that information
-- Example: "The cost was $1,370 [1]. The workshops included three sessions [2]."
-- Only use citation numbers that exist (max: [{len(citations)}])
+Passages retrieved from the user's documents for this query, numbered [1] to [{len(citations)}].
+Cite a passage by its number, as [1], right after the statement it supports.
 
 SOURCES:
 {sources}

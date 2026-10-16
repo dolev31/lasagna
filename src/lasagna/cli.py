@@ -25,7 +25,9 @@ from rich.measure import Measurement
 from rich.panel import Panel
 from rich.table import Table
 
-console = Console()
+# No emoji codes: user-supplied names reach the console, and
+# `component validate nope:x` printed "nope❌" (":x:" is an emoji code).
+console = Console(emoji=False)
 app = typer.Typer(
     name="lasagna",
     help="Lasagna: upload and search documents, benchmark pipeline changes, configure, and serve.",
@@ -80,7 +82,19 @@ def _configure_cli_logging(
         # without them a half-hour ingest looks like a hang.
         return record["level"].no >= threshold or bool(record["extra"].get("progress"))
 
-    logger.add(sys.stderr, level=min(threshold, logger.level("INFO").no), filter=_shown)
+    # "warning: ..." and the message, not loguru's timestamp, module and line:
+    # those are for a developer, and -v still shows them.
+    def _plain(record) -> str:
+        if record["level"].no >= logger.level("WARNING").no:
+            return "<level>{level}</level>: {message}\n{exception}"
+        return "{message}\n{exception}"
+
+    logger.add(
+        sys.stderr,
+        level=min(threshold, logger.level("INFO").no),
+        filter=_shown,
+        format=_plain,
+    )
     return level
 
 
@@ -138,6 +152,12 @@ def _cli(
     from loguru import logger
 
     logger.enable("lasagna")
+    # A sweep whose every task failed warns from Python, where logs are off by
+    # default; the CLI prints each failure itself, so the warning only repeated
+    # the first one with a source line ("cli.py:1333: RuntimeWarning: ...").
+    import warnings
+
+    warnings.filterwarnings("ignore", message=r"All \d+ task\(s\) of ", category=RuntimeWarning)
     # Profiles and settings saved by one command must apply in the next process
     # (`configure` then `upload`, `search`, `serve`): keep sessions on disk.
     os.environ.setdefault("RAG_SESSION_BACKEND", "persistent")
@@ -197,6 +217,36 @@ def _get_client(session_id: str = "default"):
     return KnowledgeClient(config=config, session_id=session_id)
 
 
+def _client_for(session_id: str, url: Optional[str]):
+    """A client for ``session_id``: through the running server at ``url``, if any.
+
+    ``url`` comes from :func:`_serving_url`; the client then talks to that
+    `lasagna serve` over its REST API instead of opening the store.
+    """
+    if url:
+        from lasagna.sdk import KnowledgeClient
+
+        return KnowledgeClient.from_url(url, session_id=session_id)
+    return _get_client(session_id)
+
+
+def _serving_url() -> Optional[str]:
+    """The `lasagna serve` to go through when one holds the local store.
+
+    Exits at once, naming the fix, when another process holds it: the command
+    used to load its models for about 7 s and then fail.
+    """
+    from lasagna.core import local_server
+
+    if not local_server.local_store_held():
+        return None
+    url = local_server.running_server()
+    if url is None:
+        _error(local_server.held_store_message("this command"))
+    typer.echo(f"lasagna serve at {url} holds the local store; going through it.", err=True)
+    return url
+
+
 def _load_profile_config(session_id: str):
     """Load the active profile's config for a session as a KnowledgeConfig.
 
@@ -218,8 +268,12 @@ def _load_profile_config(session_id: str):
         profile_config: dict = {}
         for profile in state.profiles:
             if profile.name == profile_name:
-                profile_config = profile.config or {}
+                profile_config = dict(profile.config or {})
                 break
+        # And what the session set over it: a Python client saves its settings
+        # there on its first upload, and they were ignored, so `status` showed
+        # the default model for a corpus built with another.
+        profile_config.update(getattr(state, "session_overrides", None) or {})
 
         if not profile_config:
             return KnowledgeConfig()
@@ -600,10 +654,11 @@ def upload(
     if not path.exists():
         _error(f"File not found: {file_path}")
 
+    url = _serving_url()
     console.print(f"Uploading [cyan]{path.name}[/cyan]...")
 
     async def _upload():
-        client = _get_client(session_id)
+        client = _client_for(session_id, url)
         try:
             result = await client.upload(str(path))
             # Processing runs in the background. Closing the client before it
@@ -655,9 +710,28 @@ def search(
     context: bool = typer.Option(False, "--context", "-c", help="Show formatted LLM context"),
 ):
     """Search the knowledge base."""
+    from lasagna.core.model_downloads import sessions_with_documents
+
+    # Before any model loads: searching a session with no documents loaded the
+    # default model (or failed to, offline) to return nothing.
+    populated = sessions_with_documents()
+    if populated is not None and session_id not in populated:
+        if populated:
+            listed = ", ".join(f"{s} ({n})" for s, n in sorted(populated.items()))
+            first = sorted(populated)[0]
+            _error(
+                f"Session {session_id!r} has no documents. Sessions with documents: "
+                f"{listed}. Search one with: lasagna search {shlex.quote(query)} -s {first}"
+            )
+        _error(
+            f"Session {session_id!r} has no documents, and no session has any. Add one "
+            f"with: lasagna upload <file> -s {session_id}"
+        )
+
+    url = _serving_url()
 
     async def _search():
-        client = _get_client(session_id)
+        client = _client_for(session_id, url)
         try:
             if context:
                 return await client.get_context(query, max_chunks=top_k)
@@ -668,7 +742,9 @@ def search(
     try:
         result = _run(_search())
     except Exception as exc:
-        _error(f"Search failed: {exc}", exc=exc)
+        # The SDK's SearchError already says "Search failed: ...".
+        cause = exc.__cause__ if type(exc).__name__ == "SearchError" and exc.__cause__ else exc
+        _error(f"Search failed: {cause}", exc=exc)
 
     if context:
         # Chunk text is data, not markup: Rich deleted "[metrics](...)" and
@@ -706,11 +782,15 @@ def status(
     session_id: str = typer.Option("default", "--session", "-s", help="Session ID"),
 ):
     """Show knowledge base status."""
+    url = _serving_url()
 
     async def _status():
-        client = _get_client(session_id)
+        client = _client_for(session_id, url)
         try:
             docs = await client.list_documents()
+            if url:
+                # The server's view of the session, not this process's defaults.
+                return docs, await _served_config(url, session_id), []
             config = client.get_config_dict()
             return docs, config, await _unused_collections(client)
         finally:
@@ -773,6 +853,16 @@ def status(
     )
 
 
+async def _served_config(url: str, session_id: str) -> Dict[str, Any]:
+    """The session's configuration as a running server resolves it."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10) as http:
+        resp = await http.get(f"{url}/api/v1/config", headers={"X-Session-ID": session_id})
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def _unused_collections(client) -> List[Dict[str, Any]]:
     """Collections from before 0.1.0 that no configured model reads.
 
@@ -819,9 +909,12 @@ def _session_summary(session_id: str = "default") -> List[str]:
         data = os.path.dirname(rag_config.db_path)
         if os.path.dirname(os.path.abspath(rag_config.upload_dir)) == os.path.dirname(data):
             data = os.path.dirname(data)  # dbs/ and uploads/ side by side
+        others = _sessions_with_documents_line(mgr, exclude=session_id)
     except Exception as exc:  # the banner must never stop the server
         return [f"Session config: could not be read ({type(exc).__name__}: {exc})"]
     return [
+        *others,
+        f"Without X-Session-ID, requests use session '{session_id}':",
         f"Profile: {profile} (session '{session_id}')",
         f"Embedding: {model} ({dim} dimensions)",
         f"Vector store: {backend}",
@@ -829,10 +922,64 @@ def _session_summary(session_id: str = "default") -> List[str]:
     ]
 
 
+def _sessions_with_documents_line(mgr, exclude: str) -> List[str]:
+    """``Sessions with documents: my-corpus (76; speed, all-MiniLM-L6-v2)``, or nothing.
+
+    The banner described only session 'default', while the README configures
+    and fills `my-corpus`: it named a model none of the user's requests ran.
+    """
+    from lasagna.core.config import rag_config
+    from lasagna.core.model_downloads import sessions_with_documents
+
+    populated = {s: n for s, n in (sessions_with_documents() or {}).items() if s != exclude}
+    parts = []
+    for sid, count in sorted(populated.items())[:5]:
+        chosen = mgr.get_chosen_config(sid)
+        model = chosen.get("embedding_model") or rag_config.embedding_model
+        parts.append(f"{sid} ({count}; {mgr.get_active_profile(session_id=sid)}, {model})")
+    if len(populated) > 5:
+        parts.append(f"and {len(populated) - 5} more")
+    return [f"Sessions with documents: {', '.join(parts)}"] if parts else []
+
+
+def _port_problem(host: str, port: int) -> Optional[str]:
+    """Why ``host:port`` cannot be bound (with uvicorn's socket options), or None."""
+    import errno
+    import socket
+
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host or "0.0.0.0", port))
+        except OSError as exc:
+            if exc.errno == errno.EADDRINUSE:
+                return f"Port {port} on {host} is already in use by another program."
+            return f"Cannot listen on {host}:{port}: {exc.strerror or exc}."
+    return None
+
+
+def _configurator_line(base: str) -> str:
+    """The banner's configurator line: the page, or how to build it.
+
+    From a source checkout the page is not built, and the advertised
+    /configurator answered 404.
+    """
+    from lasagna.configurator import FRONTEND_DIST
+
+    if FRONTEND_DIST.is_dir():
+        return f"Configurator: {base}/configurator"
+    return (
+        "Configurator: not built in this checkout "
+        "(cd src/lasagna/configurator/frontend && npm ci && npm run build)"
+    )
+
+
 @app.command()
 def serve(
     ctx: typer.Context,
-    port: int = typer.Option(8000, "--port", "-p", help="Port to listen on."),
+    # No -p: everywhere else it is --profile.
+    port: int = typer.Option(8000, "--port", help="Port to listen on."),
     host: str = typer.Option(
         "127.0.0.1",
         "--host",
@@ -849,8 +996,18 @@ def serve(
         "--open/--no-open",
         help="Open the configurator in a browser once the server starts.",
     ),
+    serve_mcp: bool = typer.Option(
+        False,
+        "--mcp",
+        help="Also serve the MCP server (SSE) at /mcp/sse, from this process. Milvus Lite "
+        "admits one process per store, so this is how an agent and the REST API share one.",
+    ),
 ):
-    """Start the REST API server, with the configurator web page."""
+    """Start the REST API server, with the configurator web page.
+
+    While it runs it holds the local store; `lasagna status`, `search` and
+    `upload` go through it.
+    """
 
     def _hide(record) -> bool:
         if not _ephemeral_signing_secret_warning(record):
@@ -865,8 +1022,24 @@ def serve(
     # Warnings only by default, as for every other command: the banner below
     # says what the server resolved. -v or LASAGNA_LOG_LEVEL=INFO shows more.
     level = _configure_cli_logging(bool(ctx.find_root().params.get("verbose")), hide=_hide)
+    from lasagna.core import local_server
+
+    if local_server.local_store_held():
+        running = local_server.running_server()
+        _error(
+            f"lasagna serve is already running at {running} and holds the local store."
+            if running
+            else local_server.held_store_message("lasagna serve")
+        )
+    problem = _port_problem(host, port)
+    if problem:
+        # Checked before anything loads: the banner used to print, and 6 s later
+        # uvicorn's "[Errno 48] ... address already in use".
+        _error(f"{problem} Start on another port: lasagna serve --port {port + 1}")
     if configurator:
         os.environ["RAG_CONFIGURATOR"] = "true"
+    if serve_mcp:
+        os.environ["RAG_EMBED_MCP"] = "true"
 
     # The address a browser can use: 0.0.0.0 and :: are bind-alls, not addresses.
     shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
@@ -878,7 +1051,8 @@ def serve(
             f"API: {base}/api/v1\n"
             f"Health: {base}/api/v1/health\n"
             f"Docs: {base}/docs\n"
-            + (f"Configurator: {base}/configurator\n" if configurator else "")
+            + (f"{_configurator_line(base)}\n" if configurator else "")
+            + (f"MCP (SSE): {base}/mcp/sse\n" if serve_mcp else "")
             + "\n"
             + "\n".join(escape(line) for line in _session_summary())
             + "\n\n[dim]Press Ctrl+C to stop.[/dim]",
@@ -925,15 +1099,20 @@ def serve(
     # of 40 session mints went through where 35 should have been refused. A
     # proxy on this host and a client on it are indistinguishable by address.
     trusted_proxies = os.environ.get("RAG_FORWARDED_ALLOW_IPS", "").strip()
-    uvicorn.run(
-        "lasagna.api.rest.app:app",
-        host=host,
-        port=port,
-        reload=False,
-        proxy_headers=bool(trusted_proxies),
-        forwarded_allow_ips=trusted_proxies or None,
-        log_level=_UVICORN_LEVELS.get(level, level.lower()),
-    )
+    # Other commands find this server here and go through it (core.local_server).
+    local_server.announce(base)
+    try:
+        uvicorn.run(
+            "lasagna.api.rest.app:app",
+            host=host,
+            port=port,
+            reload=False,
+            proxy_headers=bool(trusted_proxies),
+            forwarded_allow_ips=trusted_proxies or None,
+            log_level=_UVICORN_LEVELS.get(level, level.lower()),
+        )
+    finally:
+        local_server.withdraw()
 
 
 # ---------------------------------------------------------------------------
@@ -1050,68 +1229,6 @@ def import_config(
         _error(f"Import validation failed: {exc}")
     except Exception as exc:
         _error(f"Import failed: {exc}")
-
-
-# ---------------------------------------------------------------------------
-# evaluate (researcher mode)
-# ---------------------------------------------------------------------------
-
-
-@app.command()
-def evaluate(
-    document: str = typer.Argument(..., help="Path to knowledge document"),
-    ground_truth: str = typer.Argument(..., help="Path to ground truth JSONL"),
-    output_dir: str = typer.Option("./eval_results", "--output", "-o", help="Output directory"),
-    session_id: str = typer.Option("eval", "--session", "-s", help="Session ID"),
-):
-    """Run RAG evaluation benchmark.
-
-    Uploads the document, runs queries from ground truth, scores with LLM judge.
-    """
-    doc_path = Path(document)
-    gt_path = Path(ground_truth)
-
-    if not doc_path.exists():
-        _error(f"Document not found: {document}")
-    if not gt_path.exists():
-        _error(f"Ground truth not found: {ground_truth}")
-
-    console.print("Running evaluation...")
-    console.print(f"  Document: [cyan]{doc_path.name}[/cyan]")
-    console.print(f"  Ground truth: [cyan]{gt_path.name}[/cyan]")
-
-    from lasagna.knowledge_evaluation_sdk.models import EvalConfig
-    from lasagna.knowledge_evaluation_sdk.evaluator import KnowledgeEvaluator
-
-    config = EvalConfig(
-        document_path=str(doc_path),
-        ground_truth_path=str(gt_path),
-        output_dir=output_dir,
-    )
-
-    evaluator = KnowledgeEvaluator(config)
-
-    async def _run_eval():
-        try:
-            return await evaluator.run()
-        finally:
-            await evaluator.cleanup()
-
-    try:
-        metrics = _run(_run_eval())
-    except Exception as exc:
-        _error(f"Evaluation failed: {exc}", exc=exc)
-
-    console.print()
-    console.print(
-        Panel.fit(
-            f"[bold]Evaluation Complete[/bold]\n\n"
-            f"Total cases: [cyan]{metrics.total_cases}[/cyan]\n"
-            f"Average score: [cyan]{metrics.avg_score:.2f}[/cyan]\n"
-            f"Pass rate: [green]{metrics.pass_rate:.1f}%[/green]\n"
-            f"Results saved to: [cyan]{output_dir}[/cyan]",
-        )
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1245,7 +1362,11 @@ def benchmark_run(
     ),
     seed: int = typer.Option(42, "--seed", help="Random seed for sampling queries."),
     profile: str = typer.Option(
-        "standard", "--profile", "-p", help="Profile every arm starts from."
+        "speed",
+        "--profile",
+        "-p",
+        help="Profile every arm starts from. speed needs no API key and downloads 91 MB; "
+        "standard downloads about 3 GB and sends complex queries to an LLM.",
     ),
     tracks: Optional[str] = typer.Option(
         None,
@@ -1304,6 +1425,16 @@ def benchmark_run(
     ):
         if component:
             _require_component(stage, component)
+    if "generation" in track_list:
+        from .knowledge_evaluation_sdk.synthesize import llm_configured, missing_llm_message
+
+        if not llm_configured():
+            _error(
+                missing_llm_message(
+                    "The generation track",
+                    "To measure retrieval only, run with --tracks retrieval.",
+                )
+            )
 
     console.print(
         f"Running benchmark [cyan]{name}[/cyan] (up to {samples} samples, {runs} run(s), "
@@ -1479,7 +1610,12 @@ def benchmark_experiment(
         console.print(f"  Resumed {len(done)} of {len(tasks)} from checkpoints")
 
     def _progress(completed: int, total: int, task_key: str):
-        console.print(f"  [{completed}/{total}] {task_key}")
+        # The arm, not the task key: its hashes wrapped every line in two.
+        parts = task_key.split("|")
+        label = (
+            f"{parts[0]}  {parts[1]}  {parts[5].replace('_', ' ')}" if len(parts) > 5 else task_key
+        )
+        console.print(f"  [{completed}/{total}] {escape(label)}", soft_wrap=True)
 
     async def _execute():
         return await exp.run(progress_callback=_progress)
@@ -1491,6 +1627,9 @@ def benchmark_experiment(
 
     output_dir = exp.config.effective_output_dir()
     _print_leaderboard(results)
+    # Before the summary: printed after "Output" and "Next", a failed check
+    # read as an afterthought to a run that had looked complete.
+    _print_isolation(results)
     console.print(
         Panel.fit(
             f"[bold]Experiment Complete[/bold]\n\n"
@@ -1504,7 +1643,6 @@ def benchmark_experiment(
     console.print(
         f"Next:   lasagna results significance {escape(results_file)} --all", soft_wrap=True
     )
-    _print_isolation(results)
     if exp.config.n_runs > 1 and runs_were_identical(results._results):
         console.print(
             f"[dim]Note: all {exp.config.n_runs} runs of every arm were identical (nothing "
@@ -1569,10 +1707,21 @@ def _exit_if_tasks_failed(results) -> None:
     A failed task's numbers are left out of every aggregate and report; a run
     that printed "Failed: 3" and exited 0 was easy to mistake for a result.
     """
-    if not results.failed_tasks:
+    # Retrieval scored, generation not: the retrieval numbers above stand.
+    partial = [
+        t
+        for t in getattr(results, "_results", [])
+        if not t.error and (t.system or {}).get("generation_failed")
+    ]
+    if not results.failed_tasks and not partial:
         return
     for task in results.failed_tasks:
-        console.print(f"  [red]failed[/red] {task.task_key}: {task.error}")
+        console.print(f"  [red]failed[/red] {escape(task.task_key)}: {escape(str(task.error))}")
+    for task in partial:
+        console.print(
+            f"  [yellow]generation not scored[/yellow] {escape(task.task_key)} (its retrieval "
+            f"metrics are above): {escape(task.system['generation_failed'])}"
+        )
     raise typer.Exit(code=1)
 
 
@@ -1761,6 +1910,19 @@ def benchmark_validate_data(
             soft_wrap=True,
         )
         raise typer.Exit(1)
+    from .knowledge_evaluation_sdk.synthesize import llm_configured
+
+    if "generation" in data.supported_tracks() and not llm_configured():
+        # Suggesting generation with no key ran retrieval, failed every
+        # answer, and threw the retrieval numbers away.
+        tracks = ",".join(t for t in data.supported_tracks() if t != "generation")
+        console.print(
+            "  Generation needs an LLM API key, and none is set (OPENAI_API_KEY, "
+            "ANTHROPIC_API_KEY, ...). With one, add generation to --tracks.",
+            soft_wrap=True,
+        )
+    if not tracks:
+        return
     console.print(
         f"Run it:  lasagna benchmark run {escape(shlex.quote(path))} --profile speed "
         f"--tracks {tracks}",
@@ -2027,10 +2189,17 @@ def component_validate(
 
     if report.passed:
         console.print("\n[green]Contract satisfied.[/green] This component is interchangeable.")
+        # The README's flow: a sweep names the function by its import path, with
+        # no registration call. "Next: register it" said otherwise.
+        example = (
+            f'rerankers: [cross_encoder, "{name}"]'
+            if report.component_type == "reranker"
+            else f'"{name}" in the stage\'s list'
+        )
         console.print(
-            "Next: register it, then compare it against a control: "
-            "https://github.com/dolev31/lasagna/blob/main/docs/guide.md"
-            "#6-compare-it-against-a-baseline",
+            f"Next: name it in a sweep to compare it against a control, as {escape(example)}: "
+            f"https://github.com/dolev31/lasagna/blob/main/docs/guide.md"
+            f"#6-compare-it-against-a-baseline",
             soft_wrap=True,
         )
     else:
@@ -2435,7 +2604,10 @@ def results_significance(
     # Folding them (`reranker=cross_e / ncoder`) or truncating them made two
     # arms impossible to tell apart.
     table = _table(lambda name: escape(str(name)), "\n")
-    if _natural_width(table) > console.width:
+    if not shown_rows:
+        # A header over no rows read as a failure to compute anything.
+        table = None
+    elif _natural_width(table) > console.width:
         numbered = {
             name: f"[{i}]"
             for i, name in enumerate(
@@ -2446,7 +2618,8 @@ def results_significance(
             console.print(f"  {escape(tag)} {escape(name)}")
         console.print()
         table = _table(lambda name: escape(numbered[str(name)]), " ")
-    console.print(table)
+    if table is not None:
+        console.print(table)
 
     survivors = sum(1 for r in rows if r.get("significant"))
     console.print()
@@ -2476,7 +2649,8 @@ def results_significance(
             )
     hidden = len(tested) - len(shown_rows)
     if not show_all and hidden:
-        console.print(f"  {hidden} non-significant pairs hidden; --all shows them.")
+        pairs = _count(hidden, "non-significant pair")
+        console.print(f"  {pairs} {'is' if hidden == 1 else 'are'} not shown; --all shows them.")
 
 
 def _significance_verdict(rows: list, metric: str, benchmark: str, alpha: float) -> Panel:
