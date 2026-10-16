@@ -734,6 +734,12 @@ Servers and deployment:
   get, so `chunk_size = 5` or `database_backend = "postgres"` ran as written.
   They are checked the same way (type, range, choices), and the error names
   the file, each key and its value.
+- `docs/reference/settings.md` lists the variables that are not settings
+  (`RAG_REQUIRE_AUTH`, `RAG_API_KEYS`, the batch and search limits,
+  `LASAGNA_LOG_FORMAT`, `LASAGNA_MCP_TOOLS`, `MILVUS_URI` and the other vector
+  store connections, the paths), generated from one list in
+  `core/config.py`. A `RAG_` variable the package reads that is missing from
+  the list fails the suite.
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except

@@ -376,3 +376,73 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `document_awareness` | object | `{"enabled": true, "enrichment_strategy": "first_tokens", ...` | `LASAGNA_DOCUMENT_AWARENESS`, `RAG_DOCUMENT_AWARENESS` | What the agent is told about each document: a preview of its first tokens, an LLM summary, or both. |
 | `agentic_pipeline` | str | none | `LASAGNA_AGENTIC_PIPELINE`, `RAG_AGENTIC_PIPELINE` | Name of the registered agentic pipeline to use. |
 | `refinement_model` | str | none | `LASAGNA_REFINEMENT_MODEL`, `RAG_REFINEMENT_MODEL` | Which AI model refines the search results. A fast, affordable model works well here. |
+
+## Variables that are not settings
+
+The servers, the MCP server and the vector stores read these from the
+environment only: not from the settings file, and not per session.
+
+
+### REST API and authentication
+
+| Variable | Default | Description |
+|---|---|---|
+| `RAG_REQUIRE_AUTH` | `false` | When true, only a verified X-Session-Token names a session, and POST /api/v1/sessions needs an X-API-Key. When false, binding beyond loopback is refused at startup unless RAG_BIND_IS_PROTECTED is set. |
+| `RAG_API_KEYS` | unset | Comma-separated keys, each at least 32 characters, that may mint session tokens when RAG_REQUIRE_AUTH is on. Rate limits and quotas are counted per key. |
+| `RAG_JWT_SECRET` | a random secret per process | Signs session tokens (HMAC-SHA256). Unset, tokens stop working when the process restarts; with RAG_REQUIRE_AUTH on, an unset, placeholder or shorter-than-32-character secret stops the server at startup. |
+| `RAG_SESSION_TOKEN_TTL_SECONDS` | `604800` | How long a session token is valid, in seconds (7 days). |
+| `RAG_ADMIN_TOKEN` | unset | The X-Admin-Token for /api/v1/admin/* and for naming a session in POST /api/v1/sessions. Unset, a placeholder or shorter than 32 characters: the admin routes answer 503. |
+| `RAG_ALLOW_ANONYMOUS_SESSION` | `false` | With RAG_REQUIRE_AUTH on, keep the anonymous default session usable. |
+| `RAG_BIND_IS_PROTECTED` | `false` | Says that something outside the process (a loopback port mapping, a NetworkPolicy, a firewall) restricts access, so the server may bind beyond loopback with auth off. |
+| `RAG_ALLOW_HEADER_IDENTITY` | `false` | Accept the X-User-ID header as the user identity; otherwise it is refused with 401. |
+| `RAG_CORS_ORIGINS` | empty | Comma-separated origins allowed cross-origin requests (REST and MCP over HTTP). Empty allows none; * is refused at startup when RAG_REQUIRE_AUTH is on. |
+| `RAG_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxy addresses whose X-Forwarded-For is trusted. The image reads gunicorn's FORWARDED_ALLOW_IPS first. |
+| `RAG_MAX_BATCH_FILES` | `20` | Files in one POST /api/v1/documents/batch; more is refused with 400. |
+| `RAG_MAX_BATCH_BYTES` | `209715200` | Total body of one batch upload (200 MiB); more is refused with 413 before the body is read. |
+| `RAG_SEARCH_TIMEOUT` | `120` | Seconds a REST search may run before it answers 504. |
+| `RAG_EMBED_MCP` | `false` | Mount the MCP server at /mcp inside the REST process, for single-process deployments such as Milvus Lite. |
+| `RAG_CONFIGURATOR` | `false` | Mount the configurator UI at /configurator, with its API routes. |
+| `LASAGNA_LOG_FORMAT` | `text` | json writes one JSON object per log line; text shows a request's id before the message. Any other value stops the server at startup. |
+| `PROMETHEUS_MULTIPROC_DIR` | unset | The directory gunicorn workers share for Prometheus metrics (set in the image). |
+
+### MCP server
+
+| Variable | Default | Description |
+|---|---|---|
+| `LASAGNA_MCP_TOOLS` | `safe` | safe leaves out the six tools that delete data or reset configuration; all serves every tool. The same as lasagna-mcp --tools. |
+| `LASAGNA_ENABLE_DOCS_API` | `false` | Turn on the /api/call tool tester, which calls any tool without authentication. For development only. |
+| `RAG_SESSION_ID` | unset | The session a tool call uses when it names none. |
+| `RAG_MCP_UPLOAD_ROOT` | unset | The directory a networked MCP server may ingest server-side files from; unset, it reads none. |
+| `RAG_ALLOWED_HOSTS` | unset | Extra Host values (host or host:*) a loopback HTTP surface accepts, comma-separated, such as a container's service name. |
+
+### Vector store connections
+
+| Variable | Default | Description |
+|---|---|---|
+| `MILVUS_URI` | unset | A Milvus server's address, used when vector_backend_config has no uri. Without one the milvus backend opens Milvus Lite in the data directory. |
+| `MILVUS_TOKEN` | unset | The token for MILVUS_URI. |
+| `QDRANT_URL` | unset | A Qdrant server's address; without one the qdrant backend stores its data in the data directory. |
+| `QDRANT_API_KEY` | unset | The API key for QDRANT_URL. |
+| `WEAVIATE_URL` | unset | A Weaviate server's address. |
+| `WEAVIATE_API_KEY` | unset | The API key for WEAVIATE_URL. |
+| `PINECONE_API_KEY` | unset | The Pinecone API key the pinecone backend needs. |
+| `PGVECTOR_DSN` | `postgresql://rag:rag@localhost:5432/rag` | The PostgreSQL DSN of the pgvector backend; RAG_DATABASE_DSN is used when it is unset. |
+| `OPENSEARCH_HOSTS` | `http://localhost:9200` | Comma-separated OpenSearch hosts, with OPENSEARCH_USER and OPENSEARCH_PASSWORD. |
+| `OPENSEARCH_USE_SSL` | `false` | Connect to OpenSearch over SSL. |
+| `OPENSEARCH_VERIFY_CERTS` | `false` | Verify the OpenSearch server's certificate. |
+| `OPENSEARCH_TIMEOUT` | `30` | Seconds an OpenSearch request may take. |
+| `OPENSEARCH_ENABLE_NEURAL_SPARSE` | `false` | Add neural sparse vectors to OpenSearch hybrid search (dense, sparse and BM25). |
+
+### Paths and the process
+
+| Variable | Default | Description |
+|---|---|---|
+| `LASAGNA_DATA_DIR`, `RAG_DATA_DIR` | `~/.lasagna` | Where Lasagna keeps its data. |
+| `LASAGNA_DB_DIR`, `RAG_DB_DIR` | <data dir>/dbs | The databases and the local vector stores. |
+| `LASAGNA_UPLOAD_DIR`, `RAG_UPLOAD_DIR` | <data dir>/uploads | Stored uploads. |
+| `LASAGNA_SETTINGS_FILE`, `RAG_SETTINGS_FILE` | the packaged settings.lasagna.toml | The settings file to read instead of the packaged one. |
+| `LASAGNA_LLM_CACHE` | `on` | 0, false, no or off turns the LLM response cache off for every run. |
+| `LASAGNA_STRICT_PLUGINS` | unset | Set: a plugin that fails to load raises instead of being reported and skipped. |
+| `RAG_LANGFUSE_TRACING` | `false` | Send LLM traces to Langfuse (needs the langfuse package and its keys). |
+| `RAG_LLM_CACHE_MAX_SIZE` | `50` | How many LLM clients the process keeps for reuse. |
+| `RAG_CRAG_GRADING_CONCURRENCY` | `4` | Parallel relevance-grading calls in corrective RAG (CRAG). |

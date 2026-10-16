@@ -47,3 +47,22 @@ def test_every_setting_the_configuration_reads_is_on_the_page():
 def test_every_row_has_a_description():
     rows = re.findall(r"^\| `[a-z0-9_]+` \|.*\|\s*(.*?)\s*\|$", PAGE.read_text(), re.M)
     assert rows and all(rows), "a setting has no description; add a comment beside its default"
+
+
+def test_the_variables_that_are_not_settings_are_on_the_page():
+    """The server-only variables were missing: RAG_REQUIRE_AUTH, MILVUS_URI and others."""
+    from lasagna.core import config as config_module
+
+    page = PAGE.read_text()
+    for name in (
+        "RAG_REQUIRE_AUTH",
+        "RAG_API_KEYS",
+        "RAG_MAX_BATCH_FILES",
+        "RAG_MAX_BATCH_BYTES",
+        "RAG_SEARCH_TIMEOUT",
+        "LASAGNA_LOG_FORMAT",
+        "MILVUS_URI",
+        "LASAGNA_MCP_TOOLS",
+        *config_module.SERVER_ENV,
+    ):
+        assert f"| `{name}`" in page, name
