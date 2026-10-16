@@ -662,6 +662,12 @@ What is never replayed:
   temperature (Claude 4.7 and later, some OpenAI reasoning models) is always
   called.
 
+A provider of your own, set with `set_llm_provider`, gets the cache too: the
+chat model its `get_chat_model` returns is replayed when temperature 0 was asked
+for and the model's `temperature` is 0. A returned object that is not a
+LangChain chat model cannot carry the cache, and `results.json` then says
+`"applied": false` with the reason under `llm_cache`.
+
 Turn it off with `llm_cache: false` in the sweep, `--no-cache` on the command,
 or `LASAGNA_LLM_CACHE=0`. `llm_cache: {path: ...}` puts the file elsewhere.
 Nothing is cached outside an experiment, so `lasagna serve` and the MCP server

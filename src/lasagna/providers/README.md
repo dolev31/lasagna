@@ -84,11 +84,14 @@ skips the second write when the provider sets `_delegates_to_manager` (as
 call `get_config_provider()` and re-enter the lock.
 
 **One place builds chat models.** Every chat model the pipeline and the harness use comes from
-`SimpleLLMProvider.get_chat_model()`, which is what makes token accounting
+an `LLMProvider.get_chat_model()`, which is what makes token accounting
 (`utils.token_usage.attach_usage_meter`) and the experiment response cache
-(`utils.llm_cache.attach_llm_cache`) complete. The cache only replays a model that decodes
-greedily: temperature 0 was asked for, `model_capabilities` says the model accepts it, and the
-LangChain client kept it. Models are built per call and not cached; the HTTP clients pool
+(`utils.llm_cache.attach_llm_cache`) complete. `SimpleLLMProvider` attaches both itself, and
+the cache only replays one of its models that decodes greedily: temperature 0 was asked for,
+`model_capabilities` says the model accepts it, and the LangChain client kept it. Any other
+subclass's `get_chat_model` is wrapped (`LLMProvider.__init_subclass__`), so a provider set
+with `set_llm_provider` gets both as well; its model is replayed when temperature 0 was asked
+for and the model's `temperature` is 0. Models are built per call and not cached; the HTTP clients pool
 connections themselves.
 
 **Unknown models keep temperature.** `model_capabilities` sends `temperature` for an id it does

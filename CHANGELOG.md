@@ -489,6 +489,12 @@ Numbers that were wrong:
 
 Results tooling:
 
+- **The LLM cache never applied to a custom provider.** It was attached in
+  `SimpleLLMProvider` only, so a provider set with `set_llm_provider` was
+  called again on every warm run while `results.json` recorded the cache as
+  on with 0 hits and 0 misses. Any `LLMProvider` subclass's chat model now
+  carries the cache and the token meter; a model that cannot carry the cache
+  is recorded as `"applied": false` with the reason.
 - A checkpoint is flushed to disk before it is renamed into place, so a crash
   cannot leave an empty checkpoint that `--resume` reads as a finished task.
 - `results leaderboard` ranked latency and token counts highest first: the

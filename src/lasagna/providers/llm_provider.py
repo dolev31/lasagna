@@ -26,6 +26,8 @@ Example usage::
     )
 """
 
+import functools
+import inspect
 import os
 from abc import ABC, abstractmethod
 from typing import Dict, Any, NamedTuple, Optional, TYPE_CHECKING
@@ -36,6 +38,63 @@ if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
 
 
+def _instrument_chat_model(
+    model: Any, provider: "LLMProvider", model_settings: Dict[str, Any], temperature: Any
+) -> Any:
+    """Give a chat model from any provider the token meter and the response cache.
+
+    `SimpleLLMProvider` attaches both itself, with what it knows about each
+    model's sampling; this covers a provider that builds its models some other
+    way. Such a model is cached only when temperature 0 was asked for and the
+    model kept it (one without a ``temperature`` attribute is taken at its
+    word). A model that is not a LangChain chat model cannot carry the cache,
+    and the run records that instead of an empty cache.
+    """
+    from lasagna.utils.llm_cache import attach_llm_cache, carries_llm_cache, note_not_applied
+    from lasagna.utils.token_usage import attach_usage_meter
+
+    model = attach_usage_meter(model)
+    if carries_llm_cache(model):
+        return model
+    name = f"{type(provider).__module__}.{type(provider).__qualname__}"
+    try:
+        from langchain_core.language_models import BaseLanguageModel
+    except ImportError:  # pragma: no cover - langchain-core is a core dependency
+        BaseLanguageModel = None  # type: ignore[assignment,misc]
+    if BaseLanguageModel is None or not isinstance(model, BaseLanguageModel):
+        note_not_applied(
+            f"the LLM provider {name} returned a {type(model).__name__}, not a LangChain "
+            f"chat model, so its calls are not cached"
+        )
+        return model
+    kept = getattr(model, "temperature", temperature)
+    deterministic = temperature == 0 and kept == 0
+    platform = f"provider:{name}:{model_settings.get('model_name', '')}"
+    return attach_llm_cache(model, platform, deterministic)
+
+
+def _instrumented(get_chat_model: Any) -> Any:
+    """Wrap a subclass's ``get_chat_model`` with `_instrument_chat_model`."""
+    signature = inspect.signature(get_chat_model)
+
+    @functools.wraps(get_chat_model)
+    def wrapper(self: "LLMProvider", *args: Any, **kwargs: Any) -> Any:
+        model = get_chat_model(self, *args, **kwargs)
+        try:
+            bound = signature.bind(self, *args, **kwargs)
+            bound.apply_defaults()
+            settings = bound.arguments.get("model_settings") or {}
+            temperature = bound.arguments.get("temperature", 0.0)
+        except TypeError:
+            settings, temperature = {}, None
+        return _instrument_chat_model(
+            model, self, settings if isinstance(settings, dict) else {}, temperature
+        )
+
+    wrapper._lasagna_instrumented = True  # type: ignore[attr-defined]
+    return wrapper
+
+
 class LLMProvider(ABC):
     """Abstract interface for LLM model access.
 
@@ -44,7 +103,22 @@ class LLMProvider(ABC):
     - Document summarization
     - HyDE (Hypothetical Document Embeddings) generation
     - Query enhancement and decomposition
+
+    A subclass's ``get_chat_model`` is wrapped so the model it returns carries
+    the token meter and the experiment's response cache, as the models of the
+    built-in provider do: a provider set with ``set_llm_provider`` used to
+    bypass both.
     """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        own = cls.__dict__.get("get_chat_model")
+        if (
+            callable(own)
+            and not getattr(own, "__isabstractmethod__", False)
+            and not getattr(own, "_lasagna_instrumented", False)
+        ):
+            cls.get_chat_model = _instrumented(own)  # type: ignore[method-assign]
 
     @abstractmethod
     def get_chat_model(
