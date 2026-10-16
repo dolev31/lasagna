@@ -1107,7 +1107,11 @@ def runs_were_identical(task_results: Iterable[Any]) -> bool:
 
 
 def _results_root() -> str:
-    return os.path.join(os.path.expanduser("~"), ".lasagna", "research", "results")
+    """``<data dir>/research/results``: it ignored ``LASAGNA_DATA_DIR`` and
+    stayed under the home directory."""
+    from lasagna.core import paths
+
+    return str(paths.results_dir())
 
 
 def _slug(name: str) -> str:
@@ -3315,9 +3319,7 @@ async def _ensure_corpus_ingested(
                 _skip_ingest = True
             elif existing_doc_ids:
                 # Load allowlist for known errors from previous runs
-                _allowlist_path = (
-                    Path.home() / ".lasagna" / "research" / "results" / "_ingest_allowlist.json"
-                )
+                _allowlist_path = Path(_results_root()) / "_ingest_allowlist.json"
                 _known_errors: set = set()
                 if _allowlist_path.exists():
                     try:
@@ -3378,9 +3380,7 @@ async def _ensure_corpus_ingested(
 
             # Persist error allowlist for future resume
             if error_ids:
-                _allowlist_path = (
-                    Path.home() / ".lasagna" / "research" / "results" / "_ingest_allowlist.json"
-                )
+                _allowlist_path = Path(_results_root()) / "_ingest_allowlist.json"
                 _allowlist_path.parent.mkdir(parents=True, exist_ok=True)
                 _al: dict = {}
                 if _allowlist_path.exists():

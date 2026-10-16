@@ -494,6 +494,9 @@ Numbers that were wrong:
 
 Results tooling:
 
+- Experiment results and the LLM cache ignored `LASAGNA_DATA_DIR` and stayed
+  under `~/.lasagna`. They are in `<data dir>/research/results` and
+  `<data dir>/cache/llm.sqlite`.
 - `results bundle -o newdir/run.json` (and `results schema`, `results
   per-query`, `export`) ended in a `FileNotFoundError` traceback when the
   folder did not exist. The folder is created; one that cannot be is a

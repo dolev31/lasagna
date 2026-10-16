@@ -274,9 +274,9 @@ def cmd_supervise(args: argparse.Namespace) -> None:
     """Monitor running or completed experiments in real time."""
     from .supervisor import ExperimentSupervisor
 
-    results_dir = args.results_dir or os.path.join(
-        os.path.expanduser("~"), ".lasagna", "research", "results"
-    )
+    from lasagna.core.paths import results_dir as default_results_dir
+
+    results_dir = args.results_dir or str(default_results_dir())
     sup = ExperimentSupervisor(
         results_dir=results_dir,
         experiments_dir=args.experiments_dir or _EXPERIMENTS_DIR,

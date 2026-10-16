@@ -1444,9 +1444,11 @@ def benchmark_experiment(
         # the newest one of this experiment, or say there is none.
         latest = exp.config.latest_output_dir()
         if latest is None:
+            from lasagna.core.paths import results_dir
+
             _error(
                 f"Nothing to resume: no checkpoints for experiment {exp.config.name!r} under "
-                f"~/.lasagna/research/results. Run without --resume, or set output_dir: in "
+                f"{results_dir()}. Run without --resume, or set output_dir: in "
                 f"the sweep to resume a specific folder."
             )
         exp.config._resolved_output_dir = latest

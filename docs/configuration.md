@@ -92,7 +92,8 @@ picks its profile with
 
 Everything a user stores is under one data directory, `~/.lasagna`: the
 metadata database and the Milvus Lite store in `dbs/`, uploaded files in
-`uploads/`.
+`uploads/`, experiment results in `research/results/` (for a sweep without
+`output_dir:`), and the experiment LLM cache in `cache/llm.sqlite`.
 
 | Variable | Default | What it places |
 |---|---|---|
@@ -100,9 +101,8 @@ metadata database and the Milvus Lite store in `dbs/`, uploaded files in
 | `LASAGNA_DB_DIR` (or `RAG_DB_DIR`) | `<data dir>/dbs` | the metadata database and the Milvus Lite store |
 | `LASAGNA_UPLOAD_DIR` (or `RAG_UPLOAD_DIR`) | `<data dir>/uploads` | uploaded files |
 
-Two things stay under your home directory whatever these say: experiment
-results in `~/.lasagna/research/results/`, and the experiment LLM cache in
-`~/.lasagna/cache/llm.sqlite`.
+`LASAGNA_DATA_DIR` moves the results and the cache with the rest;
+`llm_cache: {path: ...}` in a sweep puts the cache file elsewhere.
 
 Before 0.1.0 the data directory was `~/.rag_knowledge`. The first time the
 default is used and only `~/.rag_knowledge` exists, it is renamed to

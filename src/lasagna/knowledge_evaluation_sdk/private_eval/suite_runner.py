@@ -176,7 +176,9 @@ class SuiteRunner:
                 return done
 
             # Timestamped output_dir → scan results root for any matching dir.
-            results_root = Path(os.path.expanduser("~")) / ".lasagna" / "research" / "results"
+            from lasagna.core.paths import results_dir
+
+            results_root = results_dir()
             # Match {name}/ (stable) or {name}_* (timestamped)
             for candidate in results_root.glob(f"{exp_name}*/results.json"):
                 logger.debug(f"Skipping (results exist at {candidate}): {Path(yaml_path).name}")

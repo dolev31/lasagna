@@ -21,7 +21,6 @@ Usage::
 from __future__ import annotations
 
 import json
-import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -30,7 +29,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
-_DEFAULT_RESULTS_DIR = os.path.join(os.path.expanduser("~"), ".lasagna", "research", "results")
 _EXPERIMENTS_DIR = Path(__file__).parent / "experiments"
 
 
@@ -116,7 +114,7 @@ class ExperimentSupervisor:
 
     def __init__(
         self,
-        results_dir: str = _DEFAULT_RESULTS_DIR,
+        results_dir: Optional[str] = None,
         experiments_dir: Optional[str] = None,
         ir_metric: str = "ndcg@10",
         gen_metric: str = "faithfulness",
@@ -125,6 +123,10 @@ class ExperimentSupervisor:
         max_error_rate: float = _DEFAULT_MAX_ERROR_RATE,
         max_tokens: float = _DEFAULT_MAX_TOKENS,
     ) -> None:
+        if results_dir is None:
+            from lasagna.core.paths import results_dir as default_results_dir
+
+            results_dir = str(default_results_dir())
         self._results_dir = Path(results_dir)
         self._experiments_dir = Path(experiments_dir or _EXPERIMENTS_DIR)
         self._ir_metric = ir_metric

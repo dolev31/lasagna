@@ -51,9 +51,12 @@ _OFF = frozenset({"0", "false", "no", "off"})
 
 
 def default_cache_path() -> str:
-    """``~/.lasagna/cache/llm.sqlite``: the cache follows the data directory,
-    beside ``research/results``."""
-    return os.path.join(os.path.expanduser("~"), ".lasagna", "cache", "llm.sqlite")
+    """``<data dir>/cache/llm.sqlite`` (``~/.lasagna`` unless ``LASAGNA_DATA_DIR``
+    says otherwise): the cache follows the data directory, beside
+    ``research/results``."""
+    from lasagna.core.paths import cache_dir
+
+    return str(cache_dir() / "llm.sqlite")
 
 
 @dataclass(frozen=True)

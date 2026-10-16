@@ -20,7 +20,7 @@ Example sweep files: [research/](research/README.md).
 `CheckpointManager` for `--resume`)
 -> the eval function for the task's mode -> `BenchmarkResults` (`results.py`) ->
 `results.json`, `report.md`, `table.tex` (`_save_outputs`). Default output is
-`~/.lasagna/research/results/<name>_<timestamp>/` (`_results_root`).
+`<data dir>/research/results/<name>_<timestamp>/` (`_results_root`, `core/paths.results_dir()`; `~/.lasagna` unless `LASAGNA_DATA_DIR` is set).
 
 The eval functions: `_eval_live` ingests the benchmark corpus once per corpus key (shared
 across arms that do not change ingestion), searches through the pipeline, and scores
