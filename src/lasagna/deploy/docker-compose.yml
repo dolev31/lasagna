@@ -46,6 +46,12 @@ x-env: &common-env
   # the worker processes documents and these threads are a fallback.
   RAG_PROCESSING_TIMEOUT: "${RAG_PROCESSING_TIMEOUT:-20}"
   RAG_CACHE_BACKEND: redis
+  # Session settings (a profile chosen, PATCH /api/v1/config) kept in Postgres,
+  # where every gunicorn worker, the celery worker and the mcp server read them.
+  # The default keeps them in each process's memory: two requests of one session
+  # saw different settings depending on the worker that served them, and the
+  # celery worker indexed with settings the session never chose.
+  RAG_SESSION_BACKEND: persistent
   # Whether the api queues uploads for celery-worker. `make` derives it from
   # COMPOSE_PROFILES (true with the celery profile) and `make validate` refuses
   # true without it. The api also checks that a worker answers on the broker,

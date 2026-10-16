@@ -27,14 +27,19 @@ So the settings file and the environment set the defaults for a process, and
 the session overrides that `lasagna configure` writes win for that session.
 `lasagna configure --profile speed -s A` changes session `A` only; another
 session, and a new one, still start from the settings file and the
-environment.
+environment. A profile sets only the settings that define it (for `speed`, the
+MiniLM model, no reranking and the rest of its list); the vector backend and
+every other setting it does not name still come from the environment and the
+settings file.
 
 **Where session overrides are kept.** The `lasagna` command and `lasagna-mcp`
 store them in the metadata database (SQLite under the data directory, or
 PostgreSQL when `database_backend` is `postgresql`), so a profile set by one
 command applies in the next one and in `lasagna serve`. Python code keeps them
 in memory for the life of the process unless `RAG_SESSION_BACKEND=persistent`
-is set.
+is set. The compose stack and the Kubernetes ConfigMap set it, so the api's
+workers, the Celery worker and the MCP server read one session's settings
+alike.
 
 **From Python**, a `KnowledgeConfig` passed to `KnowledgeClient` splits the
 same way: the fields that choose what the process connects to (vector backend,

@@ -160,6 +160,17 @@ Servers and deployment:
   discarded every upload and GC run as an unregistered task while its
   healthcheck passed. The app is the default for all threads and lists the
   task module; found running the live tests against the compose stack.
+- **A session's settings overrode the environment with the settings file's.**
+  Search reads a session's settings above the environment, and was handed the
+  active profile's whole configuration, settings file included. With the
+  persistent session backend (the default of `lasagna` and `lasagna-mcp`),
+  every session searched with the file's `vector_backend` and
+  `embedding_model` whatever `RAG_VECTOR_BACKEND` and `RAG_EMBEDDING_MODEL`
+  said; with the in-memory one, any session that applied a profile did. A
+  profile now sets only its own settings. The compose stack and the
+  Kubernetes ConfigMap set `RAG_SESSION_BACKEND=persistent`, so the api's
+  workers, the Celery worker and the MCP server see one session's settings
+  alike; in memory, two requests of a session could get different settings.
 - **`KnowledgeClient.from_url` failed against a server with auth on, and its
   `close()` raised `AttributeError`.** It never sent `X-Session-Token`, so
   `RAG_REQUIRE_AUTH=true` answered 401 to every call. With `api_key` (a key

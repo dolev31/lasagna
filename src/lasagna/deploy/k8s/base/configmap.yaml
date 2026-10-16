@@ -27,6 +27,9 @@ data:
   # --- Infrastructure ---
   RAG_DATABASE_BACKEND: "postgresql"
   RAG_CACHE_BACKEND: "redis"
+  # Session settings in PostgreSQL, so every api pod and worker reads the same
+  # ones; in memory, each process kept its own.
+  RAG_SESSION_BACKEND: "persistent"
   # RAG_VECTOR_BACKEND is set per overlay (milvus, pgvector, qdrant, etc.)
   # Pool size should be >= gunicorn workers x 2 (default 4 workers -> 10)
   RAG_CONNECTION_POOL_SIZE: "10"
