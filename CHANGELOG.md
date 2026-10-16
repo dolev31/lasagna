@@ -652,6 +652,14 @@ First run:
   takes its own, from a table of common models or its files in the Hugging
   Face cache; when neither knows it, the upload is refused before anything is
   stored, naming `embedding_dim`.
+- **The CLI ignored environment variables.** `RAG_ENABLE_RERANKING=false
+  lasagna status` still listed reranking, and `RAG_EMBEDDING_MODEL=...
+  lasagna upload` embedded with BGE-M3: the CLI passed the default profile's
+  stored snapshot of the settings file to its client as explicit settings,
+  which beat the environment and were saved over the session. Every command
+  now resolves session, environment, settings file and defaults in the order
+  docs/configuration.md gives, and `status` and the `serve` banner print the
+  settings a search on that session runs with.
 
 Requests to current models:
 

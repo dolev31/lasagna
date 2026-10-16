@@ -248,7 +248,14 @@ def _serving_url() -> Optional[str]:
 
 
 def _load_profile_config(session_id: str):
-    """Load the active profile's config for a session as a KnowledgeConfig.
+    """What the session chose (its profile's settings and its overrides) as a KnowledgeConfig.
+
+    Only what the session chose: the ``default`` profile's stored config is a
+    snapshot of the settings file, and passing it to the client as explicit
+    fields made every one of them beat the environment, so
+    ``RAG_ENABLE_RERANKING=false lasagna status`` still listed reranking and
+    ``RAG_EMBEDDING_MODEL=...`` was ignored. Session settings still win over
+    the environment, as docs/configuration.md says.
 
     Falls back to default KnowledgeConfig if profile loading fails.
     """
@@ -261,19 +268,9 @@ def _load_profile_config(session_id: str):
         )
 
         mgr = get_knowledge_config_manager(session_id=session_id)
-        profile_name = mgr.get_active_profile(session_id=session_id)
-
-        # Find the active profile's full config dict
-        state = mgr.get_session_state(session_id)
-        profile_config: dict = {}
-        for profile in state.profiles:
-            if profile.name == profile_name:
-                profile_config = dict(profile.config or {})
-                break
-        # And what the session set over it: a Python client saves its settings
-        # there on its first upload, and they were ignored, so `status` showed
-        # the default model for a corpus built with another.
-        profile_config.update(getattr(state, "session_overrides", None) or {})
+        # A built-in profile's own settings, and what the session set over it
+        # (a Python client saves its settings there on its first upload).
+        profile_config = dict(mgr.get_chosen_config(session_id) or {})
 
         if not profile_config:
             return KnowledgeConfig()
@@ -821,8 +818,7 @@ def status(
             if url:
                 # The server's view of the session, not this process's defaults.
                 return docs, await _served_config(url, session_id), []
-            config = client.get_config_dict()
-            return docs, config, await _unused_collections(client)
+            return docs, _effective_config(session_id), await _unused_collections(client)
         finally:
             await client.close()
 
@@ -883,6 +879,31 @@ def status(
     )
 
 
+#: What `status` and the `serve` banner report about a session's configuration.
+_SHOWN_SETTINGS = (
+    "embedding_model",
+    "embedding_dim",
+    "vector_backend",
+    "enable_hybrid_search",
+    "enable_reranking",
+    "enable_mmr",
+    "enable_hyde",
+    "enable_hierarchical",
+)
+
+
+def _effective_config(session_id: str) -> Dict[str, Any]:
+    """The settings a search on ``session_id`` runs with, every layer applied.
+
+    Session over environment over settings file over defaults: the same
+    resolution search uses, so what `status` prints is what runs.
+    """
+    from lasagna.core.config import rag_config
+
+    config = rag_config.with_session(session_id)
+    return {key: getattr(config, key) for key in _SHOWN_SETTINGS}
+
+
 async def _served_config(url: str, session_id: str) -> Dict[str, Any]:
     """The session's configuration as a running server resolves it."""
     import httpx
@@ -932,10 +953,12 @@ def _session_summary(session_id: str = "default") -> List[str]:
 
         mgr = get_knowledge_config_manager(session_id=session_id)
         profile = mgr.get_active_profile(session_id=session_id)
-        resolved = mgr.get_resolved_config(session_id)
-        model = resolved.get("embedding_model") or rag_config.embedding_model
-        dim = resolved.get("embedding_dim") or rag_config.embedding_dim
-        backend = resolved.get("vector_backend") or rag_config.vector_backend
+        # Every layer applied, as search resolves it: the profile's stored
+        # snapshot of the settings file ignored the environment.
+        effective = _effective_config(session_id)
+        model = effective["embedding_model"]
+        dim = effective["embedding_dim"]
+        backend = effective["vector_backend"]
         data = os.path.dirname(rag_config.db_path)
         if os.path.dirname(os.path.abspath(rag_config.upload_dir)) == os.path.dirname(data):
             data = os.path.dirname(data)  # dbs/ and uploads/ side by side
