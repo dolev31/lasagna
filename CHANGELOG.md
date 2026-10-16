@@ -669,6 +669,11 @@ Servers and deployment:
 - `benchmark leaderboard <folder>` failed with "Unknown format".
 - `lasagna serve` and MCP tools on a store another process holds logged an
   ERROR line in addition to the reply that says so.
+- **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
+  copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
+  keys) into an image layer. A root `.dockerignore` keeps every `.env` except
+  `.env.example`, key files, virtual environments, `.git`, build output,
+  caches and test artifacts out of the build.
 
 ### Known issues
 
