@@ -196,3 +196,22 @@ def test_a_pipeline_in_this_process_still_names_its_collection(manager):
     with strict():
         pipeline._apply_session_config("harness-session")
     assert manager.get_resolved_config("harness-session")["collection_name"] == "rag_bench_arm_1"
+
+
+def test_a_patch_of_a_packaged_value_the_server_does_not_run_is_refused(manager, monkeypatch):
+    """On the compose stack (qdrant from the environment) a PATCH of
+    vector_backend "milvus", the settings file's value, answered 200 and changed
+    nothing: dropped as an echo of the default profile."""
+    import lasagna.core.config as config_module
+
+    real = config_module.get_rag_config()
+    monkeypatch.setattr(
+        config_module,
+        "get_rag_config",
+        lambda: type("Server", (), {"vector_backend": "qdrant", "_config": real._config})(),
+    )
+    assert manager._default_profiles[0].config.get("vector_backend") == "milvus"
+    with pytest.raises(SessionSettingRefused, match="vector_backend"):
+        manager.patch_config({"vector_backend": "milvus"}, session_id="compose")
+    manager.patch_config({"vector_backend": "qdrant"}, session_id="compose")
+    assert "vector_backend" not in manager.get_session_state("compose").session_overrides

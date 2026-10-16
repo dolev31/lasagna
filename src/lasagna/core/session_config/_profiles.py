@@ -575,7 +575,7 @@ class ProfileMixin:
         size than the stored documents (``force`` skips that check).
         """
         if config:
-            config = self._session_settings(config)
+            config = self._session_settings(config, document=True)
             self._validate_or_raise(config, session_id)
 
         state = self.get_session_state(session_id)
@@ -662,7 +662,7 @@ class ProfileMixin:
         if not profile_name or len(profile_name) > 100:
             raise ValueError("Profile name must be 1-100 characters.")
 
-        config = self._session_settings(config)
+        config = self._session_settings(config, document=True)
         _check_profile_size(config)
         if config:
             self._validate_or_raise(config)

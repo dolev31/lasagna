@@ -397,7 +397,9 @@ class SessionStateMixin:
                 raise ValueError(f"Profile '{p_data['name']}' config must be an object")
             builtin = next((p for p in self._default_profiles if p.name == p_data["name"]), None)
             profile_config = self._session_settings(
-                p_data.get("config", {}), builtin=builtin.config if builtin else None
+                p_data.get("config", {}),
+                document=True,
+                builtin=builtin.config if builtin else None,
             )
             if builtin is not None:
                 # A built-in profile keeps the server's settings; an import
@@ -412,7 +414,7 @@ class SessionStateMixin:
         if overrides is not None and not isinstance(overrides, dict):
             raise ValueError("'session_overrides' must be an object")
         if overrides:
-            overrides = self._session_settings(overrides)
+            overrides = self._session_settings(overrides, document=True)
 
         active_profile = import_data.get("active_profile")
         if active_profile is not None and not isinstance(active_profile, str):
