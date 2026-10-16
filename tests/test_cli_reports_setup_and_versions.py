@@ -6,8 +6,8 @@ command meant for that moment, crashed on it. `doctor` did not say which
 session, profile or settings file was in force, and checked for the GitHub CLI.
 `results bundle` on a file with no metrics version printed a traceback, and
 `results validate` did not check the version at all. `status` said nothing
-about a pre-0.1.0 collection no model reads. `init` cut its own title off,
-promised "~2GB disk" whatever profile was chosen, and saved an empty API key.
+about a pre-0.1.0 collection no model reads. `init` cut its own title off and
+promised "~2GB disk" whatever profile was chosen.
 """
 
 from __future__ import annotations
@@ -206,8 +206,11 @@ class _Answers:
         return SimpleNamespace(title=title, value=value)
 
 
-def test_init_states_each_profiles_download_and_refuses_an_empty_key(tmp_path, monkeypatch):
-    answers = _Answers(["local", "milvus", "openai", "speed"], ["", "sk-ab c", "sk-good"])
+def test_init_states_each_profiles_download_and_writes_no_key(tmp_path, monkeypatch):
+    # init used to ask for the key and save it to ./.env, which Lasagna then
+    # never read; it now says which variable to export (see
+    # test_init_writes_no_key_and_matches_status.py).
+    answers = _Answers(["milvus", "openai", "speed"], [])
     monkeypatch.setitem(sys.modules, "questionary", answers)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
@@ -225,8 +228,8 @@ def test_init_states_each_profiles_download_and_refuses_an_empty_key(tmp_path, m
     assert any("downloads 3.1 GB" in title for title in profiles)
     assert not any("2GB" in title for _, titles in answers.prompts for title in titles or [])
 
-    assert "cannot be empty" in said and "space or a line break" in said
-    assert (tmp_path / ".env").read_text().count("OPENAI_API_KEY=sk-good") == 1
+    assert "export OPENAI_API_KEY=<your key>" in said
+    assert "OPENAI_API_KEY" not in (tmp_path / ".env").read_text()
 
 
 # -- names ------------------------------------------------------------------------------
