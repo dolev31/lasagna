@@ -26,9 +26,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libc6-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# The versions the release was tested with (constraints/<version>.txt): without
+# them every build took whatever torch and sentence-transformers were newest.
+# The stage loads the models with the same versions the image runs them with.
+ARG CONSTRAINTS=constraints/0.1.0.txt
+COPY ${CONSTRAINTS} /tmp/constraints.txt
+
 # Quoted: unquoted, the shell reads `>=5.1.2` as a redirect to a file named
 # "=5.1.2", so pip installed whatever version it liked.
-RUN pip install --no-cache-dir "sentence-transformers>=5.1.2" "FlagEmbedding>=1.3.0"
+RUN pip install --no-cache-dir -c /tmp/constraints.txt \
+    "sentence-transformers>=5.1.2" "FlagEmbedding>=1.3.0"
 
 # Models baked into the image, space-separated. The defaults match the default
 # config; a lighter image (the CI stack uses MiniLM) passes, for example,
@@ -84,6 +91,10 @@ RUN chown -R rag:rag /home/rag/.cache
 # package's long description.
 COPY pyproject.toml LICENSE NOTICE README.md ./
 COPY src/lasagna/ ./src/lasagna/
+# The tested versions (see the models stage). A package they do not list (the
+# production extras: celery, redis, psycopg, gunicorn) takes its newest match.
+ARG CONSTRAINTS=constraints/0.1.0.txt
+COPY ${CONSTRAINTS} ./constraints.txt
 
 # Install Python dependencies. `production` is what the production settings turn
 # on (Redis, Celery, Prometheus, OpenTelemetry, PostgreSQL); `pgvector`,
@@ -94,7 +105,6 @@ COPY src/lasagna/ ./src/lasagna/
 # pinecone need the `vector-backends` extra; their compose fragments set this
 # argument, and `all` installs every client. The build fails if the client
 # does not import, rather than the api failing its readiness check later.
-# Pin setuptools<78 so that pkg_resources remains available (required by milvus-lite)
 ARG VECTOR_BACKEND=milvus
 RUN case "$VECTOR_BACKEND" in \
       milvus|milvus-lite|pgvector|opensearch) extra=""; check="" ;; \
@@ -104,8 +114,8 @@ RUN case "$VECTOR_BACKEND" in \
       all) extra=",vector-backends"; check="qdrant_client weaviate pinecone" ;; \
       *) echo "Unknown VECTOR_BACKEND=$VECTOR_BACKEND. Use one of: milvus milvus-lite pgvector opensearch qdrant weaviate pinecone all"; exit 1 ;; \
     esac && \
-    pip install --no-cache-dir "setuptools<78" && \
-    pip install --no-cache-dir ".[production,pgvector,opensearch,flag-embedding$extra]" \
+    pip install --no-cache-dir -c constraints.txt \
+    ".[production,pgvector,opensearch,flag-embedding$extra]" \
     "gunicorn>=22.0.0" && \
     for module in pymilvus psycopg opensearchpy $check; do python -c "import $module" || exit 1; done
 # Read by `make validate`, which refuses an image built for another backend.

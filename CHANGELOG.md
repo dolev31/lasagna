@@ -761,6 +761,10 @@ Servers and deployment:
   stage fell back (hybrid running dense-only, HyDE without an LLM), which the
   REST API reports in `degraded_stages`. The MCP result's `<search_metadata>`
   and `SearchResults.degraded_stages` name them, also for a remote client.
+- The image installed whatever torch, transformers and sentence-transformers
+  were newest at build time; it installs the versions in
+  `constraints/0.1.0.txt`, which the release was tested with. The jaeger
+  service is pinned to `1.76.0` instead of `latest`.
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except

@@ -323,7 +323,7 @@ services:
   # Jaeger (Distributed Tracing): opt in with --profile tracing
   # -------------------------------------------------------------------------
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/all-in-one:1.76.0
     profiles: ["tracing"]
     ports:
       - "127.0.0.1:16686:16686"

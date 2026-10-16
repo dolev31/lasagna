@@ -91,7 +91,10 @@ uv pip compile pyproject.toml --extra eval --python-version 3.12 \
 
 Write the three header lines of the current file, with the new version, above
 `/tmp/closure.txt`, reinstall the venv with `-c constraints/<version>.txt`, and
-run the suite again. Update the version in `pyproject.toml`, `CITATION.cff` and
-the README install line, add a `## [<version>] - YYYY-MM-DD` section to
-CHANGELOG.md, and remove the old constraints file. `tests/test_release_check.py`
-fails until they all agree.
+run the suite again. Update the version in `pyproject.toml`, `CITATION.cff`,
+the README install line and the two `ARG CONSTRAINTS=` lines of
+`src/lasagna/deploy/Dockerfile` (the image installs the same versions), add a
+`## [<version>] - YYYY-MM-DD` section to CHANGELOG.md, and remove the old
+constraints file. `tests/test_release_check.py` and
+`tests/test_the_image_is_built_from_the_tested_versions.py` fail until they all
+agree.
