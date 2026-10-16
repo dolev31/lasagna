@@ -152,6 +152,14 @@ Results:
 
 Servers and deployment:
 
+- **Without the `celery` profile, uploads waited for a worker that never
+  ran.** Compose set `RAG_CELERY_ENABLED=true` whatever the profiles, and
+  with Redis reachable the api queued every upload. `make` now derives the
+  setting from `COMPOSE_PROFILES`, `make validate` refuses `true` without the
+  profile, and the api queues an upload only when a worker answers on the
+  broker, otherwise processing it in its own threads and logging why. GC is
+  scheduled inside the api in the same case; it was left to a Beat that was
+  not running.
 - **Orphan repair deleted the vectors of documents it should keep.** Detection
   counted only `ready` rows, so a document still uploading, processing or
   indexing, one in `error` and an archived one were vector-only orphans, and a

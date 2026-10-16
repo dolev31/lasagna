@@ -26,6 +26,13 @@ export
 # Assemble compose files: base + backend fragment
 FILES := -f docker-compose.yml -f backends/$(VECTOR_BACKEND).yml
 
+# The api queues uploads for Celery only when the celery profile runs a worker.
+# Unset, RAG_CELERY_ENABLED follows COMPOSE_PROFILES; `make validate` refuses
+# true without the profile. (Started without make, the api checks for a worker
+# itself and processes uploads in its own threads when none answers.)
+comma := ,
+RAG_CELERY_ENABLED ?= $(if $(filter celery,$(subst $(comma), ,$(COMPOSE_PROFILES))),true,false)
+
 .PHONY: up down down-v build logs ps health validate help shell test stress-test stress-test-all
 
 up: validate  ## Start the stack
@@ -59,7 +66,14 @@ validate:  ## Validate configuration
 		*,celery,*|*,mcp,*) echo "ERROR: VECTOR_BACKEND=milvus-lite runs inside the api process, so the celery and mcp profiles cannot reach it (COMPOSE_PROFILES=$(COMPOSE_PROFILES)). Set COMPOSE_PROFILES= (MCP is then served by the api at /mcp/sse), or use a server backend such as VECTOR_BACKEND=milvus."; exit 1;; \
 		esac; \
 	fi
-	@echo "Config OK: VECTOR_BACKEND=$(VECTOR_BACKEND) COMPOSE_PROFILES=$(COMPOSE_PROFILES)"
+	@case "$$(printf '%s' '$(RAG_CELERY_ENABLED)' | tr '[:upper:]' '[:lower:]')" in \
+	1|true|yes|on) \
+		case ",$$(printf '%s' '$(COMPOSE_PROFILES)' | tr -d ' ')," in \
+		*,celery,*) ;; \
+		*) echo "ERROR: RAG_CELERY_ENABLED=$(RAG_CELERY_ENABLED) queues uploads for a Celery worker, but COMPOSE_PROFILES=$(COMPOSE_PROFILES) starts none. Add celery to COMPOSE_PROFILES, or remove RAG_CELERY_ENABLED from .env so it follows the profile."; exit 1;; \
+		esac;; \
+	esac
+	@echo "Config OK: VECTOR_BACKEND=$(VECTOR_BACKEND) COMPOSE_PROFILES=$(COMPOSE_PROFILES) RAG_CELERY_ENABLED=$(RAG_CELERY_ENABLED)"
 
 shell:  ## Open a shell in the API container
 	docker compose $(FILES) exec api bash

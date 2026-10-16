@@ -112,11 +112,15 @@ make up VECTOR_BACKEND=milvus-lite COMPOSE_PROFILES=
 | `mcp` | `mcp` | Standalone MCP server over SSE, port `MCP_PORT` (8005); see [MCP service](#mcp-service) |
 | `jaeger` | `tracing` | Trace UI on 16686, OTLP gRPC on 4317 |
 
-Without the `celery` profile, also set `RAG_CELERY_ENABLED=false` in `.env`.
-`docker-compose.yml` defaults it to `true`, and with Redis reachable the api then queues
-each upload for a worker that is not running. With it off, the api processes uploads in
-up to `RAG_MAX_CONCURRENT_UPLOADS` (5) threads of its own. The milvus-lite fragment sets
-this for you. Without the `mcp` profile no MCP server runs, except with milvus-lite.
+`RAG_CELERY_ENABLED` follows the `celery` profile: `make` sets it to `true` when
+`COMPOSE_PROFILES` includes `celery` and to `false` otherwise, and `make validate` refuses
+`RAG_CELERY_ENABLED=true` without the profile. Started with `docker compose` directly, it
+defaults to `true`; the api then queues an upload only when a Celery worker answers a ping
+on the broker (checked at most every 30 seconds), and otherwise logs `RAG_CELERY_ENABLED is
+true but no Celery worker answered ...` once and processes uploads in up to
+`RAG_MAX_CONCURRENT_UPLOADS` (5) threads of its own, as it does with the setting off.
+GC is scheduled the same way: by Celery Beat when a worker answers, by a scheduler inside
+the api otherwise. Without the `mcp` profile no MCP server runs, except with milvus-lite.
 
 ### Shared uploads volume
 
@@ -134,7 +138,7 @@ this volume with the others.
 | Target | What it does |
 | --- | --- |
 | `make up` | `make validate`, then `docker compose <files> up -d` |
-| `make validate` | Stops with an error when `VECTOR_BACKEND` is unset; when `backends/<VECTOR_BACKEND>.yml` does not exist (it lists the ones that do); when `RAG_JWT_SECRET` or `POSTGRES_PASSWORD` is empty; and when `VECTOR_BACKEND=milvus-lite` is combined with `celery` or `mcp` in `COMPOSE_PROFILES`. Otherwise prints `Config OK`. It checks that the secrets are set, not how long they are |
+| `make validate` | Stops with an error when `VECTOR_BACKEND` is unset; when `backends/<VECTOR_BACKEND>.yml` does not exist (it lists the ones that do); when `RAG_JWT_SECRET` or `POSTGRES_PASSWORD` is empty; when `VECTOR_BACKEND=milvus-lite` is combined with `celery` or `mcp` in `COMPOSE_PROFILES`; and when `RAG_CELERY_ENABLED` is true without `celery` in `COMPOSE_PROFILES`. Otherwise prints `Config OK`. It checks that the secrets are set, not how long they are |
 | `make down` | Stop the stack, keep the volumes |
 | `make down-v` | Stop the stack and delete its volumes (documents, metadata, uploads) |
 | `make build` | Rebuild the image |
@@ -406,7 +410,7 @@ switches on this page that are not settings are read only by the name shown:
 | --- | --- | --- | --- |
 | `RAG_DATABASE_BACKEND` | `sqlite` | `postgresql` | `postgresql` |
 | `RAG_CACHE_BACKEND` | `memory` | `redis` | `redis` |
-| `RAG_CELERY_ENABLED` | `false` | `true` | `true` |
+| `RAG_CELERY_ENABLED` | `false` | follows the `celery` profile under `make`, else `true` | `true` |
 | `RAG_CONNECTION_POOL_SIZE` (vector store) | `1` | `10` | `10` |
 | `RAG_EMBEDDING_MODEL` | `BAAI/bge-m3` | `BAAI/bge-m3` | `BAAI/bge-large-en-v1.5` |
 | `RAG_RERANKER_MODEL` | `mixedbread-ai/mxbai-rerank-large-v1` | same | same |
