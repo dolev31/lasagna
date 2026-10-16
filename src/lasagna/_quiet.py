@@ -2,12 +2,13 @@
 
 :func:`quiet_third_party_output` sets environment defaults, for the ``lasagna``
 and ``lasagna-mcp`` commands only: a library must not change its host's process
-environment, so importing ``lasagna`` never calls it. The other two helpers
-are what the library path uses instead, and touch no environment variable.
+environment, so importing ``lasagna`` never calls it. The other helpers are
+what the library path uses instead, and touch no environment variable.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import contextmanager
 from typing import Iterator
@@ -55,6 +56,34 @@ def tqdm_without_process_lock() -> None:
         return
     if not hasattr(TqdmDefaultWriteLock, "mp_lock"):
         TqdmDefaultWriteLock.mp_lock = None
+
+
+#: Where torch logs the note, and how the note begins (torch 2.14 ends it "in
+#: MacOs.", older releases "in Windows or MacOs.").
+_TORCH_REDIRECTS_LOGGER = "torch.distributed.elastic.multiprocessing.redirects"
+_TORCH_REDIRECTS_NOTE = "NOTE: Redirects are currently not supported in "
+
+
+class _DropTorchRedirectsNote(logging.Filter):
+    """Drops torch's redirects note; every other record of that logger passes."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not record.getMessage().startswith(_TORCH_REDIRECTS_NOTE)
+
+
+def hide_torch_redirects_note() -> None:
+    """Keep torch's "Redirects are currently not supported" note off stderr.
+
+    transformers 5.20 imports torch's distributed checkpointing, which imports
+    torchelastic's output redirection, and on macOS that module logs the note
+    as it loads: torchelastic cannot redirect a worker's output there. Lasagna
+    starts no torchelastic worker, and the README quickstart printed the note
+    on every run. The filter sits on that one logger and matches that one
+    message, so any other warning torch logs still shows.
+    """
+    log = logging.getLogger(_TORCH_REDIRECTS_LOGGER)
+    if not any(isinstance(f, _DropTorchRedirectsNote) for f in log.filters):
+        log.addFilter(_DropTorchRedirectsNote())
 
 
 @contextmanager

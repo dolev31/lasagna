@@ -611,6 +611,11 @@ First run:
   tracker while Milvus Lite's gRPC runs. Lasagna keeps tqdm on its thread lock,
   and hides the weight-loading bar for a cached model and the encoding bar for
   a few batches, without setting any environment variable.
+- On macOS with transformers 5.20 or later (what an install from PyPI gets),
+  every command and the quickstart printed torch's "NOTE: Redirects are
+  currently not supported in MacOs." It concerns torchelastic workers, which
+  Lasagna never starts. Importing `lasagna` drops that one message from that
+  one torch logger; other torch warnings still show.
 
 Requests to current models:
 
