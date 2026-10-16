@@ -446,6 +446,7 @@ class SearchOrchestrator:
                 n_variations=n_queries,
                 trace_id=trace_id,
                 _reranker_override=_reranker_override,
+                _retriever_override=_retriever_override,
                 _enhancer_override=_enhancer_override,
                 _embedder_override=_embedder_override,
                 _from_routing=True,
@@ -1683,6 +1684,7 @@ class SearchOrchestrator:
                 _from_fusion=True,
                 _from_routing=True,
                 _reranker_override=_reranker_override,
+                _retriever_override=_retriever_override,
                 _enhancer_override=_enhancer_override,
                 _embedder_override=_embedder_override,
                 query_config_overrides=query_config_overrides,
@@ -1724,6 +1726,7 @@ class SearchOrchestrator:
                 _from_fusion=True,
                 _from_routing=True,
                 _reranker_override=_reranker_override,
+                _retriever_override=_retriever_override,
                 _enhancer_override=_enhancer_override,
                 _embedder_override=_embedder_override,
                 query_config_overrides=query_config_overrides,
@@ -1739,6 +1742,7 @@ class SearchOrchestrator:
             backend.backend_name == "opensearch"
             and hasattr(backend, "multi_hybrid_search")
             and len(all_queries) > 1
+            and _retriever_override is None
         ):
             try:
                 return self._search_multi_query_msearch(
@@ -1783,6 +1787,10 @@ class SearchOrchestrator:
                     _from_fusion=True,
                     _from_routing=True,
                     _reranker_override=_reranker_override,
+                    # The arm's retriever: without it each variation searched
+                    # the store's dense index, and a retriever arm with query
+                    # expansion measured dense search under its name.
+                    _retriever_override=_retriever_override,
                     _enhancer_override=_enhancer_override,
                     _embedder_override=_embedder_override,
                     # Without these each variation searched under the session

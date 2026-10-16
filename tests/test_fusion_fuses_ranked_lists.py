@@ -4,7 +4,9 @@ With context reordering on, every variation's search came back reordered
 (even ranks first, odd ranks reversed at the end), and reciprocal rank fusion
 read those positions as ranks: a variation's second-best passage counted as its
 last. The fused list was then never reordered, so the setting did not do what
-it says either.
+it says either. Separately, the variations ignored the arm's retriever and
+searched the store's dense index, so a retriever arm with query expansion
+measured dense search under its own name.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ import numpy as np
 import pytest
 
 from lasagna.api import _search_orchestrator as orch_mod
-from lasagna.core.base_components import BaseQueryEnhancer
+from lasagna.core.base_components import BaseQueryEnhancer, BaseRetriever, ScoredDocument
 from lasagna.core.config import rag_config
 from lasagna.core.strict import lost_in_the_middle, present_context_order
 
@@ -45,6 +47,18 @@ CONFIG = dict(
 class _Variant(BaseQueryEnhancer):
     def enhance(self, query, **kwargs):
         return ["variant"]
+
+
+class _Retriever(BaseRetriever):
+    def __init__(self):
+        self.queries = []
+
+    def retrieve(self, query, collection, top_k=5, **kwargs):
+        self.queries.append(query)
+        return [
+            ScoredDocument(content=d, score=1.0 - i / 10, document_id=d, chunk_id=d)
+            for i, d in enumerate(RANKING[query])
+        ]
 
 
 class _Store:
@@ -120,3 +134,17 @@ def test_a_caller_that_presents_the_passages_gets_the_ranked_fused_list(orchestr
         out = orchestrator.search("q", "s", top_k=6, query_config_overrides=CONFIG)
     assert _ids(out) == _fused()
     assert presented.reorder is True
+
+
+def test_each_variation_uses_the_arms_retriever(orchestrator):
+    def _never(**kw):
+        raise AssertionError("a variation searched the store instead of the arm's retriever")
+
+    orchestrator._default_backend.search = _never
+    retriever = _Retriever()
+    config = {**CONFIG, "enable_context_reordering": False}
+    out = orchestrator.search(
+        "q", "s", top_k=6, query_config_overrides=config, _retriever_override=retriever
+    )
+    assert sorted(retriever.queries) == ["q", "variant"]
+    assert _ids(out) == _fused()

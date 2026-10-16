@@ -276,6 +276,9 @@ Metric definitions and results (`METRICS_VERSION` 1.6):
   best. The judge sees the same five in ranked order. Query fusion
   (`enable_rag_fusion`, `enable_query_expansion`) fuses each variation's ranked
   list and reorders the fused list; it read reordered positions as ranks.
+- A retriever arm with query fusion or expansion searches every variation with
+  its own retriever. The variations searched the store's dense index, so the
+  arm measured dense search under the retriever's name.
 - An answer counts as an abstention only when it opens with one, so a hedge
   later in the answer no longer zeroes exact match and token F1. Answers are
   normalized in the official SQuAD order.
