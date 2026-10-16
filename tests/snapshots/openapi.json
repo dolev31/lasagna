@@ -3474,7 +3474,7 @@
     },
     "/api/v1/admin/gc/orphans": {
       "get": {
-        "description": "Detect orphaned data between the metadata DB and vector store.\n\nReturns a consistency report with:\n- ``db_only``: Documents in the DB but missing from the vector store\n  (likely a failed ingestion).\n- ``vec_only``: Chunks in the vector store with no DB record\n  (likely a leaked vector after a hard-delete failure).\n- ``scan_limited``: True if the vector scan hit ``vector_scan_limit`` and\n  results may be incomplete.\n\nThis endpoint is **read-only**: it does not modify any data.\nPass the report to ``POST /admin/gc/repair`` to fix the issues.",
+        "description": "Detect orphaned data between the metadata DB and vector store.\n\nReturns a consistency report with:\n- ``db_only``: Documents in the DB but missing from the vector store\n  (likely a failed ingestion).\n- ``vec_only``: Chunks in the vector store with no DB record\n  (likely a leaked vector after a hard-delete failure).\n- ``scan_limited``: True if the vector scan hit ``vector_scan_limit``.\n- ``incomplete``/``incomplete_reason``: the vector scan failed or hit the\n  limit, so no orphans are reported (a document the scan did not reach is\n  not missing) and repair refuses to run.\n\nThis endpoint is **read-only**: it does not modify any data.\nPass the report to ``POST /admin/gc/repair`` to fix the issues.",
         "operationId": "detect_orphans_api_v1_admin_gc_orphans_get",
         "parameters": [
           {
@@ -3808,7 +3808,7 @@
     },
     "/api/v1/admin/gc/repair": {
       "post": {
-        "description": "Detect and repair orphaned data.\n\nFirst runs orphan detection, then repairs found orphans.\n\nArgs:\n    dry_run: When ``true`` (default), returns the repair plan without\n        making any changes.  Set to ``false`` to apply repairs.",
+        "description": "Detect and repair orphaned data.\n\nFirst runs orphan detection, then repairs found orphans. When the vector\nscan failed or hit its limit nothing is changed, and ``aborted`` and\n``abort_reason`` say why.\n\nArgs:\n    dry_run: When ``true`` (default), returns the repair plan without\n        making any changes.  Set to ``false`` to apply repairs.",
         "operationId": "repair_orphans_api_v1_admin_gc_repair_post",
         "parameters": [
           {
@@ -5459,7 +5459,7 @@
     },
     "/api/v1/documents/batch": {
       "post": {
-        "description": "Upload multiple documents in a single request.\n\nFiles are processed concurrently up to the configured\n``max_concurrent_uploads`` limit.  Each file goes through the same\npipeline as the single-upload endpoint (text extraction, chunking,\nembedding, vector indexing).\n\nA batch may hold at most ``RAG_MAX_BATCH_FILES`` files (default 20) and\n``RAG_MAX_BATCH_BYTES`` in total (default 200 MiB, refused with 413 before\nthe body is read).",
+        "description": "Upload multiple documents in a single request.\n\nFiles are processed concurrently up to the configured\n``max_concurrent_uploads`` limit.  Each file goes through the same\npipeline as the single-upload endpoint (text extraction, chunking,\nembedding, vector indexing). Without Celery, a file that finds every\nprocessing thread busy waits for one to free up (at most\n``processing_timeout`` seconds), so a batch larger than the pool is\nprocessed in full; the response returns once every file is accepted.\n\nA batch may hold at most ``RAG_MAX_BATCH_FILES`` files (default 20) and\n``RAG_MAX_BATCH_BYTES`` in total (default 200 MiB, refused with 413 before\nthe body is read).",
         "operationId": "upload_documents_batch_api_v1_documents_batch_post",
         "parameters": [
           {

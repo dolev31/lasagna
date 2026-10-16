@@ -17,6 +17,7 @@ import os
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain_core.language_models.chat_models import BaseChatModel
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 from lasagna.providers.llm_provider import SimpleLLMProvider
 
@@ -608,7 +609,7 @@ class LLMManager:
             base_url = self._get_base_url(model_settings, platform)
 
             logger.debug(
-                f"Creating new model: {platform}/{model_name} (api_version={api_version}, base_url={base_url})"
+                f"Creating new model: {platform}/{model_name} (api_version={api_version}, base_url={redact_url(base_url)})"
             )
             model = self._create_llm_instance(model_settings)
 

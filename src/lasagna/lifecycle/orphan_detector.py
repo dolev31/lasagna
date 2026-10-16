@@ -144,6 +144,11 @@ class OrphanDetector:
         except TypeError:
             db_ids = set(self._db.list_all_active_document_ids(session_id))
 
+        # A scan that failed or stopped at the limit says nothing about the
+        # documents it did not reach: compared with it, each of them would look
+        # like a document with no vectors, and repair would archive it. Such a
+        # report names the reason and lists no orphans.
+        incomplete_reason: Optional[str] = None
         try:
             vec_ids = set(
                 self._backend.list_document_ids(
@@ -153,18 +158,25 @@ class OrphanDetector:
                 )
             )
         except Exception as exc:
-            logger.warning(f"OrphanDetector: vector backend scan failed: {exc}")
             vec_ids = set()
+            incomplete_reason = f"the vector store scan failed: {exc}"
 
         scan_limited = len(vec_ids) >= vector_scan_limit
         if scan_limited:
-            logger.warning(
-                f"OrphanDetector: vector scan hit limit ({vector_scan_limit:,} docs). "
-                "Results may be incomplete. Increase vector_scan_limit or scope by session_id."
+            incomplete_reason = (
+                f"the vector scan stopped at vector_scan_limit ({vector_scan_limit:,} "
+                "documents); scope the scan by session_id or raise the limit"
             )
 
-        db_only = self._recorded_in(db_ids - vec_ids, collection_name)
-        vector_only = self._unowned(vec_ids - db_ids)
+        if incomplete_reason is None:
+            db_only = self._recorded_in(db_ids - vec_ids, collection_name)
+            vector_only = self._unowned(vec_ids - db_ids)
+        else:
+            logger.warning(
+                f"OrphanDetector: no orphans reported for '{collection_name}' because "
+                f"{incomplete_reason}"
+            )
+            db_only = vector_only = set()
 
         orphans = [
             OrphanRecord(document_id=doc_id, in_db=True, in_vector=False)
@@ -183,13 +195,14 @@ class OrphanDetector:
             scan_limited=scan_limited,
             vector_scan_limit=vector_scan_limit,
             estimated_unscanned=(len(db_ids) - vector_scan_limit) if scan_limited else None,
+            incomplete_reason=incomplete_reason,
         )
 
         if report.is_consistent:
             logger.info(
                 f"OrphanDetector: consistent; {len(db_ids)} DB docs, {len(vec_ids)} vec docs"
             )
-        else:
+        elif not report.incomplete:
             logger.warning(
                 f"OrphanDetector: {report.db_only_count} db-only orphans, "
                 f"{report.vector_only_count} vector-only orphans"
@@ -211,6 +224,9 @@ class OrphanDetector:
           admin a chance to review first).
         - **vector-only**: the chunks are deleted from the vector backend.
 
+        An incomplete report (the vector scan failed or stopped at the limit)
+        is refused: nothing changes, and ``aborted``/``abort_reason`` say why.
+
         Args:
             report: Consistency report from ``detect()``.
             collection_name: Vector collection name (for vector-only deletes).
@@ -220,6 +236,12 @@ class OrphanDetector:
             ``RepairReport`` with counts of repaired items.
         """
         result = RepairReport(dry_run=dry_run)
+        if report.incomplete:
+            result.aborted = True
+            reason = report.incomplete_reason or "the vector scan stopped at vector_scan_limit"
+            result.abort_reason = f"nothing was repaired because {reason}"
+            logger.warning(f"Orphan repair: {result.abort_reason}")
+            return result
         # The report may be older than the records: a document saved since
         # then owns its vectors, so ownership is read again before deleting.
         vector_only = {o.document_id for o in report.orphans if o.kind == "vector_only"}

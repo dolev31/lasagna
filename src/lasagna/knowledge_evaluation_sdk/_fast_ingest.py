@@ -576,8 +576,8 @@ async def fast_ingest_corpus(
         (total_chunks_inserted, ingested_doc_ids, error_doc_ids)
     """
     # --- Setup (once, before threads) ---
-    backend._collection_manager.maybe_reload_embedding_manager(config)
-    embedding_manager = backend._collection_manager.embedding_manager
+    # This config's embedder, held locally (tasks can ingest concurrently).
+    embedding_manager = backend._collection_manager.embedder_for(config)
 
     resolved_backend = backend._collection_manager.resolve_backend(session_id)
 

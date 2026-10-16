@@ -5,6 +5,7 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - secrets.yaml
+  - pvc-uploads.yaml
   - deployment-api.yaml
   - deployment-celery.yaml
   - service.yaml

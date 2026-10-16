@@ -164,7 +164,10 @@ MCP_README = REPO / "src" / "lasagna" / "mcp" / "README.md"
 
 
 def _registered_mcp_tools() -> set:
-    tools = set(re.findall(r"@mcp\.tool\(\)\s*(?:async\s+)?def (\w+)", MCP_SERVER.read_text()))
+    # A tool may carry decorators of its own below @mcp.tool() (search does).
+    tools = set(
+        re.findall(r"@mcp\.tool\(\)\s*(?:@\w+\s*)*(?:async\s+)?def (\w+)", MCP_SERVER.read_text())
+    )
     assert tools, "no MCP tools found — the parse is wrong, not the docs"
     return tools
 

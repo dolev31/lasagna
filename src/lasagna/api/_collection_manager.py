@@ -6,7 +6,7 @@ schema migration, index management, and embedding model reload.
 
 import time
 import threading
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
@@ -20,11 +20,12 @@ from lasagna.core.config import (
 from lasagna.core.schema import (
     create_abstract_rag_schema,
 )
+from ..vector_backends.registry import milvus_connection_args
 from ..vector_backends import (
     get_backend,
     VectorStoreAdapter,
 )
-from ..infrastructure.embedding import get_embedding_manager, EmbeddingManager
+from ..infrastructure.embedding import EmbeddingManager
 
 
 class CollectionIdentityError(ValueError):
@@ -348,8 +349,16 @@ class CollectionManager:
         self._checked_collections().pop(collection_key, None)
         self.ensure_backend_collection(backend, config)
 
-    def ensure_backend_collection(self, backend: VectorStoreAdapter, config: RAGConfig) -> None:
+    def ensure_backend_collection(
+        self,
+        backend: VectorStoreAdapter,
+        config: RAGConfig,
+        embedder: Optional[EmbeddingManager] = None,
+    ) -> None:
         """Ensure collection exists and is indexed on the given backend.
+
+        A missing collection is created at ``embedder``'s size, or at the
+        size ``config`` declares when no embedder is given.
 
         Thread-safe, idempotent, and fully backend-agnostic.
         Uses bounded LRU tracking to prevent unbounded memory growth.
@@ -363,7 +372,7 @@ class CollectionManager:
                 return
 
             if not backend.has_collection(collection_name):
-                embedding_dim = self.embedding_manager.dimension
+                embedding_dim = embedder.dimension if embedder else _effective_dim(config)
                 logger.info(
                     f"Creating collection '{collection_name}' on {backend.backend_name} "
                     f"(dim={embedding_dim})"
@@ -609,34 +618,37 @@ class CollectionManager:
         """
         return collection_is_empty(backend or self._default_backend, collection_name)
 
-    def maybe_reload_embedding_manager(self, config: RAGConfig) -> None:
-        """Make the embedder current for ``config``, after checking its collection.
+    def embedder_for(self, config: RAGConfig) -> EmbeddingManager:
+        """The embedder for ``config``, after checking its collection.
 
         A collection holds the vectors of one model at one size. Opening it
         with another model or size is refused with the ways out; nothing is
         dropped unless it is empty. The collection is created when missing, so
         a session's first upload under a new profile simply starts one.
+
+        The embedder is returned, never stored: requests for sessions on
+        different models run at the same time, and a shared attribute set here
+        and read back later could hand one session the other's model, writing
+        its vectors into the wrong collection. Each model is loaded once per
+        process and kept (``shared_embedding_manager``), so sessions taking
+        turns do not reload it.
         """
+        from ..infrastructure.embedding import manager as embedding_managers
+
         self.adopt_legacy_collection(config)
         self.check_collection_identity(config)
-
-        from ..infrastructure.embedding.manager import _config_signature
-
-        if getattr(self.embedding_manager, "signature", None) != _config_signature(config):
-            logger.info(
-                "Reloading embedding manager for config change: "
-                f"model={self.embedding_manager.model_name} -> {config.embedding_model}"
-            )
-            from ..infrastructure.embedding import reset_embedding_manager
-            from ..retrieval.search import reset_reranker
-
-            reset_embedding_manager()
-            self.embedding_manager = get_embedding_manager(config)
-
-            reset_reranker()
-
+        embedder = embedding_managers.shared_embedding_manager(config)
         if self._uses_default_backend(config):
-            self.ensure_backend_collection(self._default_backend, config)
+            self.ensure_backend_collection(self._default_backend, config, embedder=embedder)
+        return embedder
+
+    def maybe_reload_embedding_manager(self, config: RAGConfig) -> None:
+        """Set ``embedding_manager`` to the embedder for ``config``.
+
+        For callers that read the attribute afterwards, one configuration at a
+        time. A request handler uses :meth:`embedder_for` and keeps the result.
+        """
+        self.embedding_manager = self.embedder_for(config)
 
     # =========================================================================
     # Collection Identity
@@ -828,50 +840,6 @@ class CollectionManager:
         else:
             logger.info(f"Initializing vector backend: {backend_name}")
             return get_backend(backend_name, **backend_cfg)
-
-
-def milvus_connection_args(
-    backend_cfg: Dict[str, Any],
-    default_db_path: Callable[[], str],
-    environ: Optional[Mapping[str, str]] = None,
-) -> Tuple[Dict[str, Any], str]:
-    """The ``MilvusBackend`` arguments for the startup backend, and a log line.
-
-    A server address wins over the default local file: ``uri`` in
-    ``vector_backend_config`` (``LASAGNA_VECTOR_BACKEND_CONFIG``), else the
-    ``MILVUS_URI`` environment variable, with ``token`` or ``MILVUS_TOKEN``.
-    Without one, ``db_path`` from ``vector_backend_config`` opens Milvus Lite
-    there, and otherwise at ``default_db_path()``. A ``db_path`` set together
-    with a server address is refused: it used to win silently, so the compose
-    stack configured for a Milvus server wrote to a file inside the container.
-    """
-    import os
-    from lasagna.core.config import ConfigError
-    from lasagna.core.provenance import redact_url
-
-    env = os.environ if environ is None else environ
-    rest = {k: v for k, v in backend_cfg.items() if k not in ("uri", "token", "db_path")}
-    db_path = backend_cfg.get("db_path") or None
-    if backend_cfg.get("uri"):
-        uri, source = backend_cfg["uri"], "vector_backend_config"
-    else:
-        uri, source = env.get("MILVUS_URI") or None, "MILVUS_URI"
-
-    if uri and db_path:
-        raise ConfigError(
-            f'Milvus has two stores configured: "db_path" {db_path!r} in vector_backend_config '
-            f"(a Milvus Lite file) and the server {redact_url(uri)} from {source}. Keep one: "
-            f'remove "db_path" from LASAGNA_VECTOR_BACKEND_CONFIG to use the server, or remove '
-            f'"uri" from it and unset MILVUS_URI to use the file.'
-        )
-    if uri:
-        token = backend_cfg.get("token") or env.get("MILVUS_TOKEN") or None
-        kwargs = {**rest, "uri": uri, **({"token": token} if token else {})}
-        return kwargs, f"Milvus server at {redact_url(uri)} (from {source})"
-    if db_path:
-        return {**rest, "db_path": db_path}, f"Milvus Lite at {db_path}"
-    path = default_db_path()
-    return {**rest, "db_path": path}, f"Milvus Lite at {path}"
 
 
 def legacy_collections(backend: VectorStoreAdapter) -> List[Dict[str, Any]]:

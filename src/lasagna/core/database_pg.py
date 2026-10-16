@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 # ---------------------------------------------------------------------------
 # Driver import with fallback
@@ -204,6 +205,14 @@ CREATE TABLE IF NOT EXISTS collection_meta (
 );
 """
 
+# A counter per session, bumped on every upload and delete (see database.py).
+_CREATE_CONTENT_GENERATIONS = """
+CREATE TABLE IF NOT EXISTS content_generations (
+    session_id TEXT PRIMARY KEY,
+    generation BIGINT NOT NULL DEFAULT 0
+);
+"""
+
 _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_documents_session_id ON rag_documents(session_id);",
     "CREATE INDEX IF NOT EXISTS idx_documents_status ON rag_documents(status);",
@@ -307,9 +316,7 @@ class PostgresRAGDatabase:
             self._setup_pool()
             self._create_schema()
             self._initialized = True
-            logger.info(
-                f"PostgreSQL RAG database initialized: {self._dsn.split('@')[-1] if '@' in self._dsn else '(local)'}"
-            )
+            logger.info(f"PostgreSQL RAG database initialized: {redact_url(self._dsn)}")
 
     def _setup_pool(self):
         if _psycopg is not None:
@@ -365,6 +372,7 @@ class PostgresRAGDatabase:
                 cur.execute(_CREATE_QUOTAS)
                 cur.execute(_CREATE_GC_AUDIT_LOG)
                 cur.execute(_CREATE_GC_LOCK)
+                cur.execute(_CREATE_CONTENT_GENERATIONS)
                 for idx_sql in _CREATE_INDEXES:
                     cur.execute(idx_sql)
                 # Add storage_backend_name column if missing (v3->v4 migration)
@@ -1457,6 +1465,36 @@ class PostgresRAGDatabase:
                 )
             conn.commit()
         return True
+
+    # ------------------------------------------------------------------
+    # Content generations (mirrors RAGDatabase; created with the schema)
+    # ------------------------------------------------------------------
+
+    def get_content_generation(self, session_id: str) -> int:
+        """How many times the session's documents have changed; 0 before the first."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT generation FROM content_generations WHERE session_id = %s",
+                    (session_id,),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return int(row[0]) if row else 0
+
+    def bump_content_generation(self, session_id: str) -> int:
+        """Record a change to the session's documents and return the new generation."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO content_generations (session_id, generation) VALUES (%s, 1) "
+                    "ON CONFLICT (session_id) DO UPDATE "
+                    "SET generation = content_generations.generation + 1 RETURNING generation",
+                    (session_id,),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return int(row[0])
 
     # ------------------------------------------------------------------
     # Collection identity (mirrors RAGDatabase; created on first use)

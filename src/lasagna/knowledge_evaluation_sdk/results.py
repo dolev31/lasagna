@@ -1609,10 +1609,13 @@ class BenchmarkResults:
             "experiment_config": self.experiment_config,
             "results": [r.to_dict() for r in self._results],
         }
+        from .checkpoint import write_json_atomic
+
         out = Path(path)
         out.parent.mkdir(parents=True, exist_ok=True)
-        with open(out, "w") as f:
-            json.dump(data, f, indent=2, default=str)
+        # Atomic: written in place, a crash or a full disk left a truncated file
+        # where the last good results had been.
+        write_json_atomic(out, data, indent=2, default=str)
         logger.info(f"Results saved to {out}")
 
     @classmethod

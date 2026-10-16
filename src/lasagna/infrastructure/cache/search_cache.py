@@ -38,6 +38,20 @@ class CachedSearchResult:
     query_hash: str = ""
     session_id: str = ""
     query_text: str = ""  # Original query for targeted invalidation
+    # The session's content generation the search started from: an entry made
+    # before another process uploaded or deleted a document is not served.
+    generation: Optional[int] = None
+
+
+_UNSEEN = object()
+
+
+def _content_generation(session_id: str) -> Optional[int]:
+    if not session_id:
+        return None
+    from lasagna.core.database import content_generation
+
+    return content_generation(session_id)
 
 
 class SearchCache:
@@ -70,6 +84,10 @@ class SearchCache:
         # Track session -> keys mapping for efficient invalidation
         # This enables O(1) session invalidation instead of iterating all entries
         self._session_keys: Dict[str, set] = {}
+
+        # key -> the content generation a missed lookup read, for the put that
+        # follows it (see `get`).
+        self._started_at: Dict[str, Optional[int]] = {}
 
         # Statistics
         self._hits = 0
@@ -186,21 +204,33 @@ class SearchCache:
             enable_mmr,
             component_fingerprint,
         )
+        # Each process has its own cache, and invalidate_session reaches only
+        # the process that ran the upload or delete: the other API workers kept
+        # serving a deleted document for the whole TTL. The session's content
+        # generation (bumped by every upload and delete) tells them.
+        generation = _content_generation(session_id)
 
         with self._lock:
             self._maybe_cleanup()
 
-            if key not in self._cache:
-                self._misses += 1
-                return None
-
-            entry = self._cache[key]
-
-            # Check expiration
-            if time.time() > entry.expires_at:
+            entry = self._cache.get(key)
+            if entry is not None and time.time() > entry.expires_at:
                 del self._cache[key]
-                self._misses += 1
                 self._expirations += 1
+                entry = None
+            elif (
+                entry is not None
+                and entry.generation is not None
+                and generation is not None
+                and entry.generation != generation
+            ):
+                del self._cache[key]
+                entry = None
+            if entry is None:
+                self._misses += 1
+                if len(self._started_at) >= 2 * self.max_size:
+                    self._started_at.clear()
+                self._started_at[key] = generation
                 return None
 
             # Move to end (LRU) and update hit count
@@ -264,6 +294,13 @@ class SearchCache:
         now = time.time()
 
         with self._lock:
+            # The generation the search read when its lookup missed: read now,
+            # a change made while it ran would be stamped on its stale result.
+            generation = self._started_at.pop(key, _UNSEEN)
+        if generation is _UNSEEN:
+            generation = _content_generation(session_id)
+
+        with self._lock:
             # Evict if at capacity
             while len(self._cache) >= self.max_size:
                 evicted_key, evicted_entry = self._cache.popitem(last=False)
@@ -283,6 +320,7 @@ class SearchCache:
                 query_hash=key,
                 session_id=session_id,
                 query_text=query,
+                generation=generation,
             )
 
             # Track session -> keys mapping for efficient invalidation

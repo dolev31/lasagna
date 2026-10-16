@@ -224,6 +224,8 @@ class MilvusBackend(VectorStoreAdapter):
         self._loaded_collections: set = set()
         # Whether each collection has a scalar session_id field (see session_filter).
         self._session_column: Dict[str, bool] = {}
+        # Whether each collection has the sparse field native hybrid search reads.
+        self._native_hybrid: Dict[str, bool] = {}
 
     # =========================================================================
     # Capability Detection
@@ -271,6 +273,27 @@ class MilvusBackend(VectorStoreAdapter):
             )
 
         return self._capabilities
+
+    def collection_supports_native_hybrid(self, collection_name: str) -> bool:
+        """Whether native hybrid search can run on this collection.
+
+        A Milvus server can run it, but only on a collection with the
+        ``sparse_embedding`` field ``hybrid_search`` reads, and the schema
+        Lasagna creates has none: every hybrid search tried it, failed and was
+        reported degraded. Read once per collection; a failed read is not kept.
+        """
+        if not self.capabilities.supports_hybrid_search:
+            return False
+        found = self._native_hybrid.get(collection_name)
+        if found is None:
+            try:
+                fields = self.describe_fields(collection_name)
+            except Exception as e:
+                logger.debug(f"Could not read the fields of {collection_name}: {e}")
+                return False
+            found = any(f.get("name") == "sparse_embedding" for f in fields)
+            self._native_hybrid[collection_name] = found
+        return found
 
     @property
     def backend_name(self) -> str:
@@ -403,6 +426,7 @@ class MilvusBackend(VectorStoreAdapter):
         """Create a new collection."""
         client = self._ensure_connected()
         self._session_column.pop(collection_name, None)
+        self._native_hybrid.pop(collection_name, None)
 
         # Convert our schema to Milvus schema
         milvus_schema = self._to_milvus_schema(schema)
@@ -442,6 +466,7 @@ class MilvusBackend(VectorStoreAdapter):
         client.drop_collection(collection_name)
         self._loaded_collections.discard(collection_name)
         self._session_column.pop(collection_name, None)
+        self._native_hybrid.pop(collection_name, None)
         logger.info(f"Dropped Milvus collection: {collection_name}")
 
     def _describe(self, collection_name: str):

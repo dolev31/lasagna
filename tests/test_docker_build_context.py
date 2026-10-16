@@ -10,6 +10,8 @@ noticed. These need no Docker.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 import yaml
 
@@ -33,10 +35,17 @@ class TestBuildContext:
 
     def test_everything_the_dockerfile_copies_is_in_the_context(self):
         context, dockerfile = self._context()
-        sources = []
+        sources, args = [], {}
         for line in (context / dockerfile).read_text().splitlines():
+            if line.startswith("ARG ") and "=" in line:
+                name, _, default = line[4:].partition("=")
+                args[name.strip()] = default.strip().strip('"')
             if line.startswith("COPY ") and "--from=" not in line:
-                sources += line.split()[1:-1]
+                # As Docker reads it: ${NAME} is the ARG's default.
+                sources += [
+                    re.sub(r"\$\{(\w+)\}", lambda m: args.get(m[1], m[0]), word)
+                    for word in line.split()[1:-1]
+                ]
         assert sources, "no COPY lines found"
         missing = [s for s in sources if not (context / s).exists()]
         assert not missing, f"COPY sources absent from the build context: {missing}"

@@ -21,6 +21,7 @@ import time
 from typing import Optional, Dict, Any, List
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 
 class MCPKnowledgeClient:
@@ -115,7 +116,7 @@ class MCPKnowledgeClient:
                 self._connected = True
                 self._consecutive_failures = 0
                 self._last_health_check = time.monotonic()
-                logger.info(f"MCPKnowledgeClient connected to {self._url}")
+                logger.info(f"MCPKnowledgeClient connected to {redact_url(self._url)}")
             except ImportError as e:
                 raise ImportError(
                     "fastmcp package is required for MCP client. Install with: pip install fastmcp"

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from ..processing.document_processor import DocumentProcessor
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 from lasagna.core.config import rag_config, RAGConfig
 from lasagna.core.schema import (
@@ -128,6 +129,7 @@ class DocumentPipeline:
         _chunker_override: Any = None,
         _document_processor_override: Any = None,
         refuse_when_busy: bool = False,
+        wait_when_busy: float = 0.0,
     ) -> Document:
         """Upload a document and run it through extraction, chunking and indexing.
 
@@ -151,11 +153,9 @@ class DocumentPipeline:
         file_size_for_quota = os.path.getsize(file_path) if os.path.exists(file_path) else 0
         quota_mgr.check_upload(session_id, file_size_bytes=file_size_for_quota)
 
-        self.use_embedder_for(config)
+        embedder = self.use_embedder_for(config)
         logger.debug(
-            "Document load using embedding model: "
-            f"{self.embedding_manager.model_name} "
-            f"(dim={self.embedding_manager.dimension})"
+            f"Document load using embedding model: {embedder.model_name} (dim={embedder.dimension})"
         )
 
         if not os.path.exists(file_path):
@@ -229,6 +229,7 @@ class DocumentPipeline:
                 reservation_id=reservation_id,
                 reserved_file_size=file_size_for_quota,
                 refuse_when_busy=refuse_when_busy,
+                wait_when_busy=wait_when_busy,
             )
         except ProcessingAtCapacity:
             # Refused before any processing: leave nothing behind, so the
@@ -334,7 +335,7 @@ class DocumentPipeline:
         with open(source_path, "rb") as f:
             info = self.storage.store(f, document_id, safe_filename)
 
-        logger.info(f"File stored: {info.uri}")
+        logger.info(f"File stored: {redact_url(info.uri)}")
         return info.uri
 
     def _save_document_metadata(
@@ -386,16 +387,21 @@ class DocumentPipeline:
     # Processing
     # =========================================================================
 
-    def use_embedder_for(self, config: RAGConfig) -> None:
-        """Make the embedder, and the collection it writes to, current for ``config``.
+    def use_embedder_for(self, config: RAGConfig) -> EmbeddingManager:
+        """The embedder for ``config``, with the collection it writes to ready.
 
-        The upload route does this before it stores a file. The process that
-        indexes the file may be another one (the Celery worker), so the task
-        does it again there: without it the worker embedded with whatever
-        model it had loaded and wrote to a collection nobody had created.
+        The upload route checks this before it stores a file, and
+        ``process_document`` resolves it again where it indexes, which may be
+        another process (the Celery worker): there the worker had embedded with
+        whatever model it had loaded and written to a collection nobody had
+        created.
+
+        The embedder is returned, not stored on the pipeline, which every
+        request shares: two sessions on different models uploading at once
+        each read the other's model from the shared attribute, and one
+        collection received the other model's vectors.
         """
-        self._collection_manager.maybe_reload_embedding_manager(config)
-        self.embedding_manager = self._collection_manager.embedding_manager
+        return self._collection_manager.embedder_for(config)
 
     def process_document(
         self,
@@ -414,6 +420,7 @@ class DocumentPipeline:
         start_time = _time.monotonic()
         logger.info(f"Processing document: {document.document_id}")
         config = config or rag_config
+        embedder = self.use_embedder_for(config)
 
         # Ensure we have a local path for processors (Docling, OCR, etc.)
         # For local storage this is zero-copy; for cloud storage it downloads to temp.
@@ -484,7 +491,7 @@ class DocumentPipeline:
                         document_id=document.document_id,
                         session_id=document.session_id,
                         filename=document.filename,
-                        embedding_manager=self.embedding_manager,
+                        embedding_manager=embedder,
                         config=config,
                         return_parents=True,
                         chunker=_chunker_override,
@@ -499,7 +506,7 @@ class DocumentPipeline:
                         document_id=document.document_id,
                         session_id=document.session_id,
                         filename=document.filename,
-                        embedding_manager=self.embedding_manager,
+                        embedding_manager=embedder,
                         config=config,
                         chunker=_chunker_override,
                     )
@@ -571,7 +578,7 @@ class DocumentPipeline:
                 for idx, extraction in enumerate(extractions):
                     chunk_id = f"{document.document_id}_chunk_{idx}"
                     for entity in extraction.get("entities", []):
-                        entity_emb = self.embedding_manager.encode_document(entity["name"])
+                        entity_emb = embedder.encode_document(entity["name"])
                         graph_store.add_entity(
                             entity_id=entity["name"],
                             entity_type=entity.get("type", "UNKNOWN"),
@@ -603,14 +610,12 @@ class DocumentPipeline:
                 f"Using late chunking for document {document.document_id} "
                 f"({len(text)} chars, {len(chunk_texts)} chunks)"
             )
-            embeddings = self.embedding_manager.encode_documents_late_chunking(
+            embeddings = embedder.encode_documents_late_chunking(
                 full_text=text,
                 chunk_texts=_original_chunk_texts,
             )
         else:
-            embeddings = self.embedding_manager.encode_documents_batch(
-                chunk_texts, show_progress=True
-            )
+            embeddings = embedder.encode_documents_batch(chunk_texts, show_progress=True)
 
         # RAPTOR: build recursive summary tree and add summary nodes as extra chunks
         if getattr(config, "enable_raptor", False):
@@ -620,7 +625,7 @@ class DocumentPipeline:
 
                 llm = SimpleLLMProvider().get_llm(temperature=0)
                 builder = RaptorTreeBuilder(
-                    embedding_manager=self.embedding_manager,
+                    embedding_manager=embedder,
                     llm_provider=llm,
                     max_cluster_size=getattr(config, "raptor_max_cluster_size", 10),
                     max_levels=getattr(config, "raptor_max_levels", 5),
@@ -664,8 +669,8 @@ class DocumentPipeline:
             try:
                 from ..vector_backends.opensearch_backend import _neural_sparse_enabled
 
-                if _neural_sparse_enabled() and hasattr(self.embedding_manager, "encode_sparse"):
-                    sparse_result = self.embedding_manager.encode_sparse(chunk_texts)
+                if _neural_sparse_enabled() and hasattr(embedder, "encode_sparse"):
+                    sparse_result = embedder.encode_sparse(chunk_texts)
                     if sparse_result is not None:
                         sparse_tokens_list = sparse_result
                         logger.debug(f"Generated sparse tokens for {len(chunk_texts)} chunks")
@@ -718,7 +723,10 @@ class DocumentPipeline:
                 batch_data.append(insert_doc)
                 chunks_for_bm25.append(
                     {
-                        "chunk_id": idx,
+                        # The stored id, which dense hits carry: indexed by its
+                        # position, the chunk never fused with its dense hit and,
+                        # once the index read the store, was in it twice.
+                        "chunk_id": chunk_id,
                         "document_id": document.document_id,
                         "content": content,
                         "metadata": metadata,
@@ -817,6 +825,7 @@ class DocumentPipeline:
         # Index for BM25 hybrid search
         if config.enable_hybrid_search:
             self.hybrid_searcher.index_chunks(chunks_for_bm25, document.session_id, build_now=False)
+        self._record_content_change(document.session_id, indexed_here=config.enable_hybrid_search)
 
         # Store parent chunks in SQLite for auto-merge retrieval
         if parent_chunks_data:
@@ -1050,6 +1059,27 @@ class DocumentPipeline:
             storage_backend_name=row.get("storage_backend_name", "local"),
         )
 
+    def _record_content_change(self, session_id: str, *, indexed_here: bool) -> None:
+        """Bump the session's content generation after its chunks changed.
+
+        Every process keeps its own BM25 index; the others rebuild theirs when
+        they see the generation move. ``indexed_here``: this process's index
+        already has the change, so it is not rebuilt for it.
+        """
+        from lasagna.core.database import get_rag_database
+
+        try:
+            bump = getattr(get_rag_database(), "bump_content_generation", None)
+            generation = bump(session_id) if bump is not None else None
+        except Exception as e:
+            logger.warning(
+                f"Could not record the change to session {session_id[:8]}'s documents: {e}. "
+                "Other API or worker processes keep their keyword index until the next change."
+            )
+            return
+        if indexed_here:
+            self.hybrid_searcher.note_local_change(session_id, generation)
+
     def delete_document(
         self, document_id: str, session_id: str, *, keep_file: bool = False
     ) -> bool:
@@ -1102,6 +1132,7 @@ class DocumentPipeline:
         # Remove from BM25 fallback index
         if rag_config.enable_hybrid_search:
             self.hybrid_searcher.remove_document(document_id, session_id)
+        self._record_content_change(session_id, indexed_here=rag_config.enable_hybrid_search)
 
         # Clean up parent chunks from SQLite
         parent_deleted = rag_db.delete_parent_chunks_by_document(document_id)

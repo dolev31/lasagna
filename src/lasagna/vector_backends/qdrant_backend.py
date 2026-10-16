@@ -22,6 +22,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Union
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 from .base import (
     BackendCapabilities,
@@ -176,7 +177,7 @@ class QdrantBackend(VectorStoreAdapter):
                 self._client = QdrantClient(path=self._path)
             elif self._url:
                 # URL-based connection
-                logger.info(f"Connecting to Qdrant: {self._url}")
+                logger.info(f"Connecting to Qdrant: {redact_url(self._url)}")
                 self._client = QdrantClient(
                     url=self._url,
                     api_key=self._api_key,

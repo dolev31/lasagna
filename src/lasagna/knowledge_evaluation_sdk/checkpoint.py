@@ -19,6 +19,45 @@ from typing import Any, Dict, List, Optional, Set
 from loguru import logger
 
 
+def _fsync_dir(directory: Path) -> None:
+    """Flush a directory entry to disk, where the platform allows it (POSIX)."""
+    try:
+        fd = os.open(str(directory), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def write_json_atomic(path: Path, data: Any, **dump_kwargs: Any) -> None:
+    """Write ``data`` as JSON to ``path``: afterwards it holds the old file or the new one.
+
+    A temporary file in the same directory is written, flushed and fsynced,
+    then renamed over ``path``, and the directory is fsynced so the rename
+    survives a power cut too. Written in place, a crash or a full disk left a
+    truncated file under the final name; renamed before the data reached the
+    disk, it could leave an empty one.
+    """
+    path = Path(path)
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+    )
+    try:
+        with tmp:
+            json.dump(data, tmp, **dump_kwargs)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp.name, path)
+    except BaseException:
+        Path(tmp.name).unlink(missing_ok=True)
+        raise
+    _fsync_dir(path.parent)
+
+
 class CheckpointManager:
     """Manages checkpoints for a single experiment run.
 
@@ -60,20 +99,9 @@ class CheckpointManager:
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "result": result,
         }
-        # Atomic write: temp file + rename. The data reaches the disk before
-        # the rename: renamed first, a crash could leave an empty checkpoint
-        # under the final name, which --resume then read as a finished task.
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=self._dir,
-            suffix=".tmp",
-            delete=False,
-        ) as tmp:
-            json.dump(data, tmp, default=str)
-            tmp.flush()
-            os.fsync(tmp.fileno())
-            tmp_path = Path(tmp.name)
-        tmp_path.rename(path)
+        # Atomic: an empty or half-written checkpoint under the final name
+        # would be read by --resume as a finished task.
+        write_json_atomic(path, data, default=str)
         logger.debug(f"Checkpoint saved: {task_key}")
 
     def load(self, task_key: str) -> Optional[Dict[str, Any]]:

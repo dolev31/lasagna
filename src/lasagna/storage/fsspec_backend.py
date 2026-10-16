@@ -50,6 +50,7 @@ import io
 from typing import Any, BinaryIO, Dict, Optional
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 from .base import (
     StorageBackend,
@@ -180,7 +181,7 @@ class FsspecStorageBackend(StorageBackend):
             size = 0
 
         uri = self._to_uri(path)
-        logger.info(f"File stored via fsspec: {uri}")
+        logger.info(f"File stored via fsspec: {redact_url(uri)}")
         return StorageFileInfo(
             uri=uri,
             size=size,

@@ -134,10 +134,10 @@ def _process_document_impl(
         if doc is None:
             raise ValueError(f"Document {document_id} not found in database")
 
-        # Get session-scoped config
+        # Get session-scoped config. This may be another process than the one
+        # that took the upload; process_document embeds with this config's
+        # model and makes its collection ready.
         config = backend.get_session_config(session_id)
-        # This may be another process than the one that took the upload.
-        backend._document_pipeline.use_embedder_for(config)
 
         # Run the full processing pipeline
         backend._document_pipeline.process_document(doc, file_path, config=config)
@@ -351,6 +351,11 @@ if shared_task is not None:
 
             backend = get_rag_backend()
             report = backend.detect_orphans()
+            if report.incomplete:
+                logger.warning(
+                    f"Orphan scan incomplete, nothing repaired: {report.incomplete_reason}"
+                )
+                return {"dry_run": dry_run, "incomplete": report.incomplete_reason}
             db_only_count = report.db_only_count
             vec_only_count = report.vector_only_count
             total = db_only_count + vec_only_count
@@ -577,6 +582,7 @@ def dispatch_processing(
     reservation_id: str = "",
     reserved_file_size: int = 0,
     refuse_when_busy: bool = False,
+    wait_when_busy: float = 0.0,
 ) -> bool:
     """Dispatch document processing to a background worker.
 
@@ -598,6 +604,9 @@ def dispatch_processing(
         reserved_file_size: File size that was reserved (for rollback on failure).
         refuse_when_busy: Raise `ProcessingAtCapacity` instead of returning
             ``False`` when the thread pool is full.
+        wait_when_busy: Seconds to wait for a thread to free up when the pool
+            is full, then raise `ProcessingAtCapacity`. A batch upload waits,
+            so it is processed in full by the pool's threads; 0 does not wait.
 
     Returns:
         ``True`` if the task was dispatched (Celery or thread pool),
@@ -642,7 +651,15 @@ def dispatch_processing(
     max_workers = getattr(rag_config, "max_concurrent_uploads", 5)
     semaphore = _get_doc_semaphore(max_workers)
 
-    if not semaphore.acquire(blocking=False):
+    if not semaphore.acquire(blocking=False) and not (
+        wait_when_busy > 0 and semaphore.acquire(timeout=wait_when_busy)
+    ):
+        if wait_when_busy > 0:
+            raise ProcessingAtCapacity(
+                f"All {max_workers} document-processing threads stayed busy for "
+                f"{wait_when_busy:.0f} s, so this file was not accepted. Send it again, "
+                f"or raise RAG_MAX_CONCURRENT_UPLOADS."
+            )
         if refuse_when_busy:
             raise ProcessingAtCapacity(
                 f"All {max_workers} document-processing threads are busy, so the upload "

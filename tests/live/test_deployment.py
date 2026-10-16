@@ -195,8 +195,21 @@ def session_id():
 
 @pytest.fixture(scope="module")
 def session_headers(session_id):
-    """Return headers dict with X-Session-ID."""
+    """Return headers dict with X-Session-ID.
+
+    The module's shared session holds the two fixture documents with the
+    default settings, and nothing else. A test that changes settings or adds
+    documents uses ``own_session_headers``: pytest-randomly shuffles the order,
+    and a profile change or a stray document in the shared session changed what
+    every later search there returned.
+    """
     return {"X-Session-ID": session_id}
+
+
+@pytest.fixture
+def own_session_headers():
+    """Headers naming a session of this test's own."""
+    return {"X-Session-ID": f"test-deploy-{uuid.uuid4().hex[:8]}"}
 
 
 @pytest.fixture(scope="module")
@@ -347,10 +360,10 @@ class TestConfiguration:
         expected = {"speed", "standard", "balanced", "max_quality"}
         assert expected.issubset(profile_names), f"Missing profiles: {expected - profile_names}"
 
-    def test_apply_speed_profile(self, session_headers):
+    def test_apply_speed_profile(self, own_session_headers):
         resp = http.put(
             f"{BASE_URL}/config/profiles/speed",
-            headers=session_headers,
+            headers=own_session_headers,
             timeout=DEFAULT_TIMEOUT,
         )
         assert resp.status_code == 200
@@ -367,11 +380,11 @@ class TestConfiguration:
         )
         assert resp.status_code == 404
 
-    def test_patch_config(self, session_headers):
+    def test_patch_config(self, own_session_headers):
         resp = http.patch(
             f"{BASE_URL}/config",
             json={"similarity_threshold": 0.42, "default_top_k": 7},
-            headers=session_headers,
+            headers=own_session_headers,
             timeout=DEFAULT_TIMEOUT,
         )
         assert resp.status_code == 200
@@ -396,7 +409,7 @@ class TestDocumentUpload:
         assert uploaded_md_doc["filename"] == "machine_learning.md"
         assert uploaded_md_doc["chunks_count"] > 0
 
-    def test_upload_empty_file(self, session_headers, tmp_path_factory):
+    def test_upload_empty_file(self, own_session_headers, tmp_path_factory):
         tmp_dir = tmp_path_factory.mktemp("empty_file_test")
         empty_file = tmp_dir / "empty.txt"
         empty_file.write_text("", encoding="utf-8")
@@ -405,7 +418,7 @@ class TestDocumentUpload:
             resp = http.post(
                 f"{BASE_URL}/documents",
                 files={"file": ("empty.txt", f, "text/plain")},
-                headers=session_headers,
+                headers=own_session_headers,
                 timeout=UPLOAD_TIMEOUT,
             )
 
@@ -413,7 +426,7 @@ class TestDocumentUpload:
             # Cleanup
             http.delete(
                 f"{BASE_URL}/documents/{resp.json()['document_id']}",
-                headers=session_headers,
+                headers=own_session_headers,
                 timeout=DEFAULT_TIMEOUT,
             )
         else:
@@ -663,7 +676,7 @@ class TestSearch:
 class TestDocumentLifecycle:
     """Full upload → verify → search → delete → verify-gone lifecycle."""
 
-    def test_full_lifecycle(self, session_headers, tmp_path_factory):
+    def test_full_lifecycle(self, own_session_headers, tmp_path_factory):
         # Create a document with a unique term
         unique_term = f"xyzzy{uuid.uuid4().hex[:6]}"
         content = (
@@ -680,19 +693,19 @@ class TestDocumentLifecycle:
             resp = http.post(
                 f"{BASE_URL}/documents",
                 files={"file": ("lifecycle_doc.txt", f, "text/plain")},
-                headers=session_headers,
+                headers=own_session_headers,
                 timeout=UPLOAD_TIMEOUT,
             )
         assert resp.status_code == 201
         doc_id = resp.json()["document_id"]
 
         try:
-            _wait_for_document_ready(doc_id, session_headers)
+            _wait_for_document_ready(doc_id, own_session_headers)
 
             # Verify in list
             list_resp = http.get(
                 f"{BASE_URL}/documents",
-                headers=session_headers,
+                headers=own_session_headers,
                 timeout=DEFAULT_TIMEOUT,
             )
             assert doc_id in {d["document_id"] for d in list_resp.json()["documents"]}
@@ -706,7 +719,7 @@ class TestDocumentLifecycle:
                     "use_hyde": False,
                     "use_reranking": False,
                 },
-                headers=session_headers,
+                headers=own_session_headers,
                 timeout=SEARCH_TIMEOUT,
             )
             assert search_resp.status_code == 200
@@ -715,7 +728,7 @@ class TestDocumentLifecycle:
             # Delete
             del_resp = http.delete(
                 f"{BASE_URL}/documents/{doc_id}",
-                headers=session_headers,
+                headers=own_session_headers,
                 timeout=DEFAULT_TIMEOUT,
             )
             assert del_resp.status_code == 200
@@ -724,7 +737,7 @@ class TestDocumentLifecycle:
             # Verify gone from list
             list_resp2 = http.get(
                 f"{BASE_URL}/documents",
-                headers=session_headers,
+                headers=own_session_headers,
                 timeout=DEFAULT_TIMEOUT,
             )
             assert doc_id not in {d["document_id"] for d in list_resp2.json()["documents"]}
@@ -732,7 +745,7 @@ class TestDocumentLifecycle:
             # Verify GET returns 404
             get_resp = http.get(
                 f"{BASE_URL}/documents/{doc_id}",
-                headers=session_headers,
+                headers=own_session_headers,
                 timeout=DEFAULT_TIMEOUT,
             )
             assert get_resp.status_code == 404
@@ -747,7 +760,7 @@ class TestDocumentLifecycle:
                     "use_reranking": False,
                     "min_score": 0.3,
                 },
-                headers=session_headers,
+                headers=own_session_headers,
                 timeout=SEARCH_TIMEOUT,
             )
             assert search_resp2.status_code == 200
@@ -758,7 +771,7 @@ class TestDocumentLifecycle:
             # Safety cleanup
             http.delete(
                 f"{BASE_URL}/documents/{doc_id}",
-                headers=session_headers,
+                headers=own_session_headers,
                 timeout=DEFAULT_TIMEOUT,
             )
 
@@ -890,7 +903,7 @@ class TestFullStack:
     """
 
     def test_an_upload_is_processed_off_the_request_and_becomes_searchable(
-        self, session_headers, tmp_path_factory
+        self, own_session_headers, tmp_path_factory
     ):
         path = tmp_path_factory.mktemp("full_stack") / "tidal_locking.txt"
         path.write_text(
@@ -902,7 +915,7 @@ class TestFullStack:
             resp = http.post(
                 f"{BASE_URL}/documents",
                 files={"file": (path.name, f, "text/plain")},
-                headers=session_headers,
+                headers=own_session_headers,
                 timeout=UPLOAD_TIMEOUT,
             )
         assert resp.status_code == 201, resp.text
@@ -910,7 +923,7 @@ class TestFullStack:
         try:
             # Dispatched to a background worker, not processed in the request.
             assert doc["status"] == "processing", doc
-            _wait_for_document_ready(doc["document_id"], session_headers)
+            _wait_for_document_ready(doc["document_id"], own_session_headers)
             found = http.post(
                 f"{BASE_URL}/search",
                 json={
@@ -919,7 +932,7 @@ class TestFullStack:
                     "use_hyde": False,
                     "use_reranking": False,
                 },
-                headers=session_headers,
+                headers=own_session_headers,
                 timeout=SEARCH_TIMEOUT,
             )
             assert found.status_code == 200, found.text
@@ -928,9 +941,80 @@ class TestFullStack:
         finally:
             http.delete(
                 f"{BASE_URL}/documents/{doc['document_id']}",
-                headers=session_headers,
+                headers=own_session_headers,
                 timeout=DEFAULT_TIMEOUT,
             )
+
+    def test_a_batch_of_twenty_files_is_processed_in_full(
+        self, own_session_headers, tmp_path_factory
+    ):
+        """A batch may hold 20 files; without Celery the pool has 5 threads."""
+        folder = tmp_path_factory.mktemp("batch")
+        files = []
+        for i in range(20):
+            path = folder / f"note_{i}.txt"
+            path.write_text(f"Field note {i}: the heron count at pond {i} was {i * 3}.")
+            files.append(("files", (path.name, path.read_bytes(), "text/plain")))
+        resp = http.post(
+            f"{BASE_URL}/documents/batch",
+            files=files,
+            headers=own_session_headers,
+            timeout=UPLOAD_TIMEOUT * 4,
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        ids = [r["document_id"] for r in body["results"] if r["document_id"]]
+        try:
+            assert (body["succeeded"], body["failed"]) == (20, 0), body
+            for doc_id in ids:
+                _wait_for_document_ready(doc_id, own_session_headers)
+        finally:
+            for doc_id in ids:
+                http.delete(
+                    f"{BASE_URL}/documents/{doc_id}",
+                    headers=own_session_headers,
+                    timeout=DEFAULT_TIMEOUT,
+                )
+
+    def test_every_api_worker_follows_an_upload_and_a_delete(self, own_session_headers):
+        """Each search on a new connection, so the gunicorn workers take turns.
+
+        Each worker keeps its own keyword index. It was filled once per session,
+        so a worker that had searched the session before missed a document
+        processed elsewhere, and kept a deleted one.
+        """
+        term = f"quillwort{uuid.uuid4().hex[:6]}"
+        text = f"The {term} survey counted aquatic ferns in three alpine lakes."
+
+        def search():
+            fresh = _make_session()
+            reply = fresh.post(
+                f"{BASE_URL}/search",
+                json={"query": f"{term} survey", "top_k": 5, "use_hyde": False},
+                headers={**own_session_headers, "Connection": "close"},
+                timeout=SEARCH_TIMEOUT,
+            )
+            assert reply.status_code == 200, reply.text
+            return {r["document_id"] for r in reply.json()["results"]}
+
+        for _ in range(4):  # each worker reads the session before the upload
+            search()
+        resp = http.post(
+            f"{BASE_URL}/documents",
+            files={"file": ("ferns.txt", text.encode(), "text/plain")},
+            headers=own_session_headers,
+            timeout=UPLOAD_TIMEOUT,
+        )
+        assert resp.status_code == 201, resp.text
+        doc_id = resp.json()["document_id"]
+        _wait_for_document_ready(doc_id, own_session_headers)
+
+        assert all(doc_id in search() for _ in range(8))
+        deleted = http.delete(
+            f"{BASE_URL}/documents/{doc_id}", headers=own_session_headers, timeout=DEFAULT_TIMEOUT
+        )
+        assert deleted.status_code == 200, deleted.text
+        assert not any(doc_id in search() for _ in range(8))
 
     def test_the_mcp_server_is_healthy(self):
         try:

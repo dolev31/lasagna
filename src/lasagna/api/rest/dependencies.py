@@ -16,12 +16,9 @@ from fastapi import Header, HTTPException, Query, Request
 from loguru import logger
 
 from lasagna.api.rag_backend import RAGBackend, get_rag_backend
+from lasagna.core.config import env_flag
 
-_ALLOW_HEADER_IDENTITY = os.environ.get("RAG_ALLOW_HEADER_IDENTITY", "").lower() in (
-    "1",
-    "true",
-    "yes",
-)
+_ALLOW_HEADER_IDENTITY = env_flag("RAG_ALLOW_HEADER_IDENTITY")
 
 
 def get_backend() -> RAGBackend:

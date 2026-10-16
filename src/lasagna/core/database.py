@@ -1695,6 +1695,68 @@ class RAGDatabase:
             finally:
                 conn.close()
 
+    # =========================================================================
+    # CONTENT GENERATIONS (when a session's searchable chunks last changed)
+    # =========================================================================
+    #
+    # Each process keeps its own in-memory BM25 index of a session's chunks.
+    # Every upload and delete bumps the session's generation here, and a process
+    # whose index was built at another generation rebuilds it from the vector
+    # store. Created on first use, like collection_meta.
+
+    def _content_generation_conn(self):
+        conn = self._get_connection()
+        if not getattr(self, "_content_generation_ready", False):
+            conn.execute(CREATE_CONTENT_GENERATIONS_TABLE)
+            conn.commit()
+            self._content_generation_ready = True
+        return conn
+
+    def get_content_generation(self, session_id: str) -> int:
+        """How many times the session's documents have changed; 0 before the first."""
+        with self._lock:
+            conn = self._content_generation_conn()
+            try:
+                row = conn.execute(
+                    "SELECT generation FROM content_generations WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                return int(row[0]) if row else 0
+            finally:
+                conn.close()
+
+    def bump_content_generation(self, session_id: str) -> int:
+        """Record a change to the session's documents and return the new generation.
+
+        The increment and the read are one transaction, so two processes
+        bumping at once get different generations.
+        """
+        with self._lock:
+            conn = self._content_generation_conn()
+            try:
+                conn.execute(
+                    "INSERT INTO content_generations (session_id, generation) VALUES (?, 1) "
+                    "ON CONFLICT(session_id) DO UPDATE SET generation = generation + 1",
+                    (session_id,),
+                )
+                row = conn.execute(
+                    "SELECT generation FROM content_generations WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                conn.commit()
+                return int(row[0])
+            finally:
+                conn.close()
+
+
+#: One row per session: a counter bumped on every upload and delete, which tells
+#: each process whether its in-memory BM25 index of the session is current.
+CREATE_CONTENT_GENERATIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS content_generations (
+    session_id TEXT PRIMARY KEY,
+    generation INTEGER NOT NULL DEFAULT 0
+);
+"""
 
 #: One row per vector collection: the embedding model and size its vectors were
 #: made with, and the version that made it. Two models at the same size (bge-m3
@@ -1764,6 +1826,23 @@ def get_rag_database(db_path: Optional[str] = None):
                     _rag_database = RAGDatabase(db_path)
 
     return _rag_database
+
+
+def content_generation(session_id: str) -> Optional[int]:
+    """The session's content generation in the metadata database; None if unreadable.
+
+    Bumped on every upload and delete (``bump_content_generation``). A process
+    compares it with the one its in-memory state (the BM25 index, the search
+    cache) was built at, so a change made by another process is noticed. None
+    leaves that state as it is: a database that cannot be read must not empty
+    it on every search.
+    """
+    try:
+        read = getattr(get_rag_database(), "get_content_generation", None)
+        return None if read is None else int(read(session_id))
+    except Exception as e:
+        logger.debug(f"Could not read the content generation of session {session_id[:8]}: {e}")
+        return None
 
 
 def reset_rag_database():

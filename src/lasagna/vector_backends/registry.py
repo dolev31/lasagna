@@ -25,9 +25,10 @@ Usage:
 
 import os
 import threading
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, Type
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 from .base import VectorStoreAdapter
 
@@ -470,69 +471,89 @@ def _get_default_backend_name() -> str:
     return "milvus"
 
 
-def _get_default_milvus_config() -> Dict[str, Any]:
-    """Get default Milvus configuration.
+def milvus_connection_args(
+    backend_cfg: Dict[str, Any],
+    default_db_path: Callable[[], str],
+    environ: Optional[Mapping[str, str]] = None,
+) -> Tuple[Dict[str, Any], str]:
+    """The ``MilvusBackend`` arguments for the startup backend, and a log line.
 
-    Returns:
-        Dict with db_path or uri for MilvusBackend
-
-    This function ensures the database directory exists and returns
-    the appropriate configuration for Milvus Lite or Distributed.
-
-    Configuration priority:
-    1. Environment variables (MILVUS_URI, MILVUS_TOKEN)
-    2. Session config (if available)
-    3. Default DBS_DIR path
-    4. Fallback to current directory
+    A server address wins over the default local file: ``uri`` in
+    ``vector_backend_config`` (``LASAGNA_VECTOR_BACKEND_CONFIG``), else the
+    ``MILVUS_URI`` environment variable, with ``token`` or ``MILVUS_TOKEN``.
+    Without one, ``db_path`` from ``vector_backend_config`` opens Milvus Lite
+    there, and otherwise at ``default_db_path()``. A ``db_path`` set together
+    with a server address is refused: it used to win silently, so the compose
+    stack configured for a Milvus server wrote to a file inside the container.
     """
-    # Check environment variables first (highest priority)
-    # Use `or None` so empty strings from compose passthrough are ignored
-    uri = os.environ.get("MILVUS_URI") or None
-    if uri:
-        token = os.environ.get("MILVUS_TOKEN") or None
-        logger.debug(f"Using Milvus URI from environment: {uri}")
-        return {"uri": uri, "token": token}
+    from lasagna.core.config import ConfigError
 
-    # Try to get from session config
-    # NOTE: Import is deferred to avoid circular imports during initialization
-    # session_config -> vector_backends -> registry -> session_config would be circular
-    try:
-        # Use importlib to avoid module-level circular import
-        import importlib
+    env = os.environ if environ is None else environ
+    rest = {k: v for k, v in backend_cfg.items() if k not in ("uri", "token", "db_path")}
+    db_path = backend_cfg.get("db_path") or None
+    if backend_cfg.get("uri"):
+        uri, source = backend_cfg["uri"], "vector_backend_config"
+    else:
+        uri, source = env.get("MILVUS_URI") or None, "MILVUS_URI"
 
-        session_config_module = importlib.import_module("lasagna.session_config")
-        get_knowledge_config_manager = getattr(
-            session_config_module, "get_knowledge_config_manager"
+    if uri and db_path:
+        raise ConfigError(
+            f'Milvus has two stores configured: "db_path" {db_path!r} in vector_backend_config '
+            f"(a Milvus Lite file) and the server {redact_url(uri)} from {source}. Keep one: "
+            f'remove "db_path" from LASAGNA_VECTOR_BACKEND_CONFIG to use the server, or remove '
+            f'"uri" from it and unset MILVUS_URI to use the file.'
         )
-        manager = get_knowledge_config_manager()
-        backend_config = manager.get_vector_backend_config()
-        config = backend_config.get("vector_backend_config", {})
-        if config.get("uri"):
-            logger.debug(f"Using Milvus URI from session config: {config['uri']}")
-            return {"uri": config["uri"], "token": config.get("token")}
-        if config.get("db_path"):
-            db_path = config["db_path"]
-            _ensure_db_directory(db_path)
-            logger.debug(f"Using Milvus db_path from session config: {db_path}")
-            return {"db_path": db_path}
-    except Exception as e:
-        # This is expected during early initialization before session config is ready
-        logger.debug(f"Could not get session config (expected during init): {e}")
+    if uri:
+        token = backend_cfg.get("token") or env.get("MILVUS_TOKEN") or None
+        kwargs = {**rest, "uri": uri, **({"token": token} if token else {})}
+        return kwargs, f"Milvus server at {redact_url(uri)} (from {source})"
+    if db_path:
+        return {**rest, "db_path": db_path}, f"Milvus Lite at {db_path}"
+    path = default_db_path()
+    return {**rest, "db_path": path}, f"Milvus Lite at {path}"
 
-    # Use config provider's db_dir for Milvus Lite (default)
+
+def _process_backend_config() -> Dict[str, Any]:
+    """The process's ``vector_backend_config``: the environment or the settings file."""
+    try:
+        from ..core.config import rag_config
+
+        return dict(rag_config.vector_backend_config or {})
+    except Exception as e:  # early initialization: no configuration yet
+        logger.debug(f"Could not read vector_backend_config: {e}")
+        return {}
+
+
+def _default_lite_path() -> str:
+    """Milvus Lite's file in the data directory, or in the working directory without one."""
     try:
         from lasagna.providers import get_config_provider
 
         dbs_dir = str(get_config_provider().db_dir)
         os.makedirs(dbs_dir, exist_ok=True)
-        db_path = os.path.join(dbs_dir, "rag_milvus.db")
-        logger.debug(f"Using default Milvus Lite path: {db_path}")
-        return {"db_path": db_path}
-    except (RuntimeError, Exception):
-        # Fallback to current directory
+        return os.path.join(dbs_dir, "rag_milvus.db")
+    except Exception:
         db_path = os.path.abspath("milvus.db")
         logger.warning(f"db_dir not available, using fallback: {db_path}")
-        return {"db_path": db_path}
+        return db_path
+
+
+def _get_default_milvus_config() -> Dict[str, Any]:
+    """The ``MilvusBackend`` arguments for ``get_backend("milvus")`` with none given.
+
+    The same rule as the backend a server starts with (`milvus_connection_args`):
+    ``uri`` in ``vector_backend_config`` (``RAG_VECTOR_BACKEND_CONFIG`` or the
+    settings file), else ``MILVUS_URI``; without a server, Milvus Lite at that
+    config's ``db_path`` or in the data directory. It used to read the session
+    configuration through ``lasagna.session_config``, a module that no longer
+    exists, and the ImportError passed for "not ready yet": a configured server
+    was replaced by Milvus Lite.
+    """
+    kwargs, where = milvus_connection_args(_process_backend_config(), _default_lite_path)
+    if "db_path" in kwargs:
+        _ensure_db_directory(kwargs["db_path"])
+    logger.debug(f"Default Milvus backend: {where}")
+    return kwargs
 
 
 def _get_default_qdrant_config() -> Dict[str, Any]:
@@ -551,7 +572,7 @@ def _get_default_qdrant_config() -> Dict[str, Any]:
     url = os.environ.get("QDRANT_URL") or None
     if url:
         api_key = os.environ.get("QDRANT_API_KEY") or None
-        logger.debug(f"Using Qdrant URL from environment: {url}")
+        logger.debug(f"Using Qdrant URL from environment: {redact_url(url)}")
         return {"url": url, "api_key": api_key}
 
     # Use config provider's db_dir for local persistent storage
@@ -585,7 +606,7 @@ def _get_default_weaviate_config() -> Dict[str, Any]:
     url = os.environ.get("WEAVIATE_URL") or None
     if url:
         api_key = os.environ.get("WEAVIATE_API_KEY") or None
-        logger.debug(f"Using Weaviate URL from environment: {url}")
+        logger.debug(f"Using Weaviate URL from environment: {redact_url(url)}")
         return {"url": url, "api_key": api_key}
 
     # Default to embedded mode for zero-config local usage

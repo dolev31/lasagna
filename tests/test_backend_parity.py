@@ -629,3 +629,19 @@ class TestCitationCapEnforcement:
         assert len(remaining) == 5000, (
             f"Expected exactly 5000 citations after cap enforcement, got {len(remaining)}"
         )
+
+
+# =========================================================================
+# PARITY TEST: Content generations
+# =========================================================================
+
+
+class TestContentGenerations:
+    """The counter every process compares its BM25 index with."""
+
+    def test_a_session_starts_at_zero_and_each_bump_adds_one(self, backend):
+        session = f"gen_{uuid.uuid4().hex[:8]}"
+        assert backend.get_content_generation(session) == 0
+        assert [backend.bump_content_generation(session) for _ in range(3)] == [1, 2, 3]
+        assert backend.get_content_generation(session) == 3
+        assert backend.get_content_generation(f"{session}_other") == 0

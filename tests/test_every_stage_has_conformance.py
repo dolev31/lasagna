@@ -65,6 +65,21 @@ def _registered(stage):
 STAGES_THAT_LOAD_WEIGHTS = {"embedder"}
 
 
+def _construct(stage, name):
+    """``registry.get``, with a stand-in client for an embedder behind a hosted API.
+
+    The openai, cohere and voyage embedders build their API client in the
+    constructor, which needs the provider's package and key; neither is a
+    property of the component. They take a ``client`` for exactly this, so
+    they are still constructed and checked here. The CI step that runs these
+    tests (``-m needs_embedding_weights``) has neither, and failed on all three.
+    """
+    cls = registry.get_class(stage, name)
+    if getattr(cls, "key_vars", None):
+        return registry.get(stage, name, client=object())
+    return registry.get(stage, name)
+
+
 def _constructing(stages):
     """Parametrize ``stages`` for a test that constructs every component.
 
@@ -140,7 +155,7 @@ class TestEveryStageWithComponentsIsExercised:
         failures = []
         for name in _registered(stage):
             try:
-                registry.get(stage, name)
+                _construct(stage, name)
             except Exception as exc:  # noqa: BLE001 - reporting, not handling
                 failures.append(f"{name}: {type(exc).__name__}: {exc}")
         assert not failures, f"{stage} components that cannot be resolved:\n  " + "\n  ".join(
@@ -234,7 +249,7 @@ class TestTheContractFlagTellsTheTruth:
                 continue
             name = entry["name"]
             try:
-                component = registry.get(stage, name)
+                component = _construct(stage, name)
             except Exception as exc:  # noqa: BLE001
                 liars.append(f"{name}: cannot be constructed ({type(exc).__name__}: {exc})")
                 continue

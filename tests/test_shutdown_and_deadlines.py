@@ -144,8 +144,7 @@ class TestAFullPool:
             max_file_size=10_000, supported_extensions=["txt"]
         )
         p._collection_manager = SimpleNamespace(
-            maybe_reload_embedding_manager=lambda c: None,
-            embedding_manager=SimpleNamespace(model_name="m", dimension=8),
+            embedder_for=lambda c: SimpleNamespace(model_name="m", dimension=8),
             resolve_backend=lambda sid: SimpleNamespace(backend_name="milvus"),
         )
         p.document_processor = SimpleNamespace(detect_file_type=lambda path: "txt")

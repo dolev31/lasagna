@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 __all__ = [
     "LicenseInfo",
@@ -197,7 +198,7 @@ def warn_if_restricted(model_name: str, *, component: str = "model") -> None:
             logger.warning(
                 f"LICENSE: {component} '{model_name}' is licensed {info.spdx} -- "
                 f"research and evaluation only, NOT for commercial use. "
-                f"{info.note} See {info.url}"
+                f"{info.note} See {redact_url(info.url)}"
             )
         else:
             logger.debug(f"{component} '{model_name}' licensed {info.spdx}")

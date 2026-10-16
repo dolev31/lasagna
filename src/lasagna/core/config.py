@@ -126,6 +126,21 @@ TRUTHY = frozenset({"1", "true", "yes", "on"})
 FALSY = frozenset({"0", "false", "no", "off"})
 
 
+def env_flag(name: str, default: bool = False) -> bool:
+    """An on/off environment variable, read the way every Lasagna switch is.
+
+    ``TRUTHY`` and ``FALSY``, any case and surrounding space; unset or anything
+    else is ``default``. Each module had its own set: ``yes`` and ``1`` turned
+    ``OPENSEARCH_VERIFY_CERTS`` off, and ``on`` was ignored by most switches.
+    """
+    value = os.environ.get(name, "").strip().lower()
+    if value in TRUTHY:
+        return True
+    if value in FALSY:
+        return False
+    return default
+
+
 class ConfigError(ValueError):
     """A setting has a value it cannot take. The message names it and the fix."""
 
@@ -173,42 +188,300 @@ _PROPERTY_ONLY_SETTINGS: Dict[str, Any] = {
     "refinement_model": "",
 }
 
+#: Environment variables that are not settings: what the servers, the MCP
+#: server and the vector stores read. Name -> (group, default, description,
+#: older names). ``scripts/gen_settings_doc.py`` writes them into
+#: docs/reference/settings.md, and their ``RAG_`` names make up
+#: ``NON_SETTING_ENV``, so a variable the package starts reading is listed here
+#: or ``tests/test_config_fail_fast.py`` fails.
+SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
+    "RAG_REQUIRE_AUTH": (
+        "REST API and authentication",
+        "false",
+        "When true, only a verified X-Session-Token names a session, and POST "
+        "/api/v1/sessions needs an X-API-Key. When false, binding beyond loopback is "
+        "refused at startup unless RAG_BIND_IS_PROTECTED is set.",
+        (),
+    ),
+    "RAG_API_KEYS": (
+        "REST API and authentication",
+        "unset",
+        "Comma-separated keys, each at least 32 characters, that may mint session tokens "
+        "when RAG_REQUIRE_AUTH is on. Rate limits are counted per key; storage quotas per "
+        "session.",
+        (),
+    ),
+    "RAG_JWT_SECRET": (
+        "REST API and authentication",
+        "a random secret per process",
+        "Signs session tokens (HMAC-SHA256). Unset, tokens stop working when the process "
+        "restarts; with RAG_REQUIRE_AUTH on, an unset, placeholder or shorter-than-32-"
+        "character secret stops the server at startup.",
+        (),
+    ),
+    "RAG_SESSION_TOKEN_TTL_SECONDS": (
+        "REST API and authentication",
+        "604800",
+        "How long a session token is valid, in seconds (7 days).",
+        (),
+    ),
+    "RAG_ADMIN_TOKEN": (
+        "REST API and authentication",
+        "unset",
+        "The X-Admin-Token for /api/v1/admin/* and for naming a session in POST "
+        "/api/v1/sessions. Unset, a placeholder or shorter than 32 characters: the admin "
+        "routes answer 503.",
+        (),
+    ),
+    "RAG_ALLOW_ANONYMOUS_SESSION": (
+        "REST API and authentication",
+        "false",
+        "With RAG_REQUIRE_AUTH on, keep the anonymous default session usable.",
+        (),
+    ),
+    "RAG_BIND_IS_PROTECTED": (
+        "REST API and authentication",
+        "false",
+        "Says that something outside the process (a loopback port mapping, a "
+        "NetworkPolicy, a firewall) restricts access, so the server may bind beyond "
+        "loopback with auth off.",
+        (),
+    ),
+    "RAG_ALLOW_HEADER_IDENTITY": (
+        "REST API and authentication",
+        "false",
+        "Accept the X-User-ID header as the user identity; otherwise it is refused with 401.",
+        (),
+    ),
+    "RAG_CORS_ORIGINS": (
+        "REST API and authentication",
+        "empty",
+        "Comma-separated origins allowed cross-origin requests (REST and MCP over HTTP). "
+        "Empty allows none; * is refused at startup when RAG_REQUIRE_AUTH is on.",
+        (),
+    ),
+    "RAG_FORWARDED_ALLOW_IPS": (
+        "REST API and authentication",
+        "127.0.0.1",
+        "Proxy addresses whose X-Forwarded-For is trusted. The image reads gunicorn's "
+        "FORWARDED_ALLOW_IPS first.",
+        (),
+    ),
+    "RAG_MAX_BATCH_FILES": (
+        "REST API and authentication",
+        "20",
+        "Files in one POST /api/v1/documents/batch; more is refused with 400.",
+        (),
+    ),
+    "RAG_MAX_BATCH_BYTES": (
+        "REST API and authentication",
+        "209715200",
+        "Total body of one batch upload (200 MiB); more is refused with 413 before the "
+        "body is read.",
+        (),
+    ),
+    "RAG_SEARCH_TIMEOUT": (
+        "REST API and authentication",
+        "120",
+        "Seconds a REST search may run before it answers 504.",
+        (),
+    ),
+    "RAG_EMBED_MCP": (
+        "REST API and authentication",
+        "false",
+        "Mount the MCP server at /mcp inside the REST process, for single-process "
+        "deployments such as Milvus Lite.",
+        (),
+    ),
+    "RAG_CONFIGURATOR": (
+        "REST API and authentication",
+        "false",
+        "Mount the configurator UI at /configurator, with its API routes.",
+        (),
+    ),
+    "LASAGNA_LOG_FORMAT": (
+        "REST API and authentication",
+        "text",
+        "json writes one JSON object per log line; text shows a request's id before the "
+        "message. Any other value stops the server at startup.",
+        (),
+    ),
+    "PROMETHEUS_MULTIPROC_DIR": (
+        "REST API and authentication",
+        "unset",
+        "The directory gunicorn workers share for Prometheus metrics (set in the image).",
+        (),
+    ),
+    "LASAGNA_MCP_TOOLS": (
+        "MCP server",
+        "safe",
+        "safe leaves out the six tools that delete data or reset configuration; all "
+        "serves every tool. The same as lasagna-mcp --tools.",
+        (),
+    ),
+    "LASAGNA_ENABLE_DOCS_API": (
+        "MCP server",
+        "false",
+        "Turn on the /api/call tool tester, which calls any tool without "
+        "authentication. For development only.",
+        (),
+    ),
+    "RAG_SESSION_ID": (
+        "MCP server",
+        "unset",
+        "The session a tool call uses when it names none.",
+        (),
+    ),
+    "RAG_MCP_UPLOAD_ROOT": (
+        "MCP server",
+        "unset",
+        "The directory a networked MCP server may ingest server-side files from; unset, "
+        "it reads none.",
+        (),
+    ),
+    "RAG_ALLOWED_HOSTS": (
+        "MCP server",
+        "unset",
+        "Extra Host values (host or host:*) a loopback HTTP surface accepts, "
+        "comma-separated, such as a container's service name.",
+        (),
+    ),
+    "MILVUS_URI": (
+        "Vector store connections",
+        "unset",
+        "A Milvus server's address, used when vector_backend_config has no uri. Without "
+        "one the milvus backend opens Milvus Lite in the data directory.",
+        (),
+    ),
+    "MILVUS_TOKEN": ("Vector store connections", "unset", "The token for MILVUS_URI.", ()),
+    "QDRANT_URL": (
+        "Vector store connections",
+        "unset",
+        "A Qdrant server's address; without one the qdrant backend stores its data in "
+        "the data directory.",
+        (),
+    ),
+    "QDRANT_API_KEY": ("Vector store connections", "unset", "The API key for QDRANT_URL.", ()),
+    "WEAVIATE_URL": ("Vector store connections", "unset", "A Weaviate server's address.", ()),
+    "WEAVIATE_API_KEY": (
+        "Vector store connections",
+        "unset",
+        "The API key for WEAVIATE_URL.",
+        (),
+    ),
+    "PINECONE_API_KEY": (
+        "Vector store connections",
+        "unset",
+        "The Pinecone API key the pinecone backend needs.",
+        (),
+    ),
+    "PGVECTOR_DSN": (
+        "Vector store connections",
+        "postgresql://rag:rag@localhost:5432/rag",
+        "The PostgreSQL DSN of the pgvector backend; RAG_DATABASE_DSN is used when it is unset.",
+        (),
+    ),
+    "OPENSEARCH_HOSTS": (
+        "Vector store connections",
+        "http://localhost:9200",
+        "Comma-separated OpenSearch hosts, with OPENSEARCH_USER and OPENSEARCH_PASSWORD.",
+        (),
+    ),
+    "OPENSEARCH_USE_SSL": (
+        "Vector store connections",
+        "false",
+        "Connect to OpenSearch over SSL.",
+        (),
+    ),
+    "OPENSEARCH_VERIFY_CERTS": (
+        "Vector store connections",
+        "false",
+        "Verify the OpenSearch server's certificate.",
+        (),
+    ),
+    "OPENSEARCH_TIMEOUT": (
+        "Vector store connections",
+        "30",
+        "Seconds an OpenSearch request may take.",
+        (),
+    ),
+    "OPENSEARCH_ENABLE_NEURAL_SPARSE": (
+        "Vector store connections",
+        "false",
+        "Add neural sparse vectors to OpenSearch hybrid search (dense, sparse and BM25).",
+        (),
+    ),
+    "LASAGNA_DATA_DIR": (
+        "Paths and the process",
+        "~/.lasagna",
+        "Where Lasagna keeps its data.",
+        ("RAG_DATA_DIR",),
+    ),
+    "LASAGNA_DB_DIR": (
+        "Paths and the process",
+        "<data dir>/dbs",
+        "The databases and the local vector stores.",
+        ("RAG_DB_DIR",),
+    ),
+    "LASAGNA_UPLOAD_DIR": (
+        "Paths and the process",
+        "<data dir>/uploads",
+        "Stored uploads.",
+        ("RAG_UPLOAD_DIR",),
+    ),
+    "LASAGNA_SETTINGS_FILE": (
+        "Paths and the process",
+        "the packaged settings.lasagna.toml",
+        "The settings file to read instead of the packaged one.",
+        ("RAG_SETTINGS_FILE",),
+    ),
+    "LASAGNA_LLM_CACHE": (
+        "Paths and the process",
+        "on",
+        "0, false, no or off turns the LLM response cache off for every run.",
+        (),
+    ),
+    "LASAGNA_STRICT_PLUGINS": (
+        "Paths and the process",
+        "unset",
+        "Set: a plugin that fails to load raises instead of being reported and skipped.",
+        (),
+    ),
+    "RAG_LANGFUSE_TRACING": (
+        "Paths and the process",
+        "false",
+        "Send LLM traces to Langfuse (needs the langfuse package and its keys).",
+        (),
+    ),
+    "RAG_LLM_CACHE_MAX_SIZE": (
+        "Paths and the process",
+        "50",
+        "How many LLM clients the process keeps for reuse.",
+        (),
+    ),
+    "RAG_CRAG_GRADING_CONCURRENCY": (
+        "Paths and the process",
+        "4",
+        "Parallel relevance-grading calls in corrective RAG (CRAG).",
+        (),
+    ),
+}
+
+#: ``RAG_*`` variables read for the package's own use, not for an operator:
+#: set by the CLI (``RAG_SESSION_BACKEND``), by the host application that
+#: embeds Lasagna (``RAG_MCP_PORT``, ``RAG_REST_URL``) or for debugging.
+_INTERNAL_RAG_ENV = frozenset(
+    {"RAG_MCP_PORT", "RAG_REST_URL", "RAG_SESSION_BACKEND", "RAG_VALIDATE_PAGE_MAP"}
+)
+
 #: ``RAG_*`` variables the package reads that are not settings of this file:
 #: storage paths, server security, the evaluation judge, the MCP server. The
 #: ``RAG_GC_``, ``RAG_STORAGE_`` and ``RAG_EVAL_`` families are read by prefix.
 #: ``tests/test_config_fail_fast.py`` checks this against every variable read.
 NON_SETTING_ENV = frozenset(
-    {
-        "RAG_ADMIN_TOKEN",
-        "RAG_ALLOWED_HOSTS",
-        "RAG_ALLOW_ANONYMOUS_SESSION",
-        "RAG_ALLOW_HEADER_IDENTITY",
-        "RAG_API_KEYS",
-        "RAG_BIND_IS_PROTECTED",
-        "RAG_CONFIGURATOR",
-        "RAG_CORS_ORIGINS",
-        "RAG_CRAG_GRADING_CONCURRENCY",
-        "RAG_DATA_DIR",
-        "RAG_DB_DIR",
-        "RAG_EMBED_MCP",
-        "RAG_FORWARDED_ALLOW_IPS",
-        "RAG_JWT_SECRET",
-        "RAG_LANGFUSE_TRACING",
-        "RAG_LLM_CACHE_MAX_SIZE",
-        "RAG_MAX_BATCH_BYTES",
-        "RAG_MAX_BATCH_FILES",
-        "RAG_MCP_PORT",
-        "RAG_MCP_UPLOAD_ROOT",
-        "RAG_REQUIRE_AUTH",
-        "RAG_REST_URL",
-        "RAG_SEARCH_TIMEOUT",
-        "RAG_SESSION_BACKEND",
-        "RAG_SESSION_ID",
-        "RAG_SESSION_TOKEN_TTL_SECONDS",
-        "RAG_SETTINGS_FILE",
-        "RAG_UPLOAD_DIR",
-        "RAG_VALIDATE_PAGE_MAP",
-    }
+    {name for name in SERVER_ENV if name.startswith("RAG_")}
+    | {old for *_, olds in SERVER_ENV.values() for old in olds if old.startswith("RAG_")}
+    | _INTERNAL_RAG_ENV
 )
 NON_SETTING_ENV_PREFIXES = ("RAG_GC_", "RAG_STORAGE_", "RAG_EVAL_")
 
@@ -285,7 +558,13 @@ def _parse_env_value(key: str, raw: str, template: Any) -> Any:
     else:
         value = raw
 
-    if key in _VALID_RANGES and isinstance(value, (int, float)):
+    _check_bounds(key, value)
+    return value
+
+
+def _check_bounds(key: str, value: Any) -> None:
+    """Raise `ConfigError` when ``value`` is outside ``key``'s range or choices."""
+    if key in _VALID_RANGES and isinstance(value, (int, float)) and not isinstance(value, bool):
         lo, hi = _VALID_RANGES[key]
         if not (lo <= value <= hi):
             raise ConfigError(f"{key} takes {lo} to {hi}")
@@ -299,7 +578,38 @@ def _parse_env_value(key: str, raw: str, template: Any) -> Any:
                 f"{key} takes one of {', '.join(allowed)}"
                 + (f" (did you mean {hint[0]}?)" if hint else "")
             )
-    return value
+
+
+def _check_file_value(key: str, value: Any, template: Any) -> None:
+    """Raise `ConfigError` when a settings-file value breaks the rules an env value meets.
+
+    The file's values are typed already (TOML), so this checks the type the
+    default has (a whole number also counts as a number), then the range and
+    choices `_parse_env_value` applies.
+    """
+
+    def _is(kind: type) -> bool:
+        if isinstance(value, bool):
+            return kind is bool
+        if kind is float:
+            return isinstance(value, (int, float))
+        return isinstance(value, kind)
+
+    if key in _NULLABLE_TYPES:
+        if value is None or (isinstance(value, str) and value.strip().lower() in ("none", "null")):
+            return
+        ok = _is(_NULLABLE_TYPES[key])
+    elif template is None:
+        ok = True
+    else:
+        ok = _is(type(template) if isinstance(template, (bool, int, float, str)) else object)
+        if isinstance(template, list):
+            ok = isinstance(value, list)
+        elif isinstance(template, dict):
+            ok = isinstance(value, dict)
+    if not ok:
+        raise ConfigError(f"{key} takes {_type_phrase(template, key)}")
+    _check_bounds(key, value)
 
 
 def _warn_unknown_env(env_key: str, known: Dict[str, Any]) -> None:
@@ -511,6 +821,7 @@ class RAGConfig:
                 override_path = knowledge_module_dir / override_path
             if override_path.exists():
                 logger.info(f"Loading settings from {override_path}")
+                self._settings_path = str(override_path)
                 return Dynaconf(
                     root_path=str(override_path.parent),
                     settings_files=[str(override_path)],
@@ -524,6 +835,7 @@ class RAGConfig:
 
         if knowledge_toml_path.exists():
             logger.debug(f"Loading settings from knowledge module: {knowledge_toml_path}")
+            self._settings_path = str(knowledge_toml_path)
             return Dynaconf(
                 root_path=str(knowledge_module_dir),
                 settings_files=[str(knowledge_toml_path)],
@@ -900,6 +1212,7 @@ class RAGConfig:
             knowledge_rag = knowledge_rag.to_dict()
         elif not isinstance(knowledge_rag, dict):
             knowledge_rag = {}
+        self._check_settings_file(knowledge_rag, default_config)
 
         # 12-factor: Load overrides from RAG_* environment variables. Every
         # setting is accepted: the defaults above, the ones only the settings
@@ -947,6 +1260,29 @@ class RAGConfig:
         )
 
         return config
+
+    def _check_settings_file(self, values: Dict[str, Any], defaults: Dict[str, Any]) -> None:
+        """Refuse settings-file values that the same setting in the environment would refuse.
+
+        They were merged unchecked, so ``chunk_size = 5`` or
+        ``database_backend = "postgres"`` in a settings file ran with no sign.
+        The error names the file, each key and its value.
+        """
+        problems = []
+        for key, value in values.items():
+            if key not in defaults:
+                continue
+            try:
+                _check_file_value(key, value, defaults[key])
+            except ConfigError as exc:
+                problems.append(f"[rag] {key} = {value!r}: {exc}")
+        if problems:
+            source = getattr(self, "_settings_path", None) or "the settings file"
+            raise ConfigError(
+                f"Invalid setting{'s' if len(problems) > 1 else ''} in {source}:\n  "
+                + "\n  ".join(problems)
+                + "\nFix the value in the file, or remove the line to use the default."
+            )
 
     @staticmethod
     def _load_env_overrides(default_config: Dict[str, Any]) -> Dict[str, Any]:

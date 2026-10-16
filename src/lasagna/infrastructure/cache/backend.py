@@ -25,6 +25,7 @@ from collections import OrderedDict
 from typing import Optional, Protocol, runtime_checkable
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +167,7 @@ class RedisCacheBackend:
         # Verify connectivity
         try:
             self._client.ping()
-            logger.info(f"Redis cache connected: {url}")
+            logger.info(f"Redis cache connected: {redact_url(url)}")
         except Exception as exc:
             logger.warning(
                 f"Redis cache connection failed: {exc}. Operations will retry on demand."

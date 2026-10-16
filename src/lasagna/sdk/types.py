@@ -367,6 +367,9 @@ class SearchResults:
         query: Original search query
         total_chunks_searched: Total chunks in search scope
         search_time_ms: Search duration in milliseconds
+        degraded_stages: Stages that fell back to a lesser result during this
+            search (``hybrid``, ``hyde``, ...), as the REST API reports them;
+            empty when every stage ran as configured.
 
     Example:
         ```python
@@ -386,6 +389,7 @@ class SearchResults:
     total_chunks_searched: int = 0
     search_time_ms: float = 0.0
     citations: List[Citation] = field(default_factory=list)
+    degraded_stages: List[str] = field(default_factory=list)
 
     def __iter__(self) -> Iterator[SearchResult]:
         """Iterate over search results."""

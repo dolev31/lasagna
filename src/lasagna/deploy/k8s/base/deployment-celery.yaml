@@ -19,6 +19,13 @@ spec:
         app.kubernetes.io/component: celery-worker
     spec:
       terminationGracePeriodSeconds: 120
+      # The image's rag user (uid and gid 1000) owns the uploads volume.
+      securityContext:
+        fsGroup: 1000
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: lasagna-uploads
       containers:
         - name: worker
           image: lasagna:latest
@@ -35,6 +42,9 @@ spec:
                 name: lasagna-config
             - secretRef:
                 name: lasagna-secrets
+          volumeMounts:
+            - name: uploads
+              mountPath: /data/uploads
           resources:
             requests:
               cpu: "1"

@@ -782,9 +782,18 @@ Servers and deployment:
   logged a full traceback; it logs one line at DEBUG, and other startup
   failures are logged with their traceback without breaking on braces in the
   message.
-- The Redis and broker URLs, password included, were logged at startup.
+- The Redis and broker URLs, password included, were logged at startup. So
+  were the Redis cache and session store URLs on connect, the Milvus, Qdrant
+  and Weaviate URLs, and the SDK's server URL; every logged URL, URI and DSN
+  now has its password replaced by `***`, a PostgreSQL key=value DSN
+  included.
 - A URL no route matched became its own label value in the request histogram;
-  it is `unmatched`.
+  it is `unmatched`. The rate-limit counter `rag.http.rate_limited` had the
+  same problem for every URL, matched or not (one series per document id):
+  it is labelled with the route template or `unmatched`.
+- The request id reached only the JSON log format. The server's default text
+  format shows it as `[<id>]` before the message, and takes its level from
+  `RAG_LOG_LEVEL` as the JSON format does.
 - Every search logged "SOTA search: ... hybrid" at INFO, also when hybrid
   search was off. It is a DEBUG line naming the actual mode. The API
   description no longer says "Production-ready".
@@ -794,6 +803,113 @@ Servers and deployment:
 - `benchmark leaderboard <folder>` failed with "Unknown format".
 - `lasagna serve` and MCP tools on a store another process holds logged an
   ERROR line in addition to the reply that says so.
+- **Orphan repair archived every document when the vector scan failed.** A
+  scan error was read as "no vectors", so every ready document looked
+  orphaned and `POST /admin/gc/repair?dry_run=false` (or the weekly scan)
+  archived all of them; a scan that stopped at its 50,000-document limit did
+  the same past the limit. Such a report is `incomplete`, names the reason
+  and lists no orphans, and repair returns `aborted` without changing
+  anything.
+- **Two sessions on different embedding models, served at once, could mix
+  their vectors.** Uploads and searches switched an embedder every request
+  shares and read it back a few lines later, so concurrent uploads on
+  bge-large and bge-m3 (both 1024 dimensions) could write one model's vectors
+  into the other's collection, and a search could embed its query with the
+  other session's model. Each request now holds its own session's embedder.
+  A process keeps each model it has loaded (up to five) instead of reloading
+  one whenever the session changes.
+- The CI lint job failed on its first run (two mypy errors in
+  `sdk/integrations/inbound.py`), the secret scan on nine false positives
+  missing from `.secrets.baseline`, and the step that runs the tests loading
+  real embedding weights on the openai, cohere and voyage embedders, which the
+  conformance test constructed without their package or key (it now passes
+  them a stand-in client). `scripts/ci-local.sh` now also runs the
+  license check, the dependency audit and the internal-reference grep as CI
+  does, and with `--full` the release build, the distribution check
+  (`scripts/check_dist.py`, shared with the release workflow) and the wheel
+  smoke test.
+- **Each API worker's keyword index went stale.** The in-memory BM25 index
+  was filled from the store once per session per process, and only the
+  process that uploaded or deleted a document updated its own. With several
+  workers and Celery, a document processed elsewhere never reached a worker's
+  keyword search, and a deleted document kept matching in the others. The
+  metadata database keeps a content generation per session, bumped on every
+  upload and delete, and a process whose index is behind reads the store
+  again on its next search. Keyword-only hits whose chunk is gone from the
+  store are dropped. The search cache, also per process, follows the same
+  generation: on the compose stack another worker served a deleted document
+  from its cache for up to the 300 s TTL.
+- After an upload, the uploading process indexed the chunks for keyword
+  search under their position instead of their stored id, held each chunk
+  twice once it read the store, and could return the same chunk twice.
+- **Batch uploads mostly failed without Celery.** A batch may hold 20 files
+  but the processing pool has 5 threads, and the batch route refused a file
+  whenever every thread was busy, so files 6 to 20 came back "threads are
+  busy". Each file of a batch now waits for a thread (at most
+  `processing_timeout`); a single upload into a full pool is still a 503.
+- Hybrid search on a Milvus server reported `degraded_stages: ["hybrid"]` on
+  every search: the backend claimed native hybrid, which needs a
+  `sparse_embedding` field the collections Lasagna creates do not have, so
+  each search tried it, failed and fell back, and the BM25 index it fell back
+  to was never filled. Native hybrid is claimed per collection, only where
+  that field exists; otherwise BM25 fusion is the normal path.
+- On/off environment variables accept the same spellings everywhere (`1`,
+  `true`, `yes`, `on` and their opposites, any case). `OPENSEARCH_USE_SSL` and
+  `OPENSEARCH_VERIFY_CERTS` read only `true`, so `yes` or `1` left SSL and
+  certificate checks off; `on` was ignored by the lifecycle settings,
+  `RAG_EMBED_MCP`, `RAG_CONFIGURATOR`, `RAG_ALLOW_HEADER_IDENTITY` and
+  `RAG_LANGFUSE_TRACING`.
+- Values in the settings file (`LASAGNA_SETTINGS_FILE`, or the packaged
+  `settings.lasagna.toml`) were merged without the checks environment values
+  get, so `chunk_size = 5` or `database_backend = "postgres"` ran as written.
+  They are checked the same way (type, range, choices), and the error names
+  the file, each key and its value.
+- `docs/reference/settings.md` lists the variables that are not settings
+  (`RAG_REQUIRE_AUTH`, `RAG_API_KEYS`, the batch and search limits,
+  `LASAGNA_LOG_FORMAT`, `LASAGNA_MCP_TOOLS`, `MILVUS_URI` and the other vector
+  store connections, the paths), generated from one list in
+  `core/config.py`. A `RAG_` variable the package reads that is missing from
+  the list fails the suite.
+- `get_backend("milvus")` with no arguments ignored `RAG_VECTOR_BACKEND_CONFIG`
+  and the settings file's `vector_backend_config` and opened Milvus Lite: it
+  read the session configuration through a module path that no longer
+  existed. It follows the rule the server's startup backend follows (`uri` in
+  `vector_backend_config`, else `MILVUS_URI`, else Milvus Lite).
+- `--resume` restored checkpoints made under other library versions (torch,
+  transformers, sentence-transformers, ragas, pymilvus), another settings
+  file, another `variance_source` or another `max_concurrency`. The resume
+  key includes them, so such checkpoints are not restored.
+- `results.json` was written in place, so a crash or a full disk mid-write
+  left a truncated file where the last good one had been. It is written to a
+  temporary file, synced and renamed into place, like checkpoints.
+- **Every upload failed on the Celery worker in Kubernetes.** The manifests
+  turned Celery on but mounted no volume, so a worker pod could not open a
+  file an api pod stored. Both Deployments mount a ReadWriteMany claim,
+  `lasagna-uploads`, at `LASAGNA_UPLOAD_DIR`, and `make validate-k8s`
+  checks a rendered overlay for it.
+- The MCP `search` tool and the SDK's `SearchResults` did not say when a
+  stage fell back (hybrid running dense-only, HyDE without an LLM), which the
+  REST API reports in `degraded_stages`. The MCP result's `<search_metadata>`
+  and `SearchResults.degraded_stages` name them, also for a remote client.
+- The image installed whatever torch, transformers and sentence-transformers
+  were newest at build time; it installs the versions in
+  `constraints/0.1.0.txt`, which the release was tested with. The jaeger
+  service is pinned to `1.76.0` instead of `latest`.
+- **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
+  copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
+  keys) into an image layer. A root `.dockerignore` keeps every `.env` except
+  `.env.example`, key files, virtual environments, `.git`, build output,
+  caches and test artifacts out of the build.
+
+### Known issues
+
+- **Quotas are counted per session, not per API key.** With auth on, rate
+  limits are counted per key, but the document, storage and chunk quotas are
+  per session, and one key can mint any number of sessions. Counting them per
+  key needs a durable record of which key made each session, readable by the
+  Celery worker and by garbage collection, which rebuild the counters per
+  session; it is planned. `src/lasagna/deploy/README.md` (Request limits) says
+  what to do meanwhile.
 
 ### Planned for 0.2.0
 

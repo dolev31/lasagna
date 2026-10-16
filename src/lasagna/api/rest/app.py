@@ -91,19 +91,16 @@ async def _lifespan(app: FastAPI):
     # Log service configuration summary
     try:
         from lasagna.core.config import rag_config
+        from lasagna.core.provenance import redact_url
 
         logger.info("=" * 60)
         logger.info("Lasagna")
         logger.info(f"  Database:       {rag_config.database_backend}")
         if rag_config.database_backend == "postgresql":
-            dsn = rag_config.database_dsn
-            safe_dsn = dsn.split("@")[-1] if "@" in dsn else dsn
-            logger.info(f"  PostgreSQL:     {safe_dsn}")
+            logger.info(f"  PostgreSQL:     {redact_url(rag_config.database_dsn)}")
         logger.info(f"  Vector backend: {rag_config.vector_backend}")
         logger.info(f"  Cache backend:  {rag_config.cache_backend}")
         if rag_config.cache_backend == "redis":
-            from lasagna.core.provenance import redact_url
-
             logger.info(f"  Redis:          {redact_url(rag_config.redis_url)}")
         logger.info(
             f"  Embedding:      {rag_config.embedding_model} (dim={rag_config.embedding_dim})"
@@ -233,6 +230,32 @@ async def _timing_middleware(request: Request, call_next):
     return response
 
 
+def _route_template(request: Request) -> str:
+    """The template of the route ``request`` will reach, or ``unmatched``.
+
+    A middleware runs before routing, so ``scope["route"]`` is not set yet:
+    the rate-limit counter was labelled with the raw path, one time series
+    per document id and per URL a scanner tried. The templates come from the
+    OpenAPI schema (built once), static paths first; a mounted app (``/mcp``)
+    is matched by its prefix.
+    """
+    from starlette.routing import Mount, compile_path
+
+    app = request.app
+    templates = getattr(app.state, "route_templates", None)
+    if templates is None:
+        paths = sorted(app.openapi().get("paths", {}), key=lambda p: ("{" in p, p))
+        templates = app.state.route_templates = [(compile_path(p)[0], p) for p in paths]
+    path = request.url.path
+    for regex, template in templates:
+        if regex.match(path):
+            return template
+    for route in app.router.routes:
+        if isinstance(route, Mount) and path.startswith(route.path + "/"):
+            return route.path
+    return "unmatched"
+
+
 def _extract_session_id(request: Request) -> str:
     """Extract session_id from request, checking token first.
 
@@ -311,7 +334,7 @@ async def _rate_limit_middleware(request: Request, call_next):
     if not rl.is_enabled:
         return await call_next(request)
 
-    route = getattr(request.scope.get("route"), "path", path)
+    route = _route_template(request)
     allowed, retry_after = rl.try_acquire(_rate_limit_key(request), route)
 
     if not allowed:
@@ -520,7 +543,9 @@ def create_app(
     # When RAG_EMBED_MCP=true, mount the MCP SSE app inside FastAPI so both
     # share the same process.  Required for ARM64/Milvus Lite where only one
     # process can access the embedded database.
-    _mcp_embedded = os.environ.get("RAG_EMBED_MCP", "").lower() in ("true", "1", "yes")
+    from lasagna.core.config import env_flag
+
+    _mcp_embedded = env_flag("RAG_EMBED_MCP")
     if _mcp_embedded:
         try:
             from lasagna.mcp import transport_guard
@@ -551,7 +576,7 @@ def create_app(
     # -- Embedded Configurator UI (opt-in) ------------------------------------
     # When RAG_CONFIGURATOR=true, mount the configurator frontend and API
     # routes inside the main FastAPI app.
-    _configurator_enabled = os.environ.get("RAG_CONFIGURATOR", "").lower() in ("true", "1", "yes")
+    _configurator_enabled = env_flag("RAG_CONFIGURATOR")
     if _configurator_enabled:
         try:
             from lasagna.configurator import mount_configurator

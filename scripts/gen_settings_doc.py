@@ -7,7 +7,8 @@ One row per setting: its type and allowed values, its default, its environment
 variable and a one-line description. The source is ``src/lasagna/core/config.py``
 (the defaults dict, its comments and the property docstrings) and the
 ``[rag]`` table of ``src/lasagna/settings.lasagna.toml`` for the settings only
-that file defines. Nothing is imported that reads the environment, so the page
+that file defines. A last section lists the variables that are not settings
+(server, MCP, vector store connections), from ``SERVER_ENV`` in config.py. Nothing is imported that reads the environment, so the page
 is the same on every machine. ``tests/test_settings_doc_current.py`` runs the
 check, so a setting added without regenerating the page fails the suite.
 """
@@ -296,7 +297,36 @@ def render() -> str:
             f"| `{key}` | {kind} | {_fmt_default(row['default'], row['literal'])} "
             f"| {names} | {description} |"
         )
+    out += _server_section(tree)
     return "\n".join(out) + "\n"
+
+
+#: Defaults that are words, not values, so they are not set in code.
+_PROSE_DEFAULTS = ("unset", "empty", "a random secret", "the packaged", "<")
+
+SERVER_HEADER = """
+## Variables that are not settings
+
+The servers, the MCP server and the vector stores read these from the
+environment only: not from the settings file, and not per session.
+"""
+
+
+def _server_section(tree: ast.Module) -> List[str]:
+    out = [SERVER_HEADER]
+    group: Optional[str] = None
+    for name, (section, default, description, older) in _module_constant(
+        tree, "SERVER_ENV"
+    ).items():
+        if section != group:
+            group = section
+            out.append(f"\n### {group}\n")
+            out.append("| Variable | Default | Description |")
+            out.append("|---|---|---|")
+        names = ", ".join(f"`{n}`" for n in (name, *older))
+        shown = default if default.startswith(_PROSE_DEFAULTS) else f"`{default}`"
+        out.append(f"| {names} | {shown} | {_clean(description)} |")
+    return out
 
 
 def _nullable_types(tree: ast.Module) -> Dict[str, ast.Name]:

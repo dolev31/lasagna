@@ -305,9 +305,10 @@ class LangChainEmbedder(_Wrapped, BaseEmbedder):
 
     @property
     def dimension(self) -> int:
-        if type(self)._dimension is None:
-            type(self)._dimension = int(len(self._wrapped.embed_query("dimension probe")))
-        return int(type(self)._dimension)
+        dimension = type(self)._dimension
+        if dimension is None:
+            dimension = type(self)._dimension = len(self._wrapped.embed_query("dimension probe"))
+        return dimension
 
 
 class LangChainRetriever(_Wrapped, BaseRetriever):
@@ -431,9 +432,12 @@ class LlamaIndexEmbedder(_Wrapped, BaseEmbedder):
 
     @property
     def dimension(self) -> int:
-        if type(self)._dimension is None:
-            type(self)._dimension = int(len(self._wrapped.get_query_embedding("dimension probe")))
-        return int(type(self)._dimension)
+        dimension = type(self)._dimension
+        if dimension is None:
+            dimension = type(self)._dimension = len(
+                self._wrapped.get_query_embedding("dimension probe")
+            )
+        return dimension
 
 
 class LlamaIndexRetriever(_Wrapped, BaseRetriever):

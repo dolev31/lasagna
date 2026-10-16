@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Union
 # UUID namespace imported from base for consistent ID generation across backends.
 
 from loguru import logger
+from lasagna.core.provenance import redact_url
 
 from .base import (
     BackendCapabilities,
@@ -164,7 +165,7 @@ class WeaviateBackend(VectorStoreAdapter):
                 else:
                     self._connect_v3()
 
-                logger.info(f"Connected to Weaviate: {self._url}")
+                logger.info(f"Connected to Weaviate: {redact_url(self._url)}")
 
             except Exception as e:
                 raise ConnectionError(f"Failed to connect to Weaviate: {e}") from e

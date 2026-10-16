@@ -235,7 +235,9 @@ class LifecycleScheduler:
             if backend is None:
                 return
             report = backend.detect_orphans()
-            if not report.is_consistent:
+            if report.incomplete:
+                logger.warning(f"Orphan scan incomplete: {report.incomplete_reason}")
+            elif not report.is_consistent:
                 logger.warning(
                     f"Orphan scan: {report.db_only_count} db-only, "
                     f"{report.vector_only_count} vector-only orphans detected. "

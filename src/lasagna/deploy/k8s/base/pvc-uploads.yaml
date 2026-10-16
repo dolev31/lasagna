@@ -1,0 +1,29 @@
+# Uploads shared by the api and the Celery worker pods.
+#
+# The api stores an upload at <upload dir>/<document_id>/<file> and hands that
+# path to a worker, which opens it to process the document. A worker pod has
+# its own filesystem, so both Deployments mount this claim at the same path
+# (LASAGNA_UPLOAD_DIR in configmap.yaml). Without it every upload failed on the
+# worker.
+#
+# ReadWriteMany: pods on different nodes mount it at once. That needs a storage
+# class that offers it (NFS, Amazon EFS, Azure Files, Google Filestore, CephFS);
+# set storageClassName to yours. With no such class the claim stays Pending and
+# the pods do not start: then set RAG_CELERY_ENABLED to "false" in
+# configmap.yaml (the api processes its own uploads) and remove this file and
+# the "uploads" volume from both Deployments, or use S3 storage
+# (RAG_STORAGE_BACKEND=s3), which every pod reaches.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lasagna-uploads
+  namespace: lasagna
+  labels:
+    app.kubernetes.io/name: lasagna
+spec:
+  accessModes:
+    - ReadWriteMany
+  # storageClassName: efs-sc
+  resources:
+    requests:
+      storage: 20Gi

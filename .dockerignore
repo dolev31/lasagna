@@ -1,0 +1,62 @@
+# What `docker build` must never send to the daemon. The build context is the
+# repository root (docker-compose.yml sets `context: ../../..`), and the image
+# copies all of src/lasagna/, which is where src/lasagna/deploy/README.md tells
+# operators to put .env with the JWT secret, the Postgres password and API keys.
+# Without this file that .env was baked into every image layer.
+#
+# Docker reads these patterns relative to the context root; `**/` matches any
+# depth and the last matching line wins. tests/test_docker_build_context.py
+# checks the rules below with the same matching Docker uses.
+
+# Secrets and local configuration, at any depth. The example file stays: it is
+# documentation and holds no values.
+**/.env
+**/.env.*
+!**/.env.example
+**/.secrets.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+**/id_rsa*
+**/id_ecdsa*
+**/id_ed25519*
+**/*credentials.json
+**/service-account*.json
+**/gha-creds-*.json
+**/.pypirc
+**/.npmrc
+
+# Version control and virtual environments
+.git
+.venv*
+**/venv
+**/env
+
+# Build output (the root only: src/lasagna/configurator/frontend/dist is the
+# built UI the package ships) and caches
+build
+dist
+**/*.egg-info
+**/node_modules
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.hypothesis
+
+# Test and run artifacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov
+e2e/reports
+**/rag_uploads
+**/uploads
+**/dbs
+**/*.db
+**/*.milvus.db
+**/*.sqlite

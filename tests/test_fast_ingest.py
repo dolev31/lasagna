@@ -118,8 +118,8 @@ class MockCollectionManager:
         self._backend = backend
         self.embedding_manager = embedding_manager
 
-    def maybe_reload_embedding_manager(self, config):
-        pass
+    def embedder_for(self, config):
+        return self.embedding_manager
 
     def resolve_backend(self, session_id):
         return self._backend
