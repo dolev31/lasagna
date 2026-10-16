@@ -38,6 +38,9 @@ def sessions(request, monkeypatch, tmp_path):
     providers.reset_providers()
     reset_rag_config()
     yield request.param
+    # The environment first, so the providers and config rebuilt after this
+    # test are the suite's, not this deployment's.
+    monkeypatch.undo()
     providers.reset_providers()
     reset_rag_config()
 
