@@ -777,19 +777,22 @@ def status(
     """Show knowledge base status."""
     url = _serving_url()
 
-    async def _status():
+    async def _served_status():
         client = _client_for(session_id, url)
         try:
-            docs = await client.list_documents()
-            if url:
-                # The server's view of the session, not this process's defaults.
-                return docs, await _served_config(url, session_id), []
-            return docs, _effective_config(session_id), await _unused_collections(client)
+            # The server's view of the session, not this process's defaults.
+            return await client.list_documents(), await _served_config(url, session_id), []
         finally:
             await client.close()
 
     try:
-        docs, config, unused = _run(_status())
+        if url:
+            docs, config, unused = _run(_served_status())
+        else:
+            # From the metadata database and the settings, with no backend and
+            # no model: it took 7 s to list three documents.
+            docs, config = _local_documents(session_id), _effective_config(session_id)
+            unused = _unused_collections_if_any()
     except Exception as exc:
         _error(f"Failed to get status: {exc}", exc=exc)
 
@@ -807,7 +810,20 @@ def status(
 
         console.print(table)
     else:
-        console.print("[dim]No documents uploaded yet.[/dim]")
+        from lasagna.core.model_downloads import sessions_with_documents
+
+        others = {s: n for s, n in (sessions_with_documents() or {}).items() if s != session_id}
+        if others:
+            # It said "No documents uploaded yet." with my-corpus holding three.
+            listed = ", ".join(f"{s} ({n})" for s, n in sorted(others.items()))
+            console.print(
+                f"[dim]No documents in session {escape(session_id)!r}. Sessions with "
+                f"documents: {escape(listed)}. Show one with: lasagna status -s "
+                f"{escape(shlex.quote(sorted(others)[0]))}[/dim]",
+                soft_wrap=True,
+            )
+        else:
+            console.print("[dim]No documents uploaded yet.[/dim]")
     for collection in unused:
         dim = collection.get("embedding_dim")
         size = f"{dim} dimensions" if dim else "an unknown size"
@@ -879,16 +895,57 @@ async def _served_config(url: str, session_id: str) -> Dict[str, Any]:
         return resp.json()
 
 
-async def _unused_collections(client) -> List[Dict[str, Any]]:
+def _local_documents(session_id: str) -> List[Any]:
+    """The session's documents, read from the metadata database."""
+    from types import SimpleNamespace
+
+    from lasagna.core.database import get_rag_database
+    from lasagna.sdk.types import DocumentStatus
+
+    def status(raw: Any) -> str:
+        try:
+            return DocumentStatus(raw).value  # "error" reads as "failed", as the SDK says
+        except ValueError:
+            return str(raw or "")
+
+    return [
+        SimpleNamespace(
+            document_id=row.get("document_id"),
+            filename=row.get("filename"),
+            chunk_count=row.get("chunks_count", 0),
+            status=status(row.get("status")),
+        )
+        for row in get_rag_database().get_documents(session_id)
+    ]
+
+
+def _may_hold_legacy_documents() -> bool:
+    """Whether any document predates per-model collections (no collection, or the old one)."""
+    from lasagna.core.config import LEGACY_COLLECTION_NAME
+    from lasagna.core.database import get_rag_database
+    from lasagna.core.model_downloads import sessions_with_documents
+
+    db = get_rag_database()
+    return any(
+        row.get("collection_name") in (None, "", LEGACY_COLLECTION_NAME)
+        for session in (sessions_with_documents() or {})
+        for row in db.get_documents(session)
+    )
+
+
+def _unused_collections_if_any() -> List[Dict[str, Any]]:
     """Collections from before 0.1.0 that no configured model reads.
 
-    A listing for `status`: it never fails the command.
+    The vector store is opened only when a document could live in one: it is
+    the slow part of `status`. A listing: it never fails the command.
     """
     try:
+        if not _may_hold_legacy_documents():
+            return []
         from lasagna.api._collection_manager import legacy_collections
+        from lasagna.api.rag_backend import get_rag_backend
 
-        backend = await client._get_backend()
-        return legacy_collections(backend._vector_backend)
+        return legacy_collections(get_rag_backend()._vector_backend)
     except Exception as exc:  # noqa: BLE001
         from loguru import logger
 

@@ -33,7 +33,8 @@ def test_the_cli_names_the_fix_wherever_the_lock_error_is_wrapped(monkeypatch):
         except ConnectionError as exc:
             raise RuntimeError("Failed to initialize RAG Backend") from exc
 
-    monkeypatch.setattr(cli, "_get_client", held)
+    # status reads the metadata database itself, and reports what it raises.
+    monkeypatch.setattr(cli, "_local_documents", held)
     result = CliRunner().invoke(cli.app, ["status"])
     said = " ".join(result.output.split())
     assert result.exit_code == 1
@@ -47,7 +48,7 @@ def test_other_failures_keep_their_own_message(monkeypatch):
     def broken(session_id):
         raise ValueError("embedding size 384 does not match 1024")
 
-    monkeypatch.setattr(cli, "_get_client", broken)
+    monkeypatch.setattr(cli, "_local_documents", broken)
     result = CliRunner().invoke(cli.app, ["status"])
     assert result.exit_code == 1
     assert "Failed to get status: embedding size 384 does not match 1024" in result.output

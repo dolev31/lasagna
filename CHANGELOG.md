@@ -685,6 +685,11 @@ Results tooling:
   with an inert arm prints the isolation verdict before the inert line.
   `component validate cross_encoder` checks the registered component, with a
   likely name for a typo; it was refused as not being module:function.
+- `lasagna status` without `-s` said "No documents uploaded yet." while
+  another session held documents, and took about 7 s without a server. It
+  names the sessions with documents and how to show one, and reads the
+  metadata database directly, opening the vector store only when a document
+  could predate per-model collections (0.3 s).
 
 First run:
 

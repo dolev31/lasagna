@@ -155,21 +155,15 @@ def test_validate_refuses_a_bundle_from_other_metric_definitions(tmp_path):
 def test_status_names_a_collection_no_model_reads(monkeypatch):
     from lasagna.api import _collection_manager
 
-    class _Client:
-        async def list_documents(self):
-            return []
-
-        def get_config_dict(self):
-            return {"embedding_model": "all-MiniLM-L6-v2"}
-
-        async def _get_backend(self):
-            return SimpleNamespace(_vector_backend="the-store")
-
-        async def close(self):
-            pass
-
+    # status reads documents from the metadata database, and opens the vector
+    # store only when a document could predate per-model collections.
+    monkeypatch.setattr(cli, "_local_documents", lambda session_id: [])
+    monkeypatch.setattr(cli, "_may_hold_legacy_documents", lambda: True)
+    monkeypatch.setattr(
+        "lasagna.api.rag_backend.get_rag_backend",
+        lambda: SimpleNamespace(_vector_backend="the-store"),
+    )
     seen = []
-    monkeypatch.setattr(cli, "_get_client", lambda session_id: _Client())
     monkeypatch.setattr(
         _collection_manager,
         "legacy_collections",
