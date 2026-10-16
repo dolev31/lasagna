@@ -663,7 +663,12 @@ Servers and deployment:
   now has its password replaced by `***`, a PostgreSQL key=value DSN
   included.
 - A URL no route matched became its own label value in the request histogram;
-  it is `unmatched`.
+  it is `unmatched`. The rate-limit counter `rag.http.rate_limited` had the
+  same problem for every URL, matched or not (one series per document id):
+  it is labelled with the route template or `unmatched`.
+- The request id reached only the JSON log format. The server's default text
+  format shows it as `[<id>]` before the message, and takes its level from
+  `RAG_LOG_LEVEL` as the JSON format does.
 - Every search logged "SOTA search: ... hybrid" at INFO, also when hybrid
   search was off. It is a DEBUG line naming the actual mode. The API
   description no longer says "Production-ready".

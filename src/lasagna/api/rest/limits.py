@@ -81,20 +81,38 @@ def log_format() -> str:
     return value
 
 
-def apply_log_format(level: Optional[str] = None) -> bool:
-    """Switch loguru to one JSON object per line when ``LASAGNA_LOG_FORMAT=json``.
+def text_format(record: dict) -> str:
+    """loguru's default line, with ``[<request id>]`` before the message during a request."""
+    request_id = "[{extra[request_id]}] " if record["extra"].get("request_id") else ""
+    return (
+        "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | "
+        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+        f"{request_id}<level>{{message}}</level>\n{{exception}}"
+    )
 
-    Only a server calls this, never the library. Each line carries the
-    request id from the request-id middleware in ``record.extra``. Returns
-    whether the format was changed.
+
+def apply_log_format(level: Optional[str] = None) -> bool:
+    """Set a server's log format: ``LASAGNA_LOG_FORMAT=json`` or the text default.
+
+    Only a server calls this, never the library. JSON writes one object per
+    line, the request id from the request-id middleware in ``record.extra``.
+    Text replaces loguru's own default handler, whose format has no request
+    id, with `text_format`; a sink an entry point set up itself (``lasagna
+    serve``, the MCP server) is left alone. Returns whether JSON was turned on.
     """
+    level = (level or os.environ.get("RAG_LOG_LEVEL") or "INFO").upper()
     if log_format() != "json":
+        try:
+            logger.remove(0)  # loguru's default handler, there unless replaced
+        except ValueError:
+            return False
+        logger.add(sys.stderr, format=text_format, level=level, diagnose=False)
         return False
     logger.remove()
     logger.add(
         sys.stderr,
         serialize=True,
-        level=(level or os.environ.get("RAG_LOG_LEVEL") or "INFO").upper(),
+        level=level,
         backtrace=False,
         # diagnose prints local variables into tracebacks; in a log shipped to
         # a collector that includes whatever secrets were in scope.

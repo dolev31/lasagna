@@ -190,6 +190,32 @@ async def _timing_middleware(request: Request, call_next):
     return response
 
 
+def _route_template(request: Request) -> str:
+    """The template of the route ``request`` will reach, or ``unmatched``.
+
+    A middleware runs before routing, so ``scope["route"]`` is not set yet:
+    the rate-limit counter was labelled with the raw path, one time series
+    per document id and per URL a scanner tried. The templates come from the
+    OpenAPI schema (built once), static paths first; a mounted app (``/mcp``)
+    is matched by its prefix.
+    """
+    from starlette.routing import Mount, compile_path
+
+    app = request.app
+    templates = getattr(app.state, "route_templates", None)
+    if templates is None:
+        paths = sorted(app.openapi().get("paths", {}), key=lambda p: ("{" in p, p))
+        templates = app.state.route_templates = [(compile_path(p)[0], p) for p in paths]
+    path = request.url.path
+    for regex, template in templates:
+        if regex.match(path):
+            return template
+    for route in app.router.routes:
+        if isinstance(route, Mount) and path.startswith(route.path + "/"):
+            return route.path
+    return "unmatched"
+
+
 def _extract_session_id(request: Request) -> str:
     """Extract session_id from request, checking token first.
 
@@ -268,7 +294,7 @@ async def _rate_limit_middleware(request: Request, call_next):
     if not rl.is_enabled:
         return await call_next(request)
 
-    route = getattr(request.scope.get("route"), "path", path)
+    route = _route_template(request)
     allowed, retry_after = rl.try_acquire(_rate_limit_key(request), route)
 
     if not allowed:

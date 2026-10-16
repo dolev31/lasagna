@@ -284,10 +284,11 @@ None of them needs a credential or is rate limited. `/health/ready` and `/health
 Each request gets an id: a client's `X-Request-ID` is kept when it is 1 to 128 characters
 of letters, digits and `._:-`, otherwise one is generated. It is returned in the
 `X-Request-ID` response header and attached to every log line written while handling the
-request. `LASAGNA_LOG_FORMAT=json` makes the api and mcp services write one JSON object
-per line (loguru's serialized format, id under `record.extra.request_id`, level from
-`RAG_LOG_LEVEL`, default `INFO`); any value other than `json` or `text` stops the app at
-startup. Gunicorn's access log keeps its own text format.
+request: in the default text format as `[<id>]` before the message. `LASAGNA_LOG_FORMAT=json`
+makes the api and mcp services write one JSON object per line (loguru's serialized format,
+id under `record.extra.request_id`); both formats take their level from `RAG_LOG_LEVEL`,
+default `INFO`. Any value other than `json` or `text` stops the app at startup. Gunicorn's
+access log keeps its own text format.
 
 ### Prometheus
 
