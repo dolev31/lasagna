@@ -144,6 +144,8 @@ class UploadResponse(BaseModel):
     file_size: int
     status: str
     chunks_count: int
+    #: The session already held this content: the document returned instead.
+    duplicate_of: Optional[str] = None
 
 
 class BatchUploadItemResponse(BaseModel):
@@ -154,6 +156,7 @@ class BatchUploadItemResponse(BaseModel):
     status: str
     chunks_count: int = 0
     error: Optional[str] = None
+    duplicate_of: Optional[str] = None
 
 
 class BatchUploadResponse(BaseModel):

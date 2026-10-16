@@ -181,7 +181,9 @@ By default (`async_processing` on, Celery off) the file is stored and handed to 
 
 `document_id` is an idempotency key: re-uploading with an id the session already owns replaces that document instead of creating a duplicate. An id that belongs to another session is refused with 404.
 
-**Request:** Multipart form (`file`, optional `document_id`)
+Without a `document_id`, a file whose bytes the session already holds (ready or still processing) is not uploaded again: the response describes that document and names it in `duplicate_of`. Send `allow_duplicates=true` to index another copy.
+
+**Request:** Multipart form (`file`, optional `document_id`, optional `allow_duplicates`)
 
 **Response:** `UploadResponse`
 
@@ -192,7 +194,8 @@ By default (`async_processing` on, Celery off) the file is stored and handed to 
   "file_type": "pdf",
   "file_size": 1048576,
   "status": "processing",
-  "chunks_count": 0
+  "chunks_count": 0,
+  "duplicate_of": null
 }
 ```
 
@@ -218,7 +221,7 @@ curl -X POST http://localhost:8000/api/v1/documents \
 
 Upload several documents in one request: multipart form data with one or more `files` fields. Files are processed concurrently, up to `max_concurrent_uploads` (default 5) at a time, each through the same pipeline as the single upload. Without Celery, a file that finds every processing thread busy waits for one (at most `processing_timeout`, 300 s), so a batch larger than the pool is processed whole and the response returns once every file is accepted. A batch may hold at most `RAG_MAX_BATCH_FILES` files (default 20, 400 above it) and `RAG_MAX_BATCH_BYTES` in total (default 200 MiB, 413 before the body is read).
 
-**Response:** `BatchUploadResponse`: `total`, `succeeded`, `failed`, and one `results` entry per file (`document_id`, `filename`, `status`, `file_type`, `file_size`, `chunks_count`, `error`).
+**Response:** `BatchUploadResponse`: `total`, `succeeded`, `failed`, and one `results` entry per file (`document_id`, `filename`, `status`, `file_type`, `file_size`, `chunks_count`, `error`, `duplicate_of`).
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/documents/batch \

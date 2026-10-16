@@ -101,6 +101,7 @@ def _reject_foreign_document_id(backend: RAGBackend, document_id: str, session_i
 async def upload_document(
     file: UploadFile = File(...),
     document_id: Optional[str] = Form(None),
+    allow_duplicates: bool = Form(False),
     session_id: str = Depends(get_session_id),
     backend: RAGBackend = Depends(get_backend),
 ):
@@ -108,7 +109,9 @@ async def upload_document(
 
     Accepts any supported file type (PDF, DOCX, TXT, MD, CSV, JSON,
     HTML, XML).  The document is chunked, embedded, and indexed into
-    the vector store.
+    the vector store. A file whose content the session already holds is
+    not uploaded again: the response names that document in
+    ``duplicate_of``. ``allow_duplicates=true`` indexes it anyway.
     """
     # Save uploaded file to a temp location.
     # Sanitize filename to prevent path-traversal attacks.
@@ -138,6 +141,7 @@ async def upload_document(
             filename=file.filename,
             # A full processing pool is a 503, not processing in this request.
             refuse_when_busy=True,
+            allow_duplicates=allow_duplicates,
         )
         if document_id is not None:
             # `document_id` is the GLOBAL primary key of rag_documents, and this
@@ -162,6 +166,7 @@ async def upload_document(
             file_size=doc.file_size,
             status=doc.status.value if hasattr(doc.status, "value") else str(doc.status),
             chunks_count=doc.chunks_count,
+            duplicate_of=getattr(doc, "duplicate_of", None),
         )
     except HTTPException:
         raise
@@ -256,6 +261,7 @@ async def upload_documents_batch(
                     file_size=getattr(doc, "file_size", 0),
                     status=doc.status.value if hasattr(doc.status, "value") else str(doc.status),
                     chunks_count=getattr(doc, "chunks_count", 0),
+                    duplicate_of=getattr(doc, "duplicate_of", None),
                 )
             except QuotaExceededError as exc:
                 return BatchUploadItemResponse(

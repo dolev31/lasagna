@@ -206,7 +206,11 @@ lasagna serve                      # REST API and configuration page on 127.0.0.
 
 `upload()` returns as soon as the document is queued; processing is
 asynchronous, so await `client.documents.wait_for_processing(...)` before
-searching or reading the final chunk count.
+searching or reading the final chunk count. It raises
+`DocumentProcessingError`, with the reason and the fix, if the document could
+not be indexed. Rerunning the script uploads nothing new: a file the session
+already holds comes back as that document, with `duplicate_of` set
+(`allow_duplicates=True`, or `lasagna upload --force`, indexes it again).
 
 **Nothing to download at all?** The [component comparison](#compare-a-component)
 below runs as is, with no model, corpus or key. It is the fastest way to see

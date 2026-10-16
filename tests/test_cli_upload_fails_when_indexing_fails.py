@@ -19,7 +19,7 @@ from lasagna.sdk.types import DocumentStatus
 def _client(status, error_message=None):
     doc = SimpleNamespace(status=status, chunk_count=0, error_message=error_message)
 
-    async def upload(path):
+    async def upload(path, **kwargs):
         return SimpleNamespace(document_id="doc-1", chunk_count=0, status=DocumentStatus.PENDING)
 
     async def wait_for_processing(document_id):

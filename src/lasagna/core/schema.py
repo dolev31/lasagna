@@ -88,6 +88,10 @@ class Document(BaseModel):
     collection_name: Optional[str] = Field(
         default=None, description="Vector collection this doc was written to (for orphan detection)"
     )
+    duplicate_of: Optional[str] = Field(
+        default=None,
+        description="Set on an upload whose content the session already held: that document's id",
+    )
 
     # Optional metadata
     metadata: Optional[Dict[str, Any]] = Field(

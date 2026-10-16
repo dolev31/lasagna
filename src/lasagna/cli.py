@@ -658,6 +658,11 @@ def upload(
     ctx: typer.Context,
     file_path: str = typer.Argument(..., help="Path to document file"),
     session_id: str = typer.Option("default", "--session", "-s", help="Session ID"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Upload the file again even when the session already holds the same content.",
+    ),
 ):
     """Upload and index a document."""
     _configure_cli_logging(
@@ -674,7 +679,9 @@ def upload(
     async def _upload():
         client = _client_for(session_id, url)
         try:
-            result = await client.upload(str(path))
+            result = await client.upload(str(path), allow_duplicates=force)
+            if getattr(result, "duplicate_of", None):
+                return result, None
             # Processing runs in the background. Closing the client before it
             # finishes tears down the vector store under the worker and leaves
             # the document stuck in PROCESSING, so wait for a terminal status.
@@ -691,6 +698,15 @@ def upload(
         _error(f"Upload failed: {exc}", exc=exc)
 
     from lasagna.sdk.types import DocumentStatus
+
+    if doc is None:
+        console.print(
+            f"Already uploaded: {escape(path.name)} has the same content as "
+            f"{result.duplicate_of} in session {escape(session_id)}, so it was not uploaded "
+            f"again. To upload it again: lasagna upload {shlex.quote(file_path)} "
+            f"-s {shlex.quote(session_id)} --force"
+        )
+        return
 
     if doc.status != DocumentStatus.READY:
         # A document that failed to index printed the green "Uploaded

@@ -552,6 +552,7 @@ class KnowledgeClient:
         filename: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         document_id: Optional[str] = None,
+        allow_duplicates: bool = False,
     ) -> UploadResult:
         """Upload and index a document.
 
@@ -562,6 +563,9 @@ class KnowledgeClient:
             filename: Optional display name (defaults to original filename)
             metadata: Optional custom metadata
             document_id: Optional explicit document ID for benchmark evaluation
+            allow_duplicates: Index the file even when the session already
+                holds the same content. By default that document is returned
+                instead, with ``duplicate_of`` set.
 
         Returns:
             UploadResult with document_id, chunk_count, status
@@ -576,7 +580,13 @@ class KnowledgeClient:
             print(f"Uploaded: {result.document_id}, {result.chunk_count} chunks")
             ```
         """
-        return await self.documents.upload(file_path, filename, metadata, document_id=document_id)
+        return await self.documents.upload(
+            file_path,
+            filename,
+            metadata,
+            document_id=document_id,
+            allow_duplicates=allow_duplicates,
+        )
 
     async def search_documents(
         self,

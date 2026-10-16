@@ -108,8 +108,13 @@ class DocumentManager:
         filename: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         document_id: Optional[str] = None,
+        allow_duplicates: bool = False,
     ) -> UploadResult:
         """Upload and index a document.
+
+        A file whose content the session already holds is not uploaded again:
+        the result names that document, with ``duplicate_of`` set and a
+        message that says so. ``allow_duplicates=True`` indexes it anyway.
 
         The document will be processed through the full pipeline:
         1. Text extraction (with OCR if enabled for scanned PDFs)
@@ -124,6 +129,8 @@ class DocumentManager:
             document_id: Optional explicit document ID. When provided,
                 used instead of a generated UUID. Useful for benchmark
                 evaluation where corpus doc IDs must match qrels.
+            allow_duplicates: Index the file even when the session already
+                holds the same content.
 
         Returns:
             UploadResult with document_id, chunk_count, status
@@ -168,11 +175,29 @@ class DocumentManager:
                 session_id=session_id,
                 filename=display_name,
                 document_id=document_id,
+                # Only when asked: a backend written against the older
+                # signature still takes every default upload.
+                **({"allow_duplicates": True} if allow_duplicates else {}),
             )
 
             processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
 
             status = _resolve_status(doc.status)
+            duplicate_of = getattr(doc, "duplicate_of", None)
+            if duplicate_of:
+                return UploadResult(
+                    document_id=doc.document_id,
+                    filename=doc.filename,
+                    status=status,
+                    chunk_count=doc.chunks_count,
+                    processing_time_ms=0.0,
+                    duplicate_of=duplicate_of,
+                    message=(
+                        f"{display_name} is already in session {session_id!r} as "
+                        f"{duplicate_of} (same content), so it was not uploaded again. "
+                        f"Pass allow_duplicates=True to index it again."
+                    ),
+                )
             queued = str(getattr(status, "value", status)).lower() in ("processing", "pending")
             if queued:
                 # close() waits for these, so shutting down never pulls the

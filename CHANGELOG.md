@@ -635,6 +635,15 @@ First run:
   the interpreter at exit. `lasagna upload` in the same state took 67 s and
   printed three ERROR lines after its own; it prints one error with the fix
   after about 10 s.
+- **Rerunning the quickstart duplicated the corpus.** Each run uploaded
+  paper.pdf again into the same session, `lasagna status` listed every copy,
+  and search returned the same passage once per copy. An upload whose bytes
+  the session already holds (ready or processing) returns that document with
+  `duplicate_of` set, from the SDK, the CLI ("Already uploaded"), REST and
+  MCP; `allow_duplicates=True`, `lasagna upload --force` or the REST form
+  field `allow_duplicates=true` index it again. Uploads with an explicit
+  `document_id` (reindex, benchmark corpora) or a component override are
+  never deduplicated. Search also returns a chunk at most once.
 
 Requests to current models:
 
