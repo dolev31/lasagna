@@ -78,8 +78,9 @@ Makefile includes `.env` and that assignment wins. Pass the same value to `make 
   extra for `qdrant`, `weaviate` and `pinecone` (or `all`), and the build fails if the
   client does not import. The `qdrant`, `weaviate` and `pinecone` fragments set that
   argument, so `make build` builds the right image. `make up` reuses an image that exists,
-  so after switching to one of those three, `make validate` refuses an image built for
-  another backend and names the command: `make build VECTOR_BACKEND=qdrant`.
+  so after switching to one of those three, `make validate` refuses an image built
+  without the extra (the extra installs all three clients) and names the command:
+  `make build VECTOR_BACKEND=qdrant`.
 - **External databases.** The connection a fragment sets is under `environment:`, so a
   `QDRANT_URL` in `.env` does not reach the services. To use a vector store outside the
   stack, edit the fragment or write your own.

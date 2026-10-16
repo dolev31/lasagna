@@ -128,7 +128,13 @@ def test_validate_refuses_an_image_without_the_client(tmp_path, built_for):
 @needs_make
 @pytest.mark.parametrize(
     "backend, built_for",
-    [("qdrant", "qdrant"), ("weaviate", "all"), ("qdrant", ""), ("pgvector", "milvus")],
+    [
+        ("qdrant", "qdrant"),
+        ("weaviate", "all"),
+        ("weaviate", "qdrant"),  # the extra installs all three clients
+        ("qdrant", ""),
+        ("pgvector", "milvus"),
+    ],
 )
 def test_validate_accepts_a_matching_or_missing_image(tmp_path, backend, built_for):
     result = _validate(tmp_path, backend, built_for)

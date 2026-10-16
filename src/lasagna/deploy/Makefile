@@ -73,14 +73,15 @@ validate:  ## Validate configuration
 		*) echo "ERROR: RAG_CELERY_ENABLED=$(RAG_CELERY_ENABLED) queues uploads for a Celery worker, but COMPOSE_PROFILES=$(COMPOSE_PROFILES) starts none. Add celery to COMPOSE_PROFILES, or remove RAG_CELERY_ENABLED from .env so it follows the profile."; exit 1;; \
 		esac;; \
 	esac
-	@# `up` reuses an image that exists, so one built for another backend lacks
-	@# this backend's client (see the Dockerfile's VECTOR_BACKEND argument).
+	@# `up` reuses an image that exists, so one built without the vector-backends
+	@# extra lacks this backend's client (see the Dockerfile's VECTOR_BACKEND
+	@# argument). The extra installs all three clients.
 	@case "$(VECTOR_BACKEND)" in qdrant|weaviate|pinecone) \
 		for img in $$(docker compose $(FILES) config --images 2>/dev/null | grep -E -- '-(api|celery-worker|celery-beat|mcp)$$'); do \
 			built=$$(docker image inspect --format '{{ index .Config.Labels "org.lasagna.vector-backend" }}' "$$img" 2>/dev/null) || continue; \
 			case "$$built" in \
-			"$(VECTOR_BACKEND)"|all) ;; \
-			*) echo "ERROR: The image $$img has no $(VECTOR_BACKEND) client: it was built for VECTOR_BACKEND=$$(echo "$$built" | sed 's/<no value>//;s/^$$/milvus/'). Rebuild it with: make build VECTOR_BACKEND=$(VECTOR_BACKEND)"; exit 1;; \
+			qdrant|weaviate|pinecone|all) ;; \
+			*) echo "ERROR: The image $$img has no $(VECTOR_BACKEND) client: it was built for VECTOR_BACKEND=$$(echo "$$built" | sed 's/<no value>//;s/^$$/milvus/'), without the vector-backends extra. Rebuild it with: make build VECTOR_BACKEND=$(VECTOR_BACKEND)"; exit 1;; \
 			esac; \
 		done;; \
 	esac
