@@ -656,6 +656,17 @@ Results tooling:
   (`components` in its metadata and bundle), and the leaderboard
   `benchmark experiment` prints, `results leaderboard` in markdown and LaTeX,
   and `results view` show the claim and its paper beside the measured value.
+- **The stage isolation proof mostly skipped.** `pytest -rs
+  tests/test_stage_isolation_behavioural.py` skipped 17 cases: the
+  cross-encoder, combined and MMR rerankers and the semantic and
+  structure-aware chunkers tried their gigabyte defaults offline, and the LLM
+  components had no LLM. They run with cross-encoder/ms-marco-TinyBERT-L-2-v2
+  and all-MiniLM-L6-v2 through config overrides, or a stub LLM, and fail
+  rather than skip when they cannot run. `needs_embedding_weights` can name
+  the models a test loads, so CI's weights job runs these and the offline
+  job skips them only when the models are not cached. Four stay skipped,
+  each naming why: colbert (colbertv2.0, 440 MB), monot5 (990 MB), cohere
+  (its API) and flashrank (its package).
 
 First run:
 

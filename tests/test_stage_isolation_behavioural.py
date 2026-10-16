@@ -19,11 +19,101 @@ module is what makes that contract real for anything registered.
 
 import copy
 import dataclasses
+import json
+from functools import lru_cache
+from types import SimpleNamespace
 
 import pytest
 
 from lasagna.core.base_components import Chunk, ScoredDocument
 from lasagna.core.registry import registry
+
+#: Small cached models the components below run with, so the proof runs on a
+#: laptop offline and in CI's weights job. Their defaults (mxbai-rerank-large-v1,
+#: BGE-M3) are gigabytes, and every one of them used to skip.
+TINY_RERANKER = "cross-encoder/ms-marco-TinyBERT-L-2-v2"
+TINY_EMBEDDER = "all-MiniLM-L6-v2"
+_WEIGHTS = pytest.mark.needs_embedding_weights(TINY_EMBEDDER, TINY_RERANKER)
+
+#: Run with the tiny models: a failure here fails the test, never skips it.
+RUN_WITH_SMALL_MODELS = {"cross_encoder", "combined", "mmr", "semantic", "structure_aware"}
+#: Run with a stub LLM, so they need no key.
+RUN_WITH_A_STUB_LLM = {"llm_listwise", "llm_pointwise", "contextual", "proposition"}
+#: Still skipped, each for what no hermetic run has: colbert reads
+#: colbertv2.0 (440 MB; ColBERT has no small checkpoint it can load), monot5
+#: monot5-base (990 MB), cohere Cohere's API and SDK, flashrank its package,
+#: which no extra installs.
+
+
+@lru_cache(maxsize=1)
+def _small_models():
+    """(config, embedder) on the tiny models; the embedder loads on first use."""
+    from lasagna.core.config import rag_config
+    from lasagna.infrastructure.embedding.manager import EmbeddingManager
+
+    config = rag_config.with_query_overrides(
+        {
+            "reranker_model": TINY_RERANKER,
+            "embedding_model": TINY_EMBEDDER,
+            "embedding_model_fallback": TINY_EMBEDDER,
+            "embedding_dim": 384,
+            "use_gpu": False,
+            "enable_embedding_cache": False,
+        }
+    )
+    return config, EmbeddingManager(config)
+
+
+class _StubLLM:
+    """Answers each LLM component's prompt in the shape it parses."""
+
+    def invoke(self, prompt):
+        text = str(prompt)
+        if "<chunk>" in text:
+            reply = "About the chunk."
+        elif "final score" in text.lower():
+            reply = "##final score: 1"
+        elif "[1]" in text:
+            reply = "[2] > [1]"
+        else:
+            reply = json.dumps(["A proposition."])
+        return SimpleNamespace(content=reply)
+
+
+@pytest.fixture
+def stub_llm(monkeypatch):
+    llm = _StubLLM()
+    provider = SimpleNamespace(get_llm=lambda *a, **k: llm)
+    monkeypatch.setattr("lasagna.providers.get_llm_provider", lambda: provider)
+    return llm
+
+
+def _construct(stage, name, request):
+    """(instance, call kwargs) for a component, with what it needs to run here."""
+    cls = registry.get_reranker(name) if stage == "reranker" else registry.get_chunker(name)
+    if cls is None:
+        pytest.fail(f"{stage} '{name}' is listed but did not resolve")
+    if name in RUN_WITH_SMALL_MODELS:
+        config, embedder = _small_models()
+        if stage == "reranker":
+            kwargs = {"embedding_manager": embedder} if name in ("mmr", "combined") else {}
+            return cls(**kwargs), {"config": config}
+        return cls(embedding_manager=embedder, config=config), {}
+    if name in RUN_WITH_A_STUB_LLM:
+        llm = request.getfixturevalue("stub_llm")
+        return (cls() if stage == "reranker" else cls(llm=llm)), {}
+    try:
+        return cls(), {}
+    except Exception as exc:  # noqa: BLE001 - construction may need a model
+        pytest.skip(f"{stage} '{name}' needs configuration to construct: {exc}")
+
+
+def _covered(name) -> bool:
+    return name in RUN_WITH_SMALL_MODELS or name in RUN_WITH_A_STUB_LLM
+
+
+def _params(names):
+    return [pytest.param(n, marks=_WEIGHTS) if n in RUN_WITH_SMALL_MODELS else n for n in names]
 
 
 #: Long enough that every chunker really splits it. The previous fixture was
@@ -122,20 +212,13 @@ _CONFORMING_RERANKERS = sorted(
 class TestRegisteredRerankersDoNotMutateTheirInput:
     """Every contract-implementing reranker must leave the caller's documents alone."""
 
-    @pytest.mark.parametrize("name", _CONFORMING_RERANKERS)
-    def test_reranker_leaves_input_unmutated(self, name, documents):
-        cls = registry.get_reranker(name)
-        if cls is None:
-            pytest.skip(f"reranker '{name}' did not resolve")
-
-        try:
-            instance = cls()
-        except Exception as exc:  # noqa: BLE001 - construction may need a model
-            pytest.skip(f"reranker '{name}' needs configuration to construct: {exc}")
+    @pytest.mark.parametrize("name", _params(_CONFORMING_RERANKERS))
+    def test_reranker_leaves_input_unmutated(self, name, documents, request):
+        instance, call = _construct("reranker", name, request)
 
         before = _snapshot(documents)
         try:
-            instance.rerank("a query", documents, top_k=2)
+            instance.rerank("a query", documents, top_k=2, **call)
         except (TypeError, AttributeError, NotImplementedError) as exc:
             # NOT a skip. These say the component does not implement the
             # interface it registered under -- a real defect, and exactly what
@@ -143,6 +226,8 @@ class TestRegisteredRerankersDoNotMutateTheirInput:
             # available" is how a broken component passes conformance.
             pytest.fail(f"reranker '{name}' does not honour BaseReranker.rerank: {exc!r}")
         except Exception as exc:  # noqa: BLE001 - genuinely needs a model/network
+            if _covered(name):
+                pytest.fail(f"reranker '{name}' could not run with the small models: {exc!r}")
             pytest.skip(f"reranker '{name}' could not run offline: {exc}")
 
         mutated = _describe_mutation(before, documents)
@@ -153,16 +238,19 @@ class TestRegisteredRerankersDoNotMutateTheirInput:
         )
 
 
+_CHUNKERS = sorted(registry.list("chunker").get("chunker", []))
+
+
+def _could_not_run(name, exc):
+    if _covered(name):
+        pytest.fail(f"chunker '{name}' could not run with the small models: {exc!r}")
+    pytest.skip(f"chunker '{name}' could not run: {exc}")
+
+
 class TestRegisteredChunkersDoNotMutateTheirInput:
-    @pytest.mark.parametrize("name", sorted(registry.list("chunker").get("chunker", [])))
-    def test_chunker_does_not_mutate_source_text(self, name):
-        cls = registry.get_chunker(name)
-        if cls is None:
-            pytest.skip(f"chunker '{name}' did not resolve")
-        try:
-            instance = cls()
-        except Exception as exc:  # noqa: BLE001
-            pytest.skip(f"chunker '{name}' needs configuration: {exc}")
+    @pytest.mark.parametrize("name", _params(_CHUNKERS))
+    def test_chunker_does_not_mutate_source_text(self, name, request):
+        instance, _ = _construct("chunker", name, request)
 
         text = "First sentence. Second sentence. Third sentence."
         metadata = {"source": "fixture"}
@@ -174,9 +262,9 @@ class TestRegisteredChunkersDoNotMutateTheirInput:
             try:
                 instance.chunk(text)
             except Exception as exc:  # noqa: BLE001
-                pytest.skip(f"chunker '{name}' could not run: {exc}")
+                _could_not_run(name, exc)
         except Exception as exc:  # noqa: BLE001
-            pytest.skip(f"chunker '{name}' could not run: {exc}")
+            _could_not_run(name, exc)
 
         assert metadata == metadata_before, (
             f"chunker '{name}' mutated the metadata dict it was passed: "
@@ -187,18 +275,16 @@ class TestRegisteredChunkersDoNotMutateTheirInput:
 class TestChunksAreIndependent:
     """A chunker must not hand out aliases of one shared object."""
 
-    @pytest.mark.parametrize("name", sorted(registry.list("chunker").get("chunker", [])))
-    def test_chunks_do_not_share_metadata_dicts(self, name):
-        cls = registry.get_chunker(name)
-        if cls is None:
-            pytest.skip(f"chunker '{name}' did not resolve")
+    @pytest.mark.parametrize("name", _params(_CHUNKERS))
+    def test_chunks_do_not_share_metadata_dicts(self, name, request):
+        instance, _ = _construct("chunker", name, request)
         try:
             # Long enough to actually split. "One. Two. Three. Four. Five."
             # produced a single chunk for every chunker, so the guard below
             # skipped and this test asserted nothing for any of them.
-            chunks = cls().chunk(_ALIASING_FIXTURE_TEXT)
+            chunks = instance.chunk(_ALIASING_FIXTURE_TEXT)
         except Exception as exc:  # noqa: BLE001
-            pytest.skip(f"chunker '{name}' could not run: {exc}")
+            _could_not_run(name, exc)
 
         assert chunks, f"chunker '{name}' produced no chunks at all"
         if len(chunks) < 2:
