@@ -494,6 +494,10 @@ Numbers that were wrong:
 
 Results tooling:
 
+- `results bundle -o newdir/run.json` (and `results schema`, `results
+  per-query`, `export`) ended in a `FileNotFoundError` traceback when the
+  folder did not exist. The folder is created; one that cannot be is a
+  one-line error.
 - **The LLM cache never applied to a custom provider.** It was attached in
   `SimpleLLMProvider` only, so a provider set with `set_llm_provider` was
   called again on every warm run while `results.json` recorded the cache as
