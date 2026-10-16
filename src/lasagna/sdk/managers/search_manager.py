@@ -26,6 +26,8 @@ import asyncio
 
 from loguru import logger
 
+from lasagna.utils import degraded as _degraded
+
 from ..types import (
     Document,
     DocumentChunk,
@@ -383,7 +385,10 @@ class SearchManager:
             # async_search, not search: this coroutine runs on the caller's
             # event loop, where the synchronous path both blocks the loop and
             # cannot start the agentic pipeline (it needs a loop of its own).
-            raw_results = await backend.async_search(**search_kwargs)
+            # Collected as the REST route does: a fallback (hybrid running
+            # dense-only, HyDE without an LLM) is reported, not hidden.
+            with _degraded.collecting() as degraded:
+                raw_results = await backend.async_search(**search_kwargs)
         except Exception as e:
             raise SearchError(f"Search failed: {e}") from e
 
@@ -461,6 +466,7 @@ class SearchManager:
             total_chunks_searched=len(raw_results),
             search_time_ms=search_time,
             citations=citations,
+            degraded_stages=list(degraded),
         )
 
     # =========================================================================
@@ -635,10 +641,12 @@ class SearchManager:
                 for r in all_results
             ]
 
+        degraded = [s for r in batch_results for s in r.degraded_stages]
         return SearchResults(
             results=all_results,
             query=" | ".join(queries),
             total_chunks_searched=len(all_results),
             search_time_ms=0,  # Aggregate not tracked
             citations=citations,
+            degraded_stages=list(dict.fromkeys(degraded)),
         )

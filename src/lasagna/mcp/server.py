@@ -1026,7 +1026,21 @@ def _profile_owner(user_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _reports_degraded(tool):
+    """Collect the stages a search tool's backend calls fell back on (see `_append_search_metadata`)."""
+
+    @functools.wraps(tool)
+    async def collecting(*args, **kwargs):
+        from lasagna.utils import degraded
+
+        with degraded.collecting():
+            return await tool(*args, **kwargs)
+
+    return collecting
+
+
 @mcp.tool()
+@_reports_degraded
 async def search(
     query: str,
     session_id: str = "",
@@ -1242,11 +1256,15 @@ def _append_search_metadata(formatted_context: str, citations: list, chunks: lis
 
     The formatted_context (human/LLM-readable) is returned unchanged.
     A <search_metadata> JSON block is appended so callers can extract
-    citation data without a separate API call.
+    citation data without a separate API call. It names the stages that fell
+    back (``degraded_stages``) when any did, as the REST API does.
     """
-    metadata = json.dumps(
-        {"citations": citations or [], "chunks": chunks or []}, ensure_ascii=False
-    )
+    from lasagna.utils import degraded
+
+    payload = {"citations": citations or [], "chunks": chunks or []}
+    if degraded.current():
+        payload["degraded_stages"] = degraded.current()
+    metadata = json.dumps(payload, ensure_ascii=False)
     return f"{formatted_context}\n<search_metadata>{metadata}</search_metadata>"
 
 

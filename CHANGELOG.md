@@ -757,6 +757,10 @@ Servers and deployment:
   file an api pod stored. Both Deployments mount a ReadWriteMany claim,
   `rag-knowledge-uploads`, at `LASAGNA_UPLOAD_DIR`, and `make validate-k8s`
   checks a rendered overlay for it.
+- The MCP `search` tool and the SDK's `SearchResults` did not say when a
+  stage fell back (hybrid running dense-only, HyDE without an LLM), which the
+  REST API reports in `degraded_stages`. The MCP result's `<search_metadata>`
+  and `SearchResults.degraded_stages` name them, also for a remote client.
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except

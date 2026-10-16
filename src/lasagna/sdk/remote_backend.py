@@ -30,6 +30,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
+
+from lasagna.utils import degraded as _degraded
 from lasagna.core.provenance import redact_url
 
 try:
@@ -372,6 +374,8 @@ class RemoteRAGBackend:
         resp = await self._client.post(self._api("/search"), json=body)
         resp.raise_for_status()
         data = self._parse_json(resp)
+        # The server's fallbacks, so SearchResults reports them as a local search does.
+        _degraded.report(data.get("degraded_stages") or [])
 
         return self._parse_search_results(data)
 
@@ -390,6 +394,7 @@ class RemoteRAGBackend:
         resp = await self._client.post(self._api("/search/citations"), json=body)
         resp.raise_for_status()
         data = self._parse_json(resp)
+        _degraded.report(data.get("degraded_stages") or [])
 
         results = self._parse_search_results(data)
         context = data.get("context", "")

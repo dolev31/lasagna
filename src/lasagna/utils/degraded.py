@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Iterator, List, Optional
+from typing import Iterable, Iterator, List, Optional
 
 from loguru import logger
 
@@ -34,6 +34,25 @@ def record(stage: str, reason: object = "") -> None:
     stages = _stages.get()
     if stages is not None and stage not in stages:
         stages.append(stage)
+
+
+def current() -> List[str]:
+    """The stages collected so far by the active `collecting` block, or none."""
+    return list(_stages.get() or [])
+
+
+def report(stages: Iterable[str]) -> None:
+    """Add stages another process fell back on (a server's ``degraded_stages``).
+
+    Added to the active `collecting` block only: they were counted where they
+    happened.
+    """
+    active = _stages.get()
+    if active is None:
+        return
+    for stage in stages:
+        if stage not in active:
+            active.append(stage)
 
 
 @contextmanager
