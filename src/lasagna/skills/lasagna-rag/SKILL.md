@@ -23,7 +23,7 @@ are the first-run model download, which this names explicitly.
 ```bash
 pip install lasagna-rag
 lasagna configure --profile speed -s my-corpus   # 91 MB model, no API key
-for f in ./docs/*.md; do lasagna upload "$f" -s my-corpus; done
+lasagna upload ./docs/*.md -s my-corpus
 ```
 
 Then register the server. **Claude Code** (`.mcp.json` in the project):

@@ -616,10 +616,36 @@ def _reported_document_failure(record: Dict[str, Any]) -> bool:
     return "document_failure" in record["extra"]
 
 
+def _upload_targets(patterns: List[str]) -> List[Path]:
+    """The files ``patterns`` name: paths, or globs the shell left unexpanded.
+
+    Exits naming the first one that matches no file.
+    """
+    import glob
+
+    files: List[Path] = []
+    for pattern in patterns:
+        path = Path(pattern)
+        if path.is_file():
+            files.append(path)
+            continue
+        matched = sorted(Path(m) for m in glob.glob(pattern, recursive=True) if Path(m).is_file())
+        if not matched:
+            _error(
+                f"File not found: {pattern}"
+                if not glob.has_magic(pattern)
+                else f"No file matches {pattern}"
+            )
+        files.extend(matched)
+    return list(dict.fromkeys(files))
+
+
 @app.command()
 def upload(
     ctx: typer.Context,
-    file_path: str = typer.Argument(..., help="Path to document file"),
+    file_paths: List[str] = typer.Argument(
+        ..., help="Files to upload: one or more paths, or glob patterns such as 'docs/*.md'"
+    ),
     session_id: str = typer.Option("default", "--session", "-s", help="Session ID"),
     force: bool = typer.Option(
         False,
@@ -627,50 +653,79 @@ def upload(
         help="Upload the file again even when the session already holds the same content.",
     ),
 ):
-    """Upload and index a document."""
+    """Upload and index documents.
+
+    Several files go through one client, so the models load once: the README
+    looped `lasagna upload` over a folder, one process per file.
+    """
     _configure_cli_logging(
         bool(ctx.find_root().params.get("verbose")),
         hide=lambda r: _server_only_warning(r) or _reported_document_failure(r),
     )
-    path = Path(file_path)
-    if not path.exists():
-        _error(f"File not found: {file_path}")
+    paths = _upload_targets(file_paths)
 
     url = _serving_url()
-    console.print(f"Uploading [cyan]{path.name}[/cyan]...")
+    names = paths[0].name if len(paths) == 1 else _count(len(paths), "file")
+    console.print(f"Uploading [cyan]{escape(names)}[/cyan]...")
 
     async def _upload():
         client = _client_for(session_id, url)
+        outcomes = []
         try:
-            result = await client.upload(str(path), allow_duplicates=force)
-            if getattr(result, "duplicate_of", None):
-                return result, None
-            # Processing runs in the background. Closing the client before it
-            # finishes tears down the vector store under the worker and leaves
-            # the document stuck in PROCESSING, so wait for a terminal status.
-            doc = await client.documents.wait_for_processing(result.document_id)
-            result.status = doc.status
-            result.chunk_count = getattr(doc, "chunk_count", result.chunk_count)
-            return result, doc
+            # All queued first, then waited for: processing runs in the
+            # background, several files at a time.
+            queued = []
+            for path in paths:
+                try:
+                    queued.append((path, await client.upload(str(path), allow_duplicates=force)))
+                except Exception as exc:  # noqa: BLE001 - reported per file below
+                    queued.append((path, exc))
+            for path, result in queued:
+                if isinstance(result, Exception) or getattr(result, "duplicate_of", None):
+                    outcomes.append((path, result, None))
+                    continue
+                # Closing the client before processing finishes tears down the
+                # vector store under the worker, so wait for a terminal status.
+                try:
+                    doc = await client.documents.wait_for_processing(result.document_id)
+                except Exception as exc:  # noqa: BLE001
+                    outcomes.append((path, exc, None))
+                    continue
+                result.status = doc.status
+                result.chunk_count = getattr(doc, "chunk_count", result.chunk_count)
+                outcomes.append((path, result, doc))
         finally:
             await client.close()
+        return outcomes
 
     try:
-        result, doc = _run(_upload())
+        outcomes = _run(_upload())
     except Exception as exc:
         _error(f"Upload failed: {exc}", exc=exc)
 
+    if len(outcomes) == 1:
+        _report_one_upload(*outcomes[0], session_id)
+        return
+    _report_uploads(outcomes, session_id)
+
+
+def _already_uploaded(path: Path, result, session_id: str) -> str:
+    return (
+        f"Already uploaded: {escape(path.name)} has the same content as "
+        f"{result.duplicate_of} in session {escape(session_id)}, so it was not uploaded "
+        f"again. To upload it again: lasagna upload {shlex.quote(str(path))} "
+        f"-s {shlex.quote(session_id)} --force"
+    )
+
+
+def _report_one_upload(path: Path, result, doc, session_id: str) -> None:
     from lasagna.sdk.types import DocumentStatus
 
+    if isinstance(result, Exception):
+        _error(f"Upload failed: {result}", exc=result)
     if doc is None:
-        console.print(
-            f"Already uploaded: {escape(path.name)} has the same content as "
-            f"{result.duplicate_of} in session {escape(session_id)}, so it was not uploaded "
-            f"again. To upload it again: lasagna upload {shlex.quote(file_path)} "
-            f"-s {shlex.quote(session_id)} --force"
-        )
+        console.print(_already_uploaded(path, result, session_id))
         return
-
     if doc.status != DocumentStatus.READY:
         # A document that failed to index printed the green "Uploaded
         # successfully" panel with "Status: DocumentStatus.FAILED", exit 0.
@@ -679,7 +734,6 @@ def upload(
             f"({doc.error_message or 'no reason was recorded'}). "
             f"Document ID: {result.document_id}"
         )
-
     console.print(
         Panel.fit(
             f"[green]Uploaded successfully[/green]\n\n"
@@ -688,6 +742,38 @@ def upload(
             f"Status: [cyan]{getattr(result.status, 'value', result.status)}[/cyan]",
         )
     )
+
+
+def _report_uploads(outcomes, session_id: str) -> None:
+    """One row per file, then one line per failure; exit 1 when any failed."""
+    from lasagna.sdk.types import DocumentStatus
+
+    table = Table(title=f"Uploaded to session {escape(session_id)}", show_lines=False)
+    table.add_column("File", ratio=1)
+    table.add_column("Document ID", style="cyan")
+    table.add_column("Chunks", style="green", justify="right")
+    table.add_column("Status")
+    failures = []
+    for path, result, doc in outcomes:
+        if isinstance(result, Exception):
+            table.add_row(escape(path.name), "", "", "[red]failed[/red]")
+            failures.append(f"{path.name}: {result}")
+        elif doc is None:
+            table.add_row(escape(path.name), result.duplicate_of, "", "already uploaded")
+        elif doc.status != DocumentStatus.READY:
+            table.add_row(escape(path.name), result.document_id, "", "[red]failed[/red]")
+            failures.append(
+                f"{path.name} could not be indexed "
+                f"({doc.error_message or 'no reason was recorded'})"
+            )
+        else:
+            status = getattr(result.status, "value", result.status)
+            table.add_row(escape(path.name), result.document_id, str(result.chunk_count), status)
+    console.print(table)
+    if failures:
+        for line in failures:
+            console.print(f"[red]Upload failed: {escape(line)}[/red]")
+        raise typer.Exit(1)
 
 
 # ---------------------------------------------------------------------------

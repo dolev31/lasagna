@@ -851,6 +851,10 @@ First run:
   same component states with `failing` and `degraded`, `/api/v1/health`
   always with 200. The embedding check is for the model the served session
   (`serve -s`, else `default`) searches with.
+- `lasagna upload` took one file, so the README looped over a folder, one
+  process and one model load per file. It takes several paths and glob
+  patterns (`lasagna upload ./docs/*.md -s my-corpus`) through one client,
+  reports a row per file, and exits 1 when any failed.
 
 Requests to current models:
 
