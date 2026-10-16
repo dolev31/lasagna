@@ -276,7 +276,9 @@ def _check_writable_dirs() -> Check:
 def _check_accelerator(env: dict) -> Check:
     """Which device models run on, and what that means for a sweep."""
     gpu = env.get("gpu")
-    if os.environ.get("RAG_USE_GPU", "").strip().lower() in ("0", "false", "no", "off"):
+    from lasagna.core.config import FALSY
+
+    if os.environ.get("RAG_USE_GPU", "").strip().lower() in FALSY:
         return Check("accelerator", _OK, "RAG_USE_GPU is off: models run on the CPU")
     if gpu == "mps":
         return Check(

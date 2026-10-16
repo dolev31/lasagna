@@ -141,12 +141,9 @@ class LifecyclePolicy:
             return float(val) if val is not None else default
 
         def _bool(key: str, default: bool) -> bool:
-            val = os.environ.get(key, "").lower()
-            if val in ("1", "true", "yes"):
-                return True
-            if val in ("0", "false", "no"):
-                return False
-            return default
+            from lasagna.core.config import env_flag
+
+            return env_flag(key, default)
 
         # Build overrides for non-None fields only (None means "not set in env").
         overrides = {

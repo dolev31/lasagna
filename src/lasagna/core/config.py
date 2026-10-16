@@ -126,6 +126,21 @@ TRUTHY = frozenset({"1", "true", "yes", "on"})
 FALSY = frozenset({"0", "false", "no", "off"})
 
 
+def env_flag(name: str, default: bool = False) -> bool:
+    """An on/off environment variable, read the way every Lasagna switch is.
+
+    ``TRUTHY`` and ``FALSY``, any case and surrounding space; unset or anything
+    else is ``default``. Each module had its own set: ``yes`` and ``1`` turned
+    ``OPENSEARCH_VERIFY_CERTS`` off, and ``on`` was ignored by most switches.
+    """
+    value = os.environ.get(name, "").strip().lower()
+    if value in TRUTHY:
+        return True
+    if value in FALSY:
+        return False
+    return default
+
+
 class ConfigError(ValueError):
     """A setting has a value it cannot take. The message names it and the fix."""
 

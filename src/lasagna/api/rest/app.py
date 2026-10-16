@@ -503,7 +503,9 @@ def create_app(
     # When RAG_EMBED_MCP=true, mount the MCP SSE app inside FastAPI so both
     # share the same process.  Required for ARM64/Milvus Lite where only one
     # process can access the embedded database.
-    _mcp_embedded = os.environ.get("RAG_EMBED_MCP", "").lower() in ("true", "1", "yes")
+    from lasagna.core.config import env_flag
+
+    _mcp_embedded = env_flag("RAG_EMBED_MCP")
     if _mcp_embedded:
         try:
             from lasagna.mcp import transport_guard
@@ -534,7 +536,7 @@ def create_app(
     # -- Embedded Configurator UI (opt-in) ------------------------------------
     # When RAG_CONFIGURATOR=true, mount the configurator frontend and API
     # routes inside the main FastAPI app.
-    _configurator_enabled = os.environ.get("RAG_CONFIGURATOR", "").lower() in ("true", "1", "yes")
+    _configurator_enabled = env_flag("RAG_CONFIGURATOR")
     if _configurator_enabled:
         try:
             from lasagna.configurator import mount_configurator

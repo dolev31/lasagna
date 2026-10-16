@@ -84,7 +84,9 @@ _NEURAL_SPARSE_FIELD = "sparse_tokens"
 
 def _neural_sparse_enabled() -> bool:
     """Check if 3-way hybrid (dense + neural sparse + BM25) is enabled."""
-    return os.environ.get("OPENSEARCH_ENABLE_NEURAL_SPARSE", "false").lower() == "true"
+    from lasagna.core.config import env_flag
+
+    return env_flag("OPENSEARCH_ENABLE_NEURAL_SPARSE")
 
 
 def _get_default_opensearch_config() -> Dict[str, Any]:
@@ -96,8 +98,10 @@ def _get_default_opensearch_config() -> Dict[str, Any]:
     password = os.environ.get("OPENSEARCH_PASSWORD", "")
     http_auth = (user, password) if user else None
 
-    use_ssl = os.environ.get("OPENSEARCH_USE_SSL", "false").lower() == "true"
-    verify_certs = os.environ.get("OPENSEARCH_VERIFY_CERTS", "false").lower() == "true"
+    from lasagna.core.config import env_flag
+
+    use_ssl = env_flag("OPENSEARCH_USE_SSL")
+    verify_certs = env_flag("OPENSEARCH_VERIFY_CERTS")
     try:
         timeout = max(1, int(os.environ.get("OPENSEARCH_TIMEOUT", "30")))
     except ValueError:

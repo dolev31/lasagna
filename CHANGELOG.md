@@ -723,6 +723,12 @@ Servers and deployment:
   each search tried it, failed and fell back, and the BM25 index it fell back
   to was never filled. Native hybrid is claimed per collection, only where
   that field exists; otherwise BM25 fusion is the normal path.
+- On/off environment variables accept the same spellings everywhere (`1`,
+  `true`, `yes`, `on` and their opposites, any case). `OPENSEARCH_USE_SSL` and
+  `OPENSEARCH_VERIFY_CERTS` read only `true`, so `yes` or `1` left SSL and
+  certificate checks off; `on` was ignored by the lifecycle settings,
+  `RAG_EMBED_MCP`, `RAG_CONFIGURATOR`, `RAG_ALLOW_HEADER_IDENTITY` and
+  `RAG_LANGFUSE_TRACING`.
 - **The image carried `deploy/.env`.** With no `.dockerignore`, `docker build`
   copied `src/lasagna/deploy/.env` (the JWT secret, the Postgres password, API
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except

@@ -93,8 +93,9 @@ def is_langfuse_tracing_enabled() -> bool:
 
     Set RAG_LANGFUSE_TRACING=true to enable.
     """
-    env_val = os.environ.get("RAG_LANGFUSE_TRACING", "")
-    return env_val.lower() in ("true", "1", "yes") if env_val else False
+    from lasagna.core.config import env_flag
+
+    return env_flag("RAG_LANGFUSE_TRACING")
 
 
 def _to_dict(obj: Any) -> Dict[str, Any]:
