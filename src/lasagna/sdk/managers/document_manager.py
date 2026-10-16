@@ -36,6 +36,7 @@ from ..types import (
 from ..exceptions import (
     DocumentError,
     DocumentNotFoundError,
+    DocumentProcessingError,
     UploadError,
 )
 
@@ -261,6 +262,7 @@ class DocumentManager:
         document_id: str,
         timeout: float = 300.0,
         poll_interval: float = 2.0,
+        raise_on_failure: bool = True,
     ) -> Document:
         """Poll until a document reaches a terminal status (ready or error).
 
@@ -270,20 +272,36 @@ class DocumentManager:
             document_id: The document ID to wait for.
             timeout: Maximum seconds to wait (default 300).
             poll_interval: Seconds between polls (default 2).
+            raise_on_failure: Raise `DocumentProcessingError` when processing
+                failed (the default). False returns the failed document, with
+                the reason in ``error_message``.
 
         Returns:
             Document object with final status.
 
         Raises:
+            DocumentProcessingError: If processing failed, naming the reason
+                and, when there is a known one, the fix.
             DocumentNotFoundError: If the document disappears.
             TimeoutError: If timeout is exceeded.
         """
         try:
-            return await self._wait_for_processing(document_id, timeout, poll_interval)
+            doc = await self._wait_for_processing(document_id, timeout, poll_interval)
         finally:
             in_flight = getattr(self._client, "_in_flight_documents", None)
             if in_flight is not None:
                 in_flight.discard(document_id)
+        if raise_on_failure and doc.status == DocumentStatus.FAILED:
+            # Returning it quietly let the README's quickstart go on to search,
+            # which failed with a traceback about the embedding model.
+            reason = doc.error_message or "no reason was recorded"
+            raise DocumentProcessingError(
+                f"{doc.filename} ({document_id}) could not be indexed: {reason}",
+                document_id=document_id,
+                filename=doc.filename,
+                reason=reason,
+            )
+        return doc
 
     async def _wait_for_processing(
         self, document_id: str, timeout: float, poll_interval: float
@@ -293,7 +311,7 @@ class DocumentManager:
         backend = await self._client._get_backend()
         session_id = self._client.session_id
         start = _time.monotonic()
-        terminal_statuses = {"ready", "error"}
+        terminal_statuses = {"ready", "error", "failed"}
 
         while (_time.monotonic() - start) < timeout:
             doc = await self._run_sync(backend.get_document_by_id, document_id, session_id)

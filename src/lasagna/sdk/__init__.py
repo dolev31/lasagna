@@ -134,6 +134,7 @@ from .exceptions import (
     DocumentError,
     DocumentNotFoundError,
     UploadError,
+    DocumentProcessingError,
     ChunkingError,
     ExtractionError,
     # Search
@@ -597,6 +598,7 @@ __all__ = [
     "DocumentError",
     "DocumentNotFoundError",
     "UploadError",
+    "DocumentProcessingError",
     "ChunkingError",
     "ExtractionError",
     "SearchError",

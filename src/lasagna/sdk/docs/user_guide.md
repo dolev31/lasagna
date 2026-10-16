@@ -606,7 +606,7 @@ except ConfigurationError as e:
     print(f"Could not switch profile: {e}")
 ```
 
-`upload()` returns as soon as the document is queued. Extraction, chunking and indexing run afterward, so a failure in those steps does not raise here. It shows up as `DocumentStatus.FAILED` on the document that `client.documents.wait_for_processing(document_id)` returns.
+`upload()` returns as soon as the document is queued. Extraction, chunking and indexing run afterward, so a failure in those steps does not raise here. `client.documents.wait_for_processing(document_id)` raises `DocumentProcessingError` for it, with the reason (`e.reason`) and, when there is a known one, the fix; pass `raise_on_failure=False` to get the document back with `DocumentStatus.FAILED` and `error_message` instead.
 
 ### Catching All SDK Errors
 
@@ -682,7 +682,7 @@ rate limited. For other transient failures, use the retry helpers in
 | `delete(id)` | `bool` | Delete document |
 | `delete_all(confirm)` | `int` | Delete all |
 | `get_chunks(id, offset?, limit?)` | `List[DocumentChunk]` | Get chunks |
-| `wait_for_processing(id, timeout?, poll_interval?)` | `Document` | Wait until indexing finishes |
+| `wait_for_processing(id, timeout?, poll_interval?, raise_on_failure?)` | `Document` | Wait until indexing finishes; raises `DocumentProcessingError` if it failed |
 | `reindex(id)` | `UploadResult` | Reindex document |
 
 ### SearchManager

@@ -959,7 +959,9 @@ class KnowledgeClient:
             logger.info(f"Waiting for {len(pending)} document(s) to finish processing")
             results = await asyncio.gather(
                 *(
-                    self._document_manager.wait_for_processing(d, timeout=processing_timeout)
+                    self._document_manager.wait_for_processing(
+                        d, timeout=processing_timeout, raise_on_failure=False
+                    )
                     for d in pending
                 ),
                 return_exceptions=True,

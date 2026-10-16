@@ -621,6 +621,20 @@ First run:
   currently not supported in MacOs." It concerns torchelastic workers, which
   Lasagna never starts. Importing `lasagna` drops that one message from that
   one torch logger; other torch warnings still show.
+- **The Python quickstart failed silently offline, then hung.** On the
+  default profile with BGE-M3 not downloaded and `HF_HUB_OFFLINE` set,
+  `wait_for_processing` returned the failed document without a word, the
+  search after it failed with a traceback, and Python then waited about 58 s
+  to exit while the worker retried the missing model twice, 30 s apart.
+  `wait_for_processing` raises `DocumentProcessingError` with the reason and
+  the fix (`raise_on_failure=False` returns the document instead); a model
+  that is not downloaded while offline is refused before any load is tried; a
+  missing model, a missing or unreadable file, a missing package and a
+  rejected credential are not retried; a document stays "processing" between
+  retries instead of reading as failed; and a pending retry no longer holds
+  the interpreter at exit. `lasagna upload` in the same state took 67 s and
+  printed three ERROR lines after its own; it prints one error with the fix
+  after about 10 s.
 
 Requests to current models:
 

@@ -644,12 +644,26 @@ def init():
 # ---------------------------------------------------------------------------
 
 
+def _reported_document_failure(record: Dict[str, Any]) -> bool:
+    """The worker's log line for a document that failed.
+
+    `upload` waits for the document and prints the failure, with its fix, as
+    its error; the worker's ERROR line repeated it before that.
+    """
+    return "document_failure" in record["extra"]
+
+
 @app.command()
 def upload(
+    ctx: typer.Context,
     file_path: str = typer.Argument(..., help="Path to document file"),
     session_id: str = typer.Option("default", "--session", "-s", help="Session ID"),
 ):
     """Upload and index a document."""
+    _configure_cli_logging(
+        bool(ctx.find_root().params.get("verbose")),
+        hide=lambda r: _server_only_warning(r) or _reported_document_failure(r),
+    )
     path = Path(file_path)
     if not path.exists():
         _error(f"File not found: {file_path}")

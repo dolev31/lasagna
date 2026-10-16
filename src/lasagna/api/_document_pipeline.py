@@ -45,7 +45,11 @@ from ._validation import (
 )
 from lasagna.core.tenant import get_tenant_manager
 from lasagna.core.quota import get_quota_manager
-from lasagna.infrastructure.tasks.document_tasks import ProcessingAtCapacity, dispatch_processing
+from lasagna.infrastructure.tasks.document_tasks import (
+    ProcessingAtCapacity,
+    _failure_reason,
+    dispatch_processing,
+)
 
 if TYPE_CHECKING:
     from ._collection_manager import CollectionManager
@@ -263,11 +267,15 @@ class DocumentPipeline:
                     _document_processor_override=_document_processor_override,
                 )
             except Exception as e:
-                logger.error(f"Failed to process document {document_id}: {e}")
+                logger.bind(document_failure=document_id).error(
+                    f"Failed to process document {document_id}: {e}"
+                )
                 METRICS.counter("lasagna_ingests", 1, tags={"outcome": "error"})
                 try:
                     self._update_document_status(
-                        document_id, DocumentStatus.ERROR, error_message=str(e)
+                        document_id,
+                        DocumentStatus.ERROR,
+                        error_message=_failure_reason(e, session_id),
                     )
                 except Exception as status_exc:
                     logger.warning(f"Failed to update error status for {document_id}: {status_exc}")

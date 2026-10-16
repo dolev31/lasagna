@@ -321,6 +321,7 @@ class EmbeddingManager:
             # A server refuses a model it would have to download; not recorded
             # as a load error, so it loads once the model is on disk.
             model_downloads.check(configured)
+            self._refuse_if_offline_and_missing(configured)
             try:
                 self._load_model()
             except Exception as exc:
@@ -329,6 +330,24 @@ class EmbeddingManager:
                 raise
             if self.model_name != configured:
                 self._set_prefixes()  # a fallback model has its own prefixes
+
+    def _refuse_if_offline_and_missing(self, configured: Optional[str]) -> None:
+        """Offline, a model that is not on disk is refused before any load is tried.
+
+        Trying cost two load attempts (primary and fallback), a warning and an
+        error line each, and then "Could not load any embedding model", which
+        named neither the cause nor the fix. Not recorded as a load error, so
+        it loads once the model is on disk. A cached fallback is still used
+        where falling back is allowed.
+        """
+        if not configured or not model_downloads.offline():
+            return
+        if model_downloads.is_cached(configured):
+            return
+        fallback = self._config.embedding_model_fallback
+        if fallback and not strict_stages() and model_downloads.is_cached(fallback):
+            return
+        raise model_downloads.ModelNotDownloaded(configured, offline=True)
 
     def _set_prefixes(self) -> None:
         prefixes = _resolve_prefixes(self.model_name or self._config.embedding_model)

@@ -53,7 +53,10 @@ def test_the_embedding_manager_does_not_start_the_download(monkeypatch, not_cach
     with md.refuse_downloads_in_requests(), pytest.raises(md.ModelNotDownloaded):
         manager._ensure_loaded()
     assert calls == []
-    # Not remembered as a load failure: outside a server it loads as before.
+    # Not remembered as a load failure: outside a server, online, it loads as
+    # before. (Offline, a model that is not cached is refused everywhere.)
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    monkeypatch.delenv("TRANSFORMERS_OFFLINE", raising=False)
     manager._ensure_loaded()
     assert calls == ["load"]
 

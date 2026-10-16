@@ -150,6 +150,7 @@ EXPECTED_SDK = {
     "DocumentExtractor",
     "DocumentManager",
     "DocumentNotFoundError",
+    "DocumentProcessingError",
     "DocumentStatus",
     "EmbeddingError",
     "EmbeddingModel",
