@@ -40,22 +40,33 @@ if TYPE_CHECKING:
     from .policy import LifecyclePolicy
 
 
-#: Multiples of ``processing_timeout`` a document may stay unfinished before
-#: phase 0 fails it, and the least time it gets: a Celery task has three
-#: attempts of up to 600 s each (celery_app.py), after waiting in the queue.
+#: Multiples of the longest a document may take that it may stay unfinished
+#: before phase 0 fails it (it may wait in a queue first), and the least time
+#: it gets: the thread pool sets no time limit of its own.
 STALE_PROCESSING_FACTOR = 12
 _STALE_PROCESSING_FLOOR = timedelta(hours=1)
 
 
 def stale_processing_after() -> timedelta:
-    """How long a document may stay uploading, processing or indexing before it is failed."""
+    """How long a document may stay uploading, processing or indexing before it is failed.
+
+    ``STALE_PROCESSING_FACTOR`` times the longest a document may take on this
+    deployment: ``processing_timeout``, or with Celery enabled a task's
+    attempts of up to ``task_time_limit`` each and the waits between them.
+    ``processing_timeout`` alone is the shutdown drain bound, which compose and
+    the Kubernetes manifests set to 20 s.
+    """
     from ..core.config import rag_config
+    from ..infrastructure.tasks import TASK_ATTEMPTS, TASK_RETRY_DELAY_S, TASK_TIME_LIMIT_S
 
     try:
-        timeout = float(rag_config._config.get("processing_timeout", 300))
+        longest = float(rag_config._config.get("processing_timeout", 300))
     except (TypeError, ValueError):
-        timeout = 300.0
-    return max(timedelta(seconds=timeout * STALE_PROCESSING_FACTOR), _STALE_PROCESSING_FLOOR)
+        longest = 300.0
+    if getattr(rag_config, "celery_enabled", False):
+        celery = TASK_ATTEMPTS * TASK_TIME_LIMIT_S + (TASK_ATTEMPTS - 1) * TASK_RETRY_DELAY_S
+        longest = max(longest, float(celery))
+    return max(timedelta(seconds=longest * STALE_PROCESSING_FACTOR), _STALE_PROCESSING_FLOOR)
 
 
 class GarbageCollector:
@@ -149,10 +160,10 @@ class GarbageCollector:
         result = GCPhaseResult(phase=phase, started_at=started)
         after = stale_processing_after()
         reason = (
-            f"Processing did not finish within {after.total_seconds() / 3600:g} h "
-            f"({STALE_PROCESSING_FACTOR} x processing_timeout): the process working on it "
-            "stopped, for example a worker that ran out of memory, crashed or hit the 600 s "
-            "task time limit. Upload the document again, or reindex it."
+            f"Processing did not finish within {after.total_seconds() / 3600:.1f} h: the "
+            "process working on it stopped, for example a worker that ran out of memory, "
+            "crashed or hit the Celery task time limit. Upload the document again, or "
+            "reindex it."
         )
         try:
             failed = list(

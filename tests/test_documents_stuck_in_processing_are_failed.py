@@ -68,16 +68,40 @@ def test_a_gc_cycle_fails_a_document_processing_far_longer_than_processing_timeo
     assert phase.docs_cleaned == 1
 
 
-def test_the_cutoff_follows_processing_timeout_and_covers_the_celery_retries(monkeypatch):
+@pytest.fixture
+def celery(monkeypatch):
     from lasagna.core.config import rag_config
 
-    monkeypatch.setitem(rag_config._config, "processing_timeout", 300)
+    def enable(on: bool, processing_timeout: float):
+        monkeypatch.setattr(type(rag_config), "celery_enabled", property(lambda self: on))
+        monkeypatch.setitem(rag_config._config, "processing_timeout", processing_timeout)
+
+    return enable
+
+
+def test_the_cutoff_follows_processing_timeout_without_celery(celery):
+    celery(False, 300)
     assert gc_module.stale_processing_after() == timedelta(hours=1)
-    monkeypatch.setitem(rag_config._config, "processing_timeout", 1800)
+    celery(False, 1800)
     assert gc_module.stale_processing_after() == timedelta(hours=6)
-    monkeypatch.setitem(rag_config._config, "processing_timeout", 10)
-    # Three Celery attempts of up to 600 s each must never be cut short.
-    assert gc_module.stale_processing_after() >= timedelta(seconds=3 * 600)
+    celery(False, 10)
+    assert gc_module.stale_processing_after() == timedelta(hours=1)
+
+
+def test_under_celery_a_short_processing_timeout_does_not_cut_a_task_short(db, celery):
+    """compose and the Kubernetes manifests set processing_timeout to 20 s, the drain bound."""
+    celery(True, 20)
+    # Three attempts of up to 600 s, 30 s apart, times the factor.
+    assert gc_module.stale_processing_after() == timedelta(seconds=12 * (3 * 600 + 2 * 30))
+    _save(db, "slow", "processing", timedelta(seconds=300))
+    _save(db, "queued", "processing", timedelta(hours=2))
+    _save(db, "stuck", "processing", timedelta(hours=7))
+
+    _collector(db).run_full_cycle()
+
+    assert db.get_document("slow")["status"] == "processing"
+    assert db.get_document("queued")["status"] == "processing"
+    assert db.get_document("stuck")["status"] == "error"
 
 
 def test_starting_the_lifecycle_scheduler_fails_documents_left_by_a_dead_process(db, monkeypatch):

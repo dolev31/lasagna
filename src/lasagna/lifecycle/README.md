@@ -44,7 +44,7 @@ to that session; phases 4 to 6 always cover everything.
 
 | Phase (name in reports) | Selects | Does |
 | --- | --- | --- |
-| 0 `phase0_fail_stale_processing` | documents still `uploading`, `processing` or `indexing` after 12 x `processing_timeout` (at least 1 h) | Marks them `error`, with the reason: the worker processing them stopped (out of memory, a crash, or Celery's 600 s limit). Also runs when a process builds its backend (the lifecycle scheduler starts) |
+| 0 `phase0_fail_stale_processing` | documents still `uploading`, `processing` or `indexing` after 12 times the longest a document may take: `processing_timeout`, or with Celery enabled three attempts of up to 600 s each (6.2 h); at least 1 h | Marks them `error`, with the reason: the worker processing them stopped (out of memory, a crash, or Celery's 600 s limit). Also runs when a process builds its backend (the lifecycle scheduler starts) |
 | 1 `phase1_hard_delete_soft_deleted` | archived documents whose `deleted_at` is older than `soft_delete_grace_hours` | Deletes each through the document pipeline: vectors, file, row, quota |
 | 2 `phase2_expire_by_ttl` | documents whose `expires_at` has passed | Archives them. Skipped when `document_ttl_days` is unset or 0 |
 | 3 `phase3_cleanup_error_documents` | `error` documents uploaded more than `error_retention_days` ago | Archives them. Skipped when `error_retention_days` is 0 |
