@@ -207,7 +207,8 @@ SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
         "REST API and authentication",
         "unset",
         "Comma-separated keys, each at least 32 characters, that may mint session tokens "
-        "when RAG_REQUIRE_AUTH is on. Rate limits and quotas are counted per key.",
+        "when RAG_REQUIRE_AUTH is on. Rate limits are counted per key; storage quotas per "
+        "session.",
         (),
     ),
     "RAG_JWT_SECRET": (

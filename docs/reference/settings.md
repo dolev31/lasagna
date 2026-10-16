@@ -388,7 +388,7 @@ environment only: not from the settings file, and not per session.
 | Variable | Default | Description |
 |---|---|---|
 | `RAG_REQUIRE_AUTH` | `false` | When true, only a verified X-Session-Token names a session, and POST /api/v1/sessions needs an X-API-Key. When false, binding beyond loopback is refused at startup unless RAG_BIND_IS_PROTECTED is set. |
-| `RAG_API_KEYS` | unset | Comma-separated keys, each at least 32 characters, that may mint session tokens when RAG_REQUIRE_AUTH is on. Rate limits and quotas are counted per key. |
+| `RAG_API_KEYS` | unset | Comma-separated keys, each at least 32 characters, that may mint session tokens when RAG_REQUIRE_AUTH is on. Rate limits are counted per key; storage quotas per session. |
 | `RAG_JWT_SECRET` | a random secret per process | Signs session tokens (HMAC-SHA256). Unset, tokens stop working when the process restarts; with RAG_REQUIRE_AUTH on, an unset, placeholder or shorter-than-32-character secret stops the server at startup. |
 | `RAG_SESSION_TOKEN_TTL_SECONDS` | `604800` | How long a session token is valid, in seconds (7 days). |
 | `RAG_ADMIN_TOKEN` | unset | The X-Admin-Token for /api/v1/admin/* and for naming a session in POST /api/v1/sessions. Unset, a placeholder or shorter than 32 characters: the admin routes answer 503. |

@@ -245,6 +245,16 @@ accepts, such as a service name.
 | Request rate | 60 per minute, burst 10, `adaptive` | 429 with `Retry-After` (seconds, rounded up) |
 | Quota per session | 1,000 documents, 5 GiB, 100,000 chunks, 600 searches per minute, 200 uploads per hour | 429 |
 
+With auth on, the request rate is counted per API key (its principal), so a key that mints
+more sessions gets no more requests. The quotas are counted per session: one key can mint
+any number of sessions, so they bound what one session stores, not what one key stores.
+Counting them per key needs a record of which key made each session that every process can
+read, because documents finish processing in the Celery worker or a pool thread, outside
+the request that knows the key, and garbage collection rebuilds the counters per session
+from the database; that record is planned. Until then, give each tenant its own key and
+watch storage per session in the metadata database (`file_size` in `rag_documents`, by
+`session_id`).
+
 A chunked body is counted as it arrives and refused once it passes its limit.
 `RAG_MAX_BATCH_FILES` (1 to 1000), `RAG_MAX_BATCH_BYTES` (1 to 2^40) and
 `RAG_SEARCH_TIMEOUT` (1 to 3600) are checked when the app starts: a value out of range or

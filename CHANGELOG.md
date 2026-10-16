@@ -753,6 +753,14 @@ Servers and deployment:
 
 ### Known issues
 
+- **Quotas are counted per session, not per API key.** With auth on, rate
+  limits are counted per key, but the document, storage and chunk quotas are
+  per session, and one key can mint any number of sessions. Counting them per
+  key needs a durable record of which key made each session, readable by the
+  Celery worker and by garbage collection, which rebuild the counters per
+  session; it is planned. `src/lasagna/deploy/README.md` (Request limits) says
+  what to do meanwhile.
+
 - **`pip` cannot resolve `[eval]` together with `[storage-all]`** (and therefore
   cannot resolve `[all]`). `pip install "lasagna-rag[eval,storage-all]"` exits
   with `ResolutionImpossible`; `[all]` backtracks for over fifteen minutes
