@@ -499,16 +499,11 @@ def create_app(
     elif not _cors:
         logger.debug("CORS: cross-origin requests denied (set RAG_CORS_ORIGINS to allow)")
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=_cors,
-        allow_credentials=(bool(_cors) and _cors != ["*"]),
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    # -- Custom middleware (outermost = first executed) ----------------------
-    # Order: request-id → host → body limit → rate-limit → timing → handler
+    # -- Middleware (the last added is the outermost, the first to run) -------
+    # Order: request-id → CORS → host → body limit → rate-limit → timing → handler
+    # CORS wraps every refusal below it. It was the innermost, so a 413 or 429
+    # went out without Access-Control-Allow-Origin, and the browser showed a
+    # page on an allowed origin a network error instead of the reason.
     # A foreign Host is refused before it counts against anyone's rate limit.
     # Rate limiting runs before timing so rejected requests don't skew latency.
     # The body limit runs before anything reads the body: by the time a route
@@ -518,6 +513,13 @@ def create_app(
     app.middleware("http")(_rate_limit_middleware)
     app.add_middleware(limits.BodySizeLimitMiddleware)
     app.middleware("http")(_host_middleware)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors,
+        allow_credentials=(bool(_cors) and _cors != ["*"]),
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.middleware("http")(_request_id_middleware)
 
     # -- Routes -------------------------------------------------------------

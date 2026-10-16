@@ -464,6 +464,8 @@ Server and deployment:
   metrics paths answer any `Host`. Compose allows `api:*,mcp:*`.
 - **Removing a key from `RAG_API_KEYS` ends the sessions it minted**, on REST
   and MCP. A token used to stay valid for its seven days.
+- 413 and 429 responses to an allowed origin carry the CORS headers (CORS was
+  the innermost middleware).
 
 Numbers that were wrong:
 
