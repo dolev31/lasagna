@@ -179,7 +179,7 @@ class DocumentPipeline:
         # cannot be read, would make a collection of the wrong size.
         unknown = getattr(config, "embedding_size_unknown", None)
         problem = unknown() if callable(unknown) else None
-        if problem:
+        if isinstance(problem, str) and problem:
             raise ValueError(problem)
 
         # Quota enforcement — fast-fail before expensive operations (embedding
