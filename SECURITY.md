@@ -33,6 +33,12 @@ inputs on an instance you control.
   deployment manifests fail to start rather than falling back to a default. If
   you find a code path that accepts a built-in default, treat it as a bug and
   report it.
+- **A session cannot reconfigure the server.** The settings a session may
+  set for itself (REST config routes, the MCP config tools, the configurator,
+  a config import) are retrieval and generation settings. The vector backend,
+  its connection settings, the collection, paths, URLs, credentials,
+  `*_trust_remote_code` and server limits are refused there, with the key
+  named; they come from the environment and the settings file only.
 - **The API is unauthenticated by default** and intended to run on a trusted
   network. `X-Session-ID` is accepted as identity with no credential, so
   anything that can reach the port can read or delete any session's documents.

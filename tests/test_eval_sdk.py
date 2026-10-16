@@ -1532,8 +1532,10 @@ class TestContextTruncationConsistency:
         """
         source = (_EVAL_SDK_DIR / "experiment.py").read_text()
         assert 'getattr(_generator, "context_k", None) or 5' in source
-        # Must appear at least twice (generation prompt + generator input)
-        assert source.count("contexts[:_context_k]") >= 2
+        # Must appear at least twice (generation prompt + generator input):
+        # the first k passages, in the order the generator reads them.
+        assert source.count("_shown(_context_k)") >= 2
+        assert "kept = list(_contexts[:k])" in source
         # ...and RAGAS is handed the same slice.
         assert "_ctx_k = 10 if _speculative else _context_k" in source
         assert "gen_contexts.append(contexts[:_ctx_k])" in source

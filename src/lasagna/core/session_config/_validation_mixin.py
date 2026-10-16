@@ -58,6 +58,50 @@ class ValidationMixin:
             messages = "; ".join(f"{e['key']}: {e['message']}" for e in result.errors)
             raise ValueError(f"Invalid configuration: {messages}")
 
+    def _session_settings(
+        self,
+        config: Dict[str, Any],
+        *,
+        trusted: bool = False,
+        builtin: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """``config`` as a session may store it; raises ``SessionSettingRefused``.
+
+        Called by every write that takes settings from a caller (patch, profile
+        switch with settings, save, import), before anything is applied. A key
+        only the server may set is dropped when it repeats what is already in
+        force (the server's own setting, the default profile's, or ``builtin``,
+        the built-in profile an import names) and refused otherwise.
+        ``trusted`` skips the check, for in-process callers writing the
+        process's own configuration (the evaluation harness, a local SDK
+        client).
+        """
+        if trusted or not config:
+            return config
+        from lasagna.core.config import get_rag_config
+
+        from ._session_keys import check_session_settings
+
+        server = get_rag_config()
+        in_force = {}
+        for key in config:
+            try:
+                in_force[key] = getattr(server, key)
+            except Exception:
+                in_force[key] = server._config.get(key)
+        default = next((p for p in self._default_profiles if p.name == "default"), None)
+        try:
+            from lasagna.configurator.schema import get_defaults
+
+            # What the configurator page sends for a field nobody touched.
+            page_defaults = get_defaults()
+        except Exception:  # pragma: no cover - the page is optional
+            page_defaults = {}
+        return check_session_settings(
+            config,
+            echoes=(in_force, default.config if default else {}, builtin or {}, page_defaults),
+        )
+
     def _refuse_unsearchable(
         self,
         state: Any,

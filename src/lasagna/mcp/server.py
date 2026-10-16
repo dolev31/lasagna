@@ -2830,11 +2830,13 @@ def patch_rag_config(
     """Apply configuration overrides to the current session.
 
     Merges the provided settings with the active profile's config.
-    These overrides persist for the session duration.
+    These overrides persist for the session duration. Only retrieval and
+    generation settings: the vector store, collection, paths, URLs and
+    credentials are the server's, and a patch naming one is refused.
 
     :param session_id: Session identifier.
     :param config_patch: JSON string with config keys to override.
-        Example: '{"top_k": 10, "enable_reranking": false}'
+        Example: '{"rerank_top_k": 10, "enable_reranking": false}'
     :returns: JSON object with updated configuration.
     """
     session_id, user_id = _resolve_session(session_id, session_token)

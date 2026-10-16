@@ -287,8 +287,15 @@ class SessionStateMixin:
         session_id: Optional[str] = None,
         *,
         force: bool = False,
+        trusted: bool = False,
     ) -> Dict[str, Any]:
-        """Apply a patch to the session overrides."""
+        """Apply a patch to the session overrides.
+
+        Only settings a session may set are accepted (see ``_session_keys``);
+        ``trusted`` is for in-process callers writing the process's own
+        configuration, never for a value a client sent.
+        """
+        patch = self._session_settings(patch, trusted=trusted)
         state = self.get_session_state(session_id)
 
         with self._lock:
@@ -388,15 +395,24 @@ class SessionStateMixin:
                 raise ValueError("Each profile must have a 'name'")
             if not isinstance(p_data.get("config", {}), dict):
                 raise ValueError(f"Profile '{p_data['name']}' config must be an object")
-            profile_config = p_data.get("config", {})
+            builtin = next((p for p in self._default_profiles if p.name == p_data["name"]), None)
+            profile_config = self._session_settings(
+                p_data.get("config", {}), builtin=builtin.config if builtin else None
+            )
+            if builtin is not None:
+                # A built-in profile keeps the server's settings; an import
+                # changes only what a session may change in it.
+                profile_config = {**copy.deepcopy(builtin.config), **profile_config}
             _check_profile_size(profile_config)
             if profile_config:
                 self._validate_or_raise(profile_config)
-            imported_profiles.append(RAGProfile.from_dict(p_data))
+            imported_profiles.append(RAGProfile.from_dict({**p_data, "config": profile_config}))
 
         overrides = import_data.get("session_overrides")
         if overrides is not None and not isinstance(overrides, dict):
             raise ValueError("'session_overrides' must be an object")
+        if overrides:
+            overrides = self._session_settings(overrides)
 
         active_profile = import_data.get("active_profile")
         if active_profile is not None and not isinstance(active_profile, str):

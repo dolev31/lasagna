@@ -204,8 +204,8 @@ Defaults and naming:
 
 - **One vector collection per embedding model.** The default collection name is
   `rag_documents_v2__<model>__<dim>`, so sessions on different profiles never
-  share vectors. A name set explicitly (settings file, `RAG_COLLECTION_NAME`, a
-  session) is used as given; the evaluation harness's per-arm names are
+  share vectors. A name set explicitly (settings file or `RAG_COLLECTION_NAME`)
+  is used as given; the evaluation harness's per-arm names are
   unchanged. Each collection's model is recorded in a `collection_meta`
   table, and opening a collection with another model, even at the same size
   (bge-large and bge-m3 are both 1024), is refused with the command that
@@ -446,6 +446,17 @@ Each of these still works in 0.1.x, says so when used, and is removed in 0.2.0.
   They still answer, but are listed only under `--tools all`.
 
 ### Fixed
+
+Server and deployment:
+
+- **A session can no longer point the server at another vector store.**
+  Session settings (REST `/api/v1/config`, `/api/config/knowledge/profile` and
+  `/import`, the MCP config tools, the config manager) accepted any key, and
+  search resolved them: `vector_backend_config` with any URL made the server
+  connect there, and a session could name another collection, a database or
+  upload path, a Redis URL or `reranker_trust_remote_code`. A session now sets
+  retrieval and generation settings only; every other key, unknown keys and
+  models named by a path or URL are refused with an error naming each key.
 
 Numbers that were wrong:
 
