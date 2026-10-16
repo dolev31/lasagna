@@ -2,7 +2,7 @@
 
 Compares document IDs in three stores:
   - **SQLite/PostgreSQL** (``DatabaseBackend``) — ground truth
-  - **Vector backend** (``VectorStoreAdapter``) — should match READY/non-deleted docs
+  - **Vector backend** (``VectorStoreAdapter``): every vector belongs to a DB record
 
 Identifies two classes of orphans:
 
@@ -12,9 +12,12 @@ db_only
     partially written then the process died).
 
 vector_only
-    Chunks exist in the vector store but there is no DB record.
-    Typical cause: DB record was hard-deleted or the document was created in a
-    previous DB schema that was wiped, leaving leaked vectors.
+    Chunks exist in the vector store but no DB record, in any status, owns
+    them. Typical cause: DB record was hard-deleted (the only permanent
+    deletion; an archived document is ``soft_deleted`` and can be restored) or
+    the document was created in a previous DB schema that was wiped, leaving
+    leaked vectors. A document still uploading, processing or indexing, one in
+    ``error``, and an archived one all own their vectors.
 
 Usage::
 
@@ -76,6 +79,32 @@ class OrphanDetector:
         }
         return doc_ids - elsewhere
 
+    def _unowned(self, doc_ids: set) -> set:
+        """The documents among ``doc_ids`` that no DB record owns, in any status.
+
+        Repair deletes these vectors, so a record that cannot be read counts
+        as an owner: "could not tell" must not delete a document's vectors.
+        """
+        if not doc_ids:
+            return doc_ids
+        ordered = sorted(doc_ids)
+        try:
+            owned = {
+                row.get("document_id")
+                for start in range(0, len(ordered), 500)
+                for row in self._db.get_documents_batch(
+                    ordered[start : start + 500], include_soft_deleted=True
+                )
+                or []
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                f"OrphanDetector: could not read the records of {len(doc_ids)} documents "
+                f"found only in the vector store, so none is reported as an orphan: {exc}"
+            )
+            return set()
+        return doc_ids - owned
+
     # =========================================================================
     # Public API
     # =========================================================================
@@ -105,10 +134,11 @@ class OrphanDetector:
             + (f" session='{session_id}'" if session_id else "")
         )
 
-        # Only include READY docs — in-flight docs (UPLOADING/PROCESSING/INDEXING)
-        # haven't had vectors written yet and would appear as false-positive db-only
-        # orphans.  Pass only_ready=True; DB implementations that don't support the
-        # flag fall back to all-active (graceful degradation).
+        # db-only compares READY docs: in-flight docs (UPLOADING/PROCESSING/INDEXING)
+        # haven't had all their vectors written yet and would appear as false-positive
+        # db-only orphans. DB implementations that don't support the flag fall back
+        # to all-active (graceful degradation). vector-only does not use this set: a
+        # document in any status owns its vectors (see _unowned).
         try:
             db_ids = set(self._db.list_all_active_document_ids(session_id, only_ready=True))
         except TypeError:
@@ -134,7 +164,7 @@ class OrphanDetector:
             )
 
         db_only = self._recorded_in(db_ids - vec_ids, collection_name)
-        vector_only = vec_ids - db_ids
+        vector_only = self._unowned(vec_ids - db_ids)
 
         orphans = [
             OrphanRecord(document_id=doc_id, in_db=True, in_vector=False)
@@ -190,8 +220,16 @@ class OrphanDetector:
             ``RepairReport`` with counts of repaired items.
         """
         result = RepairReport(dry_run=dry_run)
+        # The report may be older than the records: a document saved since
+        # then owns its vectors, so ownership is read again before deleting.
+        vector_only = {o.document_id for o in report.orphans if o.kind == "vector_only"}
+        unowned = self._unowned(vector_only)
+        for doc_id in sorted(vector_only - unowned):
+            logger.info(f"Orphan repair: {doc_id} has a document record now; vectors kept")
 
         for orphan in report.orphans:
+            if orphan.kind == "vector_only" and orphan.document_id not in unowned:
+                continue
             if orphan.kind == "db_only":
                 if not dry_run:
                     try:

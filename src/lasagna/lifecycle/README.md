@@ -119,24 +119,22 @@ environment), not from one changed at runtime.
 
 ## Orphan detection
 
-`OrphanDetector.detect()` compares two sets for the collection of the server's
-default configuration:
-
-- the `ready` documents in the metadata database, and
-- the distinct `document_id` values in the vector collection, read through the
-  backend's `list_document_ids()`, at most 50,000 of them (past that the report
-  sets `scan_limited`).
+`OrphanDetector.detect()` compares the metadata database with the distinct
+`document_id` values in the collection of the server's default configuration,
+read through the backend's `list_document_ids()`, at most 50,000 of them (past
+that the report sets `scan_limited`).
 
 | Kind | Meaning | `repair(dry_run=False)` |
 | --- | --- | --- |
 | `db_only` | A `ready` row with no vectors, for example after a crash during ingestion. A row whose `collection_name` names another collection is not counted | Archives the row, so phase 1 removes it after the grace window |
-| `vector_only` | Vectors with no `ready` row | Deletes the vectors |
+| `vector_only` | Vectors that no row owns, in any status: the document was hard-deleted (phase 1, or `DELETE` on a document) or never recorded | Deletes the vectors |
 
-Vectors of a document that is archived or still being processed have no `ready`
-row, so they are reported as `vector_only`, and a repair deletes them. Run a
-repair when no document is in its grace window or mid-ingestion, or check the
-dry run's list first. Files in storage with no row are not detected, because
-storage backends cannot list their files.
+A document still uploading, processing or indexing, one in `error` and an
+archived one all own their vectors, so a repair keeps them. Repair reads the
+rows again before deleting, so a document saved after the scan keeps its
+vectors, and when the rows cannot be read no vectors are reported as orphans.
+Files in storage with no row are not detected, because storage backends cannot
+list their files.
 
 ## REST API
 

@@ -152,6 +152,12 @@ Results:
 
 Servers and deployment:
 
+- **Orphan repair deleted the vectors of documents it should keep.** Detection
+  counted only `ready` rows, so a document still uploading, processing or
+  indexing, one in `error` and an archived one were vector-only orphans, and a
+  repair (the Celery scan with `dry_run=False`, `POST /admin/gc/repair`)
+  deleted their vectors. A vector is an orphan only when no row in any status
+  owns it, and repair checks again before deleting.
 - **Search responses name the stages that fell back.** `degraded_stages` lists
   `hyde`, `graphrag`, `hybrid`, `query_expansion` or `agentic` when that stage
   failed and the search carried on with less; each fallback is also counted in
