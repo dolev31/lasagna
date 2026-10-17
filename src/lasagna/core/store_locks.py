@@ -15,6 +15,11 @@ one host share, it is an ``flock`` on a lock file beside the database, one of
 there it serializes the threads of one process only.
 
 A thread may take a lock it already holds (a delete inside a replace).
+
+A session's lock (``session:<id>``) is taken before any document's, never
+after, and on SQLite session locks have stripe files of their own: two lock
+classes that nest never share a stripe, so a stripe both name cannot leave two
+threads each waiting for the other.
 """
 
 from __future__ import annotations
@@ -59,9 +64,16 @@ def _stripes_for(directory: str) -> List[_Stripe]:
         return stripes
 
 
+#: Lock name prefixes with stripe files of their own (see the module docstring).
+_OWN_STRIPES = ("session:",)
+
+
 @contextmanager
 def file_lock(directory: str, name: str) -> Iterator[None]:
     """Hold ``name`` against every thread and process that locks it in ``directory``."""
+    prefix = next((p for p in _OWN_STRIPES if name.startswith(p)), None)
+    if prefix is not None:
+        directory = os.path.join(directory, prefix.rstrip(":"))
     stripe = _stripes_for(directory)[lock_key(name) % STRIPES]
     with stripe.local:
         if stripe.depth == 0 and sys.platform != "win32":
@@ -95,3 +107,20 @@ class HeldLocks(threading.local):
 
     def __init__(self):
         self.held: Dict[int, int] = {}
+
+
+_local_locks = [threading.RLock() for _ in range(STRIPES)]
+
+
+def store_lock(name: str):
+    """The metadata store's lock ``name``, held across every process that shares the store.
+
+    The store's own ``exclusive``; a stand-in store without one (in a test)
+    gets a lock that serializes this process's threads.
+    """
+    from lasagna.core.database import get_rag_database
+
+    exclusive = getattr(get_rag_database(), "exclusive", None)
+    if callable(exclusive):
+        return exclusive(name)
+    return _local_locks[lock_key(name) % STRIPES]

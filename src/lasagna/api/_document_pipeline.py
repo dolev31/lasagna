@@ -100,10 +100,6 @@ class DocumentRemoved(DocumentNotFound):
     """
 
 
-#: For a metadata store without cross-process locks (a stand-in in a test).
-_LOCAL_LOCKS = [threading.RLock() for _ in range(64)]
-
-
 def _store_lock(name: str):
     """The metadata store's lock ``name``, held across every process that shares the store.
 
@@ -113,13 +109,9 @@ def _store_lock(name: str):
     one pod during a reindex on another left the reindexed chunks in the
     vector store with no row.
     """
-    from lasagna.core.database import get_rag_database
-    from lasagna.core.store_locks import lock_key
+    from lasagna.core.store_locks import store_lock
 
-    exclusive = getattr(get_rag_database(), "exclusive", None)
-    if callable(exclusive):
-        return exclusive(name)
-    return _LOCAL_LOCKS[lock_key(name) % len(_LOCAL_LOCKS)]
+    return store_lock(name)
 
 
 def _document_lock(document_id: str):

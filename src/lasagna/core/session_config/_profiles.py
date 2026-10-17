@@ -578,9 +578,7 @@ class ProfileMixin:
             config = self._session_settings(config, document=True)
             self._validate_or_raise(config, session_id)
 
-        state = self.get_session_state(session_id)
-
-        with self._lock:
+        with self._session_write(session_id) as state:
             profile, profile_config, overrides = self._switch_plan(
                 state, profile_name, config, user_id
             )
@@ -715,9 +713,7 @@ class ProfileMixin:
         if config:
             self._validate_or_raise(config)
 
-        state = self.get_session_state(session_id)
-
-        with self._lock:
+        with self._session_write(session_id) as state:
             is_new = profile_name not in self._global_profile_names
             # Counted per owner. One shared count let a tenant fill it and lock
             # every other tenant out of saving any profile at all.
@@ -824,9 +820,7 @@ class ProfileMixin:
         if not new_name or len(new_name) > 100:
             raise ValueError("New profile name must be 1-100 characters.")
 
-        state = self.get_session_state(session_id)
-
-        with self._lock:
+        with self._session_write(session_id) as state:
             if new_name in self._global_profile_names or any(
                 p.name == new_name for p in state.profiles
             ):
@@ -876,9 +870,7 @@ class ProfileMixin:
         if self._is_protected_profile_name(profile_name):
             raise ValueError("Built-in profiles cannot be deleted.")
 
-        state = self.get_session_state(session_id)
-
-        with self._lock:
+        with self._session_write(session_id) as state:
             # Ownership check: prevent deleting profiles owned by other users.
             # Profiles owned by "__anonymous__" are shared/legacy and deletable by anyone.
             existing = next(
@@ -927,9 +919,7 @@ class ProfileMixin:
         if profile_name == "default":
             raise ValueError("The default profile description cannot be edited.")
 
-        state = self.get_session_state(session_id)
-
-        with self._lock:
+        with self._session_write(session_id) as state:
             profile = next((p for p in state.profiles if p.name == profile_name), None)
             if not profile:
                 raise ValueError(f"Profile '{profile_name}' not found.")

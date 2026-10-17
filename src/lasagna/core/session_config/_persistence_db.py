@@ -257,8 +257,10 @@ class DatabasePersistenceMixin:
         except Exception as exc:
             logger.warning(f"Failed to persist session states to PostgreSQL: {exc}")
 
-    def _read_persisted_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """The session as stored, Redis first, then PostgreSQL; None when absent.
+    def _read_persisted_session(
+        self, session_id: str, *, fresh: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """The session as stored, Redis first (unless ``fresh``), then PostgreSQL; None when absent.
 
         A manager that outlives a request re-reads its sessions through this
         once a second: the one ``PersistentSessionProvider`` holds for the
@@ -267,7 +269,7 @@ class DatabasePersistenceMixin:
         session it read, so a profile applied through one api worker never
         reached the other workers, the Celery worker or the MCP server.
         """
-        cached = self._load_session_from_cache(session_id)
+        cached = None if fresh else self._load_session_from_cache(session_id)
         if cached:
             return cached
         try:

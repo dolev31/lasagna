@@ -257,8 +257,13 @@ class PersistenceMixin:
         except Exception as exc:
             logger.warning(f"Failed to delete session {session_id} from database: {exc}")
 
-    def _read_persisted_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """The session as stored, or None when it is not stored or cannot be read."""
+    def _read_persisted_session(
+        self, session_id: str, *, fresh: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """The session as stored, or None when it is not stored or cannot be read.
+
+        SQLite has no cache in front of it, so every read is ``fresh``.
+        """
         try:
             row = _get_db().get_session(session_id)
         except Exception as exc:

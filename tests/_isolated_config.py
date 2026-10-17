@@ -32,6 +32,14 @@ def isolated_manager(tmp_path, monkeypatch, *, stored_dim=None):
         "lasagna.api.rest.routes.knowledge_config.get_knowledge_config_manager",
         lambda *a, **k: mgr,
     )
+    # The persistent session provider keeps the first manager it is handed:
+    # handed this one, it kept it after the test, and later tests' searches
+    # read this manager instead of the process's.
+    from lasagna.providers import get_session_provider
+
+    provider = get_session_provider()
+    if hasattr(provider, "_manager"):
+        monkeypatch.setattr(provider, "_manager", mgr)
     stored_at(monkeypatch, stored_dim)
     return mgr
 

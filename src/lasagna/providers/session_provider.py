@@ -488,6 +488,9 @@ class PersistentSessionProvider(SessionConfigProvider):
 
     def remove_config_overrides(self, session_id: str, keys: Iterable[str]) -> None:
         manager = self._get_manager()
+        if hasattr(manager, "remove_session_overrides"):
+            manager.remove_session_overrides(list(keys), session_id)
+            return
         try:
             state = manager.get_session_state(session_id)
             changed = False
