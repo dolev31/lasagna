@@ -691,35 +691,92 @@ def init():
 
 
 def _reported_document_failure(record: Dict[str, Any]) -> bool:
-    """The worker's log line for a document that failed.
+    """The worker's or the SDK's log line for a document that failed.
 
     `upload` waits for the document and prints the failure, with its fix, as
-    its error; the worker's ERROR line repeated it before that.
+    its error; the worker's ERROR line repeated it before that, and the SDK's
+    "Upload failed" line made a refused upload say so three times.
     """
-    return "document_failure" in record["extra"]
+    return "document_failure" in record["extra"] or (
+        record["name"] == "lasagna.sdk.managers.document_manager"
+        and str(record["message"]).startswith("Upload failed")
+    )
 
 
-def _upload_targets(patterns: List[str]) -> List[Path]:
-    """The files ``patterns`` name: paths, or globs the shell left unexpanded.
+def _readable_types(session_id: str) -> List[str]:
+    """The file types an upload to ``session_id`` accepts, as the pipeline checks them."""
+    from lasagna.core.config import rag_config
 
-    Exits naming the first one that matches no file.
+    return sorted(rag_config.with_session(session_id).supported_extensions)
+
+
+def _readable(path: Path, types: List[str]) -> bool:
+    from lasagna.processing.document_processor import DocumentProcessor
+
+    try:
+        return DocumentProcessor.detect_file_type(str(path)) in types
+    except ValueError:
+        return False
+
+
+def _upload_targets(patterns: List[str], session_id: str = "default") -> List[Path]:
+    """The files ``patterns`` name: paths, folders, or globs the shell left unexpanded.
+
+    A folder is the files in it and its subfolders that the session can read
+    (hidden ones left out), and the command says how many it skipped; a glob
+    skips unreadable files the same way. A file named on its own that cannot
+    be read is refused before anything is uploaded, once, with the types that
+    can be: `lasagna upload ./docs` said "File not found: ./docs", and an
+    unsupported file printed "Upload failed" three times. Exits naming the
+    first pattern that matches no file.
     """
     import glob
 
+    types = _readable_types(session_id)
+    listing = ", ".join(types)
     files: List[Path] = []
     for pattern in patterns:
         path = Path(pattern)
         if path.is_file():
+            if not _readable(path, types):
+                kind = f"a {path.suffix} file" if path.suffix else "a file with no extension"
+                _error(f"{pattern} is {kind}, which Lasagna cannot read. It reads {listing}.")
             files.append(path)
             continue
-        matched = sorted(Path(m) for m in glob.glob(pattern, recursive=True) if Path(m).is_file())
-        if not matched:
-            _error(
-                f"File not found: {pattern}"
-                if not glob.has_magic(pattern)
-                else f"No file matches {pattern}"
+        if path.is_dir():
+            found = sorted(
+                p
+                for p in path.rglob("*")
+                if p.is_file()
+                and not any(part.startswith(".") for part in p.relative_to(path).parts)
             )
-        files.extend(matched)
+            where = f"{pattern} is a folder"
+        else:
+            found = sorted(Path(m) for m in glob.glob(pattern, recursive=True) if Path(m).is_file())
+            where = f"{pattern} matches {_count(len(found), 'file')}"
+        if not found:
+            _error(
+                f"No file matches {pattern}"
+                if glob.has_magic(pattern)
+                else f"{pattern} is an empty folder"
+                if path.is_dir()
+                else f"File not found: {pattern}"
+            )
+        readable = [p for p in found if _readable(p, types)]
+        skipped = sorted({p.suffix or "no extension" for p in found if p not in readable})
+        if not readable:
+            _error(f"{where} with no file Lasagna can read. It reads {listing}.")
+        if path.is_dir() or skipped:
+            scope = ", subfolders included" if path.is_dir() else ""
+            note = (
+                f"; skipping {len(found) - len(readable)} ({', '.join(skipped)})" if skipped else ""
+            )
+            console.print(
+                f"{escape(where)}: uploading {_count(len(readable), 'readable file')}{scope}"
+                f"{escape(note)}.",
+                soft_wrap=True,
+            )
+        files.extend(readable)
     return list(dict.fromkeys(files))
 
 
@@ -727,7 +784,9 @@ def _upload_targets(patterns: List[str]) -> List[Path]:
 def upload(
     ctx: typer.Context,
     file_paths: List[str] = typer.Argument(
-        ..., help="Files to upload: one or more paths, or glob patterns such as 'docs/*.md'"
+        ...,
+        help="Files to upload: one or more paths, folders (their readable files, subfolders "
+        "included), or glob patterns such as 'docs/*.md'",
     ),
     session_id: str = typer.Option("default", "--session", "-s", help="Session ID"),
     force: bool = typer.Option(
@@ -738,14 +797,15 @@ def upload(
 ):
     """Upload and index documents.
 
-    Name several files, or a glob such as 'docs/*.md', in one command: they go
-    through one client, so the models load once instead of once per file.
+    Name several files, a folder, or a glob such as 'docs/*.md', in one
+    command: they go through one client, so the models load once instead of
+    once per file.
     """
     _configure_cli_logging(
         bool(ctx.find_root().params.get("verbose")),
         hide=lambda r: _server_only_warning(r) or _reported_document_failure(r),
     )
-    paths = _upload_targets(file_paths)
+    paths = _upload_targets(file_paths, session_id)
     _require_vector_backend()
 
     url = _serving_url()
@@ -806,7 +866,8 @@ def _report_one_upload(path: Path, result, doc, session_id: str) -> None:
     from lasagna.sdk.types import DocumentStatus
 
     if isinstance(result, Exception):
-        _error(f"Upload failed: {result}", exc=result)
+        message = str(result)
+        _error(message if message.startswith("Upload failed") else f"Upload failed: {message}")
     if doc is None:
         console.print(_already_uploaded(path, result, session_id))
         return
@@ -1296,8 +1357,9 @@ def serve(
 ):
     """Start the REST API server, with the configurator web page.
 
-    While it runs it holds the local store; `lasagna status`, `search` and
-    `upload` go through it.
+    While it runs it holds the local store; `lasagna status`, `search`,
+    `upload` and `configure` go through it, and `benchmark run` and
+    `benchmark experiment` use a store of their own.
     """
 
     def _hide(record) -> bool:

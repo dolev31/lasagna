@@ -171,6 +171,23 @@ class _LasagnaMCP(FastMCP):
         """How many tools ``tools/list`` returns."""
         return len(self._tool_manager._tools)
 
+    async def call_tool(self, name: str, arguments: Dict[str, Any]):
+        """Run a tool; an argument of the wrong type is refused in one plain sentence.
+
+        FastMCP passed pydantic's text through: ``search {"top_k": "lots"}``
+        answered "1 validation error for searchArguments ... errors.pydantic.dev".
+        """
+        from mcp.server.fastmcp.exceptions import ToolError
+
+        try:
+            return await super().call_tool(name, arguments)
+        except ToolError as exc:
+            tool = self._tool_manager.get_tool(name)
+            plain = _argument_error(name, exc.__cause__, (tool.parameters if tool else None) or {})
+            if plain is None:
+                raise
+            raise ToolError(plain) from None
+
     def sse_app(self, *args, **kwargs):
         """FastMCP's SSE app, refusing a foreign ``Host`` with the setting that admits it.
 
@@ -202,6 +219,45 @@ class _LasagnaMCP(FastMCP):
             await app(scope, receive, send)
 
         return checked
+
+
+#: JSON Schema types as an argument error names them.
+_SCHEMA_TYPES = {
+    "integer": "a whole number",
+    "number": "a number",
+    "string": "a string",
+    "boolean": "true or false",
+    "array": "a list",
+    "object": "an object",
+}
+
+
+def _argument_error(tool: str, cause: Any, schema: Dict[str, Any]) -> Optional[str]:
+    """``cause`` as one sentence per argument, when it is the tool's argument check.
+
+    Only pydantic's check of the call's arguments (its model is named
+    ``<tool>Arguments``) is rewritten; an error raised inside a tool is the
+    tool's to word.
+    """
+    try:
+        from pydantic import ValidationError
+    except ImportError:  # pragma: no cover - FastMCP depends on pydantic
+        return None
+    if not isinstance(cause, ValidationError) or cause.title != f"{tool}Arguments":
+        return None
+    properties = schema.get("properties") or {}
+    parts = []
+    for error in cause.errors():
+        name = str(error["loc"][0]) if error.get("loc") else "?"
+        spec = properties.get(name) or {}
+        kinds = [s.get("type") for s in spec.get("anyOf", [spec])]
+        expected = " or ".join(_SCHEMA_TYPES[k] for k in kinds if k in _SCHEMA_TYPES)
+        expected = expected or "another value"
+        if error.get("type") == "missing":
+            parts.append(f"argument {name!r} is required ({expected})")
+        else:
+            parts.append(f"argument {name!r} takes {expected}, not {error.get('input')!r}")
+    return f"{tool}: " + "; ".join(parts) + "."
 
 
 #: Keys a tool's JSON error reply may carry; any other key makes it a report.

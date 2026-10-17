@@ -32,6 +32,9 @@ def test_the_cache_hint_states_the_measured_sizes(tmp_path, monkeypatch):
     from huggingface_hub import constants
 
     monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path / "empty" / "hub"))
+    # The sizes are the online advice; offline, a missing model blocks instead.
+    monkeypatch.setenv("HF_HUB_OFFLINE", "0")
+    monkeypatch.delenv("TRANSFORMERS_OFFLINE", raising=False)
 
     check = diagnostics._check_model_cache()
 
