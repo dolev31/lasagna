@@ -2729,6 +2729,10 @@ def _apply_overrides_to_pipeline(
     if config_overrides:
         pipeline._config.update(config_overrides)
 
+    # Never through the shared session store (see _ensure_corpus_ingested).
+    from ..core.session_config import keep_in_process
+
+    keep_in_process(session_id)
     # Push config to session-scoped overrides so SearchOrchestrator sees them.
     # NOTE: pipeline._apply_session_config writes to KnowledgeConfigManager
     # which is *disconnected* from InMemorySessionProvider — the store that
@@ -3619,6 +3623,12 @@ async def _ensure_corpus_ingested(
         # variants always resolve to the same vector DB session.
         corpus_hash = _hashlib.md5(cache_key.encode()).hexdigest()[:12]
         shared_session_id = f"bench_corpus_{corpus_hash}"
+        # Its settings stay in this process: every run on this corpus uses this
+        # session id, and two experiment processes sharing its row in the
+        # session store read each other's arm settings.
+        from ..core.session_config import keep_in_process
+
+        keep_in_process(shared_session_id)
 
         # Apply ingestion-time overrides (docling, chunking, embedding) BEFORE
         # uploading so the document pipeline uses the correct settings.

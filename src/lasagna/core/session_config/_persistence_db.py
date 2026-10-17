@@ -10,14 +10,17 @@ Write path: PostgreSQL (durable) → Redis update (cache invalidation/refresh)
 
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
 from ._data_models import (
+    ANONYMOUS,
     SESSION_TTL_SECONDS,
     RAGProfile,
     KnowledgeConfigState,
+    kept_in_process,
+    session_idle_seconds,
 )
 
 
@@ -34,9 +37,19 @@ _pg_db_lock = threading.Lock()
 def _get_pg_db():
     """Get the PostgreSQL database singleton.
 
-    Uses double-check locking to prevent double initialization of the
-    PG connection pool when called concurrently on first access.
+    The metadata store's own (``get_rag_database``), so a process keeps one
+    connection pool: this module opened a second one, of up to
+    ``database_pool_max`` connections more per process. Its own instance only
+    when the metadata store is not PostgreSQL (``RAG_DATABASE_BACKEND`` set
+    without ``database_backend``). Uses double-check locking to prevent double
+    initialization of the PG connection pool when called concurrently.
     """
+    from lasagna.core.database import get_rag_database
+    from lasagna.core.database_pg import PostgresRAGDatabase
+
+    shared = get_rag_database()
+    if isinstance(shared, PostgresRAGDatabase):
+        return shared
     if not hasattr(_get_pg_db, "_instance"):
         with _pg_db_lock:
             if not hasattr(_get_pg_db, "_instance"):
@@ -84,33 +97,61 @@ class DatabasePersistenceMixin:
         """No-op for PostgreSQL backend (no legacy JSON files to migrate)."""
         pass
 
-    def _load_global_profiles(self) -> None:
-        """Load global custom profiles from PostgreSQL."""
+    def _read_saved_profiles(self) -> Optional[List[RAGProfile]]:
+        """Every saved profile in PostgreSQL, of every owner; None when it cannot be read."""
         try:
             db = _get_pg_db()
-            user_id = getattr(self, "_user_id", "__global__")
-            rows = db.get_profiles(user_id)
-
-            self._global_custom_profiles = []
-            self._global_profile_names = set()
-
-            for row in rows:
-                if row.get("is_builtin"):
-                    continue  # Built-in profiles come from _load_defaults()
-                profile = RAGProfile(
-                    name=row["profile_name"],
-                    description=row.get("description", ""),
-                    config=row.get("config", {}),
-                )
-                self._global_custom_profiles.append(profile)
-                self._global_profile_names.add(profile.name)
-
-            if self._global_custom_profiles:
-                logger.info(
-                    f"Loaded {len(self._global_custom_profiles)} custom profile(s) from PostgreSQL"
-                )
+            reader = getattr(db, "get_saved_profiles", None)
+            rows = reader() if reader else db.get_profiles(getattr(self, "_user_id", ANONYMOUS))
         except Exception as exc:
             logger.warning(f"Failed to load profiles from PostgreSQL: {exc}")
+            return None
+        if not isinstance(rows, list):
+            return None  # a stand-in store: keep what this process has
+        return [
+            RAGProfile(
+                name=row["profile_name"],
+                description=row.get("description", ""),
+                config=row.get("config", {}),
+                user_id=row.get("user_id") or ANONYMOUS,
+            )
+            for row in rows
+            if not row.get("is_builtin")  # Built-in profiles come from _load_defaults()
+        ]
+
+    def _load_global_profiles(self) -> None:
+        """Load global custom profiles from PostgreSQL."""
+        profiles = self._read_saved_profiles()
+        if profiles is None:
+            return
+        self._global_custom_profiles = profiles
+        self._global_profile_names = {p.name for p in profiles}
+
+    def _save_global_profile(self, profile: RAGProfile) -> None:
+        """Store one saved profile, under its owner, leaving every other row as it is.
+
+        This deleted every profile of this manager's user and wrote back the
+        ones it had read: a profile another worker had saved since was gone.
+        """
+        try:
+            _get_pg_db().save_profile(
+                user_id=profile.user_id or ANONYMOUS,
+                profile_name=profile.name,
+                config=profile.config,
+                description=profile.description,
+                is_builtin=False,
+            )
+            self._cache_profiles(profile.user_id or ANONYMOUS)
+        except Exception as exc:
+            logger.warning(f"Failed to save profile {profile.name!r} to PostgreSQL: {exc}")
+
+    def _delete_global_profile(self, profile: RAGProfile) -> None:
+        """Delete one saved profile's row."""
+        try:
+            _get_pg_db().delete_profile(profile.user_id or ANONYMOUS, profile.name)
+            self._cache_profiles(profile.user_id or ANONYMOUS)
+        except Exception as exc:
+            logger.warning(f"Failed to delete profile {profile.name!r} from PostgreSQL: {exc}")
 
     def _load_session_states(self) -> None:
         """Load session states from PostgreSQL.
@@ -192,34 +233,6 @@ class DatabasePersistenceMixin:
         """
         pass
 
-    def _persist_global_profiles(self) -> None:
-        """Persist global custom profiles to PostgreSQL + Redis cache.
-
-        Uses snapshot-style persist: delete all non-builtin profiles for this
-        user, then re-insert the current in-memory state. This ensures deleted
-        profiles are removed from the database (not just from memory).
-        """
-        try:
-            db = _get_pg_db()
-            user_id = getattr(self, "_user_id", "__global__")
-
-            # Delete all existing custom profiles, then re-insert current state
-            db.delete_all_user_profiles(user_id)
-            for profile in self._global_custom_profiles:
-                db.save_profile(
-                    user_id=user_id,
-                    profile_name=profile.name,
-                    config=profile.config,
-                    description=profile.description,
-                    is_builtin=False,
-                )
-
-            # Update Redis cache
-            self._cache_profiles(user_id)
-
-        except Exception as exc:
-            logger.warning(f"Failed to persist profiles to PostgreSQL: {exc}")
-
     def _delete_persisted_session(self, session_id: str) -> None:
         """Delete a single session from PostgreSQL + Redis cache."""
         try:
@@ -256,8 +269,10 @@ class DatabasePersistenceMixin:
         except Exception as exc:
             logger.warning(f"Failed to persist session states to PostgreSQL: {exc}")
 
-    def _read_persisted_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """The session as stored, Redis first, then PostgreSQL; None when absent.
+    def _read_persisted_session(
+        self, session_id: str, *, fresh: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """The session as stored, Redis first (unless ``fresh``), then PostgreSQL; None when absent.
 
         A manager that outlives a request re-reads its sessions through this
         once a second: the one ``PersistentSessionProvider`` holds for the
@@ -266,18 +281,27 @@ class DatabasePersistenceMixin:
         session it read, so a profile applied through one api worker never
         reached the other workers, the Celery worker or the MCP server.
         """
-        cached = self._load_session_from_cache(session_id)
-        if cached:
+        cached = None if fresh else self._load_session_from_cache(session_id)
+        if isinstance(cached, dict) and cached:
             return cached
         try:
             row = _get_pg_db().get_session(session_id)
         except Exception as exc:  # noqa: BLE001 - the cached copy is kept
             logger.debug(f"Could not read session {session_id} from PostgreSQL: {exc}")
             return None
-        return self._row_to_state_data(row) if row else None
+        return self._row_to_state_data(row) if isinstance(row, dict) and row else None
+
+    def _touch_persisted_session(self, session_id: str) -> None:
+        """Record in PostgreSQL that the session is in use."""
+        try:
+            _get_pg_db().touch_session(session_id)
+        except Exception as exc:
+            logger.debug(f"Could not record the use of session {session_id}: {exc}")
 
     def _persist_single_session(self, session_id: str) -> None:
         """Persist a single session (more efficient than persisting all)."""
+        if kept_in_process(session_id):
+            return  # the evaluation harness's: this process's only
         state = self._session_states.get(session_id)
         if state is None:
             return
@@ -300,7 +324,9 @@ class DatabasePersistenceMixin:
 
         Uses a module-level timestamp so that request-scoped instances
         (PostgreSQL mode) share the throttle across all requests within
-        a worker, preventing a DELETE query on every request.
+        a worker, preventing a DELETE query on every request. The store keeps
+        a session's settings while it holds documents, and otherwise for the
+        GC policy's ``session_idle_days`` after its last use.
         """
         global _cleanup_last_run
         now = time.time()
@@ -317,7 +343,7 @@ class DatabasePersistenceMixin:
 
         try:
             db = _get_pg_db()
-            count = db.cleanup_expired_sessions(max_age_seconds=SESSION_TTL_SECONDS)
+            count = db.cleanup_expired_sessions(max_age_seconds=session_idle_seconds())
 
             # Also clean up in-memory cache
             expired = []

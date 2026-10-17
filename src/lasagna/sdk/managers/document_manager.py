@@ -50,6 +50,22 @@ def _resolve_status(raw_status) -> DocumentStatus:
     return DocumentStatus(status_str)
 
 
+def _refuse_metadata(metadata: Optional[Dict[str, Any]]) -> None:
+    """Refuse metadata an upload would drop.
+
+    Accepted and dropped: no surface stores per-document metadata (the REST
+    upload route takes none), so ``upload(metadata={"department": ...})``
+    returned success and the metadata was gone.
+    """
+    if metadata:
+        raise ValueError(
+            f"upload() does not store metadata ({', '.join(sorted(map(str, metadata)))} "
+            f"given): a document keeps its file, filename and id only. Keep the metadata "
+            f"in your own records under the document_id that upload() returns, and call "
+            f"upload() without it."
+        )
+
+
 class DocumentManager:
     """Manages document upload, listing, and deletion.
 
@@ -125,7 +141,9 @@ class DocumentManager:
         Args:
             file_path: Path to the document file
             filename: Optional custom display name
-            metadata: Optional custom metadata
+            metadata: Not stored: a document keeps its file, filename and id
+                only, on every surface. A non-empty one raises ``ValueError``
+                rather than being dropped.
             document_id: Optional explicit document ID. When provided,
                 used instead of a generated UUID. Useful for benchmark
                 evaluation where corpus doc IDs must match qrels. An id the
@@ -139,18 +157,18 @@ class DocumentManager:
 
         Raises:
             FileNotFoundError: If file doesn't exist
-            ValueError: If file type not supported
+            ValueError: If file type not supported, or ``metadata`` is given
 
         Example:
             ```python
             result = await client.documents.upload(
                 "./quarterly_report.pdf",
                 filename="Q3 2024 Report",
-                metadata={"department": "finance"},
             )
             print(f"Uploaded: {result.document_id} ({result.chunk_count} chunks)")
             ```
         """
+        _refuse_metadata(metadata)
         # Resolve path
         path = Path(file_path).resolve()
         if not path.exists():
@@ -239,7 +257,7 @@ class DocumentManager:
 
         Args:
             file_paths: List of file paths to upload
-            metadata: Optional metadata applied to all documents
+            metadata: Not stored; a non-empty one raises ``ValueError`` (see ``upload``)
             max_concurrent: Maximum concurrent uploads (default 5, use 1 for sequential)
 
         Returns:
@@ -264,6 +282,7 @@ class DocumentManager:
                 print(f"{result.filename}: {result.status}")
             ```
         """
+        _refuse_metadata(metadata)
         if not file_paths:
             return []
 

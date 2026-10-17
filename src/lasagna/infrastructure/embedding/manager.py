@@ -513,6 +513,12 @@ class EmbeddingManager:
                     f"then describe another model."
                 ) from e
             logger.warning(f"Failed to load primary model {primary_model}: {e}")
+            # Through the download policy, as the primary: a server that refuses
+            # downloads inside a request downloaded the fallback there.
+            try:
+                model_downloads.check(fallback_model)
+            except model_downloads.ModelNotDownloaded as refused:
+                raise refused from e
             logger.info(f"Attempting fallback model: {fallback_model}")
 
             fallback_path = self._resolve_local_snapshot(fallback_model)

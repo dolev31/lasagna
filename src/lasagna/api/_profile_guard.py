@@ -18,9 +18,12 @@ user's overrides on the way back.
 
 from __future__ import annotations
 
+import json
+import threading
 import time
+from contextlib import contextmanager
 from types import SimpleNamespace
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional
 
 
 class EmbeddingSizeConflict(ValueError):
@@ -33,6 +36,72 @@ class EmbeddingSizeUnverified(EmbeddingSizeConflict):
 
 class DocumentsLeftBehind(EmbeddingSizeConflict):
     """The change would search another collection than the one holding the session's documents."""
+
+
+class ProfileSwitchInProgress(EmbeddingSizeConflict):
+    """A switch of the session that moves its documents is running, or stopped before it ended."""
+
+
+#: Sessions whose switch this thread is running: its own writes go through.
+_switching = threading.local()
+
+
+@contextmanager
+def switching(session_id: str) -> Iterator[None]:
+    """Let this thread change ``session_id`` while its switch is recorded as running."""
+    held: Dict[str, int] = getattr(_switching, "held", None) or {}
+    _switching.held = held
+    held[session_id] = held.get(session_id, 0) + 1
+    try:
+        yield
+    finally:
+        held[session_id] -= 1
+        if not held[session_id]:
+            del held[session_id]
+
+
+def unfinished_switch(session_id: str) -> Optional[Dict[str, Any]]:
+    """The recorded switch of ``session_id`` that has not ended, or None."""
+    from lasagna.core.database import get_rag_database
+
+    read = getattr(get_rag_database(), "get_profile_switch", None)
+    if read is None:
+        return None
+    try:
+        record = read(session_id)
+    except Exception:  # noqa: BLE001 - a store without the table has no switch
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def switch_in_progress_message(record: Dict[str, Any], change: str) -> str:
+    """Why ``change`` waits for the switch in ``record``, and what ends an interrupted one."""
+    sid, profile, previous = record["session_id"], record["profile"], record["previous_profile"]
+    started = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(float(record["started_at"])))
+    return (
+        f"{change} was refused: session {sid!r} is switching from profile {previous!r} to "
+        f"{profile!r} (started {started}), which reindexes its documents. Retry when the "
+        f"switch has ended. If it was interrupted (the process running it stopped), finish "
+        f"it with lasagna configure --resume-switch -s {sid}, or go back with lasagna "
+        f"configure --profile {previous} -s {sid} --reindex (over REST and MCP: that "
+        f"switch with reindex=true)."
+    )
+
+
+def refuse_during_switch(session_id: str, change: str) -> None:
+    """Raise ``ProfileSwitchInProgress`` while another thread or process switches the session.
+
+    An upload, a reindex, a delete or a settings change during a switch that
+    moves the session's documents raced it: an upload recorded the old
+    collection and was left there when the switch ended, and a patch was
+    overwritten by the switch's own. The thread running the switch is let
+    through.
+    """
+    if session_id in (getattr(_switching, "held", None) or {}):
+        return
+    record = unfinished_switch(session_id)
+    if record is not None:
+        raise ProfileSwitchInProgress(switch_in_progress_message(record, change))
 
 
 #: Documents with vectors, or about to have them; a failed upload stored none.
@@ -62,10 +131,27 @@ class DocumentsElsewhereWarning(UserWarning):
     """A search missed the session's documents that sit in another model's collection."""
 
 
-#: ``(session, collection) -> (checked at, message)``: searches read this at
-#: most once every few seconds per session, from the metadata database.
+#: ``(session, collection) -> (checked at, content generation, message)``: a
+#: search reads the session's content generation at most once every few
+#: seconds, and counts its documents again only when that generation moved
+#: (every upload, reindex, delete, archive and restore moves it).
 _elsewhere: Dict[tuple, tuple] = {}
 _ELSEWHERE_TTL_SECONDS = 3.0
+
+
+def _searched_counts(session_id: str) -> Dict[Optional[str], int]:
+    """The session's documents with vectors, counted per collection, in one query."""
+    from lasagna.core.database import get_rag_database
+
+    db = get_rag_database()
+    count = getattr(db, "count_searched_documents", None)
+    if count is not None:
+        return dict(count(session_id, sorted(_SEARCHED_STATUSES)))
+    counts: Dict[Optional[str], int] = {}
+    for row in db.get_documents(session_id):  # a store without the count (a stand-in)
+        if str(row.get("status") or "").lower() in _SEARCHED_STATUSES:
+            counts[row.get("collection_name")] = counts.get(row.get("collection_name"), 0) + 1
+    return counts
 
 
 def model_of_collection(collection: str) -> tuple:
@@ -96,6 +182,91 @@ def model_of_collection(collection: str) -> tuple:
     return str(model or collection), profile
 
 
+#: Settings that say which model a session embeds with. A switch to another
+#: profile keeps a session's override of one, as it keeps any override that
+#: does not only repeat the profile it leaves.
+_EMBEDDING_KEYS = ("embedding_model", "embedding_dim", "embedding_truncate_dim")
+
+
+def fixes_for_documents_elsewhere(
+    session_id: str,
+    back: Optional[str],
+    *,
+    surface: str = "cli",
+    indexed_with: Optional[tuple] = None,
+) -> tuple:
+    """``(reindex, switch_back)``: what every surface offers for documents in another
+    model's collection; ``switch_back`` is None when no built-in profile indexed them.
+
+    The one place these commands are made, spelled for ``surface`` (``cli``
+    or ``mcp``). ``reindex`` reindexes them with the session's settings as
+    they are, its overrides included (a switch to the profile it is on keeps
+    them). ``switch_back`` makes the session search where they are: a switch
+    to ``back``, the built-in profile whose model indexed them. A session that
+    overrides its embedding model keeps that override across a switch, so the
+    advice was a switch that changed nothing; then the override goes instead
+    (``indexed_with``, the documents' ``(model, size)``, names its value over
+    MCP, whose default tools cannot reset a session).
+    """
+    try:
+        from lasagna.core.session_config import get_knowledge_config_manager
+
+        state = get_knowledge_config_manager(session_id=session_id).get_session_state(session_id)
+        active = state.active_profile or "default"
+        overridden = [k for k in _EMBEDDING_KEYS if k in state.session_overrides]
+    except Exception:  # noqa: BLE001 - only shapes the advice
+        active, overridden = "<profile>", []
+    if surface == "mcp":
+        reindex = (
+            f"set_active_profile(profile_name={active!r}, session_id={session_id!r}, reindex=true)"
+        )
+        switch = f"set_active_profile(profile_name={back!r}, session_id={session_id!r})"
+    else:
+        reindex = f"lasagna configure --profile {active} -s {session_id} --reindex"
+        switch = f"lasagna configure --profile {back} -s {session_id}"
+    if back is None:
+        return reindex, None
+    if not overridden:
+        return reindex, None if back == active else switch
+    if surface == "mcp":
+        model, size = indexed_with or (None, None)
+        if not model:
+            return reindex, None
+        patch = {"embedding_model": model, **({"embedding_dim": int(size)} if size else {})}
+        return reindex, (
+            f"patch_rag_config(session_id={session_id!r}, config_patch="
+            f"{json.dumps(json.dumps(patch))})"
+        )
+    named = " and ".join(
+        [", ".join(overridden[:-1]), overridden[-1]] if len(overridden) > 1 else overridden
+    )
+    reset = (
+        f"reset the session's overrides, which set {named}, with POST "
+        f"/api/config/knowledge/reset, client.config_manager.reset() in the SDK, or the "
+        f"MCP tool reset_rag_config"
+    )
+    return reindex, reset if back == active else f"{reset}, then {switch}"
+
+
+def elsewhere_fixes(session_id: str, collection: str, surface: str) -> tuple:
+    """``fixes_for_documents_elsewhere`` for a search of ``collection``, from the store."""
+    others = sorted(str(c) for c in _searched_counts(session_id) if c not in (None, "", collection))
+    if not others:
+        return None, None
+    back = next((p for p in (model_of_collection(c)[1] for c in others) if p), None)
+    from lasagna.core.config import get_rag_config
+
+    indexed_with = _model_of_documents(others[0], {}, get_rag_config().vector_backend or "milvus")
+    return fixes_for_documents_elsewhere(
+        session_id, back, surface=surface, indexed_with=indexed_with
+    )
+
+
+def _described(collection: str, model: str, other_model: str) -> str:
+    """``model``'s collection, or the collection by name when both sides name one model."""
+    return f"{model}'s collection" if model != other_model else f"collection {collection!r}"
+
+
 def documents_elsewhere(session_id: str, collection: str, model: str) -> Optional[str]:
     """Why a search of ``collection`` cannot find some of the session's documents.
 
@@ -108,42 +279,38 @@ def documents_elsewhere(session_id: str, collection: str, model: str) -> Optiona
     now = time.monotonic()
     cached = _elsewhere.get(key)
     if cached is not None and now - cached[0] < _ELSEWHERE_TTL_SECONDS:
-        return cached[1]
-    from lasagna.core.database import get_rag_database
+        return cached[2]
+    from lasagna.core.database import content_generation
 
-    rows = [
-        row
-        for row in get_rag_database().get_documents(session_id)
-        if str(row.get("status") or "").lower() in _SEARCHED_STATUSES
-    ]
-    missed = [r for r in rows if r.get("collection_name") not in (None, "", collection)]
+    generation = content_generation(session_id)
+    if cached is not None and generation is not None and cached[1] == generation:
+        _elsewhere[key] = (now, generation, cached[2])
+        return cached[2]
+    counts = _searched_counts(session_id)
+    total = sum(counts.values())
+    missed = {c: n for c, n in counts.items() if c not in (None, "", collection)}
+    n_missed = sum(missed.values())
     message = None
     if missed:
-        others = sorted({str(r["collection_name"]) for r in missed})
+        others = sorted(str(c) for c in missed)
         named = [model_of_collection(c) for c in others]
         back = next((profile for _, profile in named if profile), None)
-        try:
-            from lasagna.core.session_config import get_knowledge_config_manager
-
-            mgr = get_knowledge_config_manager(session_id=session_id)
-            active = mgr.get_active_profile(session_id=session_id) or "default"
-        except Exception:  # noqa: BLE001 - only names the profile in the advice
-            active = "<profile>"
+        reindex, switch_back = fixes_for_documents_elsewhere(session_id, back)
+        where = ", ".join(_described(c, m, model) for c, (m, _) in zip(others, named))
+        here = _described(collection, model, named[0][0]) if len(named) == 1 else f"{model}'s"
         message = (
-            f"{len(missed)} of {_plural(len(rows), 'document')} in session {session_id!r} "
-            f"{'is' if len(missed) == 1 else 'are'} in "
-            f"{', '.join(m for m, _ in named)}'s collection, and this search uses "
-            f"{model}'s, so it cannot find {'it' if len(missed) == 1 else 'them'}. "
-            f"Reindex them with {model} (lasagna configure --profile {active} -s "
-            f"{session_id} --reindex, or client.documents.reindex(document_id) from a client "
-            f"on that model), or search with the model that indexed them"
-            + (f" (lasagna configure --profile {back} -s {session_id})." if back else ".")
+            f"{n_missed} of {_plural(total, 'document')} in session {session_id!r} "
+            f"{'is' if n_missed == 1 else 'are'} in {where}, and this search uses "
+            f"{here}, so it cannot find {'it' if n_missed == 1 else 'them'}. "
+            f"Reindex them with {model} ({reindex}, or client.documents.reindex(document_id) "
+            f"from a client on that model), or search with the model that indexed them"
+            + (f" ({switch_back})." if switch_back else ".")
         )
-    if message and (cached is None or cached[1] != message):
+    if message and (cached is None or cached[2] != message):
         from loguru import logger
 
         logger.warning(message)
-    _elsewhere[key] = (now, message)
+    _elsewhere[key] = (now, generation, message)
     return message
 
 
@@ -153,6 +320,30 @@ def forget_documents_elsewhere(session_id: Optional[str] = None) -> None:
         _elsewhere.pop(key, None)
 
 
+def _model_of_documents(collection: str, before: Dict[str, Any], vector_backend: str) -> tuple:
+    """``(model, size)`` the documents in ``collection`` were embedded with.
+
+    From the collection's stamp, else the built-in profile it is named after,
+    else the session's settings before the change. Naming the session's model
+    instead made a refusal say the documents were embedded with the very model
+    it refused.
+    """
+    from lasagna.core.database import get_rag_database
+    from lasagna.core.session_config._profiles import ProfileMixin
+
+    try:
+        stamp = get_rag_database().get_collection_meta(collection, vector_backend)
+    except Exception:  # noqa: BLE001 - the stamp only names the model
+        stamp = None
+    if stamp and stamp.get("embedding_model"):
+        return stamp["embedding_model"], stamp.get("embedding_dim")
+    model, profile = model_of_collection(collection)
+    if profile is not None:
+        spec = ProfileMixin._PROFILE_SPECS[profile]
+        return spec.get("embedding_model") or model, spec.get("embedding_dim")
+    return before.get("embedding_model"), _effective_dim(before)
+
+
 def refuse_leaving_documents(
     *,
     session_id: str,
@@ -160,6 +351,8 @@ def refuse_leaving_documents(
     after: Dict[str, Any],
     change: str,
     kept: str,
+    profile_config: Optional[Dict[str, Any]] = None,
+    remedy: Optional[str] = None,
 ) -> None:
     """Raise when the session's documents are in a collection the change would stop searching.
 
@@ -170,6 +363,11 @@ def refuse_leaving_documents(
     from the documents `status` still counted. The documents' collection is
     the one the metadata database recorded for each (the session's current
     one for a document from before per-model collections).
+
+    ``profile_config`` is the profile a switch goes to, so the message names
+    its model apart from a session override that would replace it.
+    ``remedy`` replaces the fixes named (for one surface); it may name
+    ``{new_model}`` and ``{them}``.
     """
     from lasagna.core.config import collection_name_for_settings
     from lasagna.core.database import get_rag_database
@@ -188,27 +386,56 @@ def refuse_leaving_documents(
     if not left:
         return
     collection = left[0].get("collection_name") or current
-    try:
-        stamp = db.get_collection_meta(collection, after.get("vector_backend") or "milvus")
-    except Exception:  # noqa: BLE001 - the stamp only names the model
-        stamp = None
-    old_model = (stamp or {}).get("embedding_model") or before.get("embedding_model")
-    new_model = after.get("embedding_model")
+    old_model, old_dim = _model_of_documents(
+        collection, before, after.get("vector_backend") or "milvus"
+    )
+    new_model, new_dim = after.get("embedding_model"), _effective_dim(after)
+    new, old = new_model, old_model
+    if old_model == new_model:
+        # One model on both sides: the size, or else the collection, differs.
+        if old_dim is not None and int(old_dim) != new_dim:
+            new, old = (
+                f"{new_model} at {new_dim} dimensions",
+                f"{old_model} at {old_dim} dimensions",
+            )
+        else:
+            new = f"{new_model} in collection {target!r}"
+            old = f"{old_model} in collection {collection!r}"
     one = len(left) == 1
     them = "it" if one else "them"
+    why = ""
+    profile_model = (profile_config or {}).get("embedding_model")
+    if profile_model and profile_model != new_model:
+        why = (
+            f" (the profile embeds with {profile_model}, and this session's override "
+            f"embedding_model={new_model} stays in force across a switch)"
+        )
+    fixes = (
+        remedy.format(new_model=new_model, them=them)
+        if remedy
+        else (
+            f"Either use a new session for {new_model} and upload there, or switch and "
+            f"reindex {them} in one step (lasagna configure --reindex, or reindex=true over "
+            f"REST and MCP), which reindexes every document with {new_model} first and keeps "
+            f"the session as it is if one fails. To switch anyway: lasagna configure --force, "
+            f"or force=true over REST and MCP; until each document is reindexed "
+            f"(client.documents.reindex(document_id) in the SDK, POST "
+            f"/api/v1/documents/<id>/reindex or POST /api/knowledge/reindex over REST, or the "
+            f"MCP tool reindex_document), searches return nothing from {them}."
+        )
+    )
+    if why:
+        fixes += (
+            " To use the profile's own model instead, reset the session's overrides first "
+            "(POST /api/config/knowledge/reset, client.config_manager.reset() in the SDK, or "
+            "the MCP tool reset_rag_config)."
+        )
     raise DocumentsLeftBehind(
-        f"{change} would search with {new_model}, but the "
+        f"{change} would search with {new}{why}, but the "
         f"{_plural(len(left), 'document')} in session {session_id!r} "
-        f"{'was' if one else 'were'} embedded with {old_model}, in that model's "
-        f"collection, so no search would find {them}. Nothing was changed; profile "
-        f"{kept!r} is still active. Either use a new session for {new_model} and "
-        f"upload there, or switch and reindex {them} in one step (lasagna configure "
-        f"--reindex, or reindex=true over REST and MCP), which reindexes every document "
-        f"with {new_model} first and keeps the session as it is if one fails. To switch "
-        f"anyway: lasagna configure --force, or force=true over REST and MCP; until "
-        f"each document is reindexed (client.documents.reindex(document_id) in the "
-        f"SDK, POST /api/v1/documents/<id>/reindex or POST /api/knowledge/reindex over "
-        f"REST, or the MCP tool reindex_document), searches return nothing from {them}."
+        f"{'was' if one else 'were'} embedded with {old}, in that model's collection, so "
+        f"no search would find {them}. Nothing was changed; profile {kept!r} is still "
+        f"active. {fixes}"
     )
 
 
@@ -310,10 +537,20 @@ def refuse_embedding_change(
     try:
         stored = stored_embedding_dim(collection, vector_backend)
     except Exception as exc:
+        from loguru import logger
+
+        # The cause in the log. The answer keeps a connection error's text (a
+        # store another process holds, or an address that does not answer, is
+        # what the user acts on) and names anything else by its kind.
+        logger.warning(f"Could not read the embedding size of {collection!r}: {exc}")
+        why = (
+            str(exc)
+            if isinstance(exc, ConnectionError)
+            else f"{type(exc).__name__}; the log has the cause"
+        )
         raise EmbeddingSizeUnverified(
             f"{change} would embed at {wanted} dimensions, and the vector store could "
-            f"not be read to check that against the stored documents ({exc}). "
-            f"{remedy}"
+            f"not be read to check that against the stored documents ({why}). {remedy}"
         ) from exc
     if stored is not None and stored != wanted:
         raise EmbeddingSizeConflict(

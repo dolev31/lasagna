@@ -872,23 +872,33 @@ class TestReindex:
                 timeout=DEFAULT_TIMEOUT,
             )
 
-    def test_a_failed_reindex_leaves_the_document_searchable(
+    def test_a_switch_to_a_model_the_image_lacks_leaves_the_document_searchable(
         self, own_session_headers, tmp_path_factory
     ):
+        """A forced switch checks the new model loads first; refused, nothing moves.
+
+        This test forced the switch and then expected the reindex to fail and
+        leave the document as it was. The forced switch itself is refused now,
+        before anything changes (core/_profile_switch.py), and the document
+        must still be found as before.
+        """
         doc = self._upload(own_session_headers, tmp_path_factory)
         try:
-            original = http.get(
-                f"{BASE_URL}/config", headers=own_session_headers, timeout=DEFAULT_TIMEOUT
-            ).json()["embedding_model"]
-            self._model(own_session_headers, "acme/a-model-this-image-lacks")
-            resp = http.post(
-                f"{BASE_URL}/documents/{doc['document_id']}/reindex",
+            root = BASE_URL[: -len("/api/v1")] if BASE_URL.endswith("/api/v1") else BASE_URL
+            missing = "acme/a-model-this-image-lacks"
+            resp = http.put(
+                f"{root}/api/config/knowledge/active",
+                json={
+                    "active_profile": "default",
+                    "config": {"embedding_model": missing, "embedding_dim": EXPECTED_EMBEDDING_DIM},
+                    "force": True,
+                },
                 headers=own_session_headers,
-                timeout=UPLOAD_TIMEOUT,
+                timeout=DEFAULT_TIMEOUT,
             )
-            assert resp.status_code == 503, resp.text
-            assert "unchanged" in resp.json()["detail"]
-            self._model(own_session_headers, original)
+            assert resp.status_code == 409, resp.text
+            assert f"{missing} is not downloaded" in resp.json()["detail"]
+            assert "Nothing was changed" in resp.json()["detail"]
             after = http.get(
                 f"{BASE_URL}/documents/{doc['document_id']}",
                 headers=own_session_headers,
@@ -1251,3 +1261,95 @@ class TestFullStack:
         assert resp.status_code == 200, resp.text
         # Liveness only: get_system_status and /api/v1/health report components.
         assert resp.json()["status"] == "alive"
+
+
+def _at_once(calls):
+    """Run each call on a connection of its own, all released together.
+
+    Separate connections land on different gunicorn workers, so the workers
+    race each other as two clients would.
+    """
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    start = threading.Barrier(len(calls))
+
+    def run(call):
+        start.wait(30)
+        return call(_make_session())
+
+    with ThreadPoolExecutor(len(calls)) as pool:
+        return list(pool.map(run, calls))
+
+
+@pytest.mark.usefixtures("docker_service_available")
+class TestTheSessionStoreAcrossWorkers:
+    """Workers changing one session, or the saved profiles, at once keep every change.
+
+    Each worker wrote a whole session row from its copy, up to a second old,
+    with no lock across processes, so of two patches to one session only the
+    second was kept; and a save of a profile deleted every profile and wrote
+    back the ones that worker had read at startup.
+    """
+
+    ROOT = BASE_URL[: -len("/api/v1")] if BASE_URL.endswith("/api/v1") else BASE_URL
+
+    def test_patches_on_several_workers_to_one_session_are_all_kept(self, own_session_headers):
+        for rounds in range(3):
+            changes = {
+                "rerank_top_k": 3 + rounds,
+                "default_top_k": 9 + rounds,
+                "similarity_threshold": 0.11 + rounds / 100,
+                "mmr_lambda": 0.31 + rounds / 100,
+                "hybrid_alpha": 0.61 + rounds / 100,
+                "routing_confidence_threshold": 0.41 + rounds / 100,
+            }
+
+            def patch(key, value):
+                return lambda s: s.patch(
+                    f"{BASE_URL}/config",
+                    json={key: value},
+                    headers={**own_session_headers, "Connection": "close"},
+                    timeout=DEFAULT_TIMEOUT,
+                )
+
+            replies = _at_once([patch(k, v) for k, v in changes.items()])
+            assert all(r.status_code == 200 for r in replies), [r.text for r in replies]
+            stored = http.get(
+                f"{self.ROOT}/api/config/knowledge",
+                headers=own_session_headers,
+                timeout=DEFAULT_TIMEOUT,
+            ).json()["session_overrides"]
+            assert {k: stored.get(k) for k in changes} == changes, stored
+
+    def test_profiles_saved_on_several_workers_are_all_kept(self):
+        names = [f"live-{uuid.uuid4().hex[:6]}-{i}" for i in range(6)]
+
+        def save(name):
+            return lambda s: s.post(
+                f"{self.ROOT}/api/config/knowledge/profile",
+                json={"profile_name": name, "config": {"rerank_top_k": 4}, "set_active": False},
+                headers={"X-Session-ID": f"test-deploy-{name}", "Connection": "close"},
+                timeout=DEFAULT_TIMEOUT,
+            )
+
+        try:
+            replies = _at_once([save(n) for n in names])
+            assert all(r.status_code == 200 for r in replies), [r.text for r in replies]
+            listed = {
+                p["name"]
+                for p in http.get(
+                    f"{self.ROOT}/api/config/knowledge",
+                    headers={"X-Session-ID": f"test-deploy-{uuid.uuid4().hex[:8]}"},
+                    timeout=DEFAULT_TIMEOUT,
+                ).json()["profiles"]
+            }
+            assert set(names) <= listed, sorted(set(names) - listed)
+        finally:
+            for name in names:
+                http.post(
+                    f"{self.ROOT}/api/config/knowledge/profile/delete",
+                    json={"profile_name": name},
+                    headers={"X-Session-ID": f"test-deploy-{name}"},
+                    timeout=DEFAULT_TIMEOUT,
+                )

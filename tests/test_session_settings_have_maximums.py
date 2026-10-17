@@ -20,6 +20,7 @@ from lasagna.core.session_config._session_keys import (
     SESSION_MAXIMUMS,
     SessionSettingRefused,
     check_session_settings,
+    list_session_keys,
     numeric_session_keys,
 )
 from tests._paths import PACKAGE_DIR
@@ -33,8 +34,10 @@ def test_every_numeric_session_setting_has_a_maximum():
 
 
 def test_the_table_names_only_session_settings():
-    stale = sorted(set(SESSION_MAXIMUMS) - set(numeric_session_keys()))
-    assert not stale, f"not numeric session settings: {stale}"
+    # It holds the longest list of each list setting too (see
+    # test_session_lists_have_a_maximum_length.py).
+    stale = sorted(set(SESSION_MAXIMUMS) - set(numeric_session_keys()) - set(list_session_keys()))
+    assert not stale, f"not numeric or list session settings: {stale}"
 
 
 def _numbers(node, path=()):

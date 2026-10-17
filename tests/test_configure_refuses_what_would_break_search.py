@@ -83,13 +83,17 @@ def test_a_profile_switch_applies_after_a_client_copied_the_old_one(tmp_path, mo
         sid = "switch"
         mgr.set_active_profile("speed", session_id=sid)
         speed = mgr.get_resolved_config(sid)
-        state = mgr.get_session_state(sid)
-        # What the client bridge leaves behind, plus one real customization.
-        state.session_overrides = {
-            "embedding_model": speed["embedding_model"],
-            "embedding_dim": speed["embedding_dim"],
-            "rerank_top_k": 17,
-        }
+        # What the client bridge leaves behind, plus one real customization;
+        # saved, as the bridge saves it (a switch reads the session as stored).
+        mgr.patch_config(
+            {
+                "embedding_model": speed["embedding_model"],
+                "embedding_dim": speed["embedding_dim"],
+                "rerank_top_k": 17,
+            },
+            session_id=sid,
+            trusted=True,
+        )
         mgr.set_active_profile("balanced", session_id=sid)
         resolved = mgr.get_resolved_config(sid)
         assert resolved["embedding_dim"] != speed["embedding_dim"]

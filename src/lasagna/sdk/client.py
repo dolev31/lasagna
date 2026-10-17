@@ -59,6 +59,35 @@ if TYPE_CHECKING:
     from .managers.citation_manager import CitationManager
 
 
+#: What a client whose settings would leave its session's documents behind can do.
+_SDK_REMEDY = (
+    "Either use a client on another session for {new_model} and upload there, or reindex "
+    "{them} in one step: await client.set_config(reindex=True) reindexes every document "
+    "with {new_model} first and keeps the session as it is if one fails. To apply these "
+    "settings anyway: await client.set_config(force=True); until each document is "
+    "reindexed (client.documents.reindex(document_id)), searches return nothing from {them}."
+)
+
+
+def _changes(current: Dict[str, Any], overrides: Dict[str, Any], base: Any = None) -> bool:
+    """Whether writing ``overrides`` over the session's ``current`` settings changes one.
+
+    A key the session does not set has the process's value (``base``, a
+    ``RAGConfig``), from the environment or the settings file.
+    """
+    for key, value in overrides.items():
+        if key in current:
+            have = current[key]
+        else:
+            have = getattr(base, key, _changes) if base is not None else _changes
+        if isinstance(value, dict) and isinstance(have, dict):
+            if _changes(have, value):
+                return True
+        elif have != value:
+            return True
+    return False
+
+
 class KnowledgeClient:
     """Unified client for knowledge base operations.
 
@@ -141,6 +170,9 @@ class KnowledgeClient:
         # Tracks which backend keys the bridge wrote to session overrides,
         # so stale keys can be removed when config reverts to defaults.
         self._bridged_runtime_keys: set = set()
+        # The refusal of this client's settings (DocumentsLeftBehind), until
+        # set_config resolves it or the settings change.
+        self._settings_refused: Optional[Exception] = None
 
         logger.debug(f"KnowledgeClient initialized: session={self._session_id}")
 
@@ -374,6 +406,10 @@ class KnowledgeClient:
                     self._apply_runtime_config()
 
                     logger.debug("RAGBackend initialized with config bridge")
+        elif self._settings_refused is not None:
+            # Refused before: every operation says so until it is resolved,
+            # rather than running on the session's settings instead.
+            self._apply_runtime_config()
         return self._backend
 
     def _apply_storage_paths(self) -> None:
@@ -456,13 +492,22 @@ class KnowledgeClient:
             return False
         return type(self._backend).__name__ == "RemoteRAGBackend"
 
-    def _apply_runtime_config(self) -> None:
+    def _apply_runtime_config(self, *, force: bool = False, reindex: bool = False) -> None:
         """Apply runtime overrides via SessionConfigProvider (per-session safe).
 
         Only non-default fields are written, minimizing masking of
         profile/TOML settings.  Keys that were previously bridged but
         are no longer non-default are explicitly removed so that
         reverting a field to its SDK default clears the session override.
+        Settings the session already has are not written again.
+
+        Settings that would leave the session's documents in another model's
+        collection are refused, as on every other surface
+        (``DocumentsLeftBehind``): ``reindex`` reindexes every document with
+        them first, ``force`` writes them anyway. They were written whatever
+        the session held, so ``KnowledgeClient(session_id="r1",
+        config=config_for_speed())`` hid r1's BGE-M3 documents from the CLI,
+        REST and MCP, which refuse that change.
 
         Skipped for remote backends — the remote server manages its own config.
         """
@@ -489,20 +534,24 @@ class KnowledgeClient:
                     f"Removed stale bridge overrides from session {self._session_id}: {stale_keys}"
                 )
 
-            # Write current overrides
-            if overrides:
-                session_provider.set_config_overrides(
-                    self._session_id,
-                    overrides,
-                )
+            # Write current overrides, unless the session has them already
+            from ..core.config import get_rag_config
+
+            read = getattr(session_provider, "get_resolved_config", None)
+            current = (read(self._session_id) if read is not None else None) or {}
+            changed = overrides and _changes(current, overrides, get_rag_config())
+            if overrides and (force or reindex or changed):
+                self._write_settings(session_provider, overrides, force=force, reindex=reindex)
 
             self._bridged_runtime_keys = new_keys
+            self._settings_refused = None
             logger.debug(
                 f"Runtime config applied to session {self._session_id}: {len(overrides)} keys"
             )
-        except EmbeddingSizeConflict:
-            # The store refused this client's embedding size. Skipping quietly
-            # would run its searches on the session's other model instead.
+        except EmbeddingSizeConflict as refused:
+            # The store refused this client's settings. Skipping quietly would
+            # run its searches on the session's other model instead.
+            self._settings_refused = refused
             raise
         except Exception as e:
             # The session store is the metadata database by default, which can
@@ -512,6 +561,49 @@ class KnowledgeClient:
                 f"This client's settings could not be applied to session "
                 f"{self._session_id!r}, so it searches with the session's stored settings: {e}"
             )
+
+    def _write_settings(
+        self, session_provider, overrides: Dict[str, Any], *, force: bool, reindex: bool
+    ) -> None:
+        """Write this client's settings to its session, or refuse them (see ``_apply_runtime_config``)."""
+        from ..core.session_config import get_knowledge_config_manager
+        from ..core.session_config._data_models import _resolve
+
+        sid = self._session_id
+        mgr = get_knowledge_config_manager(session_id=sid)
+        if reindex:
+            from ..api._profile_switch import switch_profile
+
+            # The session's own profile, with this client's settings as its
+            # overrides: every document is reindexed with them first, and
+            # the session changes only once all are.
+            state = mgr.get_session_state(sid)
+            switch_profile(
+                mgr,
+                state.active_profile,
+                session_id=sid,
+                reindex=True,
+                config={**state.session_overrides, **overrides},
+                backend=self._backend,
+            )
+            return
+        if not force:
+            # Before any write, in either session store: the in-memory one
+            # would otherwise search another collection in this process only.
+            state = mgr.get_session_state(sid)
+            mgr._refuse_unsearchable(
+                state,
+                _resolve(state.get_resolved_config(), overrides),
+                change="This client's settings",
+                session_id=sid,
+                remedy=_SDK_REMEDY,
+            )
+        if getattr(session_provider, "_delegates_to_manager", False):
+            # This process's own settings: every key may be set, but not
+            # past the session's documents unless forced.
+            mgr.patch_config(overrides, session_id=sid, trusted=True, force=force)
+        else:
+            session_provider.set_config_overrides(sid, overrides)
 
     def _remember_session_config(self) -> None:
         """Save this client's settings as its session's, on the session's first write.
@@ -541,7 +633,9 @@ class KnowledgeClient:
             if mgr.get_chosen_config(self._session_id):
                 return
             # This process's own settings, not a client's request.
-            mgr.patch_config(overrides, session_id=self._session_id, trusted=True)
+            mgr.patch_config(
+                overrides, session_id=self._session_id, trusted=True, remedy=_SDK_REMEDY
+            )
         except EmbeddingSizeConflict:
             raise
         except Exception as e:
@@ -595,7 +689,7 @@ class KnowledgeClient:
         Args:
             file_path: Path to the document file (must exist)
             filename: Optional display name (defaults to original filename)
-            metadata: Optional custom metadata
+            metadata: Not stored; a non-empty one raises ``ValueError``
             document_id: Optional explicit document ID for benchmark evaluation
             allow_duplicates: Index the file even when the session already
                 holds the same content. By default that document is returned
@@ -807,7 +901,7 @@ class KnowledgeClient:
     # Configuration
     # =========================================================================
 
-    async def set_config(self, **kwargs) -> None:
+    async def set_config(self, *, reindex: bool = False, force: bool = False, **kwargs) -> None:
         """Update configuration options.
 
         Creates a new config with the specified updates.
@@ -815,7 +909,17 @@ class KnowledgeClient:
 
         Note: Init-time fields (``vector_backend``, ``database_backend``,
         etc.) only take effect when creating a new ``KnowledgeClient``.
-        Changing them after the backend is initialized logs a warning.
+        Changing them after the backend is initialized logs a warning. The
+        embedding fields are also session settings, and those apply to the
+        session at once.
+
+        Settings that would leave the session's documents in another model's
+        collection raise ``DocumentsLeftBehind``, and nothing changes, as
+        ``lasagna configure`` refuses them. ``reindex=True`` reindexes every
+        document with the new settings first and changes the session only once
+        all are (with no fields, it applies the client's current settings so);
+        ``force=True`` applies them anyway, and the documents are found again
+        once reindexed (``client.documents.reindex``).
 
         Args:
             **kwargs: Configuration options to update
@@ -827,8 +931,12 @@ class KnowledgeClient:
                 enable_hyde=True,
                 chunk_size=800,
             )
+            await client.set_config(embedding_model="BAAI/bge-small-en-v1.5",
+                                    embedding_dim=384, reindex=True)
             ```
         """
+        if reindex or force:
+            await self._get_backend_for_settings()
         self._config = self._config.with_updates(**kwargs)
 
         if self._is_remote:
@@ -840,15 +948,33 @@ class KnowledgeClient:
         elif self._backend is not None:
             from ._config_bridge import INIT_TIME_FIELDS
 
-            init_changes = [k for k in kwargs if k in INIT_TIME_FIELDS]
+            from ._config_bridge import RUNTIME_FIELD_MAP
+
+            init_changes = [
+                k for k in kwargs if k in INIT_TIME_FIELDS and k not in RUNTIME_FIELD_MAP
+            ]
             if init_changes:
                 logger.warning(
                     f"Init-time fields changed after backend creation: {init_changes}. "
                     "Create a new KnowledgeClient for these to take effect."
                 )
-            self._apply_runtime_config()
+            if reindex:  # reindexes every document of the session
+                await asyncio.to_thread(self._apply_runtime_config, reindex=True)
+            else:
+                self._apply_runtime_config(force=force)
 
         logger.info(f"Config updated: {list(kwargs.keys())}")
+
+    async def _get_backend_for_settings(self) -> None:
+        """The backend, for a reindex or a forced write; a refusal of the
+        client's settings so far is what that call resolves, not an error."""
+        if self._backend is None and not self._is_remote:
+            from ..api._profile_guard import EmbeddingSizeConflict
+
+            try:
+                await self._get_backend()
+            except EmbeddingSizeConflict:
+                pass
 
     def use_preset(self, preset: str) -> None:
         """Apply a configuration preset.

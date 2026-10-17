@@ -104,9 +104,8 @@ class CitationStoreMixin:
     ) -> None:
         """Remove a deleted document from all session-level tracking."""
         session_id = session_id or "default"
-        state = self.get_session_state(session_id)
 
-        with self._lock:
+        with self._session_write(session_id) as state:
             # Remove from focused document IDs
             if document_id in state.focused_document_ids:
                 state.focused_document_ids = [

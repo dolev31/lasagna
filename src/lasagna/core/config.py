@@ -164,6 +164,8 @@ _VALID_RANGES: Dict[str, Tuple[float, float]] = {
     "connection_pool_size": (1, 500),
     "routing_confidence_threshold": (0.0, 1.0),
     "max_concurrent_uploads": (1, 20),
+    "max_quality_check_attempts": (1, 20),
+    "docling_max_tokens": (64, 32_768),
 }
 
 #: Settings whose value is one of a fixed set (compared without case).
@@ -466,6 +468,14 @@ SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
         "Paths and the process",
         "on",
         "0, false, no or off turns the LLM response cache off for every run.",
+        (),
+    ),
+    "RAG_STORE_LOCK_TIMEOUT": (
+        "Paths and the process",
+        "300",
+        "Seconds a process waits for a lock another process holds in a PostgreSQL "
+        "metadata store (a document's during a reindex, a session's during a profile "
+        "switch) before the operation fails and says so, with nothing changed.",
         (),
     ),
     "LASAGNA_STRICT_PLUGINS": (

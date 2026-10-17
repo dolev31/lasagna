@@ -190,6 +190,16 @@ class DatabaseBackend(Protocol):
         """Delete a user's custom profile.  Cannot delete built-in profiles."""
         ...
 
+    def count_searched_documents(
+        self, session_id: str, statuses: List[str]
+    ) -> Dict[Optional[str], int]:
+        """Documents of the session with one of ``statuses``, counted per collection."""
+        ...
+
+    def get_saved_profiles(self) -> List[Dict[str, Any]]:
+        """Every saved (not built-in) profile, of every owner."""
+        ...
+
     def delete_all_user_profiles(self, user_id: str) -> int:
         """Delete all non-builtin profiles for a user.  Returns count deleted."""
         ...
@@ -214,8 +224,34 @@ class DatabaseBackend(Protocol):
         """Delete a single session by ID.  Returns True if deleted."""
         ...
 
+    def touch_session(self, session_id: str) -> bool:
+        """Set the session's ``last_accessed`` to now.  Returns False if it is not stored."""
+        ...
+
     def cleanup_expired_sessions(self, max_age_seconds: int = 86400) -> int:
-        """Delete sessions older than *max_age_seconds*.  Returns count deleted."""
+        """Delete sessions unused for *max_age_seconds* that hold no documents.  Returns count."""
+        ...
+
+    # ------------------------------------------------------------------
+    # Profile switches in progress
+    # ------------------------------------------------------------------
+
+    def begin_profile_switch(
+        self, session_id: str, profile: str, previous_profile: str, record: Dict[str, Any]
+    ) -> None:
+        """Record that a switch of the session is moving its documents (replaces any)."""
+        ...
+
+    def get_profile_switch(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """The session's switch that has not finished, or None."""
+        ...
+
+    def list_profile_switches(self) -> List[Dict[str, Any]]:
+        """Every switch that has not finished."""
+        ...
+
+    def end_profile_switch(self, session_id: str) -> None:
+        """Forget the session's switch."""
         ...
 
     # ------------------------------------------------------------------

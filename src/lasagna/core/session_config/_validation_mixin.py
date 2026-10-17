@@ -118,6 +118,8 @@ class ValidationMixin:
         force: bool = False,
         session_id: Optional[str] = None,
         documents: bool = True,
+        profile_config: Optional[Dict[str, Any]] = None,
+        remedy: Optional[str] = None,
     ) -> None:
         """Raise before a write that would leave the session's documents unsearched.
 
@@ -127,7 +129,8 @@ class ValidationMixin:
         the one ``after`` searches (unless ``documents`` is False: the
         evaluation harness's own writes, which name a collection per arm), or
         when that collection holds vectors of another size. Raises
-        ``EmbeddingSizeConflict`` (a ``ValueError``).
+        ``EmbeddingSizeConflict`` (a ``ValueError``). ``profile_config`` and
+        ``remedy``: see ``refuse_leaving_documents``.
         """
         if force:
             return
@@ -146,6 +149,8 @@ class ValidationMixin:
                 after=after,
                 change=change,
                 kept=state.active_profile,
+                profile_config=profile_config,
+                remedy=remedy,
             )
         try:
             refuse_embedding_change(

@@ -24,10 +24,18 @@ _stages: ContextVar[Optional[List[str]]] = ContextVar("lasagna_degraded_stages",
 _reasons: ContextVar[Optional[Dict[str, str]]] = ContextVar(
     "lasagna_degraded_reasons", default=None
 )
+#: ``{stage: {surface: fix}}``: the fix for a stage as one surface spells it.
+_fixes: ContextVar[Optional[Dict[str, Dict[str, str]]]] = ContextVar(
+    "lasagna_degraded_fixes", default=None
+)
 
 
-def record(stage: str, reason: object = "") -> None:
-    """Note that ``stage`` fell back to a lesser result. Never raises."""
+def record(stage: str, reason: object = "", fixes: Optional[Dict[str, str]] = None) -> None:
+    """Note that ``stage`` fell back to a lesser result. Never raises.
+
+    ``fixes``: what fixes it, as each surface spells it (``{"mcp": ...}``),
+    for a fix that depends on the session the search ran in.
+    """
     try:
         from lasagna.utils.monitoring import METRICS
 
@@ -40,6 +48,14 @@ def record(stage: str, reason: object = "") -> None:
     reasons = _reasons.get()
     if reasons is not None and reason and stage not in reasons:
         reasons[stage] = str(reason)
+    known = _fixes.get()
+    if known is not None and fixes and stage not in known:
+        known[stage] = dict(fixes)
+
+
+def fix(stage: str, surface: str) -> Optional[str]:
+    """The fix recorded for ``stage`` as ``surface`` spells it, or None."""
+    return (_fixes.get() or {}).get(stage, {}).get(surface)
 
 
 def current() -> List[str]:
@@ -77,8 +93,10 @@ def collecting() -> Iterator[List[str]]:
     stages: List[str] = []
     token = _stages.set(stages)
     reasons_token = _reasons.set({})
+    fixes_token = _fixes.set({})
     try:
         yield stages
     finally:
+        _fixes.reset(fixes_token)
         _reasons.reset(reasons_token)
         _stages.reset(token)

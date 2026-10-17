@@ -99,9 +99,6 @@ CHECKED_ELSEWHERE = {
     ("infrastructure/embedding/manager.py", "_load_flag_embedding"): (
         "_ensure_loaded checks before _load_model calls it"
     ),
-    ("infrastructure/embedding/manager.py", "_load_sentence_transformer"): (
-        "_ensure_loaded checks before _load_model calls it"
-    ),
     ("retrieval/search/ranker.py", "_refuse_unscorable_reranker"): "_model_for checks first",
 }
 

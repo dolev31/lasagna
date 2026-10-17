@@ -1506,6 +1506,12 @@ def configure(
         help="Reindex the session's documents with the new profile, then apply it; if one "
         "fails, the session keeps its profile and every document stays searchable",
     ),
+    resume_switch: bool = typer.Option(
+        False,
+        "--resume-switch",
+        help="Finish a profile switch with --reindex whose process stopped before it ended "
+        "(doctor reports one): runs the same switch again",
+    ),
 ):
     """Configure RAG settings.
 
@@ -1518,8 +1524,25 @@ def configure(
     except Exception as exc:
         _error(f"Failed to initialize config manager: {exc}")
 
+    switch_config = None
+    if resume_switch:
+        from lasagna.api._profile_guard import unfinished_switch
+
+        if profile:
+            _error("--resume-switch repeats the interrupted switch; leave out --profile.")
+        record = unfinished_switch(session_id)
+        if record is None:
+            _error(f"Session {session_id!r} has no profile switch to resume.")
+        profile, reindex, switch_config = record["profile"], True, record.get("config") or None
+        typer.echo(
+            f"Resuming the switch of session {session_id} from profile "
+            f"{record['previous_profile']} to {profile}.",
+            err=True,
+        )
+
     if profile:
-        _require_profile(profile, session_id)
+        if not resume_switch:
+            _require_profile(profile, session_id)
         from lasagna.core import local_server
 
         if local_server.local_store_held():
@@ -1531,11 +1554,13 @@ def configure(
                 typer.echo(
                     f"lasagna serve at {url} holds the local store; going through it.", err=True
                 )
-                _configure_through_server(url, profile, session_id, force=force, reindex=reindex)
+                _configure_through_server(
+                    url, profile, session_id, force=force, reindex=reindex, config=switch_config
+                )
                 return
             if reindex:
                 _error(local_server.held_store_message("configure --reindex"))
-        from lasagna.api._profile_guard import EmbeddingSizeConflict
+        from lasagna.api._profile_guard import EmbeddingSizeConflict, ProfileSwitchInProgress
         from lasagna.api._profile_switch import (
             ProfileCannotLoad,
             ReindexFailed,
@@ -1545,8 +1570,15 @@ def configure(
 
         try:
             report = switch_profile(
-                mgr, profile, session_id=session_id, force=force, reindex=reindex
+                mgr,
+                profile,
+                session_id=session_id,
+                force=force,
+                reindex=reindex,
+                config=switch_config,
             )
+        except ProfileSwitchInProgress as exc:
+            _error(str(exc))
         except EmbeddingSizeConflict as exc:
             _error(
                 f"{exc} To switch and reindex them now: lasagna configure --profile "
@@ -1589,18 +1621,49 @@ def configure(
 
 
 def _configure_through_server(
-    url: str, profile: str, session_id: str, *, force: bool, reindex: bool
+    url: str,
+    profile: str,
+    session_id: str,
+    *,
+    force: bool,
+    reindex: bool,
+    config: Optional[dict] = None,
 ) -> None:
-    """Switch ``session_id`` to ``profile`` through the running ``lasagna serve`` at ``url``."""
+    """Switch ``session_id`` to ``profile`` through the running ``lasagna serve`` at ``url``.
+
+    With the server's admin token in ``RAG_ADMIN_TOKEN``, the switch goes with
+    a session token minted for ``session_id``: with ``RAG_REQUIRE_AUTH`` on,
+    only a session token names a session, and only the admin token mints one
+    for a named session. It sent no credential, and got 401.
+    """
     import httpx
 
+    from lasagna.api.rest.auth_mode import configured_secret
+
     body = {"active_profile": profile, "force": force, "reindex": reindex}
+    if config:
+        body["config"] = config
+    headers = {"X-Session-ID": session_id}
+    admin = configured_secret("RAG_ADMIN_TOKEN")
     try:
+        if admin:
+            minted = httpx.post(
+                f"{url}/api/v1/sessions",
+                json={"session_id": session_id},
+                headers={"X-Admin-Token": admin},
+                timeout=60,
+            )
+            if minted.status_code >= 400:
+                _error(
+                    f"lasagna serve at {url} refused the admin token in RAG_ADMIN_TOKEN "
+                    f"({minted.status_code}): set it to the server's value and run this again."
+                )
+            headers = {"X-Session-Token": minted.json()["token"]}
         # A reindex runs inside the request, document by document.
         resp = httpx.put(
             f"{url}/api/config/knowledge/active",
             json=body,
-            headers={"X-Session-ID": session_id},
+            headers=headers,
             timeout=None if reindex else 60,
         )
     except httpx.HTTPError as exc:
@@ -1609,6 +1672,15 @@ def _configure_through_server(
         data = resp.json()
     except ValueError:
         data = {}
+    if resp.status_code == 401:
+        _error(
+            f"lasagna serve at {url} requires authentication (RAG_REQUIRE_AUTH is on), and "
+            f"only its admin token may name session {session_id!r}: set RAG_ADMIN_TOKEN to "
+            f"the server's value and run this again."
+            if not admin
+            else f"lasagna serve at {url} refused the session token it minted for "
+            f"{session_id!r} (401). Check that RAG_ADMIN_TOKEN is the server's."
+        )
     if resp.status_code >= 400:
         detail = data.get("detail") if isinstance(data, dict) else None
         message = detail if isinstance(detail, str) else resp.text

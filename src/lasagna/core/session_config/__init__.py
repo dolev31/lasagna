@@ -43,6 +43,8 @@ from ._data_models import (
     KnowledgeConfigState,
     UnknownProfileError,
     _deep_merge,
+    keep_in_process,
+    kept_in_process,
 )
 from ._profiles import ProfileMixin
 from ._session_state import SessionStateMixin
@@ -134,6 +136,7 @@ class KnowledgeConfigManager(
         self._migrate_session_files_from_parent()
         self._migrate_legacy_data()
         self._load_global_profiles()
+        self._mark_saved_profiles_read()
         self._load_session_states()
 
     def _migrate_session_files_from_parent(self):
@@ -210,6 +213,8 @@ __all__ = [
     "RAGProfile",
     "UnknownProfileError",
     "get_knowledge_config_manager",
+    "keep_in_process",
+    "kept_in_process",
     # Constants (for consumers that import them directly)
     "SCHEMA_VERSION",
     "SESSION_TTL_SECONDS",

@@ -345,6 +345,31 @@ class StatsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _bounds(key: str) -> Dict[str, Any]:
+    """``ge`` and ``le`` for a numeric session setting, from the tables every surface uses.
+
+    The smallest valid value is the settings check's (``_VALID_RANGES``, which
+    the environment and the settings file meet), else the configurator
+    schema's, which every session write and every arm is validated against;
+    the largest is what a session may set (``SESSION_MAXIMUMS``). This model
+    had bounds of its own: ``chunk_size`` from 50 where arms and the settings
+    file take 1, ``default_top_k`` at most 100 where a session may set 1000.
+    """
+    from lasagna.configurator.schema import PARAMETERS
+    from lasagna.core.config import _VALID_RANGES
+    from lasagna.core.session_config._session_keys import SESSION_MAXIMUMS
+
+    if key in _VALID_RANGES:
+        low = _VALID_RANGES[key][0]
+    else:
+        low = next(p.min_value for p in PARAMETERS if p.key == key and p.min_value is not None)
+
+    def plain(number: float) -> Any:
+        return int(number) if float(number).is_integer() else number
+
+    return {"ge": plain(low), "le": plain(SESSION_MAXIMUMS[key])}
+
+
 class ConfigPatchRequest(BaseModel):
     """Partial config update. Only provided keys are applied.
 
@@ -367,18 +392,20 @@ class ConfigPatchRequest(BaseModel):
     use_agentic_rag: Optional[bool] = None
     enable_prometheus: Optional[bool] = None
     enable_tracing: Optional[bool] = None
-    default_top_k: Optional[int] = Field(default=None, ge=1, le=100)
-    rerank_top_k: Optional[int] = Field(default=None, ge=1, le=100)
-    similarity_threshold: Optional[float] = Field(default=None, ge=-1.0, le=1.0)
-    hybrid_alpha: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    mmr_lambda: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    default_top_k: Optional[int] = Field(default=None, **_bounds("default_top_k"))
+    rerank_top_k: Optional[int] = Field(default=None, **_bounds("rerank_top_k"))
+    similarity_threshold: Optional[float] = Field(default=None, **_bounds("similarity_threshold"))
+    hybrid_alpha: Optional[float] = Field(default=None, **_bounds("hybrid_alpha"))
+    mmr_lambda: Optional[float] = Field(default=None, **_bounds("mmr_lambda"))
     enable_query_classification: Optional[bool] = None
     enable_query_routing: Optional[bool] = None
     routing_strategy: Optional[str] = Field(default=None, pattern="^(rule_based|adaptive)$")
     routing_default_tier: Optional[str] = Field(
         default=None, pattern="^(fast|standard|comprehensive)$"
     )
-    routing_confidence_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    routing_confidence_threshold: Optional[float] = Field(
+        default=None, **_bounds("routing_confidence_threshold")
+    )
     # Retrieval features
     enable_context_reordering: Optional[bool] = None
     enable_contextual_retrieval: Optional[bool] = None
@@ -388,35 +415,39 @@ class ConfigPatchRequest(BaseModel):
     agentic_pipeline: Optional[str] = Field(default=None, min_length=1, max_length=100)
     enable_hallucination_check: Optional[bool] = None
     enable_answer_quality_check: Optional[bool] = None
-    max_quality_check_attempts: Optional[int] = Field(default=None, ge=1, le=10)
+    max_quality_check_attempts: Optional[int] = Field(
+        default=None, **_bounds("max_quality_check_attempts")
+    )
     coverage_scorer_mode: Optional[str] = Field(default=None, pattern="^(keyword|llm)$")
     final_search_mode: Optional[str] = Field(default=None, pattern="^(merge|replace)$")
     # Hybrid search internals
-    rrf_k: Optional[int] = Field(default=None, ge=1, le=200)
+    rrf_k: Optional[int] = Field(default=None, **_bounds("rrf_k"))
     sparse_method: Optional[str] = Field(default=None, pattern="^(bm25|splade)$")
     chunk_refinement_method: Optional[str] = Field(default=None, pattern="^(vanilla|refined|auto)$")
     # Context compression
     enable_context_compression: Optional[bool] = None
     compression_method: Optional[str] = Field(default=None, pattern="^(extractive|abstractive)$")
-    compression_ratio: Optional[float] = Field(default=None, ge=0.1, le=1.0)
+    compression_ratio: Optional[float] = Field(default=None, **_bounds("compression_ratio"))
     # Document awareness (flat keys — canonicalized to nested in route handler)
     document_awareness_enabled: Optional[bool] = None
     enrichment_strategy: Optional[str] = Field(
         default=None, pattern="^(first_tokens|llm_summary|hybrid)$"
     )
-    first_tokens_count: Optional[int] = Field(default=None, ge=50, le=500)
+    first_tokens_count: Optional[int] = Field(
+        default=None, **_bounds("document_awareness.first_tokens_count")
+    )
     # Processing / Chunking
     chunking_strategy: Optional[str] = Field(
         default=None, pattern="^(fixed|semantic|recursive|sentence_window|hierarchical)$"
     )
-    chunk_size: Optional[int] = Field(default=None, ge=50, le=100000)
-    chunk_overlap: Optional[int] = Field(default=None, ge=0, le=50000)
-    semantic_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    min_chunk_size: Optional[int] = Field(default=None, ge=10, le=50000)
-    max_chunk_size: Optional[int] = Field(default=None, ge=50, le=100000)
-    parent_chunk_size: Optional[int] = Field(default=None, ge=100, le=100000)
-    child_chunk_size: Optional[int] = Field(default=None, ge=50, le=50000)
-    auto_merge_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    chunk_size: Optional[int] = Field(default=None, **_bounds("chunk_size"))
+    chunk_overlap: Optional[int] = Field(default=None, **_bounds("chunk_overlap"))
+    semantic_threshold: Optional[float] = Field(default=None, **_bounds("semantic_threshold"))
+    min_chunk_size: Optional[int] = Field(default=None, **_bounds("min_chunk_size"))
+    max_chunk_size: Optional[int] = Field(default=None, **_bounds("max_chunk_size"))
+    parent_chunk_size: Optional[int] = Field(default=None, **_bounds("parent_chunk_size"))
+    child_chunk_size: Optional[int] = Field(default=None, **_bounds("child_chunk_size"))
+    auto_merge_threshold: Optional[float] = Field(default=None, **_bounds("auto_merge_threshold"))
     preserve_tables: Optional[bool] = None
     preserve_headers: Optional[bool] = None
     # OCR
@@ -427,7 +458,7 @@ class ConfigPatchRequest(BaseModel):
     docling_mode: Optional[str] = Field(default=None, pattern="^(auto|local|production)$")
     docling_ocr_enabled: Optional[bool] = None
     docling_table_structure: Optional[bool] = None
-    docling_max_tokens: Optional[int] = Field(default=None, ge=64, le=8192)
+    docling_max_tokens: Optional[int] = Field(default=None, **_bounds("docling_max_tokens"))
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,8 @@ RAG master toggle, and document focus management.
 
 import copy
 import time
-from typing import Any, Dict, List, Optional
+from contextlib import contextmanager
+from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 from loguru import logger
 
@@ -18,16 +19,43 @@ from ._data_models import (
     _check_profile_size,
     _deep_merge,
     _resolve,
+    kept_in_process,
 )
 
 
 #: How stale a cached session may be before it is compared with the store.
 _RECHECK_SECONDS = 1.0
 
+#: How often a process records in the store that it still uses a session.
+_USE_RECORD_SECONDS = 3600.0
+
+#: When this process last recorded each session's use (``time.monotonic``).
+_use_recorded_at: Dict[str, float] = {}
+
+#: How many changes this process has saved to each session, over all of its
+#: managers. A manager whose count differs reads the session again at once.
+_writes_here: Dict[str, int] = {}
+
+#: The settings of sessions kept in this process (``keep_in_process``), shared
+#: by every manager of it.
+_in_process_states: Dict[str, KnowledgeConfigState] = {}
+
 #: Keys each session last published to an in-memory session provider, so a
 #: key the session no longer chooses (a profile switched away from) is
 #: removed rather than left behind. Per process, like that provider.
 _published_keys: Dict[str, set] = {}
+
+
+def session_lock(session_id: str):
+    """The session's lock, held against every process that shares the store.
+
+    Every change to a session's settings holds it from reading the session
+    as stored to writing it back. Taken before any document's lock, never
+    after.
+    """
+    from lasagna.core.store_locks import store_lock
+
+    return store_lock(f"session:{session_id or 'default'}")
 
 
 def _persisted_view(state: Any) -> tuple:
@@ -79,6 +107,12 @@ class SessionStateMixin:
             saved = next(
                 (p for p in self._global_custom_profiles if p.name == active_profile), None
             )
+            if saved is None and hasattr(self, "_refresh_saved_profiles"):
+                # Saved by another process since this one read the list.
+                self._refresh_saved_profiles(force=True)
+                saved = next(
+                    (p for p in self._global_custom_profiles if p.name == active_profile), None
+                )
             if saved is not None:
                 profiles.append(copy.deepcopy(saved))
             else:
@@ -99,6 +133,8 @@ class SessionStateMixin:
             focused_document_ids = []
 
         last_accessed = data.get("last_accessed", time.time())
+        if not isinstance(last_accessed, (int, float)) or isinstance(last_accessed, bool):
+            last_accessed = time.time()
 
         return KnowledgeConfigState(
             profiles=profiles,
@@ -115,41 +151,69 @@ class SessionStateMixin:
         session_id = session_id or "default"
 
         with self._lock:
+            if kept_in_process(session_id):
+                # The harness's: this process's only, and every manager's.
+                state = _in_process_states.get(session_id)
+                if state is None:
+                    state = _in_process_states.setdefault(session_id, self._new_session_state())
+                return state
+
             self._reload_if_changed()
             self._cleanup_old_sessions()
+            if hasattr(self, "_refresh_saved_profiles"):
+                self._refresh_saved_profiles()
             self._adopt_persisted_session(session_id)
+            self._record_use(session_id)
 
             if session_id not in self._session_states:
-                all_profiles = [copy.deepcopy(p) for p in self._default_profiles]
-
-                # Only the shared ones: a profile with an owner is found when its
-                # owner asks for it, and copying every tenant's into every new
-                # session showed them (configs included) to all of them.
-                default_names = {p.name for p in all_profiles}
-                for custom_profile in self._global_custom_profiles:
-                    if (
-                        custom_profile.name not in default_names
-                        and custom_profile.user_id == ANONYMOUS
-                    ):
-                        all_profiles.append(copy.deepcopy(custom_profile))
-
-                state = KnowledgeConfigState(
-                    profiles=all_profiles,
-                    active_profile="default",
-                    session_overrides={},
-                    defaults_source="settings.lasagna.toml",
-                    rag_enabled=True,
-                    focused_document_ids=[],
-                    last_accessed=time.time(),
-                )
-                state.profiles = self._ensure_default_profile(state.profiles)
-                self._session_states[session_id] = state
+                self._session_states[session_id] = self._new_session_state()
             else:
                 self._session_states[session_id].last_accessed = time.time()
 
             return self._session_states[session_id]
 
-    def _adopt_persisted_session(self, session_id: str) -> None:
+    def _new_session_state(self) -> KnowledgeConfigState:
+        """A session with no settings of its own: the default profile."""
+        all_profiles = [copy.deepcopy(p) for p in self._default_profiles]
+
+        # Only the shared ones: a profile with an owner is found when its
+        # owner asks for it, and copying every tenant's into every new
+        # session showed them (configs included) to all of them.
+        default_names = {p.name for p in all_profiles}
+        for custom_profile in self._global_custom_profiles:
+            if custom_profile.name not in default_names and custom_profile.user_id == ANONYMOUS:
+                all_profiles.append(copy.deepcopy(custom_profile))
+
+        state = KnowledgeConfigState(
+            profiles=all_profiles,
+            active_profile="default",
+            session_overrides={},
+            defaults_source="settings.lasagna.toml",
+            rag_enabled=True,
+            focused_document_ids=[],
+            last_accessed=time.time(),
+        )
+        state.profiles = self._ensure_default_profile(state.profiles)
+        return state
+
+    def _record_use(self, session_id: str) -> None:
+        """Record in the store that the session is in use, at most once an hour per process.
+
+        Only writes recorded a use, and the store deletes the settings of a
+        session unused for ``session_idle_days``: a session that was only
+        searched lost its profile while it was in use.
+        """
+        now = time.monotonic()
+        if now - _use_recorded_at.get(session_id, float("-inf")) < _USE_RECORD_SECONDS:
+            return
+        if len(_use_recorded_at) > 100_000:
+            _use_recorded_at.clear()
+        _use_recorded_at[session_id] = now
+        touch = getattr(self, "_touch_persisted_session", None)
+        if touch is not None:
+            touch(session_id)
+
+    def _adopt_persisted_session(self, session_id: str, *, fresh: bool = False) -> None:
         """Take the stored session when another process changed it since we looked.
 
         `lasagna configure` and a running `lasagna serve` share one store, and
@@ -157,15 +221,30 @@ class SessionStateMixin:
         reached the running server (it answered "default" for that session),
         and the server's next write put its stale copy back over the CLI's.
         Checked at most once a second per session: search reads the session's
-        config once per setting.
+        config once per setting. ``fresh`` reads the store now, past any cache
+        (a write about to save the session).
         """
         now = time.monotonic()
         cached = self._session_states.get(session_id)
         checked = self._session_checked_at.get(session_id, float("-inf"))
-        if cached is not None and now - checked < _RECHECK_SECONDS:
+        # A change another manager of this process saved is read at once: with
+        # PostgreSQL each request has its own manager, and the session
+        # provider's (which search reads) kept its copy for up to a second
+        # after a REST patch had returned.
+        seen = getattr(self, "_session_writes_seen", None)
+        if seen is None:
+            seen = self._session_writes_seen = {}
+        writes = _writes_here.get(session_id, 0)
+        if (
+            not fresh
+            and cached is not None
+            and now - checked < _RECHECK_SECONDS
+            and seen.get(session_id, 0) == writes
+        ):
             return
         self._session_checked_at[session_id] = now
-        stored = self._read_persisted_session(session_id)
+        seen[session_id] = writes
+        stored = self._read_persisted_session(session_id, fresh=fresh)
         if stored is None:
             return
         if cached is not None and _persisted_view(cached) == _persisted_view(stored):
@@ -175,6 +254,38 @@ class SessionStateMixin:
             # Per-request results, never persisted.
             state.last_citations, state.last_chunks = cached.last_citations, cached.last_chunks
         self._session_states[session_id] = state
+
+    @contextmanager
+    def _session_write(self, session_id: Optional[str]) -> Iterator[KnowledgeConfigState]:
+        """The session as stored now, held against every process until the change is saved.
+
+        A change was applied to this process's copy of the session, up to a
+        second old, and the whole row written back with no lock across
+        processes: two api workers patching different keys of one session at
+        once kept only the second patch, and a change of ``rag_enabled`` put
+        back the overrides it had read. Every change to a session's settings
+        goes through this. Refused (``ProfileSwitchInProgress``) while a
+        switch that moves the session's documents runs in another thread or
+        process, or stopped before it ended.
+        """
+        from lasagna.api._profile_guard import refuse_during_switch
+
+        sid = session_id or "default"
+        if kept_in_process(sid):
+            # The harness's: no other process sees it, and it never switches.
+            with self._lock:
+                yield self.get_session_state(sid)
+            return
+        refuse_during_switch(sid, "This change")  # before waiting behind a switch's lock
+        with session_lock(sid):
+            refuse_during_switch(sid, "This change")
+            with self._lock:
+                self._adopt_persisted_session(sid, fresh=True)
+                try:
+                    yield self.get_session_state(sid)
+                finally:
+                    _writes_here[sid] = _writes_here.get(sid, 0) + 1
+                    self._session_writes_seen[sid] = _writes_here[sid]
 
     def get_config(
         self, session_id: Optional[str] = None, user_id: str = ANONYMOUS
@@ -288,17 +399,20 @@ class SessionStateMixin:
         *,
         force: bool = False,
         trusted: bool = False,
+        remedy: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Apply a patch to the session overrides.
 
         Only settings a session may set are accepted (see ``_session_keys``);
         ``trusted`` is for in-process callers writing the process's own
-        configuration, never for a value a client sent.
+        configuration, never for a value a client sent. It skips that check
+        only: a patch that would leave the session's documents unsearched is
+        refused whoever sends it (``force`` applies it anyway; ``remedy``
+        names the fixes, see ``refuse_leaving_documents``).
         """
         patch = self._session_settings(patch, trusted=trusted)
-        state = self.get_session_state(session_id)
 
-        with self._lock:
+        with self._session_write(session_id) as state:
             self._validate_or_raise(patch, session_id, is_patch=True)
             # A patch of embedding_dim is a profile switch by another name, and
             # was the route by which a tenant set up the drop of the shared
@@ -309,9 +423,12 @@ class SessionStateMixin:
                 change="This change",
                 force=force,
                 session_id=session_id,
-                # In-process writes of the process's own configuration: the
-                # harness names a collection per arm on its own sessions.
-                documents=not trusted,
+                # The harness's own sessions only: it names a collection per
+                # arm, and they are its process's alone. ``trusted`` exempted
+                # every in-process write, so an SDK client's ``config=`` moved
+                # a shared session off its documents on every surface.
+                documents=not kept_in_process(session_id or "default"),
+                remedy=remedy,
             )
             _deep_merge(state.session_overrides, patch)
             self._persist_single_session(session_id or "default")
@@ -325,9 +442,7 @@ class SessionStateMixin:
         session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Reset configuration to defaults."""
-        state = self.get_session_state(session_id)
-
-        with self._lock:
+        with self._session_write(session_id) as state:
             if scope == "all":
                 default = next((p for p in self._default_profiles if p.name == "default"), None)
                 after = _resolve(default.config if default else {}, {})
@@ -426,9 +541,7 @@ class SessionStateMixin:
         if active_profile is not None and not isinstance(active_profile, str):
             raise ValueError("'active_profile' must be a string")
 
-        state = self.get_session_state(session_id)
-
-        with self._lock:
+        with self._session_write(session_id) as state:
             profiles = [copy.deepcopy(p) for p in state.profiles]
             for imported in imported_profiles:
                 for i, p in enumerate(profiles):
@@ -468,9 +581,7 @@ class SessionStateMixin:
         session_id: Optional[str] = None,
     ) -> None:
         """Set whether RAG is enabled for a session."""
-        state = self.get_session_state(session_id)
-
-        with self._lock:
+        with self._session_write(session_id) as state:
             state.rag_enabled = enabled
             logger.debug(f"Set rag_enabled for session {session_id}: {enabled}")
 
@@ -499,9 +610,7 @@ class SessionStateMixin:
         session_id: Optional[str] = None,
     ) -> None:
         """Set focused document IDs for a session."""
-        state = self.get_session_state(session_id)
-
-        with self._lock:
+        with self._session_write(session_id) as state:
             state.focused_document_ids = document_ids or []
             logger.debug(
                 f"Set focused_document_ids for session {session_id}: "
@@ -524,11 +633,24 @@ class SessionStateMixin:
         """Clear focused document IDs for a session."""
         self.set_focused_document_ids([], session_id)
 
+    def remove_session_overrides(
+        self, keys: Iterable[str], session_id: Optional[str] = None
+    ) -> None:
+        """Drop ``keys`` from the session's overrides; the profile's values apply again."""
+        with self._session_write(session_id) as state:
+            removed = [k for k in keys if k in state.session_overrides]
+            for key in removed:
+                del state.session_overrides[key]
+            if removed:
+                self._persist_single_session(session_id or "default")
+
     def delete_session_state(self, session_id: str) -> bool:
         """Completely remove a session from config state."""
         deleted = False
 
         with self._lock:
+            if _in_process_states.pop(session_id, None) is not None:
+                deleted = True
             if session_id in self._session_states:
                 del self._session_states[session_id]
                 deleted = True

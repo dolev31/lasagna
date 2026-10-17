@@ -5,6 +5,7 @@ and the _deep_merge utility function.
 """
 
 import copy
+import os
 import time
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
@@ -18,8 +19,39 @@ KNOWLEDGE_MODULE_DIR = Path(__file__).parent.parent.parent
 # =============================================================================
 SCHEMA_VERSION = 2
 
-# Session TTL: sessions older than this are candidates for cleanup (24 hours)
+# How long a process keeps an unused session in its memory (24 hours). The
+# store keeps a session's settings for ``session_idle_seconds()``.
 SESSION_TTL_SECONDS = 24 * 60 * 60
+
+#: The GC policy's default ``session_idle_days``.
+DEFAULT_SESSION_IDLE_DAYS = 30
+
+
+def session_idle_seconds() -> float:
+    """How long the store keeps the settings of an unused session without documents.
+
+    The GC policy's ``session_idle_days`` (``RAG_GC_SESSION_IDLE_DAYS``, else
+    ``[rag.lifecycle]`` in the settings file, else 30), read as
+    ``LifecyclePolicy.load()`` reads it without importing the lifecycle
+    package, which loads the vector store's client. Every process used to
+    delete settings unused for 24 hours, while reads never recorded a use: a
+    session configured one day searched with the default model the next.
+    """
+    raw = os.environ.get("RAG_GC_SESSION_IDLE_DAYS")
+    if raw is None:
+        try:
+            from lasagna.core.config import rag_config
+
+            raw = rag_config._get_knowledge_setting(
+                "rag", "lifecycle", "session_idle_days", default=DEFAULT_SESSION_IDLE_DAYS
+            )
+        except Exception:
+            raw = DEFAULT_SESSION_IDLE_DAYS
+    try:
+        return int(raw) * 86400
+    except (TypeError, ValueError):
+        return DEFAULT_SESSION_IDLE_DAYS * 86400
+
 
 # Maximum number of sessions to keep in memory
 MAX_CACHED_SESSIONS = 100
@@ -32,6 +64,29 @@ MAX_PROFILE_CONFIG_BYTES = 10_000
 
 # The owner of profiles saved without a verified identity (auth off: one user).
 ANONYMOUS = "__anonymous__"
+
+
+#: Sessions whose settings stay in the process that set them (``keep_in_process``).
+_kept_in_process: set = set()
+
+
+def keep_in_process(session_id: str) -> None:
+    """Keep ``session_id``'s settings in this process: never read from or written to the store.
+
+    For the evaluation harness. Its sessions are named after the corpus
+    (``bench_corpus_<hash>``) so that every run on a corpus reuses its vectors;
+    with the persistent store two experiment processes on one corpus then
+    shared one row of settings, and each read the other's arm settings in the
+    agentic loop and at ingestion. Every manager of the process shares these
+    sessions' settings, and they are exempt from the check that a change keeps
+    the session's documents searchable: the harness names a collection per arm.
+    """
+    _kept_in_process.add(session_id)
+
+
+def kept_in_process(session_id: Optional[str]) -> bool:
+    """Whether ``session_id``'s settings stay in this process (see ``keep_in_process``)."""
+    return bool(session_id) and session_id in _kept_in_process
 
 
 class UnknownProfileError(ValueError):

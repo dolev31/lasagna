@@ -49,7 +49,7 @@ to that session; phases 4 to 6 always cover everything.
 | 2 `phase2_expire_by_ttl` | documents whose `expires_at` has passed | Archives them. Skipped when `document_ttl_days` is unset or 0 |
 | 3 `phase3_cleanup_error_documents` | `error` documents uploaded more than `error_retention_days` ago | Archives them. Skipped when `error_retention_days` is 0 |
 | 4 `phase4_cleanup_citations` | citations past their expiry | Deletes them |
-| 5 `phase5_cleanup_idle_sessions` | session settings rows not used for `session_idle_days` | Deletes them; documents are untouched |
+| 5 `phase5_cleanup_idle_sessions` | settings of sessions that hold no documents and were not read or written for `session_idle_days` | Deletes them; a session with documents keeps its settings. Every process also does this once a minute |
 | 6 `phase6_reconcile_quotas` | every session | Overwrites the quota counters with the counts in the database, whether or not quotas are enforced |
 
 **Safety threshold.** If phase 1 would delete more than
@@ -98,7 +98,7 @@ below override it. These variables have only the `RAG_` form.
 | `soft_delete_grace_hours` | 24 | `RAG_GC_GRACE_HOURS` | Hours an archived document can be restored |
 | `document_ttl_days` | unset | `RAG_GC_TTL_DAYS` | Days from upload to expiry; unset or 0 turns expiry off |
 | `error_retention_days` | 7 | `RAG_GC_ERROR_RETENTION_DAYS` | Days before an `error` document is archived; 0 turns this off |
-| `session_idle_days` | 30 | `RAG_GC_SESSION_IDLE_DAYS` | Days before an unused session's settings are deleted |
+| `session_idle_days` | 30 | `RAG_GC_SESSION_IDLE_DAYS` | Days before the settings of an unused session without documents are deleted |
 | `gc_cycle_hours` | 24 | `RAG_GC_CYCLE_HOURS` | Hours between cycles |
 | `orphan_scan_hours` | 168 | `RAG_GC_ORPHAN_SCAN_HOURS` | Hours between orphan scans |
 | `safety_threshold_percent` | 0.25 | `RAG_GC_SAFETY_THRESHOLD` | Fraction of all documents above which phase 1 deletes nothing |

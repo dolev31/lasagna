@@ -22,6 +22,7 @@ import importlib.util
 import os
 import shutil
 import sys
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -231,38 +232,67 @@ def _check_session_documents(session_id: str = "default") -> Optional[Check]:
             f"{len(rows)} in session {session_id!r}, all in {model}'s collection",
         )
     collections = sorted({str(r.get("collection_name")) for r in elsewhere})
-    from lasagna.api._profile_guard import model_of_collection
+    from lasagna.api._profile_guard import (
+        _described,
+        fixes_for_documents_elsewhere,
+        model_of_collection,
+    )
 
     named = [model_of_collection(c) for c in collections]
-    models = [m for m, _ in named]
-    back = [p for _, p in named if p]
-    profile = _active_profile(session_id)
+    back = next((p for _, p in named if p), None)
+    reindex, back_fix = fixes_for_documents_elsewhere(session_id, back)
     switch_back = (
-        f"Or switch back to {back[0]}, whose model indexed them: lasagna configure "
-        f"--profile {back[0]} -s {session_id}."
-        if back
+        f"Or search with {back}, whose model indexed them: {back_fix}."
+        if back_fix
         else f"Or switch back to the profile that indexed them: lasagna configure "
         f"--profile <name> -s {session_id}."
+        if back is None
+        else ""
     )
+    where = ", ".join(_described(c, m, model) for c, (m, _) in zip(collections, named))
     return Check(
         "session_documents",
         _FAIL,
         f"{len(elsewhere)} of {len(rows)} documents in session {session_id!r} are in "
-        f"{', '.join(models)}'s collection, but the session searches with {model}, so no "
-        f"search finds them",
-        f"Reindex them with {model}: lasagna configure --profile {profile} -s {session_id} "
-        f"--reindex (it changes nothing if one fails). {switch_back}",
+        f"{where}, but the session searches with {model}"
+        + (f" in collection {searched!r}" if any(m == model for m, _ in named) else "")
+        + ", so no search finds them",
+        f"Reindex them with {model}: {reindex} (it changes nothing if one fails). "
+        f"{switch_back}".strip(),
     )
 
 
-def _active_profile(session_id: str) -> str:
-    try:
-        from .session_config import get_knowledge_config_manager
+def _check_profile_switches(session_id: str = "default") -> Optional[Check]:
+    """Profile switches that move documents and have not ended: running, or interrupted.
 
-        mgr = get_knowledge_config_manager(session_id=session_id)
-        return mgr.get_active_profile(session_id=session_id) or "default"
-    except Exception:  # noqa: BLE001
-        return "default"
+    A switch whose process stopped part way leaves some of a session's
+    documents in the new model's collection while the session stays on its
+    old profile, and every upload and settings change of that session is
+    refused until it is finished or undone. None when there is none.
+    """
+    from lasagna.core.database import get_rag_database
+
+    try:
+        rows = getattr(get_rag_database(), "list_profile_switches", lambda: [])()
+    except Exception as exc:  # noqa: BLE001 - reported, not raised
+        return Check("profile_switch", _WARN, f"could not read the profile switches: {exc}")
+    rows = sorted(rows, key=lambda r: r["session_id"] != session_id)
+    if not rows:
+        return None
+    first = rows[0]
+    sid, previous = first["session_id"], first["previous_profile"]
+    started = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(float(first["started_at"])))
+    more = len(rows) - 1
+    others = f" ({more} more {'session' if more == 1 else 'sessions'} too)" if more else ""
+    return Check(
+        "profile_switch",
+        _FAIL,
+        f"session {sid!r} is switching from profile {previous!r} to {first['profile']!r} "
+        f"(started {started}): running now, or its process stopped before it ended{others}",
+        f"If nothing is switching it now, finish the switch with lasagna configure "
+        f"--resume-switch -s {sid}, or go back with lasagna configure --profile {previous} "
+        f"-s {sid} --reindex.",
+    )
 
 
 #: The vector stores Lasagna ships an adapter for (``vector_backends/``).
@@ -462,6 +492,7 @@ def diagnose(*, check_gh: bool = True, session_id: str = "default") -> Diagnosis
         *filter(None, [_check_llm_sampling()]),
         _check_model_cache(session_id),
         *filter(None, [_check_session_documents(session_id)]),
+        *filter(None, [_check_profile_switches(session_id)]),
         _check_accelerator(env),
         *_check_optional_extras(),
         *_check_plugins(),

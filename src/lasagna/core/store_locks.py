@@ -15,6 +15,11 @@ one host share, it is an ``flock`` on a lock file beside the database, one of
 there it serializes the threads of one process only.
 
 A thread may take a lock it already holds (a delete inside a replace).
+
+A session's lock (``session:<id>``) is taken before any document's, never
+after, and on SQLite session locks have stripe files of their own: two lock
+classes that nest never share a stripe, so a stripe both name cannot leave two
+threads each waiting for the other.
 """
 
 from __future__ import annotations
@@ -29,6 +34,42 @@ from typing import Dict, Iterator, List
 #: Lock files per SQLite database. Two names in one stripe wait for each other,
 #: which is correct, only slower.
 STRIPES = 64
+
+#: How long a PostgreSQL store lock is waited for by default, in seconds
+#: (``RAG_STORE_LOCK_TIMEOUT``).
+DEFAULT_LOCK_TIMEOUT = 300.0
+
+
+class StoreLockTimeout(TimeoutError):
+    """Another process held a store lock past ``RAG_STORE_LOCK_TIMEOUT``; nothing was changed."""
+
+
+def lock_timeout() -> float:
+    """``RAG_STORE_LOCK_TIMEOUT`` (seconds, 1 to 86400), else 300."""
+    raw = os.environ.get("RAG_STORE_LOCK_TIMEOUT", "").strip()
+    if not raw:
+        return DEFAULT_LOCK_TIMEOUT
+    try:
+        value = float(raw)
+    except ValueError:
+        value = -1.0
+    if not 1.0 <= value <= 86400.0:
+        raise ValueError(
+            f"RAG_STORE_LOCK_TIMEOUT={raw!r} is not a number of seconds from 1 to 86400. "
+            f"Set one, or unset it for the default ({DEFAULT_LOCK_TIMEOUT:g})."
+        )
+    return value
+
+
+def lock_timeout_message(name: str, waited: float) -> str:
+    """Why an operation stopped waiting for the lock ``name``."""
+    kind, _, what = name.partition(":")
+    held = f"{kind} {what!r}" if what else repr(name)
+    return (
+        f"Another process held {held} for more than {waited:g} seconds, so nothing was "
+        f"changed. Retry when it is done (a profile switch holds a session, and a reindex "
+        f"a document, for as long as they run); RAG_STORE_LOCK_TIMEOUT sets the wait."
+    )
 
 
 def lock_key(name: str) -> int:
@@ -59,9 +100,16 @@ def _stripes_for(directory: str) -> List[_Stripe]:
         return stripes
 
 
+#: Lock name prefixes with stripe files of their own (see the module docstring).
+_OWN_STRIPES = ("session:",)
+
+
 @contextmanager
 def file_lock(directory: str, name: str) -> Iterator[None]:
     """Hold ``name`` against every thread and process that locks it in ``directory``."""
+    prefix = next((p for p in _OWN_STRIPES if name.startswith(p)), None)
+    if prefix is not None:
+        directory = os.path.join(directory, prefix.rstrip(":"))
     stripe = _stripes_for(directory)[lock_key(name) % STRIPES]
     with stripe.local:
         if stripe.depth == 0 and sys.platform != "win32":
@@ -95,3 +143,20 @@ class HeldLocks(threading.local):
 
     def __init__(self):
         self.held: Dict[int, int] = {}
+
+
+_local_locks = [threading.RLock() for _ in range(STRIPES)]
+
+
+def store_lock(name: str):
+    """The metadata store's lock ``name``, held across every process that shares the store.
+
+    The store's own ``exclusive``; a stand-in store without one (in a test)
+    gets a lock that serializes this process's threads.
+    """
+    from lasagna.core.database import get_rag_database
+
+    exclusive = getattr(get_rag_database(), "exclusive", None)
+    if callable(exclusive):
+        return exclusive(name)
+    return _local_locks[lock_key(name) % STRIPES]

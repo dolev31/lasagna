@@ -237,6 +237,8 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   `get_system_status` is `features`.
 - `lasagna evaluate` is removed: `lasagna benchmark run <file>` measures your
   own data.
+- The SDK's `upload(metadata=...)` and `upload_batch(metadata=...)` raise
+  `ValueError`: no surface stores per-document metadata, and it was dropped.
 - Every setting has a `LASAGNA_` variable, which wins over the `RAG_` one; the
   `RAG_` names keep working with no warning. `config_for_quality()` is an alias
   of `config_for_max_quality()`.
@@ -248,14 +250,21 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
 - **Sessions' settings are kept in one store for every surface.** The CLI, the
   MCP server, `lasagna serve` and the SDK read and write the metadata
   database, so a profile set with `lasagna configure` applies to a
-  `KnowledgeClient` for that session in another process.
+  `KnowledgeClient` for that session in another process, and a client's
+  `config=` is that session's settings everywhere (refused, as by `lasagna
+  configure`, when it would leave the session's documents unsearched).
   `RAG_SESSION_BACKEND=memory` keeps a process's sessions to itself.
+  Concurrent changes from several processes are all kept; the evaluation
+  harness keeps its sessions in its own process. A session's settings stay
+  while it holds documents, else `session_idle_days` (30) after last use.
 - **One vector collection per embedding model**
   (`rag_documents_v2__<model>__<dim>`). An existing `rag_documents_v2` is kept
   under its name by the first model that opens it at its size. A switch that
   would leave a session's documents in another model's collection is refused
   unless it reindexes them (`--reindex`) or is forced (`--force`), and a
-  search or `lasagna doctor` on such a session says so.
+  search or `lasagna doctor` on such a session says so. A `--reindex` switch
+  holds the session (other writes get 409) and moves documents back if
+  stopped; `lasagna configure --resume-switch` finishes one whose process died.
 - **`lasagna benchmark run`** measures retrieval unless `--tracks` names
   generation, and starts from the `speed` profile.
 - **`lasagna-mcp`** speaks stdio and serves the `safe` tool set; `lasagna
@@ -276,13 +285,16 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   unchanged.
 - Request bodies are limited before they are read (413), a REST search that
   runs past `RAG_SEARCH_TIMEOUT` (120 s) gets 504, and every numeric session
-  setting has a maximum (`SESSION_MAXIMUMS`) that applies to REST, MCP and
-  imports, never to the evaluation harness.
+  setting has a maximum and every list a maximum length (`SESSION_MAXIMUMS`),
+  for REST, MCP and imports, never the evaluation harness; `PATCH
+  /api/v1/config` uses the same bounds as the settings check.
 - A model a session names (`monot5_model`, `splade_model`, `colbert_model`,
   `flashrank_model`, as the embedder and the cross-encoder already did) follows
   the server's download policy instead of downloading inside a request.
 - Uploads, reindexes and deletes of one document wait for each other across
   processes (a PostgreSQL advisory lock, or a file lock beside a SQLite store).
+  On PostgreSQL such a lock is waited for `RAG_STORE_LOCK_TIMEOUT` (300 s),
+  then the operation fails with 503.
   A document that fails to index leaves no chunks behind, search returns
   chunks of ready documents only, and uploading a file again whose copies all
   failed retries the newest one under its id.

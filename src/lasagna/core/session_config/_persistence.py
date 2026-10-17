@@ -7,14 +7,17 @@ replacing the legacy JSON file persistence.
 import json
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
 from ._data_models import (
+    ANONYMOUS,
     SESSION_TTL_SECONDS,
     MAX_CACHED_SESSIONS,
     RAGProfile,
+    kept_in_process,
+    session_idle_seconds,
 )
 
 
@@ -162,34 +165,63 @@ class PersistenceMixin:
             except Exception:
                 pass
 
-    def _load_global_profiles(self) -> None:
-        """Load global custom profiles from SQLite."""
+    def _read_saved_profiles(self) -> Optional[List[RAGProfile]]:
+        """Every saved profile in SQLite, of every owner; None when it cannot be read.
+
+        Of every owner: only the shared ones were read, so a profile a tenant
+        had saved was gone after a restart while its row stayed.
+        """
         try:
             db = _get_db()
-            user_id = getattr(self, "_user_id", "__global__")
-            rows = db.get_profiles(user_id)
-
-            self._global_custom_profiles = []
-            self._global_profile_names = set()
-
-            for row in rows:
-                if row.get("is_builtin"):
-                    continue
-                profile = RAGProfile(
-                    name=row["profile_name"],
-                    description=row.get("description", ""),
-                    config=row.get("config", {}),
-                    user_id=row.get("user_id", "__anonymous__"),
-                )
-                self._global_custom_profiles.append(profile)
-                self._global_profile_names.add(profile.name)
-
-            if self._global_custom_profiles:
-                logger.info(
-                    f"Loaded {len(self._global_custom_profiles)} custom profile(s) from database"
-                )
+            reader = getattr(db, "get_saved_profiles", None)
+            rows = reader() if reader else db.get_profiles(getattr(self, "_user_id", ANONYMOUS))
         except Exception as exc:
             logger.warning(f"Failed to load profiles from database: {exc}")
+            return None
+        if not isinstance(rows, list):
+            return None  # a stand-in store: keep what this process has
+        return [
+            RAGProfile(
+                name=row["profile_name"],
+                description=row.get("description", ""),
+                config=row.get("config", {}),
+                user_id=row.get("user_id") or ANONYMOUS,
+            )
+            for row in rows
+            if not row.get("is_builtin")
+        ]
+
+    def _load_global_profiles(self) -> None:
+        """Load global custom profiles from SQLite."""
+        profiles = self._read_saved_profiles()
+        if profiles is None:
+            return
+        self._global_custom_profiles = profiles
+        self._global_profile_names = {p.name for p in profiles}
+
+    def _save_global_profile(self, profile: RAGProfile) -> None:
+        """Store one saved profile, under its owner, leaving every other row as it is.
+
+        This wrote back every profile this process had read at startup, after
+        deleting all of them: a profile another process had saved since was
+        deleted, and its sessions fell back to default.
+        """
+        try:
+            _get_db().save_profile(
+                user_id=profile.user_id or ANONYMOUS,
+                profile_name=profile.name,
+                config=profile.config,
+                description=profile.description,
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to save profile {profile.name!r} to database: {exc}")
+
+    def _delete_global_profile(self, profile: RAGProfile) -> None:
+        """Delete one saved profile's row."""
+        try:
+            _get_db().delete_profile(profile.user_id or ANONYMOUS, profile.name)
+        except Exception as exc:
+            logger.warning(f"Failed to delete profile {profile.name!r} from database: {exc}")
 
     def _load_session_states(self) -> None:
         """Load session states from SQLite."""
@@ -226,28 +258,6 @@ class PersistenceMixin:
         """
         pass
 
-    def _persist_global_profiles(self) -> None:
-        """Persist global custom profiles to SQLite.
-
-        Uses snapshot-style persist: delete all non-builtin profiles for this
-        user, then re-insert the current in-memory state. This ensures deleted
-        profiles are removed from the database (not just from memory).
-        """
-        try:
-            db = _get_db()
-            user_id = getattr(self, "_user_id", "__global__")
-            # Delete all existing custom profiles, then re-insert current state
-            db.delete_all_user_profiles(user_id)
-            for profile in self._global_custom_profiles:
-                db.save_profile(
-                    user_id=profile.user_id if profile.user_id != "__anonymous__" else user_id,
-                    profile_name=profile.name,
-                    config=profile.config,
-                    description=profile.description,
-                )
-        except Exception as exc:
-            logger.warning(f"Failed to persist profiles to database: {exc}")
-
     def _delete_persisted_session(self, session_id: str) -> None:
         """Delete a single session from SQLite."""
         try:
@@ -256,15 +266,20 @@ class PersistenceMixin:
         except Exception as exc:
             logger.warning(f"Failed to delete session {session_id} from database: {exc}")
 
-    def _read_persisted_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """The session as stored, or None when it is not stored or cannot be read."""
+    def _read_persisted_session(
+        self, session_id: str, *, fresh: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """The session as stored, or None when it is not stored or cannot be read.
+
+        SQLite has no cache in front of it, so every read is ``fresh``.
+        """
         try:
             row = _get_db().get_session(session_id)
         except Exception as exc:
             logger.debug(f"Could not read session {session_id} from database: {exc}")
             return None
-        if not row:
-            return None
+        if not isinstance(row, dict) or not row:
+            return None  # none stored (or a stand-in store, which has no rows)
         return {
             "active_profile": row.get("active_profile", "default"),
             "session_overrides": row.get("session_overrides", {}),
@@ -274,12 +289,21 @@ class PersistenceMixin:
             "user_id": row.get("user_id", "__anonymous__"),
         }
 
+    def _touch_persisted_session(self, session_id: str) -> None:
+        """Record in SQLite that the session is in use."""
+        try:
+            _get_db().touch_session(session_id)
+        except Exception as exc:
+            logger.debug(f"Could not record the use of session {session_id}: {exc}")
+
     def _persist_single_session(self, session_id: str) -> None:
         """Persist one session.
 
         Writing every cached session on each change put this process's stale
         copies of sessions another process had changed back over them.
         """
+        if kept_in_process(session_id):
+            return  # the evaluation harness's: this process's only
         state = self._session_states.get(session_id)
         if state is None:
             return
@@ -324,6 +348,8 @@ class PersistenceMixin:
         """Remove expired sessions from SQLite and in-memory cache.
 
         Called periodically (not on every request) to balance performance.
+        The store keeps a session's settings while it holds documents, and
+        otherwise for the GC policy's ``session_idle_days`` after its last use.
         """
         now = time.time()
 
@@ -337,7 +363,7 @@ class PersistenceMixin:
         db_count = 0
         try:
             db = _get_db()
-            db_count = db.cleanup_expired_sessions(max_age_seconds=SESSION_TTL_SECONDS)
+            db_count = db.cleanup_expired_sessions(max_age_seconds=session_idle_seconds())
         except Exception as exc:
             logger.warning(f"SQLite session cleanup failed: {exc}")
 

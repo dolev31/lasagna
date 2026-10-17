@@ -350,6 +350,7 @@ class RAGDatabase:
                 cursor.execute(CREATE_SESSIONS_TABLE)
                 cursor.execute(CREATE_GC_AUDIT_LOG_TABLE)
                 cursor.execute(CREATE_GC_LOCK_TABLE)
+                cursor.execute(CREATE_PROFILE_SWITCHES_TABLE)
 
                 # Run migrations if needed (before indexes, since migrations may add columns)
                 if current_version < SCHEMA_VERSION:
@@ -1265,6 +1266,48 @@ class RAGDatabase:
                 rows.append(d)
             return rows
 
+    def count_searched_documents(
+        self, session_id: str, statuses: List[str]
+    ) -> Dict[Optional[str], int]:
+        """How many of the session's documents with one of ``statuses`` each collection holds.
+
+        One aggregate query: the search path asks it, where reading every row
+        of a session cost 0.73 s at 100,000 documents.
+        """
+        marks = ", ".join("?" for _ in statuses)
+        with self.connection() as conn:
+            rows = conn.execute(
+                f"SELECT collection_name, COUNT(*) FROM rag_documents WHERE session_id = ? "
+                f"AND LOWER(status) IN ({marks}) GROUP BY collection_name",
+                (session_id, *statuses),
+            ).fetchall()
+        return {row[0]: int(row[1]) for row in rows}
+
+    def get_saved_profiles(self) -> List[Dict[str, Any]]:
+        """Every saved (not built-in) profile, of every owner."""
+        import json as _json
+
+        with self.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT user_id, profile_name, description, config
+                FROM rag_profiles
+                WHERE is_builtin = 0
+                ORDER BY profile_name, user_id
+                """
+            )
+            rows = []
+            for row in cursor.fetchall():
+                d = dict(row)
+                if isinstance(d.get("config"), str):
+                    try:
+                        d["config"] = _json.loads(d["config"])
+                    except (ValueError, TypeError):
+                        d["config"] = {}
+                rows.append(d)
+            return rows
+
     def delete_profile(self, user_id: str, profile_name: str) -> bool:
         """Delete a user's custom profile. Cannot delete built-in profiles."""
         with self.transaction() as conn:
@@ -1276,11 +1319,7 @@ class RAGDatabase:
             return cursor.rowcount > 0
 
     def delete_all_user_profiles(self, user_id: str) -> int:
-        """Delete all non-builtin profiles for a user.
-
-        Used by _persist_global_profiles() to do a snapshot-style persist:
-        delete all then re-insert current state.
-        """
+        """Delete all non-builtin profiles for a user."""
         with self.transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -1384,19 +1423,70 @@ class RAGDatabase:
             )
             return cursor.rowcount > 0
 
+    def touch_session(self, session_id: str) -> bool:
+        """Record that the session is in use now; False when it is not stored."""
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE rag_sessions SET last_accessed = ? WHERE session_id = ?",
+                (time.time(), session_id),
+            )
+            return cursor.rowcount > 0
+
     def cleanup_expired_sessions(self, max_age_seconds: int = 86400) -> int:
-        """Delete sessions older than max_age_seconds."""
+        """Delete the settings of sessions unused for ``max_age_seconds`` that hold no documents.
+
+        A session with documents keeps its settings: without them it searches
+        with the default model, which did not build its collection.
+        """
         cutoff = time.time() - max_age_seconds
         with self.transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "DELETE FROM rag_sessions WHERE last_accessed < ?",
+                "DELETE FROM rag_sessions WHERE last_accessed < ? AND NOT EXISTS "
+                "(SELECT 1 FROM rag_documents d WHERE d.session_id = rag_sessions.session_id)",
                 (cutoff,),
             )
             count = cursor.rowcount
         if count > 0:
             logger.info(f"Cleaned up {count} expired config sessions")
         return count
+
+    # =========================================================================
+    # PROFILE SWITCHES IN PROGRESS
+    # =========================================================================
+
+    def begin_profile_switch(
+        self, session_id: str, profile: str, previous_profile: str, record: Dict[str, Any]
+    ) -> None:
+        """Record that a switch of ``session_id`` to ``profile`` is moving its documents."""
+        import json as _json
+
+        with self.transaction() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO profile_switches "
+                "(session_id, profile, previous_profile, record, started_at) VALUES (?, ?, ?, ?, ?)",
+                (session_id, profile, previous_profile, _json.dumps(record), time.time()),
+            )
+
+    def get_profile_switch(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """The switch of ``session_id`` that has not finished, or None."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM profile_switches WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        return _switch_row(dict(row)) if row else None
+
+    def list_profile_switches(self) -> List[Dict[str, Any]]:
+        """Every switch that has not finished."""
+        with self.connection() as conn:
+            rows = conn.execute("SELECT * FROM profile_switches ORDER BY started_at").fetchall()
+        return [_switch_row(dict(r)) for r in rows]
+
+    def end_profile_switch(self, session_id: str) -> None:
+        """Forget the switch of ``session_id``: it finished, or was undone."""
+        with self.transaction() as conn:
+            conn.execute("DELETE FROM profile_switches WHERE session_id = ?", (session_id,))
 
     # =========================================================================
     # LIFECYCLE / GARBAGE COLLECTION OPERATIONS
@@ -1955,6 +2045,20 @@ class RAGDatabase:
 _UNFINISHED_SQL = "'uploading', 'processing', 'indexing'"
 
 
+def _switch_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """A ``profile_switches`` row with its JSON record unpacked."""
+    import json
+
+    try:
+        record = json.loads(row.pop("record", None) or "{}")
+    except (TypeError, ValueError):
+        record = {}
+    started = row.get("started_at")
+    if hasattr(started, "timestamp"):
+        row["started_at"] = started.timestamp()
+    return {**(record if isinstance(record, dict) else {}), **row}
+
+
 def record_visibility_change(db: Any, session_id: Optional[str]) -> bool:
     """Bump ``session_id``'s content generation after a document was archived or restored.
 
@@ -1977,6 +2081,19 @@ def record_visibility_change(db: Any, session_id: Optional[str]) -> bool:
         )
     return True
 
+
+#: One row per profile switch that moves a session's documents, while it runs:
+#: the profile, the one it leaves, and how to finish it (JSON). A row left by a
+#: process that stopped mid-switch is what ``doctor`` and every write report.
+CREATE_PROFILE_SWITCHES_TABLE = """
+CREATE TABLE IF NOT EXISTS profile_switches (
+    session_id TEXT PRIMARY KEY,
+    profile TEXT NOT NULL,
+    previous_profile TEXT NOT NULL,
+    record TEXT NOT NULL DEFAULT '{}',
+    started_at REAL NOT NULL
+);
+"""
 
 #: One row per session: a counter bumped on every upload and delete, which tells
 #: each process whether its in-memory BM25 index of the session is current.

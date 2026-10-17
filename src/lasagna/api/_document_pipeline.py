@@ -100,10 +100,6 @@ class DocumentRemoved(DocumentNotFound):
     """
 
 
-#: For a metadata store without cross-process locks (a stand-in in a test).
-_LOCAL_LOCKS = [threading.RLock() for _ in range(64)]
-
-
 def _store_lock(name: str):
     """The metadata store's lock ``name``, held across every process that shares the store.
 
@@ -113,13 +109,9 @@ def _store_lock(name: str):
     one pod during a reindex on another left the reindexed chunks in the
     vector store with no row.
     """
-    from lasagna.core.database import get_rag_database
-    from lasagna.core.store_locks import lock_key
+    from lasagna.core.store_locks import store_lock
 
-    exclusive = getattr(get_rag_database(), "exclusive", None)
-    if callable(exclusive):
-        return exclusive(name)
-    return _LOCAL_LOCKS[lock_key(name) % len(_LOCAL_LOCKS)]
+    return store_lock(name)
 
 
 def _document_lock(document_id: str):
@@ -242,7 +234,22 @@ class DocumentPipeline:
         Returns:
             Document metadata
         """
+        from lasagna.api._profile_guard import refuse_during_switch
+        from lasagna.core.session_config._session_state import session_lock
+
+        refuse_during_switch(session_id, "The upload")
+        retired: Optional[str] = None
         admission = contextlib.ExitStack()
+        # First, before any document's lock: held until this upload's row is
+        # saved, so a profile switch that moves the session's documents sees
+        # it or runs before it. One that started after this upload's settings
+        # were read left it in the old model's collection.
+        admission.enter_context(session_lock(session_id))
+        try:
+            refuse_during_switch(session_id, "The upload")
+        except BaseException:
+            admission.close()
+            raise
         if document_id is not None:
             from lasagna.core.database import get_rag_database
 
@@ -297,8 +304,7 @@ class DocumentPipeline:
                 # Retried in place: the failed copy (row, file, any chunks it
                 # left) goes, and this upload takes its id.
                 admission.enter_context(_document_lock(failed))
-                self._delete_document(failed, session_id, keep_file=False)
-                document_id = failed
+                retired = document_id = failed
                 logger.info(
                     f"{filename or os.path.basename(file_path)} has the same content as "
                     f"{failed}, whose processing failed; processing it again under that id"
@@ -306,7 +312,9 @@ class DocumentPipeline:
 
         with admission:
             document, config, stored_file_path, reservation_id, file_size_for_quota = (
-                self._admit_upload(file_path, session_id, filename, document_id)
+                self._admit_upload(
+                    file_path, session_id, filename, document_id, retire_failed=retired
+                )
             )
         quota_mgr = get_quota_manager()
         document_id, filename = document.document_id, document.filename
@@ -413,12 +421,16 @@ class DocumentPipeline:
         session_id: str,
         filename: Optional[str],
         document_id: Optional[str],
+        *,
+        retire_failed: Optional[str] = None,
     ) -> tuple:
         """Check an upload, reserve its quota, store its file and save its row.
 
         Returns the document, the session's config, the stored file's URI,
         the quota reservation and the size it reserved. Anything that refuses
         the upload raises before a file or a row is left behind.
+        ``retire_failed``: the failed copy this upload retries under its id,
+        deleted once nothing can refuse the upload.
         """
         config = self._get_session_config(session_id)
         # Before anything is stored: a model set without its size, whose size
@@ -473,6 +485,18 @@ class DocumentPipeline:
         reservation_id = quota_mgr.check_and_reserve_upload(
             session_id, file_size_bytes=file_size_for_quota
         )
+
+        if retire_failed is not None:
+            # Only now that the upload is admitted: deleted before the checks,
+            # a retry the quota or the file type refused lost the failed copy
+            # too, and the session kept neither.
+            try:
+                self._delete_document(retire_failed, session_id, keep_file=False)
+            except Exception:
+                quota_mgr.release_upload_reservation(
+                    session_id, file_size_for_quota, reservation_id=reservation_id
+                )
+                raise
 
         try:
             stored_file_path = self._store_file(file_path, document_id, filename)
@@ -634,10 +658,18 @@ class DocumentPipeline:
             ModelNotDownloaded, QuotaExceededError, ValueError: the new copy
                 cannot be made; the document is unchanged.
         """
+        from lasagna.api._profile_guard import refuse_during_switch
+
+        # During a profile switch that moves the session's documents (another
+        # thread's or process's): this reindex would put the document back
+        # where the switch had just moved it from. Checked again under the
+        # lock, which the switch takes for each document it moves.
+        refuse_during_switch(session_id, "The reindex")
         # The row is read under the lock: read before it, a second reindex
         # waiting for the first replaced the copy the first had already
         # retired, and after a model switch both copies stayed.
         with _document_lock(document_id):
+            refuse_during_switch(session_id, "The reindex")
             return self._reindex_held(self._owned_row(document_id, session_id), config)
 
     def _reindex_held(self, row: Dict[str, Any], config: Optional[RAGConfig] = None) -> Document:
@@ -1936,10 +1968,26 @@ class DocumentPipeline:
                 backend.  Used by reindex flows that need the source file to
                 survive deletion of the old index data.
         """
-        with _document_lock(document_id):
-            return self._delete_document(document_id, session_id, keep_file=keep_file)
+        from lasagna.api._profile_guard import refuse_during_switch
 
-    def _delete_document(self, document_id: str, session_id: str, *, keep_file: bool) -> bool:
+        refuse_during_switch(session_id, "The delete")
+        with _document_lock(document_id):
+            refuse_during_switch(session_id, "The delete")
+            deleted = self._delete_document(
+                document_id, session_id, keep_file=keep_file, clean_session=False
+            )
+        if deleted:
+            # After the document's lock: a session's lock is never taken
+            # under a document's (a switch holds the session's and waits for
+            # each document's).
+            self._remove_from_session_focus(document_id, session_id)
+        return deleted
+
+    def _delete_document(
+        self, document_id: str, session_id: str, *, keep_file: bool, clean_session: bool = True
+    ) -> bool:
+        """Delete the document; ``clean_session`` also drops it from the session's focus
+        (only with the session's lock held, or no document's)."""
         from lasagna.core.database import get_rag_database
 
         rag_db = get_rag_database()
@@ -1996,14 +2044,8 @@ class DocumentPipeline:
                 logger.error(f"Failed to delete document files: {e}")
 
         # Clean up session-level context awareness
-        try:
-            from ..core.session_config import get_knowledge_config_manager
-
-            config_manager = get_knowledge_config_manager()
-            config_manager.remove_document_from_session_state(document_id, session_id)
-            logger.debug(f"Cleaned session state for deleted document: {document_id}")
-        except Exception as e:
-            logger.warning(f"Failed to clean session state for document {document_id}: {e}")
+        if clean_session:
+            self._remove_from_session_focus(document_id, session_id)
 
         # Invalidate search cache
         if rag_config.enable_search_cache:

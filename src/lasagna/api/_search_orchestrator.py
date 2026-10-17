@@ -53,8 +53,14 @@ def _note_documents_elsewhere(session_id: str, config: Any) -> None:
 
     They sit in another model's collection (an SDK reindex into another model,
     a switch with ``force``), and the search returned an empty list with no
-    word of why. Never raises.
+    word of why. Never raises. Not for the evaluation harness's sessions: it
+    names a collection per arm, and the check would sit inside the latency it
+    records.
     """
+    from ..core.session_config import kept_in_process
+
+    if kept_in_process(session_id):
+        return
     try:
         from ._profile_guard import documents_elsewhere
 
@@ -63,7 +69,21 @@ def _note_documents_elsewhere(session_id: str, config: Any) -> None:
         logger.debug(f"Could not check where session {session_id}'s documents are: {exc}")
         return
     if missed:
-        _degraded.record("documents_elsewhere", missed)
+        from ._profile_guard import elsewhere_fixes
+
+        try:
+            reindex, back = elsewhere_fixes(session_id, config.collection_name, "mcp")
+        except Exception as exc:  # noqa: BLE001 - the reason is enough without it
+            logger.debug(f"Could not spell the MCP fix for session {session_id}: {exc}")
+            reindex = back = None
+        mcp = (
+            f"Over MCP: {reindex} reindexes them with the session's model"
+            + (f"; {back} searches where they are instead" if back else "")
+            + "."
+            if reindex
+            else None
+        )
+        _degraded.record("documents_elsewhere", missed, fixes={"mcp": mcp} if mcp else None)
 
 
 class SearchScopeUnavailable(RuntimeError):
