@@ -480,6 +480,13 @@ Server and deployment:
   document stuck "processing" no longer blocks its retry until GC. Two
   identical uploads at once (or in one batch) index one copy, and
   `POST /api/v1/documents/batch` takes `allow_duplicates`.
+- **`client.documents.reindex()` works, and raises when it fails.** It called
+  a `reindex_document` that neither the local nor the remote backend had, so
+  every call failed, and it returned an `UploadResult` with status FAILED
+  rather than raising. Both backends now have it (the remote one calls
+  `POST /api/v1/documents/{id}/reindex`); a failure raises `DocumentError`
+  with the reason and leaves the document unchanged, and an unknown id raises
+  `DocumentNotFoundError`.
 - **A session can no longer point the server at another vector store.**
   Session settings (REST `/api/v1/config`, `/api/config/knowledge/profile` and
   `/import`, the MCP config tools, the config manager) accepted any key, and
