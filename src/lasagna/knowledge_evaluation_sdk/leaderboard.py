@@ -32,6 +32,7 @@ import statistics
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from .bundle import config_entry
 from .run_provenance import claim_text
 
 #: A row from a single run reports no spread, so it can never be confirmed or
@@ -139,7 +140,6 @@ def collect_rows(bundles: Iterable[Dict[str, Any]], metric: str) -> List[Dict[st
 
     rows: List[Dict[str, Any]] = []
     for bundle in bundles:
-        keys = {c["name"]: c for c in bundle.get("configs", [])}
         components = (bundle.get("experiment") or {}).get("components")
         by_config: Dict[Tuple[str, str], List[float]] = {}
         systems: Dict[Tuple[str, str], Any] = {}
@@ -156,7 +156,7 @@ def collect_rows(bundles: Iterable[Dict[str, Any]], metric: str) -> List[Dict[st
             splits.setdefault(slot, result.get("split") or "")
 
         for (benchmark, config_name), values in by_config.items():
-            cfg = keys.get(config_name, {})
+            cfg = config_entry(bundle, benchmark, config_name)
             mean, std = _aggregate(values)
             rows.append(
                 {

@@ -2715,8 +2715,12 @@ def results_bundle(
         _error(f"Cannot write {output}: {exc.strerror or exc}")
     console.print(f"[green]Wrote[/green] {escape(output)}")
     console.print(f"  run_id: {bundle['run_id']}")
+    benchmarks = {cfg.get("benchmark") for cfg in bundle["configs"]}
     for cfg in bundle["configs"]:
-        console.print(f"  {escape(str(cfg['name']))}: comparability key {cfg['comparability_key']}")
+        label = str(cfg["name"])
+        if len(benchmarks) > 1:
+            label = f"{cfg.get('benchmark')}/{label}"
+        console.print(f"  {escape(label)}: comparability key {cfg['comparability_key']}")
     warnings = bundle["integrity"]["warnings"]
     if warnings:
         console.print(f"[yellow]  integrity warnings: {', '.join(warnings)}[/yellow]")
@@ -2739,6 +2743,7 @@ def results_validate(
         _content_hash,
         aggregate_mismatches,
         comparability_key,
+        config_label,
         metrics_version_problems,
         ranked_list_mismatches,
     )
@@ -2761,8 +2766,15 @@ def results_validate(
         recomputed = comparability_key(cfg.get("held_fixed", {}))
         if recomputed != cfg.get("comparability_key"):
             problems.append(
-                f"config {cfg.get('name')!r}: comparability key does not match its "
+                f"config {config_label(cfg)}: comparability key does not match its "
                 f"held_fixed block ({cfg.get('comparability_key')} vs {recomputed})"
+            )
+        benchmark = cfg.get("benchmark")
+        held_benchmark = (cfg.get("held_fixed") or {}).get("benchmark")
+        if benchmark and held_benchmark != benchmark:
+            problems.append(
+                f"config {config_label(cfg)}: held_fixed.benchmark is {held_benchmark!r}, "
+                f"not the entry's benchmark"
             )
 
     problems.extend(metrics_version_problems(bundle))

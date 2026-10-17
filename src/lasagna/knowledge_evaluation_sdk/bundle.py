@@ -134,10 +134,33 @@ def metrics_version_problems(bundle: Dict[str, Any]) -> List[str]:
         held = (cfg.get("held_fixed") or {}).get("metrics_version")
         if held != bundle.get("metrics_version"):
             problems.append(
-                f"config {cfg.get('name')!r}: held_fixed.metrics_version {held!r} differs "
+                f"config {config_label(cfg)}: held_fixed.metrics_version {held!r} differs "
                 f"from the bundle's {bundle.get('metrics_version')!r}"
             )
     return problems
+
+
+def config_label(cfg: Dict[str, Any]) -> str:
+    """``'speed'`` or, with its benchmark, ``'speed' on smoke``: how messages name an entry."""
+    name = repr(cfg.get("name"))
+    return f"{name} on {cfg['benchmark']}" if cfg.get("benchmark") else name
+
+
+def config_entry(bundle: Dict[str, Any], benchmark: str, config: str) -> Dict[str, Any]:
+    """The bundle's ``configs`` entry for ``config`` on ``benchmark``.
+
+    A bundle from before entries were per benchmark has one per config; its
+    entry is returned for every benchmark.
+    """
+    fallback: Dict[str, Any] = {}
+    for cfg in bundle.get("configs") or []:
+        if cfg.get("name") != config:
+            continue
+        if cfg.get("benchmark") == benchmark:
+            return cfg
+        if "benchmark" not in cfg and not fallback:
+            fallback = cfg
+    return fallback
 
 
 #: Fields whose agreement is required before two results may be compared.
@@ -477,15 +500,22 @@ def build_bundle(
             overrides_by_name[name] = row.get("config_overrides") or {}
     across = [overrides_by_name[n] for n in seen_names]
 
-    configs: Dict[str, Dict[str, Any]] = {}
+    # One entry per (benchmark, config): the key hashes the benchmark, its
+    # split and sample count. One per config name gave every later benchmark
+    # of a sweep the first one's key, so beir_tier1.yaml's NFCorpus rows
+    # carried SciFact's, and a smoke table was captioned with another
+    # benchmark's n_samples.
+    configs: Dict[tuple, Dict[str, Any]] = {}
     for row in rows:
         name = row.get("config_name", "")
-        if name in configs:
+        benchmark = row.get("benchmark_name", "")
+        if (benchmark, name) in configs:
             continue
         held = held_fixed_from(row, run_meta, across)
         own = overrides_by_name.get(name, {})
-        configs[name] = {
+        configs[(benchmark, name)] = {
             "name": name,
+            "benchmark": benchmark,
             "comparability_key": comparability_key(held),
             "held_fixed": held,
             # Derived from the overrides this config actually applied. An empty
@@ -612,6 +642,14 @@ def json_schema() -> Dict[str, Any]:
                     "type": "object",
                     "required": ["name", "comparability_key", "held_fixed"],
                     "properties": {
+                        "benchmark": {
+                            "type": "string",
+                            "description": (
+                                "The benchmark this entry's key covers: one entry per "
+                                "(benchmark, config). Absent in bundles that kept one "
+                                "entry per config."
+                            ),
+                        },
                         "comparability_key": {
                             "type": "string",
                             "description": "Hash of held_fixed. Recomputed on validation.",
