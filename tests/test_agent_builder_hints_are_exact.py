@@ -158,10 +158,10 @@ def test_init_lists_every_store_and_preselects_what_the_readme_recommends(monkey
     (_, stores, _), (_, profiles, preselected) = asked
     assert set(stores) == set(_BUILTIN_VECTOR_BACKENDS)
     assert preselected == "speed"
+    # The README's shell Quickstart starts from the same profile init offers first.
     readme = (Path(cli.__file__).resolve().parents[2] / "README.md").read_text()
-    assert (
-        "lasagna init                       # interactive setup; pick the speed profile" in readme
-    )
+    assert "lasagna configure --profile speed  # the speed profile" in readme
+    assert "`lasagna init` asks the same questions interactively" in readme
 
 
 def test_a_process_setting_is_not_told_it_is_misspelled(mcp_session):
