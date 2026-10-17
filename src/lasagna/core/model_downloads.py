@@ -28,7 +28,7 @@ class ModelNotDownloaded(RuntimeError):
         self.model = model
         self.offline = offline
         why = (
-            "and this server is offline (HF_HUB_OFFLINE is set)"
+            "and Hugging Face offline mode is on (HF_HUB_OFFLINE is set)"
             if offline
             else "and a server does not download models inside a request"
         )
@@ -132,15 +132,33 @@ def fix_for_session(session_id: str, model: str = "") -> str:
             f"Session {session_id!r} has no documents. Sessions with documents: {listed}; "
             f"name one with the X-Session-ID header, RAG_SESSION_ID or -s."
         )
-    parts.append(
+    parts.append(fix_for_model(session_id, model))
+    return " ".join(parts)
+
+
+def fix_for_model(session_id: str, model: str = "") -> str:
+    """What to run so that ``session_id`` can use a model, or a smaller one.
+
+    Offline, the way to keep the model is to download it while online; a
+    server that refuses downloads can also be told to allow them.
+    """
+    configured = (
         f"Session {session_id!r} is configured with this model."
         if session_configured(session_id)
         else f"Session {session_id!r} has no profile, so it uses the default model."
     )
     download = f"hf download {model}" if model else "hf download <model>"
-    parts.append(
-        f"For the 91 MB keyless model, run: lasagna configure --profile speed -s "
-        f"{session_id}. To keep this model, download it first ({download}), or set "
-        f"RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS=true for the server."
+    allow = "set RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS=true for the server"
+    if offline():
+        unset = "unset HF_HUB_OFFLINE" + (f" and {allow}" if _refusing else "")
+        keep = (
+            f"To keep this model, download it once with network access ({download}), "
+            f"or {unset} so it downloads on first use."
+        )
+    else:
+        keep = f"To keep this model, download it first ({download}), or {allow}."
+    return (
+        f"{configured} For the 91 MB keyless model, run: lasagna configure --profile "
+        f"speed -s {session_id} (in Python: KnowledgeClient(config=config_for_speed())). "
+        f"{keep}"
     )
-    return " ".join(parts)

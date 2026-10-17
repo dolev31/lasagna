@@ -71,8 +71,8 @@ def _get_secret() -> str:
         raise MissingSigningSecret(
             f"{REQUIRE_AUTH_ENV} is set but RAG_JWT_SECRET is not. Tokens would "
             f"be signed with a secret generated fresh in each process, so any "
-            f"deployment with more than one replica -- including the shipped "
-            f"k8s manifests -- would reject roughly half of its own tokens. "
+            f"deployment with more than one replica (the shipped k8s manifests "
+            f"included) would reject roughly half of its own tokens. "
             f"Generate one with `openssl rand -hex 32` and set it identically "
             f"across every replica."
         )
@@ -196,7 +196,7 @@ def extract_session_id(
         1. ``session_token`` → decoded ``sid`` claim
         2. ``session_id_header`` (X-Session-ID)
         3. ``session_id_query`` (query param)
-        4. ``"default"``
+        4. ``RAG_SESSION_ID`` (``lasagna serve -s`` sets it), else ``"default"``
 
     Raises:
         ValueError: If the resolved session ID exceeds 128 characters.
@@ -208,7 +208,12 @@ def extract_session_id(
             return result[0]  # session_id from token
 
     # 2. Explicit header / query param (backward compatible)
-    resolved = session_id_header or session_id_query or "default"
+    resolved = (
+        session_id_header
+        or session_id_query
+        or os.environ.get("RAG_SESSION_ID", "").strip()
+        or "default"
+    )
     if len(resolved) > _MAX_SESSION_ID_LEN:
         raise ValueError(f"session_id exceeds {_MAX_SESSION_ID_LEN} characters")
     return resolved

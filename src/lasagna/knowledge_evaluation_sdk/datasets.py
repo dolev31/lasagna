@@ -61,6 +61,75 @@ _PINNED_REVISIONS: Dict[str, str] = {}
 _REVISION_ENV = "LASAGNA_DATASET_REVISIONS"
 
 
+class DatasetNotCached(ValueError):
+    """Offline, a benchmark's Hugging Face dataset is not in the local cache."""
+
+
+def _offline() -> bool:
+    from lasagna.core.config import env_flag
+    from lasagna.core.model_downloads import offline
+
+    return offline() or env_flag("HF_DATASETS_OFFLINE")
+
+
+def dataset_cached(hf_name: str) -> bool:
+    """Whether ``hf_name`` (``org/name``) loads from the local cache.
+
+    Either the ``datasets`` cache holds it (``<org>___<name>``), or the hub
+    cache has a snapshot whose files resolve.
+    """
+    org, _, name = hf_name.partition("/")
+    try:
+        import datasets.config as datasets_config
+
+        if (Path(datasets_config.HF_DATASETS_CACHE) / f"{org}___{name}").is_dir():
+            return True
+    except Exception:  # noqa: BLE001 - no datasets library: only the hub cache counts
+        pass
+    try:
+        from huggingface_hub import constants
+
+        snapshots = Path(constants.HF_HUB_CACHE) / f"datasets--{org}--{name}" / "snapshots"
+    except Exception:  # noqa: BLE001
+        return False
+    return snapshots.is_dir() and any(f.is_file() for f in snapshots.rglob("*"))
+
+
+def hf_repos(benchmark: str, adapter: Any = None) -> List[str]:
+    """The Hugging Face datasets ``benchmark`` loads (data and qrels), from its catalogue entry."""
+    info = _BENCHMARKS.get(benchmark) or _BENCHMARKS.get(benchmark.split("/")[0]) or {}
+    if not info:
+        info = getattr(adapter, "_meta", None) or {}
+    return list(dict.fromkeys(r for r in (info.get("hf_dataset"), info.get("hf_qrels")) if r))
+
+
+def missing_offline_datasets(
+    repos_by_benchmark: Dict[str, List[str]],
+) -> Optional[DatasetNotCached]:
+    """Offline, the benchmarks whose Hugging Face data is not cached, as one error.
+
+    None when online or when everything is cached. Checked once before a run's
+    tasks start: each task used to fail on its own, printing the same
+    "dataset_info.json not found" for every arm.
+    """
+    if not _offline():
+        return None
+    missing = [
+        benchmark
+        for benchmark, repos in repos_by_benchmark.items()
+        if any(not dataset_cached(repo) for repo in repos)
+    ]
+    if not missing:
+        return None
+    named = ", ".join(missing)
+    verb = "is" if len(missing) == 1 else "are"
+    return DatasetNotCached(
+        f"{named} {verb} not in the Hugging Face cache and offline mode is on "
+        f"(HF_HUB_OFFLINE or HF_DATASETS_OFFLINE): run once online to download it, or "
+        f"unset HF_HUB_OFFLINE and HF_DATASETS_OFFLINE."
+    )
+
+
 def pin_dataset_revision(benchmark: str, revision: str) -> None:
     """Load ``benchmark`` from a fixed upstream revision from now on.
 

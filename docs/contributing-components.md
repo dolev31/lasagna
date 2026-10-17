@@ -57,8 +57,8 @@ The agentic pipeline is the one stage with no one-line form: a loop is a class
 (below).
 
 `paper` and `claims` are optional and worth filling in: they come back out of
-the registry, so a results table can show the claimed number beside the one you
-reproduced. That comparison is the most useful thing a reader of your result
+the registry, a run records them, and its leaderboards and `results view` show
+the claimed number beside the one you reproduced. That comparison is the most useful thing a reader of your result
 can see.
 
 A technique with state or a model is a class instead: subclass the stage's

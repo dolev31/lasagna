@@ -44,6 +44,7 @@ from .results import (
     lower_is_better,
     verdict_lines,
 )
+from .run_provenance import claim_text
 from .runner import TaskResult
 
 #: The metric shown when none is asked for: the first of these the run recorded.
@@ -182,6 +183,7 @@ def _ranking(results: BenchmarkResults, bench: str, metric: str) -> List[Dict[st
             continue
         agg = _aggregate([t.metrics[metric] for t in ok])
         row.update(mean=agg.mean, std=agg.std, n_runs=agg.n_runs, n_queries=len(queries))
+        row["claim"] = results.claim_for(config, metric, bench)
         notes = [f"{failed} of {len(tasks)} runs failed"] if failed else []
         if queries and queries != universe:
             notes.append(
@@ -367,6 +369,8 @@ def _isolation(run: _Run) -> str:
 
 
 def _leaderboard(ranking: List[Dict[str, Any]], metric: str) -> str:
+    # The number a component's paper claims, beside the measured one.
+    show_claim = any(r.get("claim") for r in ranking)
     rows = []
     for r in ranking:
         rank = str(r["rank"]) if r["rank"] else "–"
@@ -374,12 +378,14 @@ def _leaderboard(ranking: List[Dict[str, Any]], metric: str) -> str:
         runs = str(r.get("n_runs", "")) if r["mean"] is not None else ""
         queries = str(r.get("n_queries") or "") if r["mean"] is not None else ""
         klass = ' class="unranked"' if not r["rank"] else ""
+        claim = f"<td>{_e(claim_text(r.get('claim')))}</td>" if show_claim else ""
         rows.append(
             f'<tr{klass}><td class="num">{rank}</td><td class="arm">{_e(r["config"])}</td>'
-            f'<td class="num">{value}</td><td class="num">{runs}</td>'
+            f'<td class="num">{value}</td>{claim}<td class="num">{runs}</td>'
             f'<td class="num">{queries}</td><td>{_e(r["note"])}</td></tr>'
         )
-    head = ["#Rank", "Arm", "#" + _e(metric), "#Runs", "#Queries", "Note"]
+    head = ["#Rank", "Arm", "#" + _e(metric), *(["Claimed"] if show_claim else [])]
+    head += ["#Runs", "#Queries", "Note"]
     return (
         "<h3>Leaderboard</h3>"
         '<p class="muted">Ranked over arms that scored the same queries.</p>'

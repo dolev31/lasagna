@@ -137,6 +137,7 @@ def setup_logging(verbose: bool) -> None:
         sys.stderr,
         level=level,
         format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{message}</cyan>",
+        diagnose=False,
     )
 
 

@@ -33,7 +33,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `vector_backend` | str | `"milvus"` | `LASAGNA_VECTOR_BACKEND`, `RAG_VECTOR_BACKEND` | Vector database backend to use. |
 | `vector_backend_config` | object | `{}` | `LASAGNA_VECTOR_BACKEND_CONFIG`, `RAG_VECTOR_BACKEND_CONFIG` | Backend-specific configuration. |
 | `collection_name` | str | `"rag_documents_v2"` | `LASAGNA_COLLECTION_NAME`, `RAG_COLLECTION_NAME` | The vector collection this configuration reads and writes. |
-| `embedding_dim` | int, 32 to 8192 | `1024` | `LASAGNA_EMBEDDING_DIM`, `RAG_EMBEDDING_DIM` | must match embedding_model (bge-m3 and bge-large: 1024) |
+| `embedding_dim` | int, 32 to 8192 | `1024` | `LASAGNA_EMBEDDING_DIM`, `RAG_EMBEDDING_DIM` | Vector size; an embedding_model set without one brings its own size. |
 | `metric_type` | str | `"COSINE"` | `LASAGNA_METRIC_TYPE`, `RAG_METRIC_TYPE` | vector similarity: COSINE, L2 or IP. |
 | `index_type` | str | `"HNSW"` | `LASAGNA_INDEX_TYPE`, `RAG_INDEX_TYPE` | dense index on servers; Milvus Lite always uses FLAT. |
 | `index_params` | object | `{"M": 16, "efConstruction": 256}` | `LASAGNA_INDEX_PARAMS`, `RAG_INDEX_PARAMS` | HNSW build parameters. |
@@ -56,7 +56,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 
 | Setting | Type | Default | Environment variables | Description |
 |---|---|---|---|---|
-| `chunking_strategy` | str | `"semantic"` | `LASAGNA_CHUNKING_STRATEGY`, `RAG_CHUNKING_STRATEGY` | fixed, semantic, recursive, sentence_window. |
+| `chunking_strategy` | str | `"hierarchical"` | `LASAGNA_CHUNKING_STRATEGY`, `RAG_CHUNKING_STRATEGY` | what runs: enable_hierarchical, then preserve_headers or preserve_tables, override another name. |
 | `chunk_size` | int, 50 to 100000 | `800` | `LASAGNA_CHUNK_SIZE`, `RAG_CHUNK_SIZE` | How large each piece of content should be (in characters). Smaller = more precise, larger = more context. |
 | `chunk_overlap` | int, 0 to 50000 | `0` | `LASAGNA_CHUNK_OVERLAP`, `RAG_CHUNK_OVERLAP` | Research: no measurable benefit from overlap (arXiv:2601.14123) |
 | `semantic_threshold` | float | `0.75` | `LASAGNA_SEMANTIC_THRESHOLD`, `RAG_SEMANTIC_THRESHOLD` | How sensitive the smart splitter is to topic changes. Lower = more splits, higher = fewer splits. |
@@ -413,7 +413,7 @@ environment only: not from the settings file, and not per session.
 |---|---|---|
 | `LASAGNA_MCP_TOOLS` | `safe` | safe leaves out the six tools that delete data or reset configuration; all serves every tool. The same as lasagna-mcp --tools. |
 | `LASAGNA_ENABLE_DOCS_API` | `false` | Turn on the /api/call tool tester, which calls any tool without authentication. For development only. |
-| `RAG_SESSION_ID` | unset | The session a tool call uses when it names none. |
+| `RAG_SESSION_ID` | unset | The session an MCP tool call, or a REST request without X-Session-ID, uses when it names none (else default). lasagna serve -s sets it. |
 | `RAG_MCP_UPLOAD_ROOT` | unset | The directory a networked MCP server may ingest server-side files from; unset, it reads none. |
 
 ### Vector store connections
@@ -441,7 +441,7 @@ environment only: not from the settings file, and not per session.
 | `LASAGNA_DATA_DIR`, `RAG_DATA_DIR` | `~/.lasagna` | Where Lasagna keeps its data. |
 | `LASAGNA_DB_DIR`, `RAG_DB_DIR` | <data dir>/dbs | The databases and the local vector stores. |
 | `LASAGNA_UPLOAD_DIR`, `RAG_UPLOAD_DIR` | <data dir>/uploads | Stored uploads. |
-| `LASAGNA_SETTINGS_FILE`, `RAG_SETTINGS_FILE` | the packaged settings.lasagna.toml | The settings file to read instead of the packaged one. |
+| `LASAGNA_SETTINGS_FILE`, `RAG_SETTINGS_FILE` | the packaged settings.lasagna.toml | The settings file to read instead of the packaged one; a path with no file there stops the process with an error. |
 | `LASAGNA_LLM_CACHE` | `on` | 0, false, no or off turns the LLM response cache off for every run. |
 | `LASAGNA_STRICT_PLUGINS` | unset | Set: a plugin that fails to load raises instead of being reported and skipped. |
 | `RAG_LANGFUSE_TRACING` | `false` | Send LLM traces to Langfuse (needs the langfuse package and its keys). |

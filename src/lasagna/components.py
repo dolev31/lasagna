@@ -492,7 +492,16 @@ def load(stage: str, reference: str, search_paths: Sequence[Union[str, Path]] = 
         return reference
 
     target = import_reference(reference, search_paths)
-    register(stage, target, reference)
+    # What the decorator declared (paper, claims), kept under the name the
+    # sweep uses: registered again without it, a reference arm's claims never
+    # reached the run's metadata or a results table.
+    declared = getattr(target, "__lasagna_component__", None)
+    provenance = (
+        registry.provenance(stage, declared[1])
+        if isinstance(declared, tuple) and len(declared) == 2 and declared[0] == stage
+        else {}
+    )
+    register(stage, target, reference, **provenance)
     _LOADED_FROM[(stage, reference)] = source or ""
     return reference
 

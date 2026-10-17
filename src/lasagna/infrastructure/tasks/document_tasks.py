@@ -75,12 +75,70 @@ def _is_permanent(exc: BaseException) -> bool:
 
     The pipeline raises ValueError and TypeError for what retrying cannot fix:
     an unsupported or empty file, no extractable text, a size mismatch with a
-    collection that holds documents. Retrying those (twice, 30 s apart) held a
-    `lasagna upload` for over a minute before it reported the failure.
+    collection that holds documents. So are a model that is not downloaded
+    while offline, a missing or unreadable file, a missing package, and a
+    rejected credential. Retrying those (twice, 30 s apart) held a
+    `lasagna upload` for over a minute before it reported the failure, and
+    kept the Python interpreter from exiting for as long.
     """
     from lasagna.api._document_pipeline import is_dim_mismatch_error
+    from lasagna.core.model_downloads import ModelNotDownloaded
 
-    return isinstance(exc, (ValueError, TypeError)) or is_dim_mismatch_error(exc)
+    permanent = (
+        ValueError,
+        TypeError,
+        ModelNotDownloaded,
+        FileNotFoundError,
+        PermissionError,
+        ImportError,
+    )
+    return isinstance(exc, permanent) or is_dim_mismatch_error(exc) or _is_auth_error(exc)
+
+
+def _is_auth_error(exc: BaseException) -> bool:
+    """A provider refused the credential (HTTP 401 or 403, or its SDK's auth error)."""
+    if getattr(exc, "status_code", None) in (401, 403):
+        return True
+    return any(
+        "Authentication" in cls.__name__ or "PermissionDenied" in cls.__name__
+        for cls in type(exc).__mro__
+    )
+
+
+def _failure_reason(exc: BaseException, session_id: str) -> str:
+    """The reason recorded on a failed document, with the fix when there is one."""
+    from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_model
+
+    if isinstance(exc, ModelNotDownloaded):
+        return f"{exc} {fix_for_model(session_id, exc.model)}"
+    return str(exc)
+
+
+#: Set when the interpreter starts exiting; ends every wait for a retry.
+_exiting = threading.Event()
+
+
+def _wait_before_retry(delay: float) -> bool:
+    """Wait ``delay`` seconds before a retry; False when the interpreter is exiting.
+
+    A ThreadPoolExecutor's threads are joined when Python exits, so a retry
+    asleep for 30 s held a finished script for up to a minute.
+    """
+    return not _exiting.wait(delay)
+
+
+def _end_retry_waits_at_exit() -> None:
+    """Have the interpreter's exit end the retry waits before it joins the threads.
+
+    Python joins a ThreadPoolExecutor's threads in a threading-atexit hook,
+    which runs before ``atexit`` handlers and before the main thread counts
+    as finished. Those hooks run last registered first, so this one,
+    registered after the executor's module was imported, runs before the join.
+    """
+    try:
+        threading._register_atexit(_exiting.set)
+    except Exception as exc:  # noqa: BLE001 - already exiting, or another Python
+        logger.debug(f"Retry waits will not end early at exit: {exc}")
 
 
 def _process_document_impl(
@@ -203,7 +261,11 @@ def _process_document_impl(
         }
 
     except Exception as exc:
-        logger.error(f"[Worker] Failed to process document {document_id}: {exc}")
+        # The command that waits on the document (`lasagna upload`) reports
+        # the failure itself, and hides this line by its `document_failure` key.
+        logger.bind(document_failure=document_id).error(
+            f"[Worker] Failed to process document {document_id}: {exc}"
+        )
 
         # Retry transient errors before marking as ERROR
         if (
@@ -230,7 +292,7 @@ def _process_document_impl(
             rag_db.update_document_status(
                 document_id=document_id,
                 status=DocumentStatus.ERROR.value,
-                error_message=str(exc),
+                error_message=_failure_reason(exc, session_id),
             )
         except Exception as db_exc:
             logger.error(f"[Worker] Could not update error status: {db_exc}")
@@ -439,6 +501,7 @@ def _get_doc_executor(max_workers: int = 5) -> concurrent.futures.ThreadPoolExec
                     thread_name_prefix="doc-process",
                 )
                 atexit.register(_doc_executor.shutdown, wait=False)
+                _end_retry_waits_at_exit()
     return _doc_executor
 
 
@@ -462,7 +525,10 @@ def _thread_pool_wrapper(
 ) -> None:
     """Run document processing in a thread pool thread with retries.
 
-    Mirrors Celery's ``max_retries=2, default_retry_delay=30`` behaviour.
+    Mirrors Celery's ``max_retries=2, default_retry_delay=30`` behaviour. A
+    document stays "processing" between attempts and is marked failed only
+    when no attempt is left: it used to be marked failed after the first,
+    so a client polling for it saw a failure that a retry then reversed.
     The semaphore is released in ``finally`` to guarantee backpressure
     accounting stays correct regardless of outcome.
     """
@@ -478,30 +544,60 @@ def _thread_pool_wrapper(
                     file_path,
                     reservation_id=reservation_id,
                     reserved_file_size=reserved_file_size,
-                    # No retry_fn — we handle retries in this loop
+                    # Asks this loop for the retry instead of failing the document.
                     retry_ctx=TaskRetryContext(
                         retries=attempt,
                         max_retries=max_retries,
-                        retry_fn=None,
+                        retry_fn=_RetryRequested,
                     ),
                 )
                 return  # success
             except Exception as exc:
-                if attempt < max_retries and not _is_permanent(exc):
-                    logger.info(
-                        f"[ThreadPool] Retrying document {document_id} "
-                        f"(attempt {attempt + 1}/{max_retries}) in {retry_delay}s"
-                    )
-                    time.sleep(retry_delay)
-                else:
-                    # Terminal failure — _process_document_impl already
-                    # marked ERROR in DB and released quota reservation.
-                    logger.error(
-                        f"[ThreadPool] Document {document_id} failed after {attempt} retries"
-                    )
+                retry = isinstance(exc, _RetryRequested) or (
+                    attempt < max_retries and not _is_permanent(exc)
+                )
+                if not retry:
+                    # Terminal failure: _process_document_impl marked the
+                    # document failed with the reason and released the quota.
+                    return
+                logger.info(
+                    f"[ThreadPool] Retrying document {document_id} "
+                    f"(attempt {attempt + 1}/{max_retries}) in {retry_delay}s"
+                )
+                if not _wait_before_retry(retry_delay):
+                    _fail_at_exit(document_id, session_id, reservation_id, reserved_file_size)
                     return
     finally:
         semaphore.release()
+
+
+def _fail_at_exit(
+    document_id: str, session_id: str, reservation_id: str, reserved_file_size: int
+) -> None:
+    """Mark a document failed whose retry the exiting interpreter will not run."""
+    from lasagna.core.database import get_rag_database
+    from lasagna.core.schema import DocumentStatus
+
+    try:
+        get_rag_database().update_document_status(
+            document_id=document_id,
+            status=DocumentStatus.ERROR.value,
+            error_message=(
+                "The process exited before processing could be retried. Upload the "
+                "document again, or reindex it."
+            ),
+        )
+    except Exception as exc:
+        logger.warning(f"Could not mark {document_id} failed at exit: {exc}")
+    if reservation_id:
+        try:
+            from lasagna.core.quota import get_quota_manager
+
+            get_quota_manager().release_upload_reservation(
+                session_id, reserved_file_size, reservation_id=reservation_id
+            )
+        except Exception as exc:
+            logger.warning(f"Could not release the quota reservation of {document_id}: {exc}")
 
 
 # ---------------------------------------------------------------------------

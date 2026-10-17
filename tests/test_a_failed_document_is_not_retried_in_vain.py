@@ -33,7 +33,8 @@ def test_every_milvus_wording_of_a_size_mismatch_is_recognised(message):
 @pytest.fixture
 def attempts(monkeypatch):
     calls, sleeps = [], []
-    monkeypatch.setattr(document_tasks.time, "sleep", sleeps.append)
+    # The wait before a retry, which the interpreter's exit can cut short.
+    monkeypatch.setattr(document_tasks, "_wait_before_retry", lambda d: sleeps.append(d) or True)
 
     def run(error):
         def impl(*args, **kwargs):

@@ -131,10 +131,14 @@ like it.
 
 Before you trust a harness with your component, check it on methods whose
 numbers are already known. On the full SciFact and NFCorpus test sets, Lasagna's
-built-in components land within 0.002 NDCG@10 of MTEB for the dense models,
-within 0.004 of the BEIR paper for BM25 followed by a MiniLM cross-encoder, and
-within 0.008 for BM25. Nothing was tuned: BM25 uses BEIR's k1 and b, and every
-model is its published checkpoint.
+built-in components land within 0.002 NDCG@10 of MTEB for the dense models, and
+within 0.004 of the BEIR paper for BM25 followed by a MiniLM cross-encoder.
+BM25 is 0.001 and 0.008 below the BEIR paper, which indexed the title and the
+text as separate fields; like for like, against Anserini's BM25 over one field
+holding both, as Lasagna's is, it is 0.015 (SciFact) and 0.005 (NFCorpus)
+below, a difference in the BM25 implementation rather than the harness.
+Nothing was tuned: BM25 uses BEIR's k1 and b, and every model is its published
+checkpoint.
 
 | Method | SciFact published | SciFact Lasagna | NFCorpus published | NFCorpus Lasagna |
 |---|---:|---:|---:|---:|
@@ -185,9 +189,11 @@ lasagna serve                      # REST API and configuration page on 127.0.0.
 ```
 
 > **The first run downloads models.** The default profile fetches an embedding
-> model and a reranker on first use. Measured on a cold cache on every
-> release-gate run to date: **about 4.5 GB downloaded, and 7–40 minutes to the
-> first search result**; the spread is your connection. After that, a warm
+> model and a reranker on first use: **about 3.1 GB** (BGE-M3, 2.3 GB, and the
+> mxbai reranker, 870 MB), and 2.3 GB more with the `flag-embedding` extra
+> (which `[all]` includes), since FlagEmbedding also fetches BGE-M3's ONNX copy.
+> On release-gate runs the first search result took between 7 and 40 minutes on
+> a cold cache; the spread is the connection. After that, a warm
 > search on the `speed` profile takes tens of milliseconds (median 32 ms over
 > 18,442 chunks on Milvus Lite). Run `python -m e2e.run` to measure on your own
 > machine.
@@ -198,15 +204,20 @@ lasagna serve                      # REST API and configuration page on 127.0.0.
 > embedding model is process-wide, so two clients in one process share it. A
 > client saves its settings as its session's on the session's first upload, so
 > the CLI, REST API and MCP server search that corpus with the same model. The other
-> profiles send queries they judge complex to an agentic loop, which needs an
-> LLM API key.
+> profiles send queries they judge complex to an agentic loop, which calls an
+> LLM; without an API key those queries run the profile's standard pipeline,
+> and the result's `degraded_stages` names `agentic`.
 > [Configuration](https://github.com/dolev31/lasagna/blob/main/docs/configuration.md)
 > explains profiles, which setting wins when several places set it, and where
 > data is kept (`~/.lasagna`).
 
 `upload()` returns as soon as the document is queued; processing is
 asynchronous, so await `client.documents.wait_for_processing(...)` before
-searching or reading the final chunk count.
+searching or reading the final chunk count. It raises
+`DocumentProcessingError`, with the reason and the fix, if the document could
+not be indexed. Rerunning the script uploads nothing new: a file the session
+already holds comes back as that document, with `duplicate_of` set
+(`allow_duplicates=True`, or `lasagna upload --force`, indexes it again).
 
 **Nothing to download at all?** The [component comparison](#compare-a-component)
 below runs as is, with no model, corpus or key. It is the fastest way to see
@@ -225,7 +236,7 @@ comparison is what your agent searches with.
 ```bash
 pip install lasagna-rag
 lasagna configure --profile speed -s my-corpus   # 91 MB model, no API key
-for f in ./docs/*.md; do lasagna upload "$f" -s my-corpus; done
+lasagna upload ./docs/*.md -s my-corpus           # several files, one model load
 ```
 
 Then register the server. **Claude Code**: `.mcp.json` in your project.
@@ -244,12 +255,11 @@ Then register the server. **Claude Code**: `.mcp.json` in your project.
 
 `lasagna-mcp` speaks stdio, which is how these clients launch a server; if it
 is not on the client's `PATH`, give the absolute path inside your virtualenv.
-The server has 31 tools (search, upload, document lifecycle, profiles and
-configuration), two of them deprecated aliases of `search`. By default it
-serves the `safe` set, 22 tools: it leaves out the seven that delete documents,
-profiles or collections, reset a session's configuration or change the
-server-wide retention policy, and does not list the aliases; `--tools all`
-serves all 31. A tool acts on the session `RAG_SESSION_ID` names unless its
+The server has 29 tools (search, upload, document lifecycle, profiles and
+configuration). By default it serves the `safe` set, 22 tools: it leaves out
+the seven that delete documents, profiles or collections, reset a session's
+configuration or change the server-wide retention policy; `--tools all` serves
+all 29. A tool acts on the session `RAG_SESSION_ID` names unless its
 `session_id` argument names another. `--transport sse` serves a port for
 several clients at once. The
 [MCP guide](https://github.com/dolev31/lasagna/blob/main/src/lasagna/mcp/README.md)
@@ -278,8 +288,11 @@ open the store. To give an agent the same store, start the server with the MCP
 endpoint and register it by URL instead of the command:
 
 ```bash
-lasagna serve --mcp           # REST API, and MCP over SSE at /mcp/sse
+lasagna serve --mcp -s my-corpus   # REST API, and MCP over SSE at /mcp/sse
 ```
+
+`-s` names the session that MCP tool calls and REST requests use when they
+name none; without it, MCP tools must pass `session_id`.
 
 ```json
 { "mcpServers": { "lasagna": { "type": "sse", "url": "http://127.0.0.1:8000/mcp/sse" } } }
@@ -362,8 +375,10 @@ interchangeable: True
 ```
 
 `paper` and `claims` travel with the component and come back out of the
-registry, so a results table can put the claimed number beside the one you
-reproduced. Every stage but the agentic pipeline takes a function the same way:
+registry. A run records them (`components` in its metadata and its bundle),
+and the leaderboard `benchmark experiment` prints, `results leaderboard`
+(markdown and LaTeX) and `results view` put the claimed number and its paper
+beside the one you reproduced. Every stage but the agentic pipeline takes a function the same way:
 `@lasagna.query_enhancer` (`query -> [str]`), `@lasagna.chunker` (`text -> [str]`),
 `@lasagna.embedder` (`texts -> vectors`), `@lasagna.generator`
 (`query, contexts -> answer`), `@lasagna.retriever` and

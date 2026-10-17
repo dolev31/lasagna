@@ -55,9 +55,10 @@ split with a regular expression, which can move chunk boundaries, and run
 bundles record that as the `sentence_split_without_punkt` fallback.
 
 **First run downloads models.** The default profile pulls an embedding model
-*and* a reranker: about **4.5 GB**, and between 7 and 40 minutes to your first
-search result depending on your connection, as measured on every release-gate
-run to date. After that, a warm search on the speed profile takes tens of
+*and* a reranker: about **3.1 GB** (BGE-M3, 2.3 GB, and the mxbai reranker,
+870 MB; 2.3 GB more with the `flag-embedding` extra, which fetches BGE-M3's ONNX
+copy too), and between 7 and 40 minutes to your first search result on
+release-gate runs, depending on the connection. After that, a warm search on the speed profile takes tens of
 milliseconds (median 32 ms over 18,442 chunks on Milvus Lite). The default
 profile takes 7 to 9 s on two CPU threads, because its large reranker scores
 every query; more cores or a GPU cut that.
@@ -225,8 +226,9 @@ stage's function signature.
 ## 5. Register it, and see it listed
 
 Registration is one decorator. The `paper` and `claims` arguments are optional
-but worth filling in: they are carried through to the listing API, so a results
-table can show a claimed number next to the one you reproduced.
+but worth filling in: they are carried through to the listing API and recorded
+by every run, and the leaderboards and `results view` show a claimed number next
+to the one you reproduced.
 
 ```python
 from lasagna.core.base_components import BaseReranker

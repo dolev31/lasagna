@@ -36,6 +36,7 @@ from ..types import (
 from ..exceptions import (
     DocumentError,
     DocumentNotFoundError,
+    DocumentProcessingError,
     UploadError,
 )
 
@@ -107,8 +108,13 @@ class DocumentManager:
         filename: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         document_id: Optional[str] = None,
+        allow_duplicates: bool = False,
     ) -> UploadResult:
         """Upload and index a document.
+
+        A file whose content the session already holds is not uploaded again:
+        the result names that document, with ``duplicate_of`` set and a
+        message that says so. ``allow_duplicates=True`` indexes it anyway.
 
         The document will be processed through the full pipeline:
         1. Text extraction (with OCR if enabled for scanned PDFs)
@@ -123,6 +129,8 @@ class DocumentManager:
             document_id: Optional explicit document ID. When provided,
                 used instead of a generated UUID. Useful for benchmark
                 evaluation where corpus doc IDs must match qrels.
+            allow_duplicates: Index the file even when the session already
+                holds the same content.
 
         Returns:
             UploadResult with document_id, chunk_count, status
@@ -167,11 +175,29 @@ class DocumentManager:
                 session_id=session_id,
                 filename=display_name,
                 document_id=document_id,
+                # Only when asked: a backend written against the older
+                # signature still takes every default upload.
+                **({"allow_duplicates": True} if allow_duplicates else {}),
             )
 
             processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
 
             status = _resolve_status(doc.status)
+            duplicate_of = getattr(doc, "duplicate_of", None)
+            if duplicate_of:
+                return UploadResult(
+                    document_id=doc.document_id,
+                    filename=doc.filename,
+                    status=status,
+                    chunk_count=doc.chunks_count,
+                    processing_time_ms=0.0,
+                    duplicate_of=duplicate_of,
+                    message=(
+                        f"{display_name} is already in session {session_id!r} as "
+                        f"{duplicate_of} (same content), so it was not uploaded again. "
+                        f"Pass allow_duplicates=True to index it again."
+                    ),
+                )
             queued = str(getattr(status, "value", status)).lower() in ("processing", "pending")
             if queued:
                 # close() waits for these, so shutting down never pulls the
@@ -261,6 +287,7 @@ class DocumentManager:
         document_id: str,
         timeout: float = 300.0,
         poll_interval: float = 2.0,
+        raise_on_failure: bool = True,
     ) -> Document:
         """Poll until a document reaches a terminal status (ready or error).
 
@@ -270,20 +297,36 @@ class DocumentManager:
             document_id: The document ID to wait for.
             timeout: Maximum seconds to wait (default 300).
             poll_interval: Seconds between polls (default 2).
+            raise_on_failure: Raise `DocumentProcessingError` when processing
+                failed (the default). False returns the failed document, with
+                the reason in ``error_message``.
 
         Returns:
             Document object with final status.
 
         Raises:
+            DocumentProcessingError: If processing failed, naming the reason
+                and, when there is a known one, the fix.
             DocumentNotFoundError: If the document disappears.
             TimeoutError: If timeout is exceeded.
         """
         try:
-            return await self._wait_for_processing(document_id, timeout, poll_interval)
+            doc = await self._wait_for_processing(document_id, timeout, poll_interval)
         finally:
             in_flight = getattr(self._client, "_in_flight_documents", None)
             if in_flight is not None:
                 in_flight.discard(document_id)
+        if raise_on_failure and doc.status == DocumentStatus.FAILED:
+            # Returning it quietly let the README's quickstart go on to search,
+            # which failed with a traceback about the embedding model.
+            reason = doc.error_message or "no reason was recorded"
+            raise DocumentProcessingError(
+                f"{doc.filename} ({document_id}) could not be indexed: {reason}",
+                document_id=document_id,
+                filename=doc.filename,
+                reason=reason,
+            )
+        return doc
 
     async def _wait_for_processing(
         self, document_id: str, timeout: float, poll_interval: float
@@ -293,7 +336,7 @@ class DocumentManager:
         backend = await self._client._get_backend()
         session_id = self._client.session_id
         start = _time.monotonic()
-        terminal_statuses = {"ready", "error"}
+        terminal_statuses = {"ready", "error", "failed"}
 
         while (_time.monotonic() - start) < timeout:
             doc = await self._run_sync(backend.get_document_by_id, document_id, session_id)

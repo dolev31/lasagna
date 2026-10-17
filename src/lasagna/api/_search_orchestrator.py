@@ -1195,9 +1195,14 @@ class SearchOrchestrator:
         # every result silently is indistinguishable from retrieving nothing,
         # and the caller sees a well-formed empty result either way.
         missing_metadata_ids: List[str] = []
+        # A chunk is returned once, at its best rank.
+        returned_chunk_ids: set = set()
         for result in reranked:
             if _score_for_filter(result) < min_score:
                 continue
+            if result.chunk_id in returned_chunk_ids:
+                continue
+            returned_chunk_ids.add(result.chunk_id)
 
             chunk = RecordedDocumentChunk(
                 chunk_id=result.chunk_id,

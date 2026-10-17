@@ -32,6 +32,8 @@ import statistics
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from .run_provenance import claim_text
+
 #: A row from a single run reports no spread, so it can never be confirmed or
 #: contradicted by a collision. It is shown, and never marked verified, unless
 #: its run recorded ``nothing_samples``: then a second run would repeat it, and
@@ -127,11 +129,19 @@ def _aggregate(values: List[float]) -> Tuple[float, float]:
 
 
 def collect_rows(bundles: Iterable[Dict[str, Any]], metric: str) -> List[Dict[str, Any]]:
-    """One row per (bundle, config), aggregated across that config's runs."""
+    """One row per (bundle, config), aggregated across that config's runs.
+
+    A row whose component claims a number for ``metric`` (``claims=`` on its
+    decorator) carries it as ``claim``, with the paper.
+    """
+    from .run_provenance import claimed
+
     rows: List[Dict[str, Any]] = []
     for bundle in bundles:
         keys = {c["name"]: c for c in bundle.get("configs", [])}
+        components = (bundle.get("experiment") or {}).get("components")
         by_config: Dict[Tuple[str, str], List[float]] = {}
+        systems: Dict[Tuple[str, str], Any] = {}
         for result in bundle.get("results", []):
             if result.get("error"):
                 continue
@@ -140,6 +150,7 @@ def collect_rows(bundles: Iterable[Dict[str, Any]], metric: str) -> List[Dict[st
                 continue
             slot = (result.get("benchmark_name", ""), result.get("config_name", ""))
             by_config.setdefault(slot, []).append(float(value))
+            systems.setdefault(slot, result.get("system"))
 
         for (benchmark, config_name), values in by_config.items():
             cfg = keys.get(config_name, {})
@@ -164,6 +175,7 @@ def collect_rows(bundles: Iterable[Dict[str, Any]], metric: str) -> List[Dict[st
                     # What `group` ranks by: without it every metric sorted
                     # highest first, latency and token counts included.
                     "metric": metric,
+                    "claim": claimed(components, systems.get((benchmark, config_name)), metric),
                 }
             )
     return rows
@@ -272,14 +284,19 @@ def render_markdown(
                 "",
             ]
         )
+        # The paper's own number beside the measured one, when a row's
+        # component claims one for this metric.
+        show_claim = any(r.get("claim") for r in rows)
         lines += [
             f"## Held fixed: `{rows[0]['comparability_key']}`",
             "",
             f"{described or '_configuration not recorded_'}",
             "",
             *scoped,
-            f"| {metric} | Varied | Submitter | Runs | Verified | Bundle |",
-            "|---|---|---|---|---|---|",
+            f"| {metric} |"
+            + (" Claimed |" if show_claim else "")
+            + " Varied | Submitter | Runs | Verified | Bundle |",
+            "|---|" + ("---|" if show_claim else "") + "---|---|---|---|---|",
         ]
         for row in rows:
             # Levels when they are recorded, names otherwise. A 2x2's four
@@ -293,8 +310,9 @@ def render_markdown(
                 varied = ", ".join(f"`{d}`" for d in row["varied_dimensions"]) or "_baseline_"
             spread = f" ± {row['std']:.4f}" if row["n_runs"] > 1 else ""
             verified = "yes" if row.get("verified") else ""
+            claim = f" {claim_text(row.get('claim'))} |" if show_claim else ""
             lines.append(
-                f"| {row['mean']:.4f}{spread} | {varied} | {row['submitter']} | "
+                f"| {row['mean']:.4f}{spread} |{claim} {varied} | {row['submitter']} | "
                 f"{row['n_runs']} | {verified} | "
                 f"[`{row['run_id'][:12]}`]({link_prefix}{row['path']}) |"
             )
@@ -373,9 +391,13 @@ def render_latex(
             show_varied = any(_varied(r) != r["config"] for r in rows)
             show_submitter = any(r["submitter"] != "anonymous" for r in rows)
             show_verified = any(r.get("verified") for r in rows)
+            # The number the component's paper claims, beside the measured one.
+            show_claim = any(r.get("claim") for r in rows)
             columns = ["Config"] + ["Varied"] * show_varied + ["Submitter"] * show_submitter
-            columns += ["Runs", esc(metric)] + ["Verified"] * show_verified
-            spec = "l" * (1 + show_varied + show_submitter) + "rr" + "l" * show_verified
+            columns += ["Runs", esc(metric)] + ["Claimed"] * show_claim
+            columns += ["Verified"] * show_verified
+            spec = "l" * (1 + show_varied + show_submitter) + "rr" + "l" * show_claim
+            spec += "l" * show_verified
             out += [
                 "",
                 "\\begin{table}[t]",
@@ -396,6 +418,7 @@ def render_latex(
                 cells += [esc(_varied(row))] * show_varied
                 cells += [esc(row["submitter"])] * show_submitter
                 cells += [str(row["n_runs"]), f"${value}$"]
+                cells += [esc(claim_text(row.get("claim")))] * show_claim
                 cells += ["yes" if row.get("verified") else ""] * show_verified
                 out.append(" & ".join(cells) + " \\\\")
             out += ["\\bottomrule", "\\end{tabular}", "\\end{table}"]

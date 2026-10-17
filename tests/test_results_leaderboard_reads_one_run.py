@@ -82,7 +82,7 @@ def test_a_results_json_renders_as_latex_and_as_pages(results_json, tmp_path):
         app, ["results", "leaderboard", str(results_json), "--format", "latex", "-o", str(out)]
     )
     assert written.exit_code == 0, written.output
-    assert "2 row(s) from 1 bundle(s)" in " ".join(written.output.split())
+    assert "2 rows from 1 bundle" in " ".join(written.output.split())
     assert (out / "bench.tex").read_text().count("\\begin{tabular}") == 1
     assert json.loads((out / "index.json").read_text())["n_rows"] == 2
 
@@ -118,7 +118,7 @@ def test_the_deprecated_spelling_reads_a_folder_and_a_file(results_json, tmp_pat
     from_folder = runner.invoke(app, ["benchmark", "leaderboard", str(folder)])
     assert from_folder.exit_code == 0, from_folder.output
     assert "OptionInfo" not in from_folder.output
-    assert "2 row(s) from 1 bundle(s)" in " ".join(from_folder.output.split())
+    assert "2 rows from 1 bundle" in " ".join(from_folder.output.split())
 
     from_file = runner.invoke(app, ["benchmark", "leaderboard", str(results_json)])
     assert from_file.exit_code == 0, from_file.output

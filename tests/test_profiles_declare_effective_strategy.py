@@ -128,3 +128,16 @@ def test_the_declaration_passes_config_validation(presets, name):
 
     result = validate_config({"chunking_strategy": presets[name]["chunking_strategy"]})
     assert result.valid, result.errors
+
+
+def test_the_default_profile_declares_what_runs(warnings):
+    """Every upload on the default profile warned that 'semantic' was overridden."""
+    from lasagna.core.config import rag_config
+    from lasagna.core.session_config import get_knowledge_config_manager
+
+    default = next(
+        p for p in get_knowledge_config_manager()._default_profiles if p.name == "default"
+    )
+    for config in (SimpleNamespace(**default.config), rag_config):
+        assert resolve_effective_strategy(config) == config.chunking_strategy == "hierarchical"
+    assert not warnings, warnings

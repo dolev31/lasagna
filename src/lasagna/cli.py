@@ -71,7 +71,9 @@ def _configure_cli_logging(
 
     logger.remove()
     if level == "DEBUG":
-        logger.add(sys.stderr, level=level)
+        # diagnose=False everywhere: loguru otherwise prints each frame's local
+        # variables (queries, document text, settings) into the traceback.
+        logger.add(sys.stderr, level=level, diagnose=False)
         return level
     threshold = logger.level(level).no
 
@@ -94,6 +96,7 @@ def _configure_cli_logging(
         level=min(threshold, logger.level("INFO").no),
         filter=_shown,
         format=_plain,
+        diagnose=False,
     )
     return level
 
@@ -169,7 +172,7 @@ def _settings_file_from_dotenv() -> None:
     """Use the settings file `lasagna init` pointed ./.env at.
 
     `init` writes ``RAG_SETTINGS_FILE=...`` to ./.env, and nothing read it:
-    `lasagna serve` in that directory loaded the 5.4 GB default model the user
+    `lasagna serve` in that directory loaded the 3.1 GB default models the user
     had just declined. Only this key is taken, and only from the working
     directory, never over a value already in the environment: a .env holds
     other projects' credentials, which importing Lasagna must not pick up.
@@ -248,7 +251,14 @@ def _serving_url() -> Optional[str]:
 
 
 def _load_profile_config(session_id: str):
-    """Load the active profile's config for a session as a KnowledgeConfig.
+    """What the session chose (its profile's settings and its overrides) as a KnowledgeConfig.
+
+    Only what the session chose: the ``default`` profile's stored config is a
+    snapshot of the settings file, and passing it to the client as explicit
+    fields made every one of them beat the environment, so
+    ``RAG_ENABLE_RERANKING=false lasagna status`` still listed reranking and
+    ``RAG_EMBEDDING_MODEL=...`` was ignored. Session settings still win over
+    the environment, as docs/configuration.md says.
 
     Falls back to default KnowledgeConfig if profile loading fails.
     """
@@ -261,19 +271,9 @@ def _load_profile_config(session_id: str):
         )
 
         mgr = get_knowledge_config_manager(session_id=session_id)
-        profile_name = mgr.get_active_profile(session_id=session_id)
-
-        # Find the active profile's full config dict
-        state = mgr.get_session_state(session_id)
-        profile_config: dict = {}
-        for profile in state.profiles:
-            if profile.name == profile_name:
-                profile_config = dict(profile.config or {})
-                break
-        # And what the session set over it: a Python client saves its settings
-        # there on its first upload, and they were ignored, so `status` showed
-        # the default model for a corpus built with another.
-        profile_config.update(getattr(state, "session_overrides", None) or {})
+        # A built-in profile's own settings, and what the session set over it
+        # (a Python client saves its settings there on its first upload).
+        profile_config = dict(mgr.get_chosen_config(session_id) or {})
 
         if not profile_config:
             return KnowledgeConfig()
@@ -286,6 +286,13 @@ def _load_profile_config(session_id: str):
     except Exception:
         # If profile loading fails, fall back to defaults
         return KnowledgeConfig()
+
+
+def _milliseconds(ms: float) -> str:
+    """``0.42 ms``, ``12.3 ms``, ``under 0.01 ms``: a reading that is never "0.0 ms"."""
+    if ms < 0.01:
+        return "under 0.01 ms"
+    return f"{ms:.2f} ms" if ms < 10 else f"{ms:.1f} ms"
 
 
 def _count(n: int, noun: str) -> str:
@@ -371,6 +378,10 @@ def _known_failure(exc: Optional[BaseException]) -> Optional[str]:
     "Failed to get status:" plus a 300-character message wrapped across five
     lines.
     """
+    # Offline with a benchmark's data not cached: the message names the fix.
+    not_cached = _in_cause_chain(exc, "DatasetNotCached")
+    if not_cached is not None:
+        return str(not_cached)
     locked = _in_cause_chain(exc, "DataDirLockedError")
     if locked is None:
         return None
@@ -391,6 +402,21 @@ def _require_known(kind: str, name: str, known, listing: str) -> None:
     if name in known:
         return
     _error(f"Unknown {kind} {name!r}{did_you_mean(name, known)}. {listing}")
+
+
+def _require_vector_backend() -> None:
+    """Exit with one sentence when RAG_VECTOR_BACKEND names no backend, before anything loads.
+
+    `RAG_VECTOR_BACKEND=milvuss lasagna benchmark run smoke` ran, failed its
+    task, and advised pointing RAG_DB_DIR at a new directory.
+    """
+    from .core.config import rag_config
+    from .core.diagnostics import unknown_vector_backend
+
+    unknown = unknown_vector_backend(rag_config.vector_backend or "milvus")
+    if unknown is not None:
+        what, advice = unknown
+        _error(f"Vector store: {what}. To fix it, {advice}.")
 
 
 def _require_benchmark(name: str) -> None:
@@ -438,8 +464,11 @@ def _require_component(stage: str, name: str) -> None:
 def init():
     """Interactive setup wizard for RAG knowledge base.
 
-    Guides you through choosing vector backend, embedding model,
-    LLM provider, and quality profile. Writes a local configuration file.
+    Asks for a vector backend, an LLM provider and a quality profile, writes
+    the backend to ./settings.lasagna.toml and applies the profile to the
+    default session. The profile decides the embedding model. API keys are not
+    asked for or written anywhere: Lasagna reads them from the environment
+    only, so init says which one to export.
     """
     try:
         import questionary
@@ -448,31 +477,18 @@ def init():
         console.print("Install with: pip install questionary")
         raise typer.Exit(1)
 
-    from lasagna.core.setup_text import api_key_problem, profile_download_text
+    from lasagna.core.session_config._profiles import ProfileMixin
+    from lasagna.core.setup_text import profile_download_text
+    from lasagna.providers.llm_provider import SimpleLLMProvider
 
     console.print()
     # The subtitle sat on the border, wider than the title: the box cut it off.
     console.print(Panel.fit("[bold cyan]Lasagna setup[/bold cyan]\nConfigure your knowledge base"))
     console.print()
 
-    # 1. Embedding mode
-    embedding_mode = questionary.select(
-        "Where should embeddings run?",
-        choices=[
-            questionary.Choice(
-                "Cloud API (OpenAI/Cohere): no model download, no GPU needed",
-                value="cloud",
-            ),
-            questionary.Choice(
-                "Local (sentence-transformers): private; the profile sets the download",
-                value="local",
-            ),
-        ],
-    ).ask()
-    if embedding_mode is None:
-        raise typer.Exit(0)
-
-    # 2. Vector backend
+    # 1. Vector backend. (There was an embedding question first, "Cloud API"
+    # or local. Nothing read its answer: the profile chooses the model, and
+    # the summary named text-embedding-3-small while `status` showed MiniLM.)
     vector_backend = questionary.select(
         "Vector database?",
         choices=[
@@ -486,21 +502,28 @@ def init():
     if vector_backend is None:
         raise typer.Exit(0)
 
-    # 3. LLM provider
+    # 2. LLM provider, each named with the model Lasagna calls by default.
+    providers = {
+        "openai": ("OpenAI", "OPENAI_API_KEY"),
+        "anthropic": ("Anthropic", "ANTHROPIC_API_KEY"),
+        "groq": ("Groq", "GROQ_API_KEY"),
+        "watsonx": ("IBM watsonx", "WATSONX_APIKEY"),
+    }
+    default_models = SimpleLLMProvider.SUPPORTED_PLATFORMS
     llm_provider = questionary.select(
         "LLM provider (for HyDE, query expansion, answer generation)?",
         choices=[
-            questionary.Choice("OpenAI (GPT-4o)", value="openai"),
-            questionary.Choice("Anthropic (Claude)", value="anthropic"),
-            questionary.Choice("Groq (fast inference)", value="groq"),
-            questionary.Choice("IBM watsonx", value="watsonx"),
+            *(
+                questionary.Choice(f"{label} ({default_models[name]})", value=name)
+                for name, (label, _key) in providers.items()
+            ),
             questionary.Choice("None, search only (no LLM features)", value="none"),
         ],
     ).ask()
     if llm_provider is None:
         raise typer.Exit(0)
 
-    # 4. Quality profile
+    # 3. Quality profile
     profile = questionary.select(
         "Quality profile?",
         choices=[
@@ -517,77 +540,16 @@ def init():
     if profile is None:
         raise typer.Exit(0)
 
-    # Build config
-    if embedding_mode == "cloud":
-        embedding_config = {
-            "embedding_provider": "openai",
-            "embedding_model": "text-embedding-3-small",
-            "embedding_dim": 1536,
-        }
-    elif profile in ("balanced", "max_quality"):
-        embedding_config = {
-            "embedding_model": "BAAI/bge-large-en-v1.5",
-            "embedding_dim": 1024,
-        }
-    else:
-        embedding_config = {
-            "embedding_model": "all-MiniLM-L6-v2",
-            "embedding_dim": 384,
-        }
-
-    # Determine which env vars to set
-    env_vars = {}
-    api_key_env = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "groq": "GROQ_API_KEY",
-        "watsonx": "WATSONX_APIKEY",
-    }
-    if llm_provider in api_key_env:
-        key_name = api_key_env[llm_provider]
-        if not os.environ.get(key_name):
-            # An empty or pasted-with-a-newline key was saved without a word,
-            # and the first LLM call failed instead.
-            while True:
-                api_key = questionary.password(f"Enter your {key_name}:").ask()
-                if api_key is None:  # Ctrl-C
-                    raise typer.Exit(0)
-                problem = api_key_problem(key_name, api_key)
-                if problem is None:
-                    env_vars[key_name] = api_key.strip()
-                    break
-                console.print(f"  [yellow]{escape(problem)}[/yellow]")
-
-    # Write .env file
-    try:
-        env_path = Path(".env")
-        if env_vars:
-            existing = env_path.read_text() if env_path.exists() else ""
-            with open(env_path, "a") as f:
-                for k, v in env_vars.items():
-                    if k not in existing:
-                        f.write(f"{k}={v}\n")
-            console.print(f"  [green]Updated {env_path}[/green]")
-    except OSError as exc:
-        console.print(f"  [yellow]Warning: could not write .env: {exc}[/yellow]")
-
     # Write settings override.
     #
     # This file used to be written and then never read: the loader looks in the
     # installed package directory or at $RAG_SETTINGS_FILE, never the working
     # directory. So a user picked the speed profile, saw "Setup complete!"
-    # naming it, and downloaded 5.4 GB anyway. Pointing RAG_SETTINGS_FILE at the
+    # naming it, and downloaded 3.1 GB anyway. Pointing RAG_SETTINGS_FILE at the
     # file we just wrote is what makes the wizard's answers take effect.
     try:
-        config_data = {"vector_backend": vector_backend, **embedding_config}
         settings_path = Path("settings.lasagna.toml").resolve()
-        with open(settings_path, "w") as f:
-            f.write("[rag]\n")
-            for k, v in config_data.items():
-                if isinstance(v, str):
-                    f.write(f'{k} = "{v}"\n')
-                else:
-                    f.write(f"{k} = {v}\n")
+        settings_path.write_text(f'[rag]\nvector_backend = "{vector_backend}"\n')
         console.print(f"  [green]Created {settings_path.name}[/green]")
     except OSError as exc:
         _error(f"Could not write settings file: {exc}")
@@ -598,7 +560,7 @@ def init():
         if "RAG_SETTINGS_FILE" not in existing:
             with open(env_path, "a") as f:
                 f.write(f"RAG_SETTINGS_FILE={settings_path}\n")
-            console.print("  [green]Pointed RAG_SETTINGS_FILE at it[/green]")
+            console.print("  [green]Pointed RAG_SETTINGS_FILE at it in ./.env[/green]")
     except OSError as exc:
         console.print(
             f"  [yellow]Warning: could not set RAG_SETTINGS_FILE ({exc}). Set it "
@@ -619,14 +581,30 @@ def init():
             f"Run `lasagna configure --profile {profile}`.[/yellow]"
         )
 
+    # What `lasagna status` will show: the profile's model.
+    embedding = ProfileMixin._PROFILE_SPECS[profile]["embedding_model"]
+    if llm_provider in providers:
+        label, key_name = providers[llm_provider]
+        llm = f"{label}, {default_models[llm_provider]}"
+        key_line = (
+            f"{key_name} is set in this shell."
+            if os.environ.get(key_name, "").strip()
+            else f"Before using LLM features, export {key_name} in your shell:\n"
+            f"  export {key_name}=<your key>\n"
+            f"and add that line to your shell profile (~/.zshrc or ~/.bashrc) to keep it."
+        )
+    else:
+        llm, key_line = "none (search only)", "No API key is needed."
+
     console.print()
     console.print(
         Panel.fit(
             f"[bold green]Setup complete![/bold green]\n\n"
             f"Profile: [cyan]{profile}[/cyan]\n"
             f"Vector DB: [cyan]{vector_backend}[/cyan]\n"
-            f"Embeddings: [cyan]{embedding_config.get('embedding_model', 'cloud')}[/cyan]\n"
-            f"LLM: [cyan]{llm_provider}[/cyan]\n\n"
+            f"Embeddings: [cyan]{embedding}[/cyan] (the {profile} profile's model)\n"
+            f"LLM: [cyan]{escape(llm)}[/cyan]\n"
+            f"{escape(key_line)}\n\n"
             f"[dim]Quick start (from this directory):[/dim]\n"
             f"  lasagna upload ./document.pdf\n"
             f'  lasagna search "your query"\n'
@@ -634,7 +612,7 @@ def init():
             f"[dim]`lasagna` commands run here read RAG_SETTINGS_FILE from ./.env.\n"
             f"Python code and other directories do not: there, first run\n"
             f"  export RAG_SETTINGS_FILE={settings_path}\n"
-            f"Lasagna reads no other key from .env; export API keys in your shell.[/dim]",
+            f"Lasagna reads no other key from .env and never reads API keys from it.[/dim]",
         )
     )
 
@@ -644,40 +622,126 @@ def init():
 # ---------------------------------------------------------------------------
 
 
+def _reported_document_failure(record: Dict[str, Any]) -> bool:
+    """The worker's log line for a document that failed.
+
+    `upload` waits for the document and prints the failure, with its fix, as
+    its error; the worker's ERROR line repeated it before that.
+    """
+    return "document_failure" in record["extra"]
+
+
+def _upload_targets(patterns: List[str]) -> List[Path]:
+    """The files ``patterns`` name: paths, or globs the shell left unexpanded.
+
+    Exits naming the first one that matches no file.
+    """
+    import glob
+
+    files: List[Path] = []
+    for pattern in patterns:
+        path = Path(pattern)
+        if path.is_file():
+            files.append(path)
+            continue
+        matched = sorted(Path(m) for m in glob.glob(pattern, recursive=True) if Path(m).is_file())
+        if not matched:
+            _error(
+                f"File not found: {pattern}"
+                if not glob.has_magic(pattern)
+                else f"No file matches {pattern}"
+            )
+        files.extend(matched)
+    return list(dict.fromkeys(files))
+
+
 @app.command()
 def upload(
-    file_path: str = typer.Argument(..., help="Path to document file"),
+    ctx: typer.Context,
+    file_paths: List[str] = typer.Argument(
+        ..., help="Files to upload: one or more paths, or glob patterns such as 'docs/*.md'"
+    ),
     session_id: str = typer.Option("default", "--session", "-s", help="Session ID"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Upload the file again even when the session already holds the same content.",
+    ),
 ):
-    """Upload and index a document."""
-    path = Path(file_path)
-    if not path.exists():
-        _error(f"File not found: {file_path}")
+    """Upload and index documents.
+
+    Several files go through one client, so the models load once: the README
+    looped `lasagna upload` over a folder, one process per file.
+    """
+    _configure_cli_logging(
+        bool(ctx.find_root().params.get("verbose")),
+        hide=lambda r: _server_only_warning(r) or _reported_document_failure(r),
+    )
+    paths = _upload_targets(file_paths)
+    _require_vector_backend()
 
     url = _serving_url()
-    console.print(f"Uploading [cyan]{path.name}[/cyan]...")
+    names = paths[0].name if len(paths) == 1 else _count(len(paths), "file")
+    console.print(f"Uploading [cyan]{escape(names)}[/cyan]...")
 
     async def _upload():
         client = _client_for(session_id, url)
+        outcomes = []
         try:
-            result = await client.upload(str(path))
-            # Processing runs in the background. Closing the client before it
-            # finishes tears down the vector store under the worker and leaves
-            # the document stuck in PROCESSING, so wait for a terminal status.
-            doc = await client.documents.wait_for_processing(result.document_id)
-            result.status = doc.status
-            result.chunk_count = getattr(doc, "chunk_count", result.chunk_count)
-            return result, doc
+            # All queued first, then waited for: processing runs in the
+            # background, several files at a time.
+            queued = []
+            for path in paths:
+                try:
+                    queued.append((path, await client.upload(str(path), allow_duplicates=force)))
+                except Exception as exc:  # noqa: BLE001 - reported per file below
+                    queued.append((path, exc))
+            for path, result in queued:
+                if isinstance(result, Exception) or getattr(result, "duplicate_of", None):
+                    outcomes.append((path, result, None))
+                    continue
+                # Closing the client before processing finishes tears down the
+                # vector store under the worker, so wait for a terminal status.
+                try:
+                    doc = await client.documents.wait_for_processing(result.document_id)
+                except Exception as exc:  # noqa: BLE001
+                    outcomes.append((path, exc, None))
+                    continue
+                result.status = doc.status
+                result.chunk_count = getattr(doc, "chunk_count", result.chunk_count)
+                outcomes.append((path, result, doc))
         finally:
             await client.close()
+        return outcomes
 
     try:
-        result, doc = _run(_upload())
+        outcomes = _run(_upload())
     except Exception as exc:
         _error(f"Upload failed: {exc}", exc=exc)
 
+    if len(outcomes) == 1:
+        _report_one_upload(*outcomes[0], session_id)
+        return
+    _report_uploads(outcomes, session_id)
+
+
+def _already_uploaded(path: Path, result, session_id: str) -> str:
+    return (
+        f"Already uploaded: {escape(path.name)} has the same content as "
+        f"{result.duplicate_of} in session {escape(session_id)}, so it was not uploaded "
+        f"again. To upload it again: lasagna upload {shlex.quote(str(path))} "
+        f"-s {shlex.quote(session_id)} --force"
+    )
+
+
+def _report_one_upload(path: Path, result, doc, session_id: str) -> None:
     from lasagna.sdk.types import DocumentStatus
 
+    if isinstance(result, Exception):
+        _error(f"Upload failed: {result}", exc=result)
+    if doc is None:
+        console.print(_already_uploaded(path, result, session_id))
+        return
     if doc.status != DocumentStatus.READY:
         # A document that failed to index printed the green "Uploaded
         # successfully" panel with "Status: DocumentStatus.FAILED", exit 0.
@@ -686,7 +750,6 @@ def upload(
             f"({doc.error_message or 'no reason was recorded'}). "
             f"Document ID: {result.document_id}"
         )
-
     console.print(
         Panel.fit(
             f"[green]Uploaded successfully[/green]\n\n"
@@ -695,6 +758,38 @@ def upload(
             f"Status: [cyan]{getattr(result.status, 'value', result.status)}[/cyan]",
         )
     )
+
+
+def _report_uploads(outcomes, session_id: str) -> None:
+    """One row per file, then one line per failure; exit 1 when any failed."""
+    from lasagna.sdk.types import DocumentStatus
+
+    table = Table(title=f"Uploaded to session {escape(session_id)}", show_lines=False)
+    table.add_column("File", ratio=1)
+    table.add_column("Document ID", style="cyan")
+    table.add_column("Chunks", style="green", justify="right")
+    table.add_column("Status")
+    failures = []
+    for path, result, doc in outcomes:
+        if isinstance(result, Exception):
+            table.add_row(escape(path.name), "", "", "[red]failed[/red]")
+            failures.append(f"{path.name}: {result}")
+        elif doc is None:
+            table.add_row(escape(path.name), result.duplicate_of, "", "already uploaded")
+        elif doc.status != DocumentStatus.READY:
+            table.add_row(escape(path.name), result.document_id, "", "[red]failed[/red]")
+            failures.append(
+                f"{path.name} could not be indexed "
+                f"({doc.error_message or 'no reason was recorded'})"
+            )
+        else:
+            status = getattr(result.status, "value", result.status)
+            table.add_row(escape(path.name), result.document_id, str(result.chunk_count), status)
+    console.print(table)
+    if failures:
+        for line in failures:
+            console.print(f"[red]Upload failed: {escape(line)}[/red]")
+        raise typer.Exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -711,6 +806,8 @@ def search(
 ):
     """Search the knowledge base."""
     from lasagna.core.model_downloads import sessions_with_documents
+
+    _require_vector_backend()
 
     # Before any model loads: searching a session with no documents loaded the
     # default model (or failed to, offline) to return nothing.
@@ -769,7 +866,7 @@ def search(
         table.add_row(str(i), f"{r.score:.3f}", escape(content), escape(source))
 
     console.print(table)
-    console.print(f"[dim]{len(result)} result(s)[/dim]")
+    console.print(f"[dim]{_count(len(result), 'result')}[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -784,20 +881,22 @@ def status(
     """Show knowledge base status."""
     url = _serving_url()
 
-    async def _status():
+    async def _served_status():
         client = _client_for(session_id, url)
         try:
-            docs = await client.list_documents()
-            if url:
-                # The server's view of the session, not this process's defaults.
-                return docs, await _served_config(url, session_id), []
-            config = client.get_config_dict()
-            return docs, config, await _unused_collections(client)
+            # The server's view of the session, not this process's defaults.
+            return await client.list_documents(), await _served_config(url, session_id), []
         finally:
             await client.close()
 
     try:
-        docs, config, unused = _run(_status())
+        if url:
+            docs, config, unused = _run(_served_status())
+        else:
+            # From the metadata database and the settings, with no backend and
+            # no model: it took 7 s to list three documents.
+            docs, config = _local_documents(session_id), _effective_config(session_id)
+            unused = _unused_collections_if_any()
     except Exception as exc:
         _error(f"Failed to get status: {exc}", exc=exc)
 
@@ -815,7 +914,20 @@ def status(
 
         console.print(table)
     else:
-        console.print("[dim]No documents uploaded yet.[/dim]")
+        from lasagna.core.model_downloads import sessions_with_documents
+
+        others = {s: n for s, n in (sessions_with_documents() or {}).items() if s != session_id}
+        if others:
+            # It said "No documents uploaded yet." with my-corpus holding three.
+            listed = ", ".join(f"{s} ({n})" for s, n in sorted(others.items()))
+            console.print(
+                f"[dim]No documents in session {escape(session_id)!r}. Sessions with "
+                f"documents: {escape(listed)}. Show one with: lasagna status -s "
+                f"{escape(shlex.quote(sorted(others)[0]))}[/dim]",
+                soft_wrap=True,
+            )
+        else:
+            console.print("[dim]No documents uploaded yet.[/dim]")
     for collection in unused:
         dim = collection.get("embedding_dim")
         size = f"{dim} dimensions" if dim else "an unknown size"
@@ -852,6 +964,31 @@ def status(
     )
 
 
+#: What `status` and the `serve` banner report about a session's configuration.
+_SHOWN_SETTINGS = (
+    "embedding_model",
+    "embedding_dim",
+    "vector_backend",
+    "enable_hybrid_search",
+    "enable_reranking",
+    "enable_mmr",
+    "enable_hyde",
+    "enable_hierarchical",
+)
+
+
+def _effective_config(session_id: str) -> Dict[str, Any]:
+    """The settings a search on ``session_id`` runs with, every layer applied.
+
+    Session over environment over settings file over defaults: the same
+    resolution search uses, so what `status` prints is what runs.
+    """
+    from lasagna.core.config import rag_config
+
+    config = rag_config.with_session(session_id)
+    return {key: getattr(config, key) for key in _SHOWN_SETTINGS}
+
+
 async def _served_config(url: str, session_id: str) -> Dict[str, Any]:
     """The session's configuration as a running server resolves it."""
     import httpx
@@ -862,16 +999,57 @@ async def _served_config(url: str, session_id: str) -> Dict[str, Any]:
         return resp.json()
 
 
-async def _unused_collections(client) -> List[Dict[str, Any]]:
+def _local_documents(session_id: str) -> List[Any]:
+    """The session's documents, read from the metadata database."""
+    from types import SimpleNamespace
+
+    from lasagna.core.database import get_rag_database
+    from lasagna.sdk.types import DocumentStatus
+
+    def status(raw: Any) -> str:
+        try:
+            return DocumentStatus(raw).value  # "error" reads as "failed", as the SDK says
+        except ValueError:
+            return str(raw or "")
+
+    return [
+        SimpleNamespace(
+            document_id=row.get("document_id"),
+            filename=row.get("filename"),
+            chunk_count=row.get("chunks_count", 0),
+            status=status(row.get("status")),
+        )
+        for row in get_rag_database().get_documents(session_id)
+    ]
+
+
+def _may_hold_legacy_documents() -> bool:
+    """Whether any document predates per-model collections (no collection, or the old one)."""
+    from lasagna.core.config import LEGACY_COLLECTION_NAME
+    from lasagna.core.database import get_rag_database
+    from lasagna.core.model_downloads import sessions_with_documents
+
+    db = get_rag_database()
+    return any(
+        row.get("collection_name") in (None, "", LEGACY_COLLECTION_NAME)
+        for session in (sessions_with_documents() or {})
+        for row in db.get_documents(session)
+    )
+
+
+def _unused_collections_if_any() -> List[Dict[str, Any]]:
     """Collections from before 0.1.0 that no configured model reads.
 
-    A listing for `status`: it never fails the command.
+    The vector store is opened only when a document could live in one: it is
+    the slow part of `status`. A listing: it never fails the command.
     """
     try:
+        if not _may_hold_legacy_documents():
+            return []
         from lasagna.api._collection_manager import legacy_collections
+        from lasagna.api.rag_backend import get_rag_backend
 
-        backend = await client._get_backend()
-        return legacy_collections(backend._vector_backend)
+        return legacy_collections(get_rag_backend()._vector_backend)
     except Exception as exc:  # noqa: BLE001
         from loguru import logger
 
@@ -901,10 +1079,12 @@ def _session_summary(session_id: str = "default") -> List[str]:
 
         mgr = get_knowledge_config_manager(session_id=session_id)
         profile = mgr.get_active_profile(session_id=session_id)
-        resolved = mgr.get_resolved_config(session_id)
-        model = resolved.get("embedding_model") or rag_config.embedding_model
-        dim = resolved.get("embedding_dim") or rag_config.embedding_dim
-        backend = resolved.get("vector_backend") or rag_config.vector_backend
+        # Every layer applied, as search resolves it: the profile's stored
+        # snapshot of the settings file ignored the environment.
+        effective = _effective_config(session_id)
+        model = effective["embedding_model"]
+        dim = effective["embedding_dim"]
+        backend = effective["vector_backend"]
         data = os.path.dirname(rag_config.db_path)
         if os.path.dirname(os.path.abspath(rag_config.upload_dir)) == os.path.dirname(data):
             data = os.path.dirname(data)  # dbs/ and uploads/ side by side
@@ -1001,6 +1181,13 @@ def serve(
         help="Also serve the MCP server (SSE) at /mcp/sse, from this process. Milvus Lite "
         "admits one process per store, so this is how an agent and the REST API share one.",
     ),
+    session: Optional[str] = typer.Option(
+        None,
+        "--session",
+        "-s",
+        help="The session for MCP tool calls and REST requests that name none "
+        "(default: RAG_SESSION_ID, else 'default').",
+    ),
 ):
     """Start the REST API server, with the configurator web page.
 
@@ -1023,6 +1210,7 @@ def serve(
     level = _configure_cli_logging(bool(ctx.find_root().params.get("verbose")), hide=_hide)
     from lasagna.core import local_server
 
+    _require_vector_backend()
     if local_server.local_store_held():
         running = local_server.running_server()
         _error(
@@ -1039,6 +1227,12 @@ def serve(
         os.environ["RAG_CONFIGURATOR"] = "true"
     if serve_mcp:
         os.environ["RAG_EMBED_MCP"] = "true"
+    # MCP tools and REST requests without a session use this one. Without it,
+    # every MCP search over /mcp/sse failed: "Either session_id or
+    # session_token is required".
+    if session:
+        os.environ["RAG_SESSION_ID"] = session
+    default_session = os.environ.get("RAG_SESSION_ID", "").strip() or "default"
 
     # The address a browser can use: 0.0.0.0 and :: are bind-alls, not addresses.
     shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
@@ -1053,7 +1247,7 @@ def serve(
             + (f"{_configurator_line(base)}\n" if configurator else "")
             + (f"MCP (SSE): {base}/mcp/sse\n" if serve_mcp else "")
             + "\n"
-            + "\n".join(escape(line) for line in _session_summary())
+            + "\n".join(escape(line) for line in _session_summary(default_session))
             + "\n\n[dim]Press Ctrl+C to stop.[/dim]",
         )
     )
@@ -1417,6 +1611,7 @@ def benchmark_run(
     if "name" in bench:
         _require_benchmark(name)
     _require_profile(profile)
+    _require_vector_backend()
     for stage, component in (
         ("reranker", reranker),
         ("query_enhancer", query_enhancer),
@@ -1436,14 +1631,17 @@ def benchmark_run(
             )
 
     console.print(
-        f"Running benchmark [cyan]{name}[/cyan] (up to {samples} samples, {runs} run(s), "
-        f"mode={mode}, split={split}, profile={profile}, tracks={','.join(track_list)})"
+        f"Running benchmark [cyan]{name}[/cyan] (up to {_count(samples, 'sample')}, "
+        f"{_count(runs, 'run')}, mode={mode}, split={split}, profile={profile}, "
+        f"tracks={','.join(track_list)})"
     )
 
     # Without a way to name a component, "check it runs" measured the stock
-    # pipeline, whatever the user had written.
+    # pipeline, whatever the user had written. A file of your own names its
+    # results folder by its stem: ./my.jsonl gave benchmark_._my.jsonl_<time>.
+    label = Path(bench["path"]).stem if "path" in bench else name.replace("/", "_")
     config = ExperimentConfig(
-        name=f"benchmark_{name.replace('/', '_')}",
+        name=f"benchmark_{label}",
         benchmarks=[BenchmarkSpec(**bench, n_samples=samples, split=split)],
         pipeline=PipelineSweepSpec(
             base_profile=profile,
@@ -1470,7 +1668,8 @@ def benchmark_run(
     _print_leaderboard(results)
 
     if results.failed_tasks:
-        console.print(f"\n[red]{len(results.failed_tasks)} task(s) failed[/red]")
+        n_failed = len(results.failed_tasks)
+        console.print(f"\n[red]{_count(n_failed, 'task')} failed[/red]")
     console.print(f"Output: {escape(config.effective_output_dir())}", soft_wrap=True)
     _release_backend()
     _exit_if_tasks_failed(results)
@@ -1584,12 +1783,13 @@ def benchmark_experiment(
         exp.config._resolved_output_dir = latest
         console.print(f"Resuming from {escape(latest)}", soft_wrap=True)
 
+    _require_vector_backend()
     cp = CheckpointManager(exp.config.checkpoint_dir or exp.config.effective_output_dir())
     if not resume:
         # When not resuming, clear any stale checkpoints from a previous run
         cleared = cp.clear()
         if cleared:
-            console.print(f"  [dim]Cleared {cleared} stale checkpoint(s)[/dim]")
+            console.print(f"  [dim]Cleared {_count(cleared, 'stale checkpoint')}[/dim]")
 
     console.print(f"Starting experiment [cyan]{exp.config.name}[/cyan]")
     console.print(f"  Benchmarks: {len(exp.config.benchmarks)}")
@@ -1625,23 +1825,33 @@ def benchmark_experiment(
         _error(f"Experiment failed: {exc}", exc=exc)
 
     output_dir = exp.config.effective_output_dir()
-    _print_leaderboard(results)
-    # Before the summary: printed after "Output" and "Next", a failed check
-    # read as an afterthought to a run that had looked complete.
-    _print_isolation(results)
+    # Every task failed: a green "Experiment Complete" box and a "Next" command
+    # for results that do not exist read as a finished run.
+    all_failed = bool(results.total_tasks) and len(results.failed_tasks) == results.total_tasks
+    if not all_failed:
+        _print_leaderboard(results)
+        # Before the summary: printed after "Output" and "Next", a failed check
+        # read as an afterthought to a run that had looked complete.
+        _print_isolation(results)
     console.print(
         Panel.fit(
-            f"[bold]Experiment Complete[/bold]\n\n"
-            f"Tasks: [cyan]{results.total_tasks}[/cyan]\n"
+            (
+                "[bold red]Experiment failed[/bold red]: every task failed\n\n"
+                if all_failed
+                else "[bold]Experiment Complete[/bold]\n\n"
+            )
+            + f"Tasks: [cyan]{results.total_tasks}[/cyan]\n"
             f"Failed: [{'red' if results.failed_tasks else 'green'}]{len(results.failed_tasks)}[/]",
+            border_style="red" if all_failed else "none",
         )
     )
     # Outside the panel, unwrapped, so the path and the command can be copied.
     results_file = shlex.quote(str(Path(output_dir) / "results.json"))
     console.print(f"Output: {escape(output_dir)}", soft_wrap=True)
-    console.print(
-        f"Next:   lasagna results significance {escape(results_file)} --all", soft_wrap=True
-    )
+    if not all_failed:
+        console.print(
+            f"Next:   lasagna results significance {escape(results_file)} --all", soft_wrap=True
+        )
     if exp.config.n_runs > 1 and runs_were_identical(results._results):
         console.print(
             f"[dim]Note: all {exp.config.n_runs} runs of every arm were identical (nothing "
@@ -1667,7 +1877,15 @@ def _print_isolation(results) -> None:
         )
         for line in report["undeclared"]:
             console.print(f"  - {escape(line)}")
-    elif pairs and not report["inert"]:
+    elif pairs and report["inert"]:
+        # Said, not left out: an inert arm printed only its own line, with no
+        # verdict on the rest of the comparison.
+        console.print(
+            f"[yellow]Stage isolation: the configuration that reached each stage differs "
+            f"only in the stages the arms name ({_count(pairs, 'pair')} compared), but "
+            f"{_count(len(report['inert']), 'arm')} changed nothing there:[/yellow]"
+        )
+    elif pairs:
         console.print(
             f"[green]Stage isolation: the configuration that reached each stage differs "
             f"only in the stages the arms name ({_count(pairs, 'pair')} compared).[/green]"
@@ -1863,10 +2081,22 @@ def benchmark_validate_data(
     except DataFileError as exc:
         for line in str(exc).splitlines():
             console.print(f"[red]{escape(line)}[/red]", soft_wrap=True)
-        console.print(f"{_count(len(exc.errors), 'problem')}; fix them and run this again.")
+        them = "it" if len(exc.errors) == 1 else "them"
+        console.print(f"{_count(len(exc.errors), 'problem')}; fix {them} and run this again.")
         raise typer.Exit(1)
 
     rows = data.rows()
+    if not data.supported_tracks():
+        # One verdict: it printed "valid jsonl data" and then exited 1 because
+        # nothing could be measured.
+        why = "; ".join(why for why in data.track_support().values() if why)
+        console.print(
+            f"[red]Nothing can be measured on {escape(data.label)} ({escape(why)}). "
+            f'Add an "answer" or "contexts" to the rows.[/red]',
+            soft_wrap=True,
+        )
+        console.print("1 problem; fix it and run this again.")
+        raise typer.Exit(1)
     lines = [
         f"[green]{escape(data.label)}: valid {data.kind} data[/green]",
         f"  Questions:      {len(rows)}",
@@ -1902,13 +2132,6 @@ def benchmark_validate_data(
             soft_wrap=True,
         )
     tracks = ",".join(data.supported_tracks())
-    if not tracks:
-        console.print(
-            '[red]Nothing can be measured on this data: add an "answer" or "contexts" '
-            "to the rows.[/red]",
-            soft_wrap=True,
-        )
-        raise typer.Exit(1)
     from .knowledge_evaluation_sdk.synthesize import llm_configured
 
     if "generation" in data.supported_tracks() and not llm_configured():
@@ -2103,12 +2326,31 @@ def component_list(
     )
 
 
+def _registered_component(name: str, stage: Optional[str]) -> Any:
+    """The class registered as ``name``, in ``stage`` or the one stage that has it."""
+    from .core._text import did_you_mean
+    from .core.registry import registry
+
+    stages = [stage] if stage else list(_FUNCTION_STAGES)
+    found = [s for s in stages if registry.has(s, name)]
+    if not found:
+        known = sorted({n for s in stages for n in registry.list(s).get(s, [])})
+        _error(
+            f"No component is registered as {name!r}{did_you_mean(name, known)}. Name a "
+            f"registered one (`lasagna component list`), or your own as module:function."
+        )
+    if len(found) > 1:
+        _error(f"{name!r} is registered for {', '.join(found)}; pick one with --stage.")
+    return registry.get_class(found[0], name)
+
+
 @component_app.command("validate")
 def component_validate(
     target: str = typer.Argument(
         ...,
-        help="What a sweep would name: my_ideas:keyword_overlap (a decorated function), "
-        "my_pkg.rerankers:MyReranker (a class) or path/to/file.py:name",
+        help="What a sweep would name: a registered component (cross_encoder), "
+        "my_ideas:keyword_overlap (a decorated function), my_pkg.rerankers:MyReranker "
+        "(a class) or path/to/file.py:name",
     ),
     stage: Optional[str] = typer.Option(
         None,
@@ -2134,18 +2376,21 @@ def component_validate(
     from lasagna.core.testing import ComponentTestHarness
 
     module_path, _, attr = target.rpartition(":")
-    if not module_path or not attr:
-        _error(f"Expected 'module:function' or 'module:Class', got {target!r}")
     if stage is not None and stage not in _FUNCTION_STAGES:
         _error(f"--stage must be one of {', '.join(_FUNCTION_STAGES)}, got {stage!r}")
-
-    try:
-        obj = components.import_reference(target)
-    except Exception as exc:
-        _error(f"Could not import {target}: {type(exc).__name__}: {exc}")
-    # What a sweep names it: a file's module is its stem, so
-    # path/to/my_ideas.py:keyword_overlap is my_ideas:keyword_overlap.
-    name = f"{Path(module_path).stem}:{attr}" if module_path.endswith(".py") else target
+    if not module_path or not attr:
+        # A registered name, as a sweep's arm names one: `component validate
+        # cross_encoder` was refused as not being module:function.
+        obj, attr = _registered_component(target, stage), target
+        name = target
+    else:
+        try:
+            obj = components.import_reference(target)
+        except Exception as exc:
+            _error(f"Could not import {target}: {type(exc).__name__}: {exc}")
+        # What a sweep names it: a file's module is its stem, so
+        # path/to/my_ideas.py:keyword_overlap is my_ideas:keyword_overlap.
+        name = f"{Path(module_path).stem}:{attr}" if module_path.endswith(".py") else target
 
     if not inspect.isclass(obj) and callable(obj):
         tagged = getattr(obj, "__lasagna_component__", None)
@@ -2184,7 +2429,7 @@ def component_validate(
         console.print(f"  [red]FAIL[/red]  {escape(failure)}")
 
     if report.latency_ms is not None:
-        console.print(f"\n  latency: {report.latency_ms:.1f} ms")
+        console.print(f"\n  latency: {_milliseconds(report.latency_ms)}")
 
     if report.passed:
         console.print("\n[green]Contract satisfied.[/green] This component is interchangeable.")
@@ -2203,7 +2448,7 @@ def component_validate(
         )
     else:
         console.print(
-            f"\n[red]{len(report.failures)} contract failure(s).[/red] "
+            f"\n[red]{_count(len(report.failures), 'contract failure')}.[/red] "
             f"A component that does not satisfy its contract can still be registered, "
             f"but it is not interchangeable, and a comparison against one that is "
             f"would measure the interface difference too."
@@ -2264,8 +2509,9 @@ def plugins_list():
     failed = [e for e in entries if not e["ok"]]
     if failed:
         console.print(
-            f"\n[yellow]{len(failed)} plugin(s) failed to load and are silently absent "
-            f"from the registry.[/yellow] Re-run with LASAGNA_STRICT_PLUGINS=1 to raise."
+            f"\n[yellow]{_count(len(failed), 'plugin')} failed to load and "
+            f"{'is' if len(failed) == 1 else 'are'} silently absent from the "
+            f"registry.[/yellow] Re-run with LASAGNA_STRICT_PLUGINS=1 to raise."
         )
         raise typer.Exit(1)
 
@@ -2386,7 +2632,7 @@ def results_validate(
         problems.extend(f"integrity (strict): {code}" for code in warnings)
 
     if problems:
-        console.print(f"[red]INVALID[/red], {len(problems)} problem(s):")
+        console.print(f"[red]INVALID[/red], {_count(len(problems), 'problem')}:")
         # Problem lines quote arm names, which are free text: `a[/b]` is a
         # Rich closing tag and crashed the command instead of printing.
         for p in problems:
@@ -2781,7 +3027,7 @@ def results_per_query(
     console.print(table)
     if len(available) > shown:
         console.print(
-            f"[dim]{len(available) - shown} more metric column(s) not shown; "
+            f"[dim]{_count(len(available) - shown, 'more metric column')} not shown; "
             "-o rows.csv has all of them.[/dim]"
         )
     if len(rows) > limit:
@@ -3042,12 +3288,12 @@ def skills_install(
         console.print(f"  [yellow]exists[/yellow]    {name} [dim](--force to overwrite)[/dim]")
 
     console.print()
-    console.print(f"{len(written)} skill(s) written to {dest}/")
+    console.print(f"{_count(len(written), 'skill')} written to {dest}/")
     if written:
         console.print("[dim]Restart the agent, or start a new session, to pick them up.[/dim]")
 
 
-def _diagnose_or_report_the_setting(diagnose):
+def _diagnose_or_report_the_setting(diagnose, session_id: str = "default"):
     """Run doctor's checks; a bad setting becomes a failed check, not a traceback.
 
     Every other command stops at an invalid setting, so this is where a user
@@ -3056,7 +3302,7 @@ def _diagnose_or_report_the_setting(diagnose):
     from .core.diagnostics import Check, Diagnosis
 
     try:
-        return diagnose(check_gh=False)
+        return diagnose(check_gh=False, session_id=session_id)
     except Exception as exc:
         config_error = _in_cause_chain(exc, "ConfigError")
         if config_error is None:
@@ -3095,7 +3341,7 @@ def doctor(
 
     from .core.diagnostics import diagnose, format_issue_body
 
-    d = _diagnose_or_report_the_setting(diagnose)
+    d = _diagnose_or_report_the_setting(diagnose, session_id)
     try:
         from .core.setup_text import doctor_context
 
@@ -3148,7 +3394,8 @@ def doctor(
     else:
         errors = sum(1 for c in problems if c.status == "error")
         console.print(
-            f"{len(problems)} item(s) need attention ({errors} blocking). "
+            f"{_count(len(problems), 'item')} {'needs' if len(problems) == 1 else 'need'} "
+            f"attention ({errors} blocking). "
             "Run `lasagna doctor --issue` to attach this to a bug report."
         )
     raise typer.Exit(1 if d.worst == "error" else 0)
@@ -3234,13 +3481,14 @@ def results_leaderboard(
     except (MetricsVersionError, ValueError) as exc:
         _error(str(exc))
     console.print(
-        f"[green]{index['n_rows']} row(s)[/green] from {index['n_bundles']} bundle(s) "
-        f"across {len(index['benchmarks'])} benchmark(s)"
+        f"[green]{_count(index['n_rows'], 'row')}[/green] from "
+        f"{_count(index['n_bundles'], 'bundle')} across "
+        f"{_count(len(index['benchmarks']), 'benchmark')}"
     )
     for name, info in index["benchmarks"].items():
         console.print(
-            f"  {escape(name)}: {info['n_rows']} row(s) in {info['n_groups']} "
-            f"comparability group(s), {info['n_verified']} verified"
+            f"  {escape(name)}: {_count(info['n_rows'], 'row')} in "
+            f"{_count(info['n_groups'], 'comparability group')}, {info['n_verified']} verified"
         )
     if output:
         console.print(f"[green]Wrote {escape(output)}[/green]")
@@ -3370,7 +3618,7 @@ def pipelines_list():
 
     console.print(table)
     console.print(f"\n[dim]Active pipeline: [cyan]{active}[/cyan][/dim]")
-    console.print(f"[dim]{len(pipelines)} pipeline(s) registered[/dim]")
+    console.print(f"[dim]{_count(len(pipelines), 'pipeline')} registered[/dim]")
 
 
 # ---------------------------------------------------------------------------

@@ -596,7 +596,7 @@ class QdrantBackend(VectorStoreAdapter):
         # against dense, produced a difference of ~0, and looked like a finding.
         # The caller asked a question this backend cannot answer, so say so.
         raise NotImplementedError(
-            "Qdrant hybrid search is not implemented -- it requires sparse "
+            "Qdrant hybrid search is not implemented: it requires sparse "
             "vector configuration that this backend does not yet set up. "
             "Returning dense-only results would silently answer a different "
             "question than the one asked. Use hybrid on milvus, pgvector or "

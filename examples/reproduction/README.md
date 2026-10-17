@@ -2,8 +2,10 @@
 
 Lasagna's built-in retrievers and reranker reproduce published numbers on BEIR
 SciFact and NFCorpus. Both dense models land within 0.002 NDCG@10 of their MTEB
-results, BM25 followed by the MiniLM cross-encoder within 0.004 of the BEIR
-paper, and BM25 within 0.008. Every test query of both datasets is scored
+results, and BM25 followed by the MiniLM cross-encoder within 0.004 of the BEIR
+paper. BM25 is within 0.008 of the BEIR paper's multifield run; against the
+single-field run, which is how Lasagna indexes, it is 0.015 and 0.005 below
+(see the BM25 note). Every test query of both datasets is scored
 against the full corpus. No method was tuned: BM25 uses the k1 and b that BEIR
 used, and the dense models and the cross-encoder use their published
 checkpoints unchanged.

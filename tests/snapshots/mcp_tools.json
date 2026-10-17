@@ -1,14 +1,16 @@
 {
   "archive_document": {
-    "description": "Soft-delete (archive) a document.\n\nThe document is hidden from search results but is NOT immediately deleted.\nVectors and the stored file remain until the garbage collector runs after\nthe grace window (default 24 h).\n\nUse ``restore_document`` to recover the document within the grace window.\n``delete_document`` (served with ``--tools all``) deletes immediately and\nirreversibly.\n\n:param document_id: ID of the document to archive.\n:param session_id: Session that owns the document.\n:returns: Updated document metadata as JSON.",
+    "description": "Soft-delete (archive) a document.\n\nThe document is hidden from search results but is NOT immediately deleted. Vectors and the stored file remain until the garbage collector runs after the grace window (default 24 h).\n\nUse `restore_document` to recover the document within the grace window. `delete_document` (served with `--tools all`) deletes immediately and irreversibly.\n\nReturns: Updated document metadata as JSON.",
     "input_schema": {
       "properties": {
         "document_id": {
+          "description": "ID of the document to archive.",
           "title": "Document Id",
           "type": "string"
         },
         "session_id": {
           "default": "",
+          "description": "Session that owns the document.",
           "title": "Session Id",
           "type": "string"
         },
@@ -37,7 +39,7 @@
     ]
   },
   "bulk_delete_session": {
-    "description": "Delete ALL documents in a session at once.\n\nThis is a destructive, irreversible operation.  Use with care.\nThe ``confirm`` flag must be set to ``true`` as a safety guard.\n\n:param session_id: Session to wipe.\n:param confirm: Must be ``true`` to proceed.  Safety guard.\n:param admin_token: Required on a networked transport with\n    ``RAG_REQUIRE_AUTH`` set, matching ``DELETE /api/v1/sessions/{id}``.\n:returns: JSON with counts: requested, deleted, bytes_freed, errors.",
+    "description": "Delete ALL documents in a session at once.\n\nThis is a destructive, irreversible operation.  Use with care. The `confirm` flag must be set to `true` as a safety guard.\n\nReturns: JSON with counts: requested, deleted, bytes_freed, errors.",
     "input_schema": {
       "properties": {
         "admin_token": {
@@ -50,15 +52,18 @@
             }
           ],
           "default": null,
+          "description": "Required on a networked transport with `RAG_REQUIRE_AUTH` set, matching `DELETE /api/v1/sessions/{id}`.",
           "title": "Admin Token"
         },
         "confirm": {
           "default": false,
+          "description": "Must be `true` to proceed.  Safety guard.",
           "title": "Confirm",
           "type": "boolean"
         },
         "session_id": {
           "default": "",
+          "description": "Session to wipe.",
           "title": "Session Id",
           "type": "string"
         },
@@ -83,15 +88,17 @@
     ]
   },
   "clear_session": {
-    "description": "Delete all documents in a session.\n\nWARNING: This will permanently delete all documents and their indexed\nchunks for the specified session.\n\n:param session_id: Session identifier; all documents in this session will be deleted.\n:param confirm: Must be set to True to confirm deletion.\n:returns: Confirmation or error message.",
+    "description": "Delete all documents in a session.\n\nWARNING: This will permanently delete all documents and their indexed chunks for the specified session.\n\nReturns: Confirmation or error message.",
     "input_schema": {
       "properties": {
         "confirm": {
           "default": false,
+          "description": "Must be set to True to confirm deletion.",
           "title": "Confirm",
           "type": "boolean"
         },
         "session_id": {
+          "description": "Session identifier; all documents in this session will be deleted.",
           "title": "Session Id",
           "type": "string"
         },
@@ -119,15 +126,17 @@
     ]
   },
   "delete_document": {
-    "description": "Delete a document and all its indexed chunks from the knowledge base.\n\nThe document must belong to the provided session_id. Both the vector index\nentries (Milvus) and the metadata record (SQLite) are removed, and the\noriginal file is deleted from disk.\n\n:param document_id: The document ID to delete (e.g. \"doc_abc123\").\n:param session_id: Session identifier; used to verify ownership.\n:returns: Confirmation or error message.",
+    "description": "Delete a document and all its indexed chunks from the knowledge base.\n\nThe document must belong to the provided session_id. Both the vector index entries (Milvus) and the metadata record (SQLite) are removed, and the original file is deleted from disk.\n\nReturns: Confirmation or error message.",
     "input_schema": {
       "properties": {
         "document_id": {
+          "description": "The document ID to delete (e.g. \"doc_abc123\").",
           "title": "Document Id",
           "type": "string"
         },
         "session_id": {
           "default": "",
+          "description": "Session identifier; used to verify ownership.",
           "title": "Session Id",
           "type": "string"
         },
@@ -155,14 +164,16 @@
     ]
   },
   "delete_rag_profile": {
-    "description": "Delete a custom RAG profile.\n\nBuilt-in profiles (default, speed, standard, balanced, max_quality) cannot be deleted.\n\n:param session_id: Session identifier.\n:param profile_name: Name of the profile to delete.\n:returns: Confirmation message.",
+    "description": "Delete a custom RAG profile.\n\nBuilt-in profiles (default, speed, standard, balanced, max_quality) cannot be deleted.\n\nReturns: Confirmation message.",
     "input_schema": {
       "properties": {
         "profile_name": {
+          "description": "Name of the profile to delete.",
           "title": "Profile Name",
           "type": "string"
         },
         "session_id": {
+          "description": "Session identifier.",
           "title": "Session Id",
           "type": "string"
         },
@@ -191,11 +202,12 @@
     ]
   },
   "get_active_profile": {
-    "description": "Get the active RAG profile for a session.\n\nReturns the currently active profile name and its configuration\nfor the specified session.\n\n:param session_id: Session identifier.\n:returns: JSON object with active profile name and resolved config.",
+    "description": "Get the active RAG profile for a session.\n\nReturns the currently active profile name and its configuration for the specified session.\n\nReturns: JSON object with active profile name and resolved config.",
     "input_schema": {
       "properties": {
         "session_id": {
           "default": "",
+          "description": "Session identifier.",
           "title": "Session Id",
           "type": "string"
         },
@@ -221,25 +233,29 @@
     ]
   },
   "get_document_chunks": {
-    "description": "Get chunks from a specific document.\n\nRetrieves the indexed text chunks for a document with pagination support.\nUseful for inspecting how a document was split.\n\n:param document_id: The document ID to query.\n:param session_id: Session identifier; used to verify ownership.\n:param offset: Number of chunks to skip (for pagination).\n:param limit: Maximum number of chunks to return.\n:returns: List of chunks with their content and metadata.",
+    "description": "Get chunks from a specific document.\n\nRetrieves the indexed text chunks for a document with pagination support. Useful for inspecting how a document was split.\n\nReturns: List of chunks with their content and metadata.",
     "input_schema": {
       "properties": {
         "document_id": {
+          "description": "The document ID to query.",
           "title": "Document Id",
           "type": "string"
         },
         "limit": {
           "default": 10,
+          "description": "Maximum number of chunks to return.",
           "title": "Limit",
           "type": "integer"
         },
         "offset": {
           "default": 0,
+          "description": "Number of chunks to skip (for pagination).",
           "title": "Offset",
           "type": "integer"
         },
         "session_id": {
           "default": "",
+          "description": "Session identifier; used to verify ownership.",
           "title": "Session Id",
           "type": "string"
         },
@@ -268,16 +284,18 @@
     ]
   },
   "get_document_context": {
-    "description": "Get document awareness context for the current session.\n\nReturns information about available documents and adaptive guidance\nbased on how many searches have been performed this turn. Helps agents\ndecide when and how to use RAG search tools.\n\n:param session_id: Session identifier.\n:param rag_search_count: Number of RAG searches done this turn (affects guidance).\n:returns: Formatted context string describing available documents,\n    or empty string if no documents exist.",
+    "description": "Get document awareness context for the current session.\n\nReturns information about available documents and adaptive guidance based on how many searches have been performed this turn. Helps agents decide when and how to use RAG search tools.\n\nReturns: Formatted context string describing available documents, or empty string if no documents exist.",
     "input_schema": {
       "properties": {
         "rag_search_count": {
           "default": 0,
+          "description": "Number of RAG searches done this turn (affects guidance).",
           "title": "Rag Search Count",
           "type": "integer"
         },
         "session_id": {
           "default": "",
+          "description": "Session identifier.",
           "title": "Session Id",
           "type": "string"
         },
@@ -303,14 +321,16 @@
     ]
   },
   "get_document_info": {
-    "description": "Get detailed information about a specific document.\n\nReturns comprehensive metadata including processing statistics,\nfile information, and chunk details.\n\n:param document_id: The document ID to query.\n:param session_id: Session identifier; used to verify ownership.\n:returns: Detailed document information in JSON format.",
+    "description": "Get detailed information about a specific document.\n\nReturns comprehensive metadata including processing statistics, file information, and chunk details.\n\nReturns: Detailed document information in JSON format.",
     "input_schema": {
       "properties": {
         "document_id": {
+          "description": "The document ID to query.",
           "title": "Document Id",
           "type": "string"
         },
         "session_id": {
+          "description": "Session identifier; used to verify ownership.",
           "title": "Session Id",
           "type": "string"
         },
@@ -340,14 +360,16 @@
     ]
   },
   "get_document_status": {
-    "description": "Get the processing status of a document (lightweight O(1) lookup).\n\nUse this to poll for completion after an async upload\n(``upload_document`` with ``wait=false``).\n\n:param document_id: The document ID returned by ``upload_document``.\n:param session_id: Session identifier; used to verify ownership.\n:returns: JSON object with document_id, status, chunks_count, and\n    error_message (if any).",
+    "description": "Get the processing status of a document (lightweight O(1) lookup).\n\nUse this to poll for completion after an async upload (`upload_document` with `wait=false`).\n\nReturns: JSON object with document_id, status, chunks_count, and error_message (if any).",
     "input_schema": {
       "properties": {
         "document_id": {
+          "description": "The document ID returned by `upload_document`.",
           "title": "Document Id",
           "type": "string"
         },
         "session_id": {
+          "description": "Session identifier; used to verify ownership.",
           "title": "Session Id",
           "type": "string"
         },
@@ -377,11 +399,12 @@
     ]
   },
   "get_focused_documents": {
-    "description": "Get the currently focused document IDs for a session.\n\n:param session_id: Session identifier.\n:returns: JSON object with focused document IDs.",
+    "description": "Get the currently focused document IDs for a session.\n\nReturns: JSON object with focused document IDs.",
     "input_schema": {
       "properties": {
         "session_id": {
           "default": "",
+          "description": "Session identifier.",
           "title": "Session Id",
           "type": "string"
         },
@@ -407,7 +430,7 @@
     ]
   },
   "get_gc_status": {
-    "description": "Get the last garbage-collection run report.\n\nReturns a summary of the most recent GC cycle including per-phase\nresults (docs scanned, docs cleaned, bytes freed, errors) and whether\nthe run was aborted due to the safety threshold.\n\nThe audit log is **server-wide**: ``session_id`` scopes the auth check, not\nthe rows returned, which is why this takes the admin credential.\n\n:param session_id: Session identifier (used for auth resolution only).\n:param admin_token: Required on a networked transport with\n    ``RAG_REQUIRE_AUTH`` set: the report covers every session.\n:returns: JSON GC report or error message.",
+    "description": "Get the last garbage-collection run report.\n\nReturns a summary of the most recent GC cycle including per-phase results (docs scanned, docs cleaned, bytes freed, errors) and whether the run was aborted due to the safety threshold.\n\nThe audit log is **server-wide**: `session_id` scopes the auth check, not the rows returned, which is why this takes the admin credential.\n\nReturns: JSON GC report or error message.",
     "input_schema": {
       "properties": {
         "admin_token": {
@@ -420,9 +443,11 @@
             }
           ],
           "default": null,
+          "description": "Required on a networked transport with `RAG_REQUIRE_AUTH` set: the report covers every session.",
           "title": "Admin Token"
         },
         "session_id": {
+          "description": "Session identifier (used for auth resolution only).",
           "title": "Session Id",
           "type": "string"
         },
@@ -451,7 +476,7 @@
     ]
   },
   "get_lifecycle_policy": {
-    "description": "Return the currently active lifecycle garbage-collection policy.\n\nThe policy governs:\n- ``soft_delete_grace_hours``: grace window before GC permanently removes soft-deleted docs\n- ``document_ttl_days``: auto-expiry TTL (null or 0 = disabled)\n- ``error_retention_days``: how long ERROR docs survive before soft-deletion\n- ``gc_cycle_hours``: interval between full GC cycles\n- ``orphan_scan_hours``: interval between orphan detection scans\n- ``safety_threshold_percent``: GC abort threshold (fraction of all docs)\n- ``batch_size``: documents per GC batch\n- ``reconcile_quota_on_startup``: rebuild quota counters at startup\n\n:param session_id: Unused; policy is global, not per-session.\n:param admin_token: Required on a networked transport with\n    ``RAG_REQUIRE_AUTH`` set, matching ``GET /gc/policy``.\n:returns: JSON object with all policy fields and their current values.",
+    "description": "Return the currently active lifecycle garbage-collection policy.\n\nThe policy governs:\n- `soft_delete_grace_hours`: grace window before GC permanently removes soft-deleted docs\n- `document_ttl_days`: auto-expiry TTL (null or 0 = disabled)\n- `error_retention_days`: how long ERROR docs survive before soft-deletion\n- `gc_cycle_hours`: interval between full GC cycles\n- `orphan_scan_hours`: interval between orphan detection scans\n- `safety_threshold_percent`: GC abort threshold (fraction of all docs)\n- `batch_size`: documents per GC batch\n- `reconcile_quota_on_startup`: rebuild quota counters at startup\n\nReturns: JSON object with all policy fields and their current values.",
     "input_schema": {
       "properties": {
         "admin_token": {
@@ -464,10 +489,12 @@
             }
           ],
           "default": null,
+          "description": "Required on a networked transport with `RAG_REQUIRE_AUTH` set, matching `GET /gc/policy`.",
           "title": "Admin Token"
         },
         "session_id": {
           "default": "default",
+          "description": "Unused; policy is global, not per-session.",
           "title": "Session Id",
           "type": "string"
         }
@@ -481,11 +508,12 @@
     ]
   },
   "get_profile_stats": {
-    "description": "Get statistics about profiles and sessions.\n\nReturns counts and limits for profiles and sessions, useful for\nmonitoring and debugging.\n\n:param session_id: Session identifier.\n:returns: JSON object with profile and session statistics.",
+    "description": "Get statistics about profiles and sessions.\n\nReturns counts and limits for profiles and sessions, useful for monitoring and debugging.\n\nReturns: JSON object with profile and session statistics.",
     "input_schema": {
       "properties": {
         "session_id": {
           "default": "default",
+          "description": "Session identifier.",
           "title": "Session Id",
           "type": "string"
         },
@@ -511,11 +539,12 @@
     ]
   },
   "get_rag_config": {
-    "description": "Get the current RAG configuration for a session.\n\nReturns the active profile and all configuration settings including\nchunking, embedding, reranking, and search parameters.\n\n:param session_id: Session identifier.\n:returns: JSON object with full configuration.",
+    "description": "Get the current RAG configuration for a session.\n\nReturns the active profile and all configuration settings including chunking, embedding, reranking, and search parameters.\n\nReturns: JSON object with full configuration.",
     "input_schema": {
       "properties": {
         "session_id": {
           "default": "",
+          "description": "Session identifier.",
           "title": "Session Id",
           "type": "string"
         },
@@ -541,7 +570,7 @@
     ]
   },
   "get_system_status": {
-    "description": "Get RAG system health and statistics.\n\nReturns system status including Milvus connection, embedding model info,\ncollection statistics, and configuration summary.\n\n:returns: System status in JSON format.",
+    "description": "Get RAG system health and statistics.\n\nReturns system status including Milvus connection, embedding model info, collection statistics, and configuration summary.\n\nReturns: System status in JSON format.",
     "input_schema": {
       "properties": {},
       "title": "get_system_statusArguments",
@@ -553,11 +582,12 @@
     ]
   },
   "list_documents": {
-    "description": "List all documents in the knowledge base for a session.\n\nReturns document metadata including processing status, file type, size,\nand number of indexed chunks.\n\n:param session_id: Session identifier.\n:returns: Human-readable list of documents with their status.",
+    "description": "List all documents in the knowledge base for a session.\n\nReturns document metadata including processing status, file type, size, and number of indexed chunks.\n\nReturns: Human-readable list of documents with their status.",
     "input_schema": {
       "properties": {
         "session_id": {
           "default": "",
+          "description": "Session identifier.",
           "title": "Session Id",
           "type": "string"
         },
@@ -583,16 +613,18 @@
     ]
   },
   "list_profiles": {
-    "description": "List available RAG configuration profiles.\n\nProfiles control RAG behavior like chunk size, embedding model,\nreranking settings, and more. Users can create custom profiles\nto tune retrieval for different use cases.\n\n:param include_builtin: Whether to include built-in profiles (default True).\n:param session_id: Session identifier.\n:returns: JSON array of profile objects with name and description.",
+    "description": "List available RAG configuration profiles.\n\nProfiles control RAG behavior like chunk size, embedding model, reranking settings, and more. Users can create custom profiles to tune retrieval for different use cases.\n\nReturns: JSON array of profile objects with name and description.",
     "input_schema": {
       "properties": {
         "include_builtin": {
           "default": true,
+          "description": "Whether to include built-in profiles (default True).",
           "title": "Include Builtin",
           "type": "boolean"
         },
         "session_id": {
           "default": "default",
+          "description": "Session identifier.",
           "title": "Session Id",
           "type": "string"
         },
@@ -618,14 +650,16 @@
     ]
   },
   "patch_rag_config": {
-    "description": "Apply configuration overrides to the current session.\n\nMerges the provided settings with the active profile's config.\nThese overrides persist for the session duration. Only retrieval and\ngeneration settings: the vector store, collection, paths, URLs and\ncredentials are the server's, and a patch naming one is refused.\n\n:param session_id: Session identifier.\n:param config_patch: JSON string with config keys to override.\n    Example: '{\"rerank_top_k\": 10, \"enable_reranking\": false}'\n:returns: JSON object with updated configuration.",
+    "description": "Apply configuration overrides to the current session.\n\nMerges the provided settings with the active profile's config. These overrides persist for the session duration. Only retrieval and generation settings: the vector store, collection, paths, URLs and credentials are the server's, and a patch naming one is refused.\n\nReturns: JSON object with updated configuration.",
     "input_schema": {
       "properties": {
         "config_patch": {
+          "description": "JSON string with config keys to override. Example: '{\"rerank_top_k\": 10, \"enable_reranking\": false}'",
           "title": "Config Patch",
           "type": "string"
         },
         "session_id": {
+          "description": "Session identifier.",
           "title": "Session Id",
           "type": "string"
         },
@@ -655,7 +689,7 @@
     ]
   },
   "rebuild_collection": {
-    "description": "Drop and recreate the vector collection for the session's embedding model.\n\nUse when embedding dimensions or index settings change and there are\nno documents to reindex.\n\n**This is not scoped to your session.** Each embedding model has its own\ncollection, and every session on that model shares it (sessions are a\nfilter within it), so a drop takes every session's documents on that model\nwith it. The dimension check below means it only drops when the configured\nembedding dimension no longer matches the collection, but a caller can\nproduce that mismatch themselves with one prior ``patch_rag_config``. Hence\nthe admin credential and the ``confirm`` flag that the strictly less\ndestructive ``bulk_delete_session`` has always had.\n\n:param admin_token: Required on a networked transport with\n    ``RAG_REQUIRE_AUTH`` set.\n:param confirm: Must be ``true`` to proceed. Safety guard.",
+    "description": "Drop and recreate the vector collection for the session's embedding model.\n\nUse when embedding dimensions or index settings change and there are no documents to reindex.\n\n**This is not scoped to your session.** Each embedding model has its own collection, and every session on that model shares it (sessions are a filter within it), so a drop takes every session's documents on that model with it. The dimension check below means it only drops when the configured embedding dimension no longer matches the collection, but a caller can produce that mismatch themselves with one prior `patch_rag_config`. Hence the admin credential and the `confirm` flag that the strictly less destructive `bulk_delete_session` has always had.",
     "input_schema": {
       "properties": {
         "admin_token": {
@@ -668,10 +702,12 @@
             }
           ],
           "default": null,
+          "description": "Required on a networked transport with `RAG_REQUIRE_AUTH` set.",
           "title": "Admin Token"
         },
         "confirm": {
           "default": false,
+          "description": "Must be `true` to proceed. Safety guard.",
           "title": "Confirm",
           "type": "boolean"
         },
@@ -701,20 +737,23 @@
     ]
   },
   "reindex_document": {
-    "description": "Reindex an existing document.\n\nUseful when the document content has changed or when you want to\nregenerate embeddings with updated settings.\n\n:param document_id: The document ID to reindex.\n:param session_id: Session identifier; used to verify ownership.\n:param force_rebuild: If true, recreate the collection at the configured\n    embedding dimension when it differs, but only while the collection is\n    empty. A collection holding documents is never dropped from here:\n    every session's documents live in it.\n:returns: Confirmation or error message.",
+    "description": "Reindex an existing document.\n\nUseful when the document content has changed or when you want to regenerate embeddings with updated settings.\n\nReturns: Confirmation or error message.",
     "input_schema": {
       "properties": {
         "document_id": {
+          "description": "The document ID to reindex.",
           "title": "Document Id",
           "type": "string"
         },
         "force_rebuild": {
           "default": false,
+          "description": "If true, recreate the collection at the configured embedding dimension when it differs, but only while the collection is empty. A collection holding documents is never dropped from here: every session's documents live in it.",
           "title": "Force Rebuild",
           "type": "boolean"
         },
         "session_id": {
           "default": "",
+          "description": "Session identifier; used to verify ownership.",
           "title": "Session Id",
           "type": "string"
         },
@@ -743,15 +782,17 @@
     ]
   },
   "reset_rag_config": {
-    "description": "Reset RAG configuration to defaults.\n\n:param session_id: Session identifier.\n:param scope: Reset scope - 'active' (clear overrides) or 'all' (full reset).\n:returns: JSON object with reset configuration.",
+    "description": "Reset RAG configuration to defaults.\n\nReturns: JSON object with reset configuration.",
     "input_schema": {
       "properties": {
         "scope": {
           "default": "active",
+          "description": "Reset scope - 'active' (clear overrides) or 'all' (full reset).",
           "title": "Scope",
           "type": "string"
         },
         "session_id": {
+          "description": "Session identifier.",
           "title": "Session Id",
           "type": "string"
         },
@@ -779,15 +820,17 @@
     ]
   },
   "restore_document": {
-    "description": "Restore a soft-deleted (archived) document to READY status.\n\nOnly possible within the grace window after archiving.  If the grace\nwindow has expired and the GC has already hard-deleted the document,\nthis call will return an error.\n\n:param document_id: ID of the archived document to restore.\n:param session_id: Session that owns the document.\n:returns: Updated document metadata as JSON, or an error message.",
+    "description": "Restore a soft-deleted (archived) document to READY status.\n\nOnly possible within the grace window after archiving.  If the grace window has expired and the GC has already hard-deleted the document, this call will return an error.\n\nReturns: Updated document metadata as JSON, or an error message.",
     "input_schema": {
       "properties": {
         "document_id": {
+          "description": "ID of the archived document to restore.",
           "title": "Document Id",
           "type": "string"
         },
         "session_id": {
           "default": "",
+          "description": "Session that owns the document.",
           "title": "Session Id",
           "type": "string"
         },
@@ -816,18 +859,21 @@
     ]
   },
   "save_rag_profile": {
-    "description": "Save a custom RAG profile.\n\nCreates or updates a named profile with the provided configuration.\nSaved profiles persist across sessions and can be shared.\n\n:param session_id: Session identifier.\n:param profile_name: Name for the profile (cannot be 'default').\n:param config: JSON string with profile configuration.\n:param set_active: Whether to activate this profile (default True).\n:returns: Confirmation message.",
+    "description": "Save a custom RAG profile.\n\nCreates or updates a named profile with the provided configuration. Saved profiles persist across sessions and can be shared.\n\nReturns: Confirmation message.",
     "input_schema": {
       "properties": {
         "config": {
+          "description": "JSON string with profile configuration.",
           "title": "Config",
           "type": "string"
         },
         "profile_name": {
+          "description": "Name for the profile (cannot be 'default').",
           "title": "Profile Name",
           "type": "string"
         },
         "session_id": {
+          "description": "Session identifier.",
           "title": "Session Id",
           "type": "string"
         },
@@ -845,6 +891,7 @@
         },
         "set_active": {
           "default": true,
+          "description": "Whether to activate this profile (default True).",
           "title": "Set Active",
           "type": "boolean"
         }
@@ -863,11 +910,12 @@
     ]
   },
   "search": {
-    "description": "Search the knowledge base with the session's retrieval pipeline.\n\nUse this tool for every search; ``search_knowledge`` and\n``search_with_context`` are deprecated aliases of it.\n\nReturns formatted context with citations ready for LLM injection,\nplus a trailing ``<search_metadata>`` JSON block with structured\ncitation data.\n\nRetrieval behaviour (hybrid search, reranking, HyDE, adaptive routing)\nis governed by the session configuration: callers only specify *what*\nto search and optional scope constraints.\n\n:param query: Natural-language search query.\n:param session_id: Session identifier; only documents belonging to this\n    session are searched.\n:param top_k: Optional override for the number of results to return.\n    When ``None`` (default), uses the session config value.\n:param document_ids: Optional comma-separated list of document IDs to\n    restrict the search to specific documents (e.g. \"doc_abc,doc_def\").\n:param allow_broaden: If True, allows searching outside focused documents\n    when focused scope is set for the session (explicit broadening).\n:returns: Formatted context with citations, plus appended search_metadata JSON.",
+    "description": "Search the knowledge base with the session's retrieval pipeline.\n\nReturns formatted context with citations ready for LLM injection, plus a trailing `<search_metadata>` JSON block with structured citation data.\n\nRetrieval behavior (hybrid search, reranking, HyDE, adaptive routing) is governed by the session configuration: callers only specify *what* to search and optional scope constraints.\n\nReturns: Formatted context with citations, plus appended search_metadata JSON.",
     "input_schema": {
       "properties": {
         "allow_broaden": {
           "default": false,
+          "description": "If True, allows searching outside focused documents when focused scope is set for the session (explicit broadening).",
           "title": "Allow Broaden",
           "type": "boolean"
         },
@@ -881,14 +929,17 @@
             }
           ],
           "default": null,
+          "description": "Optional comma-separated list of document IDs to restrict the search to specific documents (e.g. \"doc_abc,doc_def\").",
           "title": "Document Ids"
         },
         "query": {
+          "description": "Natural-language search query.",
           "title": "Query",
           "type": "string"
         },
         "session_id": {
           "default": "",
+          "description": "Session identifier; only documents belonging to this session are searched.",
           "title": "Session Id",
           "type": "string"
         },
@@ -914,6 +965,7 @@
             }
           ],
           "default": null,
+          "description": "Optional override for the number of results to return. When `None` (default), uses the session config value.",
           "title": "Top K"
         },
         "trace_id": {
@@ -940,177 +992,17 @@
       "safe"
     ]
   },
-  "search_knowledge": {
-    "description": "Deprecated: use ``search`` instead.\n\nDelegates to ``search``. Parameters ``min_score``, ``use_reranking``,\n``use_hyde``, and ``routing_tier`` are accepted but ignored.",
-    "input_schema": {
-      "properties": {
-        "allow_broaden": {
-          "default": false,
-          "title": "Allow Broaden",
-          "type": "boolean"
-        },
-        "document_ids": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Document Ids"
-        },
-        "min_score": {
-          "default": 0.0,
-          "title": "Min Score",
-          "type": "number"
-        },
-        "query": {
-          "title": "Query",
-          "type": "string"
-        },
-        "routing_tier": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Routing Tier"
-        },
-        "session_id": {
-          "default": "",
-          "title": "Session Id",
-          "type": "string"
-        },
-        "session_token": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Session Token"
-        },
-        "top_k": {
-          "default": 5,
-          "title": "Top K",
-          "type": "integer"
-        },
-        "trace_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Trace Id"
-        },
-        "use_hyde": {
-          "default": false,
-          "title": "Use Hyde",
-          "type": "boolean"
-        },
-        "use_reranking": {
-          "default": true,
-          "title": "Use Reranking",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "query"
-      ],
-      "title": "search_knowledgeArguments",
-      "type": "object"
-    },
-    "listed_in": [
-      "all"
-    ]
-  },
-  "search_with_context": {
-    "description": "Deprecated: use ``search`` instead.\n\nDelegates to ``search`` with default ``top_k`` (session config).",
-    "input_schema": {
-      "properties": {
-        "allow_broaden": {
-          "default": false,
-          "title": "Allow Broaden",
-          "type": "boolean"
-        },
-        "document_ids": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Document Ids"
-        },
-        "query": {
-          "title": "Query",
-          "type": "string"
-        },
-        "session_id": {
-          "default": "",
-          "title": "Session Id",
-          "type": "string"
-        },
-        "session_token": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Session Token"
-        },
-        "trace_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Trace Id"
-        }
-      },
-      "required": [
-        "query"
-      ],
-      "title": "search_with_contextArguments",
-      "type": "object"
-    },
-    "listed_in": [
-      "all"
-    ]
-  },
   "set_active_profile": {
-    "description": "Set the active RAG profile for a session.\n\nSwitches the session to use the specified profile for all subsequent\nRAG operations. This affects embedding model, chunking strategy,\nreranking settings, and more.\n\n:param session_id: Session identifier.\n:param profile_name: Name of the profile to activate: a preset (speed, standard,\n    balanced, max_quality, default) or one saved with save_rag_profile.\n:returns: Confirmation message or error.",
+    "description": "Set the active RAG profile for a session.\n\nSwitches the session to use the specified profile for all subsequent RAG operations. This affects embedding model, chunking strategy, reranking settings, and more.\n\nReturns: Confirmation message or error.",
     "input_schema": {
       "properties": {
         "profile_name": {
+          "description": "Name of the profile to activate: a preset (speed, standard, balanced, max_quality, default) or one saved with save_rag_profile.",
           "title": "Profile Name",
           "type": "string"
         },
         "session_id": {
+          "description": "Session identifier.",
           "title": "Session Id",
           "type": "string"
         },
@@ -1140,15 +1032,17 @@
     ]
   },
   "set_focused_documents": {
-    "description": "Set focused document IDs for a session.\n\nWhen focused documents are set, all RAG searches will be scoped to\nonly these documents. This is the server-side equivalent of the\nUI's \"/\" document picker feature.\n\n:param session_id: Session identifier.\n:param document_ids: Comma-separated list of document IDs to focus on,\n                    or empty string to clear focus.\n:returns: Confirmation message.",
+    "description": "Set focused document IDs for a session.\n\nWhen focused documents are set, all RAG searches will be scoped to only these documents. This is the server-side equivalent of the UI's \"/\" document picker feature.\n\nReturns: Confirmation message.",
     "input_schema": {
       "properties": {
         "document_ids": {
           "default": "",
+          "description": "Comma-separated list of document IDs to focus on, or empty string to clear focus.",
           "title": "Document Ids",
           "type": "string"
         },
         "session_id": {
+          "description": "Session identifier.",
           "title": "Session Id",
           "type": "string"
         },
@@ -1177,7 +1071,7 @@
     ]
   },
   "set_lifecycle_policy": {
-    "description": "Update lifecycle policy fields at runtime.\n\nChanges take effect immediately for the current process but are **not\npersisted**: the server reverts to its configured defaults on restart.\nTo make changes permanent, update ``[rag.lifecycle]`` in\n``settings.lasagna.toml`` or set the corresponding ``RAG_GC_*`` env vars.\n\nUnknown field names are rejected with an error.\n\n:param session_id: Unused; policy is global, not per-session.\n:param policy_updates: JSON string mapping field names to new values.\n    Example: '{\"gc_cycle_hours\": 12, \"soft_delete_grace_hours\": 48}'\n:param admin_token: Required on a networked transport with\n    ``RAG_REQUIRE_AUTH`` set, matching ``PATCH /gc/policy``.\n:returns: JSON object with the full updated policy.",
+    "description": "Update lifecycle policy fields at runtime.\n\nChanges take effect immediately for the current process but are **not persisted**: the server reverts to its configured defaults on restart. To make changes permanent, update `[rag.lifecycle]` in `settings.lasagna.toml` or set the corresponding `RAG_GC_*` env vars.\n\nUnknown field names are rejected with an error.\n\nReturns: JSON object with the full updated policy.",
     "input_schema": {
       "properties": {
         "admin_token": {
@@ -1190,13 +1084,16 @@
             }
           ],
           "default": null,
+          "description": "Required on a networked transport with `RAG_REQUIRE_AUTH` set, matching `PATCH /gc/policy`.",
           "title": "Admin Token"
         },
         "policy_updates": {
+          "description": "JSON string mapping field names to new values. Example: '{\"gc_cycle_hours\": 12, \"soft_delete_grace_hours\": 48}'",
           "title": "Policy Updates",
           "type": "string"
         },
         "session_id": {
+          "description": "Unused; policy is global, not per-session.",
           "title": "Session Id",
           "type": "string"
         }
@@ -1213,10 +1110,11 @@
     ]
   },
   "upload_document": {
-    "description": "Upload and index a document into the knowledge base.\n\nThe document is read from disk, its text is extracted (PDF, DOCX, TXT, MD,\nCSV, JSON, HTML, XML supported), split into overlapping chunks, and each\nchunk is embedded and stored in the vector database for fast retrieval.\n\nWhen ``wait=true`` (default), the tool blocks until processing is complete\nand returns the final status.  When ``wait=false``, the tool returns\nimmediately with ``status: \"processing\"``; use ``get_document_status``\nto poll for completion.\n\n:param file_path: Absolute path to the file on disk.\n:param session_id: Session identifier; the document will only be visible\n    within this session.\n:param filename: Optional display name to override the basename of\n    file_path.\n:param wait: If true (default), block until processing completes.\n    If false, return immediately after dispatch.\n:returns: JSON object with document_id, filename, status, chunks_count,\n    and file_size_kb.",
+    "description": "Upload and index a document into the knowledge base.\n\nThe document is read from disk, its text is extracted (PDF, DOCX, TXT, MD, CSV, JSON, HTML, XML supported), split into overlapping chunks, and each chunk is embedded and stored in the vector database for fast retrieval.\n\nWhen `wait=true` (default), the tool blocks until processing is complete and returns the final status.  When `wait=false`, the tool returns immediately with `status: \"processing\"`; use `get_document_status` to poll for completion.\n\nReturns: JSON object with document_id, filename, status, chunks_count, and file_size_kb.",
     "input_schema": {
       "properties": {
         "file_path": {
+          "description": "Absolute path to the file on disk.",
           "title": "File Path",
           "type": "string"
         },
@@ -1230,10 +1128,12 @@
             }
           ],
           "default": null,
+          "description": "Optional display name to override the basename of file_path.",
           "title": "Filename"
         },
         "session_id": {
           "default": "",
+          "description": "Session identifier; the document will only be visible within this session.",
           "title": "Session Id",
           "type": "string"
         },
@@ -1251,6 +1151,7 @@
         },
         "wait": {
           "default": true,
+          "description": "If true (default), block until processing completes. If false, return immediately after dispatch.",
           "title": "Wait",
           "type": "boolean"
         }

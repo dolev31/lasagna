@@ -443,8 +443,12 @@ class RAGBackend:
         _document_processor_override: Any = None,
         refuse_when_busy: bool = False,
         wait_when_busy: float = 0.0,
+        allow_duplicates: bool = False,
     ) -> Document:
         """Upload a document and run it through extraction, chunking and indexing.
+
+        A file whose content the session already holds comes back as that
+        document, with ``duplicate_of`` set, unless ``allow_duplicates``.
 
         ``_chunker_override`` takes a ``BaseChunker`` instance, mirroring the
         ``_reranker_override`` the search path already accepts. Underscored for
@@ -466,6 +470,7 @@ class RAGBackend:
             _document_processor_override=_document_processor_override,
             refuse_when_busy=refuse_when_busy,
             wait_when_busy=wait_when_busy,
+            allow_duplicates=allow_duplicates,
         )
 
     def process_document(

@@ -144,6 +144,8 @@ class UploadResponse(BaseModel):
     file_size: int
     status: str
     chunks_count: int
+    #: The session already held this content: the document returned instead.
+    duplicate_of: Optional[str] = None
 
 
 class BatchUploadItemResponse(BaseModel):
@@ -154,6 +156,7 @@ class BatchUploadItemResponse(BaseModel):
     status: str
     chunks_count: int = 0
     error: Optional[str] = None
+    duplicate_of: Optional[str] = None
 
 
 class BatchUploadResponse(BaseModel):
@@ -198,8 +201,11 @@ class HealthResponse(BaseModel):
     #: sensitive to disclose: a caller learns it from their first request.
     require_auth: bool = False
 
-    #: The checks that are not ``up``; a readiness 503 names them here.
+    #: The checks that are ``down``; a readiness 503 names them here.
     failing: List[str] = Field(default_factory=list)
+
+    #: The checks that are ``degraded``: working on a fallback (Redis down).
+    degraded: List[str] = Field(default_factory=list)
 
 
 class LivenessResponse(BaseModel):

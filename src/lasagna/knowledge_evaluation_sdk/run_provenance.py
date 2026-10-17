@@ -203,6 +203,65 @@ def models_used(rows: Iterable[Mapping[str, Any]], run_meta: Mapping[str, Any]) 
     return sorted({str(n) for n in names if n and ":" not in str(n)})
 
 
+def component_provenance(rows: Iterable[Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """``{name: {"stage", "paper", "claims"}}`` for each component the tasks ran
+    that declared a paper or claimed numbers, keyed by the name the run used.
+
+    What lets a results table put the claimed number beside the measured one:
+    ``@lasagna.reranker(paper="Doe et al. 2026", claims={"ndcg@10": 0.456})``.
+    """
+    from lasagna.core.registry import registry
+
+    found: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        stages = (row.get("system") or {}).get("stages") or {}
+        for stage, slot in stages.items():
+            name = (slot or {}).get("component") if isinstance(slot, Mapping) else None
+            if not name or name in found:
+                continue
+            try:
+                declared = registry.provenance(stage, name)
+            except ValueError:  # "other" and any slot that is no registry stage
+                continue
+            if declared.get("paper") or declared.get("claims"):
+                found[name] = {
+                    "stage": stage,
+                    "paper": declared.get("paper"),
+                    "claims": declared.get("claims") or {},
+                }
+    return found
+
+
+def claimed(
+    components: Optional[Mapping[str, Any]], system: Optional[Mapping[str, Any]], metric: str
+) -> Optional[Dict[str, Any]]:
+    """The number a task's component claims for ``metric``, with its paper.
+
+    ``{"component", "value", "paper"}`` from the run's ``components`` record
+    and the task's stage manifest, or None when no component in it claims
+    that metric (names compared case-insensitively).
+    """
+    if not components or not system:
+        return None
+    for slot in ((system.get("stages") or {}) if isinstance(system, Mapping) else {}).values():
+        name = (slot or {}).get("component") if isinstance(slot, Mapping) else None
+        record = components.get(name) if name else None
+        if not record:
+            continue
+        for key, value in (record.get("claims") or {}).items():
+            if str(key).lower() == metric.lower() and isinstance(value, (int, float)):
+                return {"component": name, "value": float(value), "paper": record.get("paper")}
+    return None
+
+
+def claim_text(claim: Optional[Mapping[str, Any]]) -> str:
+    """``0.4560 (Doe et al. 2026)``, or "" when there is no claim."""
+    if not claim:
+        return ""
+    paper = f" ({claim['paper']})" if claim.get("paper") else ""
+    return f"{claim['value']:.4f}{paper}"
+
+
 def model_revisions(names: Iterable[str], cache_dir: Optional[str] = None) -> Dict[str, Any]:
     """``{model: commit or None}``; None means the commit could not be read."""
     return {name: model_revision(name, cache_dir=cache_dir) for name in sorted(set(names))}

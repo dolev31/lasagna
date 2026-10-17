@@ -97,6 +97,28 @@ class UploadError(DocumentError):
         self.stage = stage
 
 
+class DocumentProcessingError(DocumentError):
+    """A document was accepted but could not be indexed.
+
+    Raised by ``client.documents.wait_for_processing`` when processing ends
+    in failure. It used to return the failed document without a word, and
+    the next search failed with a traceback about the embedding model.
+
+    Attributes:
+        document_id: The document that failed
+        filename: Its name
+        reason: Why processing failed, with the fix when there is a known one
+    """
+
+    def __init__(
+        self, message: str, document_id: str = None, filename: str = None, reason: str = None
+    ):
+        super().__init__(message)
+        self.document_id = document_id
+        self.filename = filename
+        self.reason = reason
+
+
 class ChunkingError(DocumentError):
     """Document chunking failed.
 

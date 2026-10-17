@@ -45,7 +45,11 @@ from ._validation import (
 )
 from lasagna.core.tenant import get_tenant_manager
 from lasagna.core.quota import get_quota_manager
-from lasagna.infrastructure.tasks.document_tasks import ProcessingAtCapacity, dispatch_processing
+from lasagna.infrastructure.tasks.document_tasks import (
+    ProcessingAtCapacity,
+    _failure_reason,
+    dispatch_processing,
+)
 
 if TYPE_CHECKING:
     from ._collection_manager import CollectionManager
@@ -130,8 +134,18 @@ class DocumentPipeline:
         _document_processor_override: Any = None,
         refuse_when_busy: bool = False,
         wait_when_busy: float = 0.0,
+        allow_duplicates: bool = False,
     ) -> Document:
         """Upload a document and run it through extraction, chunking and indexing.
+
+        A file whose content is already in the session, ready or still
+        processing, is not uploaded again: the existing document comes back
+        with ``duplicate_of`` set. Rerunning the README's quickstart uploaded
+        its paper once per run, and search returned the same passage once per
+        copy. ``allow_duplicates`` indexes it again anyway. An explicit
+        ``document_id`` or a component override is never deduplicated: the
+        caller then decides what the document is (a reindex, a benchmark
+        corpus, a chunker under test).
 
         Args:
             file_path: Path to the uploaded file
@@ -140,11 +154,33 @@ class DocumentPipeline:
             document_id: Optional explicit document ID. When provided, used
                 instead of generating a random UUID. Useful for benchmark
                 evaluation where corpus doc IDs must match qrels.
+            allow_duplicates: Index the file even when the session already
+                holds the same content.
 
         Returns:
             Document metadata
         """
+        if not (
+            allow_duplicates
+            or document_id is not None
+            or _chunker_override is not None
+            or _document_processor_override is not None
+        ):
+            existing = self._find_same_content(file_path, session_id)
+            if existing is not None:
+                logger.info(
+                    f"{filename or os.path.basename(file_path)} has the same content as "
+                    f"{existing.document_id} in session {session_id}; not uploaded again"
+                )
+                return existing.model_copy(update={"duplicate_of": existing.document_id})
+
         config = self._get_session_config(session_id)
+        # Before anything is stored: a model set without its size, whose size
+        # cannot be read, would make a collection of the wrong size.
+        unknown = getattr(config, "embedding_size_unknown", None)
+        problem = unknown() if callable(unknown) else None
+        if isinstance(problem, str) and problem:
+            raise ValueError(problem)
 
         # Quota enforcement — fast-fail before expensive operations (embedding
         # manager reload, file I/O).  The authoritative atomic reservation
@@ -263,11 +299,15 @@ class DocumentPipeline:
                     _document_processor_override=_document_processor_override,
                 )
             except Exception as e:
-                logger.error(f"Failed to process document {document_id}: {e}")
+                logger.bind(document_failure=document_id).error(
+                    f"Failed to process document {document_id}: {e}"
+                )
                 METRICS.counter("lasagna_ingests", 1, tags={"outcome": "error"})
                 try:
                     self._update_document_status(
-                        document_id, DocumentStatus.ERROR, error_message=str(e)
+                        document_id,
+                        DocumentStatus.ERROR,
+                        error_message=_failure_reason(e, session_id),
                     )
                 except Exception as status_exc:
                     logger.warning(f"Failed to update error status for {document_id}: {status_exc}")
@@ -321,6 +361,48 @@ class DocumentPipeline:
             self.storage.delete(stored_file_path)
         except Exception as exc:
             logger.warning(f"Could not remove the file of refused upload {document_id}: {exc}")
+
+    def _find_same_content(self, file_path: str, session_id: str) -> Optional[Document]:
+        """The session's document with the same bytes as ``file_path``, if any.
+
+        Only documents of the same size are hashed, so an upload to a session
+        of other files reads nothing but its own file. A failed document does
+        not count: uploading again is how it is retried.
+        """
+        import hashlib
+
+        from lasagna.core.database import get_rag_database
+
+        try:
+            size = os.path.getsize(file_path)
+        except OSError:
+            return None
+        candidates = [
+            row
+            for row in get_rag_database().get_documents(session_id)
+            if row.get("file_size") == size
+            and row.get("status") in (DocumentStatus.READY.value, DocumentStatus.PROCESSING.value)
+            and row.get("file_path")
+        ]
+        if not candidates:
+            return None
+
+        def digest(stream) -> str:
+            h = hashlib.sha256()
+            for block in iter(lambda: stream.read(1 << 20), b""):
+                h.update(block)
+            return h.hexdigest()
+
+        with open(file_path, "rb") as f:
+            wanted = digest(f)
+        for row in candidates:
+            try:
+                with self.storage.retrieve(row["file_path"]) as stored:
+                    if digest(stored) == wanted:
+                        return self._get_document_metadata(row["document_id"])
+            except Exception as exc:  # noqa: BLE001 - a missing file is no duplicate
+                logger.debug(f"Could not read {row['document_id']} to compare: {exc}")
+        return None
 
     def _store_file(self, source_path: str, document_id: str, filename: str) -> str:
         """Store uploaded file via the pluggable storage backend.

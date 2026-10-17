@@ -23,7 +23,7 @@ are the first-run model download, which this names explicitly.
 ```bash
 pip install lasagna-rag
 lasagna configure --profile speed -s my-corpus   # 91 MB model, no API key
-for f in ./docs/*.md; do lasagna upload "$f" -s my-corpus; done
+lasagna upload ./docs/*.md -s my-corpus
 ```
 
 Then register the server. **Claude Code** (`.mcp.json` in the project):
@@ -43,11 +43,11 @@ Then register the server. **Claude Code** (`.mcp.json` in the project):
 `lasagna-mcp` speaks stdio, which is how both launch it; `--transport sse`
 serves a port instead.
 
-Tools the agent gets: 31 tools, in six groups.
+Tools the agent gets: 29 tools, in six groups.
 
 | Group | Tools |
 |---|---|
-| Search | `search`, `search_knowledge`, `search_with_context`, `get_document_context` |
+| Search | `search`, `get_document_context` |
 | Documents | `upload_document`, `list_documents`, `delete_document`, `get_document_status`, `get_document_info`, `get_document_chunks` |
 | Lifecycle | `archive_document`, `restore_document`, `bulk_delete_session`, `get_gc_status`, `get_lifecycle_policy`, `set_lifecycle_policy` |
 | Session | `set_focused_documents`, `get_focused_documents`, `clear_session` |
@@ -61,9 +61,7 @@ policy: `delete_document`, `clear_session`, `bulk_delete_session`,
 `set_lifecycle_policy`. Add `"args": ["--tools", "all"]` to the server's entry (or set
 `LASAGNA_MCP_TOOLS=all`) to serve them.
 
-Use `search` for every search. `search_knowledge` and `search_with_context` are
-deprecated aliases of it: they still answer, but are listed only under
-`--tools all`. Use `get_document_context` to learn which documents exist before
+Use `search` for every search. Use `get_document_context` to learn which documents exist before
 searching. `set_focused_documents` narrows every subsequent search to a chosen
 set, which is cheaper and more precise than filtering afterwards.
 
@@ -123,11 +121,11 @@ Work in this order; the first two explain most cases:
 - **Never** put an API key in `.mcp.json` or any committed file. Use the
   environment.
 - The first search downloads a model. On the default profile that is about
-  4.5 GB and 7 to 40 minutes. Say so before a user thinks it has hung.
+  3.1 GB and 7 to 40 minutes. Say so before a user thinks it has hung.
 - **Retrieval itself needs no LLM key, but the shipped default can call one.**
   `use_agentic_rag = true` by default, and the router sends a query it judges
   complex to the agentic path, which calls an LLM; without a key that search
-  fails with "No LLMProvider configured". Run
+  runs the standard pipeline instead and names `agentic` in `degraded_stages`. Run
   `lasagna configure --profile speed` (which turns it off) or set
   `use_agentic_rag = false` for keyless retrieval.
 

@@ -553,6 +553,7 @@ class KnowledgeClient:
         filename: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         document_id: Optional[str] = None,
+        allow_duplicates: bool = False,
     ) -> UploadResult:
         """Upload and index a document.
 
@@ -563,6 +564,9 @@ class KnowledgeClient:
             filename: Optional display name (defaults to original filename)
             metadata: Optional custom metadata
             document_id: Optional explicit document ID for benchmark evaluation
+            allow_duplicates: Index the file even when the session already
+                holds the same content. By default that document is returned
+                instead, with ``duplicate_of`` set.
 
         Returns:
             UploadResult with document_id, chunk_count, status
@@ -577,7 +581,13 @@ class KnowledgeClient:
             print(f"Uploaded: {result.document_id}, {result.chunk_count} chunks")
             ```
         """
-        return await self.documents.upload(file_path, filename, metadata, document_id=document_id)
+        return await self.documents.upload(
+            file_path,
+            filename,
+            metadata,
+            document_id=document_id,
+            allow_duplicates=allow_duplicates,
+        )
 
     async def search_documents(
         self,
@@ -960,7 +970,9 @@ class KnowledgeClient:
             logger.info(f"Waiting for {len(pending)} document(s) to finish processing")
             results = await asyncio.gather(
                 *(
-                    self._document_manager.wait_for_processing(d, timeout=processing_timeout)
+                    self._document_manager.wait_for_processing(
+                        d, timeout=processing_timeout, raise_on_failure=False
+                    )
                     for d in pending
                 ),
                 return_exceptions=True,

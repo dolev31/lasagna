@@ -1132,6 +1132,20 @@ class ComponentRegistry:
     def _listed(store: Dict[str, "_Registration"]) -> List[str]:
         return [name for name, reg in store.items() if not reg.hidden]
 
+    def provenance(self, component_type: str, name: str) -> Dict[str, Any]:
+        """``{"paper", "claims", "version"}`` a component declared, the ones it set.
+
+        Empty for an unknown name or a component that declared none. Resolves
+        nothing.
+        """
+        canonical = _resolve_category(component_type)
+        self._ensure_builtins()
+        reg = self._components.get(canonical, {}).get(name)
+        if reg is None:
+            return {}
+        declared = {"paper": reg.paper, "claims": reg.claims, "version": reg.version}
+        return {key: value for key, value in declared.items() if value}
+
     def is_builtin(self, component_type: str, name: str) -> bool:
         """Whether the package itself registered this name (not a plugin or user)."""
         self._ensure_builtins()

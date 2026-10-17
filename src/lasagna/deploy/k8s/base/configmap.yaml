@@ -70,9 +70,11 @@ data:
   RAG_TRACING_ENDPOINT: "http://otel-collector.observability:4317"
 
   # --- Search quality ---
-  # NOTE: k8s uses bge-large-en-v1.5 (production config) while Docker Compose
-  # defaults to bge-m3 (development). Both are 1024d but produce different
-  # embedding spaces: do NOT mix indices between environments.
+  # bge-large-en-v1.5 (1.3 GB) rather than compose's bge-m3 (2.3 GB): every
+  # gunicorn worker and Celery process loads it, and the pod sizing assumes it.
+  # Same 1024 dimensions, different vectors: each model has its own collection,
+  # so a corpus moved between the stacks is uploaded again. deploy/README.md
+  # ("Why k8s embeds with another model than compose") says how to align them.
   RAG_EMBEDDING_MODEL: "BAAI/bge-large-en-v1.5"
   RAG_EMBEDDING_DIM: "1024"
   RAG_EMBEDDING_BACKEND: "sentence-transformers"

@@ -337,7 +337,8 @@ SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
     "RAG_SESSION_ID": (
         "MCP server",
         "unset",
-        "The session a tool call uses when it names none.",
+        "The session an MCP tool call, or a REST request without X-Session-ID, uses when "
+        "it names none (else default). lasagna serve -s sets it.",
         (),
     ),
     "RAG_MCP_UPLOAD_ROOT": (
@@ -433,7 +434,8 @@ SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
     "LASAGNA_SETTINGS_FILE": (
         "Paths and the process",
         "the packaged settings.lasagna.toml",
-        "The settings file to read instead of the packaged one.",
+        "The settings file to read instead of the packaged one; a path with no file "
+        "there stops the process with an error.",
         ("RAG_SETTINGS_FILE",),
     ),
     "LASAGNA_LLM_CACHE": (
@@ -827,9 +829,17 @@ class RAGConfig:
                     root_path=str(override_path.parent),
                     settings_files=[str(override_path)],
                 )
-            logger.warning(
-                f"Settings file {settings_file_env} (LASAGNA_SETTINGS_FILE or "
-                f"RAG_SETTINGS_FILE) not found; using the packaged settings.lasagna.toml"
+            # It warned and ran on the packaged settings, so a typo in the path
+            # silently ran a different configuration from the one named.
+            name = (
+                "LASAGNA_SETTINGS_FILE"
+                if os.environ.get("LASAGNA_SETTINGS_FILE")
+                else "RAG_SETTINGS_FILE"
+            )
+            raise ConfigError(
+                f"{name} is {settings_file_env}, and no file is there ({override_path}). "
+                f"Point {name} at an existing settings file, or unset it to use the "
+                f"packaged settings.lasagna.toml."
             )
 
         knowledge_toml_path = knowledge_module_dir / "settings.lasagna.toml"
@@ -895,7 +905,9 @@ class RAGConfig:
             # =================================================================
             # Chunking
             # =================================================================
-            "chunking_strategy": "semantic",  # fixed, semantic, recursive, sentence_window
+            # Declared as what runs: with "semantic" here every upload warned
+            # that enable_hierarchical (on, below) overrides it.
+            "chunking_strategy": "hierarchical",  # what runs: enable_hierarchical, then preserve_headers or preserve_tables, override another name
             "chunk_size": 800,
             "chunk_overlap": 0,  # Research: no measurable benefit from overlap (arXiv:2601.14123)
             "semantic_threshold": 0.75,
@@ -1463,9 +1475,58 @@ class RAGConfig:
 
     @property
     def embedding_dim(self) -> int:
-        return self._get_knowledge_setting(
+        """Vector size; an embedding_model set without one brings its own size.
+
+        A model set in a layer above the one ``embedding_dim`` comes from
+        (session over environment over settings file) takes its own size,
+        when that is known (:func:`~lasagna.core.embedding_dims.known_embedding_dim`):
+        ``RAG_EMBEDDING_MODEL=BAAI/bge-small-en-v1.5`` alone kept the settings
+        file's 1024, and every upload failed against a 1024 collection.
+        """
+        configured = self._get_knowledge_setting(
             "rag", "embedding_dim", default=self._config["embedding_dim"]
         )
+        if self._setting_rank("embedding_model") < self._setting_rank("embedding_dim"):
+            from lasagna.core.embedding_dims import known_embedding_dim
+
+            inferred = known_embedding_dim(self.embedding_model)
+            if inferred is not None:
+                return inferred
+        return configured
+
+    def embedding_size_unknown(self) -> Optional[str]:
+        """Why vectors cannot be stored yet: a model set without a size that cannot be read.
+
+        None when ``embedding_dim`` was set with the model, or the model's size
+        is known. Checked before an upload stores anything.
+        """
+        if self._setting_rank("embedding_model") >= self._setting_rank("embedding_dim"):
+            return None
+        from lasagna.core.embedding_dims import known_embedding_dim
+
+        model = self.embedding_model
+        if known_embedding_dim(model) is not None:
+            return None
+        return (
+            f"embedding_model is {model}, but embedding_dim was not set with it and the "
+            f"model's size cannot be read (it is not downloaded). Set embedding_dim with the "
+            f"model (RAG_EMBEDDING_DIM, or KnowledgeConfig(embedding_dim=...)), or download "
+            f"the model first (hf download {model})."
+        )
+
+    def _setting_rank(self, key: str) -> int:
+        """Where ``key`` is set: 1 the query or session, 2 the environment, 3 the settings file, 4 nowhere."""
+        if self._get_session_override("rag", key) is not None:
+            return 1
+        if key in (self._env_overrides or {}):
+            return 2
+        rag = getattr(self._knowledge_settings, "rag", None)
+        if rag is None and isinstance(self._knowledge_settings, dict):
+            rag = self._knowledge_settings.get("rag")
+        present = (key in rag) if isinstance(rag, dict) else hasattr(rag, key)
+        if rag is not None and present:
+            return 3
+        return 4
 
     @property
     def embedding_truncate_dim(self) -> Optional[int]:

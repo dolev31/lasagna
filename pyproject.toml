@@ -367,7 +367,7 @@ asyncio_mode = "auto"
 markers = [
     "integration: requires external services (vector DB, API server)",
     "slow: long-running test",
-    "needs_embedding_weights: loads the configured embedding model; skipped when Hugging Face offline mode is set and no cached copy exists",
+    "needs_embedding_weights(*models): loads the named models (none named: the configured embedding model); skipped when Hugging Face offline mode is set and no cached copy exists",
 ]
 
 [tool.coverage.run]

@@ -154,20 +154,48 @@ def _embedding_weights_cached() -> bool:
     )
 
 
+def _models_cached(names) -> bool:
+    """Whether every named model is in the Hugging Face cache (a bare name is sentence-transformers')."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except Exception:  # noqa: BLE001
+        return False
+
+    def cached(name: str) -> bool:
+        candidates = [name] if "/" in name else [name, f"sentence-transformers/{name}"]
+        return any(isinstance(try_to_load_from_cache(c, "config.json"), str) for c in candidates)
+
+    return all(cached(n) for n in names)
+
+
 def pytest_collection_modifyitems(config, items):
+    """Skip ``needs_embedding_weights`` tests offline when their models are not cached.
+
+    ``@pytest.mark.needs_embedding_weights("all-MiniLM-L6-v2", ...)`` names the
+    models the test loads; without names it means the configured embedding
+    model. Online (CI's weights job) nothing is skipped: a model that cannot
+    load fails its test there.
+    """
     if not _hf_offline():
-        return
-    marked = [item for item in items if item.get_closest_marker("needs_embedding_weights")]
-    if not marked or _embedding_weights_cached():
         return
     import pytest
 
-    skip = pytest.mark.skip(
-        reason="loads the configured embedding model; Hugging Face offline mode is set "
-        "and no cached copy was found"
-    )
-    for item in marked:
-        item.add_marker(skip)
+    configured = None
+    for item in items:
+        marker = item.get_closest_marker("needs_embedding_weights")
+        if marker is None:
+            continue
+        if marker.args:
+            if _models_cached(marker.args):
+                continue
+            reason = f"loads {', '.join(marker.args)}; Hugging Face offline mode is set and "
+        else:
+            if configured is None:
+                configured = _embedding_weights_cached()
+            if configured:
+                continue
+            reason = "loads the configured embedding model; Hugging Face offline mode is set and "
+        item.add_marker(pytest.mark.skip(reason=reason + "no cached copy was found"))
 
 
 @pytest.fixture(autouse=True)

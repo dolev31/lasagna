@@ -21,6 +21,12 @@ MODEL_WEIGHT_BYTES = {
     "mixedbread-ai/mxbai-rerank-large-v1": 870_174_306,
 }
 
+#: What FlagEmbedding adds for BAAI/bge-m3 (the ``flag-embedding`` extra, which
+#: ``all`` includes): it downloads the model's whole repository, ONNX export
+#: included (``onnx/model.onnx_data`` and ``onnx/model.onnx``, read from the Hub
+#: on 2026-10-17). Without it sentence-transformers fetches the PyTorch weights only.
+BGE_M3_ONNX_BYTES = 2_266_820_608 + 724_923
+
 
 def human_size(n_bytes: int) -> str:
     """``91 MB``, ``2.3 GB``: decimal units, as download pages show them."""
@@ -119,14 +125,20 @@ def llm_key_hint() -> str:
     return first + second + " Set OPENAI_API_KEY (or your provider's variable)."
 
 
-def model_cache_hint() -> str:
-    """What ``doctor`` says before anything is downloaded: how much, and the lighter choice."""
+def model_cache_hint(models: Optional[List[str]] = None, session_id: str = "default") -> str:
+    """What ``doctor`` says before anything is downloaded: how much, and the lighter choice.
+
+    ``models`` are the ones still to download (default: the default
+    configuration's embedder and reranker).
+    """
     from lasagna.core.config import rag_config
 
-    models = [rag_config.embedding_model]
-    if rag_config.enable_reranking:
-        models.append(rag_config.reranker_model)
-    hint = f"The first search on {DEFAULT_CONFIGURATION} {download_text(models)}."
+    if models is None:
+        models = [rag_config.embedding_model]
+        if rag_config.enable_reranking:
+            models.append(rag_config.reranker_model)
+    where = DEFAULT_CONFIGURATION if session_id == "default" else f"session {session_id!r}"
+    hint = f"The first search on {where} {download_text(models)}."
     light = keyless_profiles()
     if light:
         hint += (
@@ -152,18 +164,6 @@ def download_text(models: List[str]) -> str:
     if unknown:
         text += ("; " if known else " ") + ", ".join(unknown) + " (size not recorded)"
     return text
-
-
-def api_key_problem(name: str, value: Optional[str]) -> Optional[str]:
-    """Why ``value`` cannot be saved as ``name``, or None when it can."""
-    if not value or not value.strip():
-        return (
-            f"{name} cannot be empty. Paste the key, or choose "
-            f"'None, search only' to set up without an LLM."
-        )
-    if any(ch.isspace() for ch in value.strip()):
-        return f"{name} contains a space or a line break; paste only the key."
-    return None
 
 
 def doctor_context(session_id: str = "default") -> List[Tuple[str, str]]:

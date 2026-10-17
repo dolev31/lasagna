@@ -51,6 +51,9 @@ def fake_st(monkeypatch):
     monkeypatch.setattr(manager_mod, "SentenceTransformer", _FakeST)
     monkeypatch.setattr(manager_mod, "SENTENCE_TRANSFORMERS_AVAILABLE", True)
     monkeypatch.setattr(manager_mod.EmbeddingManager, "_resolve_local_snapshot", lambda s, m: m)
+    # The fake stands in for models on disk and decides itself which fail to
+    # load; offline mode (set for the suite) must not refuse them first.
+    monkeypatch.setattr(manager_mod.model_downloads, "is_cached", lambda model: True)
     return _FakeST
 
 

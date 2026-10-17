@@ -12,6 +12,17 @@
             "title": "Document Id",
             "type": "string"
           },
+          "duplicate_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Of"
+          },
           "error": {
             "anyOf": [
               {
@@ -83,6 +94,11 @@
       },
       "Body_upload_document_api_v1_documents_post": {
         "properties": {
+          "allow_duplicates": {
+            "default": false,
+            "title": "Allow Duplicates",
+            "type": "boolean"
+          },
           "document_id": {
             "anyOf": [
               {
@@ -1522,6 +1538,13 @@
             "title": "Checks",
             "type": "object"
           },
+          "degraded": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Degraded",
+            "type": "array"
+          },
           "failing": {
             "items": {
               "type": "string"
@@ -2331,6 +2354,17 @@
           "document_id": {
             "title": "Document Id",
             "type": "string"
+          },
+          "duplicate_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Of"
           },
           "file_size": {
             "title": "File Size",
@@ -5297,7 +5331,7 @@
         ]
       },
       "post": {
-        "description": "Upload and index a document.\n\nAccepts any supported file type (PDF, DOCX, TXT, MD, CSV, JSON,\nHTML, XML).  The document is chunked, embedded, and indexed into\nthe vector store.",
+        "description": "Upload and index a document.\n\nAccepts any supported file type (PDF, DOCX, TXT, MD, CSV, JSON,\nHTML, XML).  The document is chunked, embedded, and indexed into\nthe vector store. A file whose content the session already holds is\nnot uploaded again: the response names that document in\n``duplicate_of``. ``allow_duplicates=true`` indexes it anyway.",
         "operationId": "upload_document_api_v1_documents_post",
         "parameters": [
           {
@@ -6623,7 +6657,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "description": "Full health check: reports dependency status but always returns 200.\n\nUse this for dashboards and monitoring; use ``/health/ready`` for\norchestrator probes that need to remove unhealthy instances.",
+        "description": "Detailed status: the component states readiness checks, always with 200.\n\nFor dashboards and monitoring; ``/health/ready`` is the probe that\nanswers 503 when a component is failing.",
         "operationId": "full_health_api_v1_health_get",
         "responses": {
           "200": {
@@ -6767,7 +6801,7 @@
     },
     "/api/v1/health/ready": {
       "get": {
-        "description": "Readiness probe: can this instance handle requests?\n\nPings the vector store, the metadata database (Postgres or SQLite) and,\nwhen this instance uses it, Redis, each with a 2 s timeout. Returns 503\nnaming every dependency that did not answer in ``failing``, so a load\nbalancer stops routing here and an operator sees which one.",
+        "description": "Readiness probe: can this instance handle requests?\n\nChecks the served session's embedding model and pings the vector store,\nthe metadata database (Postgres or SQLite) and, when this instance uses\nit, Redis, each with a 2 s timeout. Returns 503 naming every failing\ncomponent in ``failing``, so a load balancer stops routing here and an\noperator sees which one. Redis down is ``degraded``: answered with 200.",
         "operationId": "readiness_api_v1_health_ready_get",
         "responses": {
           "200": {
@@ -6828,7 +6862,7 @@
                 }
               }
             },
-            "description": "A dependency is down"
+            "description": "A component is failing"
           }
         },
         "summary": "Readiness",

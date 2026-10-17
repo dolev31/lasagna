@@ -9,9 +9,8 @@ enhancer or agentic pipeline) rather than changes to the core.
 ```bash
 git clone https://github.com/dolev31/lasagna && cd lasagna
 
-# Use uv. `pip install -e ".[all]"` backtracks for over fifteen minutes without
-# converging (CHANGELOG, "Known issues"). The constraint set is
-# satisfiable; it is a resolver search failure, and uv solves it in seconds.
+# Use uv: pip takes about two minutes to resolve ".[all]" (measured with
+# pip 26.2), uv a few seconds.
 uv pip install -e ".[all]" --group dev
 
 pre-commit install
@@ -37,8 +36,8 @@ touches your real `~/.lasagna` store. `tests/live/` needs services running
 ## Adding a component
 
 Implement the stage's base class and register it. Declaring `paper` and `claims`
-is encouraged: it lets result tables show the published number beside the
-reproduced one.
+is encouraged: a run records them, and its leaderboards (terminal, markdown,
+LaTeX) and `results view` show the published number beside the reproduced one.
 
 ```python
 from lasagna.core.registry import registry

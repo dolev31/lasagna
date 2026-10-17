@@ -225,6 +225,22 @@ class SemanticChunker:
             pos = start + len(sentence)
         return starts
 
+    @staticmethod
+    def _source_text(text: str, start: int, end: int, joined: str) -> Tuple[str, int, int]:
+        """A chunk's content as the source has it, and its span.
+
+        Sentences joined with single spaces rewrote the source: "**Is the
+        widget free?** Yes" became "**Is the widget free? ** Yes", and line
+        breaks became spaces. The slice from the first sentence's start to the
+        last one's end is the source text; it is used when it holds the same
+        characters as the joined sentences, whitespace aside (a tokenizer that
+        changed a sentence keeps the joined text).
+        """
+        sliced = text[start:end]
+        if "".join(sliced.split()) == "".join(joined.split()):
+            return sliced, start, end
+        return joined.strip(), start, end
+
     def chunk_semantic(
         self,
         text: str,
@@ -259,7 +275,11 @@ class SemanticChunker:
             return []
 
         if len(sentences) == 1:
-            return [Chunk(content=sentences[0], chunk_index=0)]
+            start = max(text.find(sentences[0]), 0)
+            content, start, end = self._source_text(
+                text, start, start + len(sentences[0]), sentences[0]
+            )
+            return [Chunk(content=content, chunk_index=0, start_char=start, end_char=end)]
 
         # Get embeddings for all sentences
         logger.debug(f"Computing embeddings for {len(sentences)} sentences")
@@ -295,13 +315,15 @@ class SemanticChunker:
             if should_split or i == len(sentences) - 1:
                 chunk_text = " ".join(current_chunk)
                 if chunk_text.strip():
-                    chunk_end_char = sentence_starts[i] + len(sentences[i])
+                    content, start, end = self._source_text(
+                        text, current_start, sentence_starts[i] + len(sentences[i]), chunk_text
+                    )
                     chunks.append(
                         Chunk(
-                            content=chunk_text.strip(),
+                            content=content,
                             chunk_index=len(chunks),
-                            start_char=current_start,
-                            end_char=chunk_end_char,
+                            start_char=start,
+                            end_char=end,
                         )
                     )
                 # Next chunk starts after this sentence's end in the original text
@@ -423,6 +445,9 @@ class SemanticChunker:
         chunks = []
         start = 0
         text_length = len(text)
+        # Where the last chunk's window began: the loop guard below reads it,
+        # and a chunk's start_char is the stripped text's start, which can be later.
+        last_window = None
 
         while start < text_length:
             end = start + chunk_size
@@ -438,21 +463,26 @@ class SemanticChunker:
                         end = search_start + last_break + len(delimiter)
                         break
 
-            chunk_content = text[start:end].strip()
+            raw = text[start:end]
+            chunk_content = raw.strip()
             if chunk_content:
+                # The span of the stripped text, inside the source: end could
+                # pass the end of the text (a 233-character text gave 0-500).
+                first = start + len(raw) - len(raw.lstrip())
                 chunks.append(
                     Chunk(
                         content=chunk_content,
                         chunk_index=len(chunks),
-                        start_char=start,
-                        end_char=end,
+                        start_char=first,
+                        end_char=first + len(chunk_content),
                     )
                 )
+                last_window = start
 
             # Move with overlap
             start = end - overlap
             # Prevent backward movement (infinite loop guard)
-            if chunks and start <= chunks[-1].start_char:
+            if last_window is not None and start <= last_window:
                 start = end
 
         logger.info(f"Fixed chunking: {text_length} chars -> {len(chunks)} chunks")
@@ -663,14 +693,23 @@ class StructureAwareChunker:
                 # Chunk remaining text
                 text_chunks = self.semantic_chunker.chunk_semantic_configured(section_text)
 
+                # Spans are found in the section as written: with its tables
+                # taken out, the chunked copy's positions no longer matched it.
+                cursor = 0
                 for chunk in text_chunks:
                     if self.RULE_ONLY_PATTERN.fullmatch(chunk.content):
                         continue
                     chunk.chunk_index = len(chunks)
                     chunk.section_header = current_header
                     chunk.page_number = page_number
-                    chunk.start_char += section_offset
-                    chunk.end_char += section_offset
+                    found = section["content"].find(chunk.content, cursor)
+                    if found >= 0:
+                        chunk.start_char = section_offset + found
+                        chunk.end_char = chunk.start_char + len(chunk.content)
+                        cursor = found + len(chunk.content)
+                    else:
+                        chunk.start_char += section_offset
+                        chunk.end_char += section_offset
                     chunks.append(chunk)
 
         logger.info(f"Structure-aware chunking: {len(chunks)} chunks")
@@ -694,22 +733,18 @@ class StructureAwareChunker:
         for match in self.HEADER_PATTERN.finditer(outside_code):
             # Add content before this header
             if match.start() > current_pos:
-                content = text[current_pos : match.start()].strip()
+                content, start = _stripped_at(text, current_pos, match.start())
                 if content:
-                    sections.append(
-                        {"content": content, "header": current_header, "start": current_pos}
-                    )
+                    sections.append({"content": content, "header": current_header, "start": start})
 
             current_header = match.group(2).strip()
             current_pos = match.end()
 
         # Add remaining content
         if current_pos < len(text):
-            content = text[current_pos:].strip()
+            content, start = _stripped_at(text, current_pos, len(text))
             if content:
-                sections.append(
-                    {"content": content, "header": current_header, "start": current_pos}
-                )
+                sections.append({"content": content, "header": current_header, "start": start})
 
         return sections if sections else [{"content": text, "header": None, "start": 0}]
 
@@ -723,15 +758,14 @@ class StructureAwareChunker:
 
         # Capture any leading text before the first marker
         if matches[0].start() > 0:
-            preface = text[: matches[0].start()].strip()
+            preface, first = _stripped_at(text, 0, matches[0].start())
             if preface:
-                sections.append({"content": preface, "page_number": None, "start": 0})
+                sections.append({"content": preface, "page_number": None, "start": first})
 
         for i, match in enumerate(matches):
             page_number = int(match.group(1))
-            start = match.end()
             end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-            content = text[start:end].strip()
+            content, start = _stripped_at(text, match.end(), end)
             if content:
                 sections.append(
                     {
@@ -763,7 +797,7 @@ class StructureAwareChunker:
                     section_header=header,
                     page_number=page,
                     start_char=match.start(),
-                    end_char=match.end(),
+                    end_char=match.start() + len(table_content.strip()),
                 )
             )
 
@@ -775,6 +809,12 @@ class StructureAwareChunker:
             )
 
         return remaining_text.strip(), table_chunks
+
+
+def _stripped_at(text: str, start: int, end: int) -> Tuple[str, int]:
+    """``text[start:end]`` stripped, and where the stripped text starts in ``text``."""
+    raw = text[start:end]
+    return raw.strip(), start + len(raw) - len(raw.lstrip())
 
 
 #: (requested, effective) chunking pairs already warned about in this process.

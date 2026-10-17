@@ -84,6 +84,7 @@ class RemoteUploadResult:
     file_size: int = 0
     status: str = "ready"
     chunk_count: int = 0
+    duplicate_of: Optional[str] = None
 
     @property
     def chunks_count(self) -> int:
@@ -305,6 +306,7 @@ class RemoteRAGBackend:
         session_id: Optional[str] = None,
         filename: Optional[str] = None,
         document_id: Optional[str] = None,
+        allow_duplicates: bool = False,
     ) -> RemoteUploadResult:
         """Upload a document via REST API (async).
 
@@ -327,6 +329,8 @@ class RemoteRAGBackend:
                 data = {}
                 if document_id is not None:
                     data["document_id"] = document_id
+                if allow_duplicates:
+                    data["allow_duplicates"] = "true"
                 resp = await self._client.post(
                     self._api("/documents"),
                     files=files,
@@ -345,6 +349,7 @@ class RemoteRAGBackend:
             file_size=data.get("file_size", 0),
             status=data.get("status", "ready"),
             chunk_count=data.get("chunks_count", 0),
+            duplicate_of=data.get("duplicate_of"),
         )
 
     async def _async_search(
@@ -436,13 +441,16 @@ class RemoteRAGBackend:
         session_id: Optional[str] = None,
         filename: Optional[str] = None,
         document_id: Optional[str] = None,
+        allow_duplicates: bool = False,
     ) -> RemoteUploadResult:
         """Upload a document via REST API (sync).
 
         This is the sync interface called by ``DocumentManager``.
         """
         return self._run_sync(
-            self._async_upload_document(file_path, session_id, filename, document_id)
+            self._async_upload_document(
+                file_path, session_id, filename, document_id, allow_duplicates
+            )
         )
 
     def search(

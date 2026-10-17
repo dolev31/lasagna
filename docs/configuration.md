@@ -98,7 +98,10 @@ five: `default`, which is the settings file as it stands, and four presets.
 The sizes are the model weights, which `lasagna init` also prints. With query
 routing on, each query is classified by rules: a short factual one runs vector
 search only, most run the profile's pipeline, and one judged complex goes to the
-agentic loop, which calls an LLM and fails without an API key. `speed` is the
+agentic loop, which calls an LLM. Without an API key such a query runs the
+profile's pipeline instead, and the result names `agentic` in
+`degraded_stages`; the MCP `search` tool does the same for a session that sends
+every query to the agentic loop. `speed` is the
 profile that never calls an LLM and downloads no large model. A benchmark run
 picks its profile with
 `lasagna benchmark run --profile`, or `base_profile:` in a sweep file, and
@@ -141,6 +144,11 @@ each model writes to a collection of its own, named
 `rag_documents_v2__<model>__<dimensions>`, for example
 `rag_documents_v2__all_minilm_l6_v2__384` for the `speed` profile.
 
+- Setting `embedding_model` without `embedding_dim` (in the environment, a
+  session or `KnowledgeConfig`) uses that model's own size, read from a table
+  of common models or from the model's files in the Hugging Face cache. When
+  neither has it, an upload is refused before anything is stored, naming the
+  setting to add.
 - Sessions on the same model share its collection, and each session sees only
   its own documents in it.
 - Switching a session to a profile with another model makes it search that

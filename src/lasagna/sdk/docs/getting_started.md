@@ -53,7 +53,7 @@ asyncio.run(main())
 pip install lasagna-rag
 ```
 
-**Prerequisites:** Set one LLM API key in your environment. The SDK picks the provider from whichever key it finds (the platforms and their default models are in `providers/llm_provider.py`, `SUPPORTED_PLATFORMS`):
+**An LLM API key is optional.** Upload and retrieval need none on the `speed` profile (`config=config_for_speed()`). A key is needed for generating answers, for LLM components (HyDE, query expansion, LLM rerankers), and for the agentic loop the other profiles send complex queries to (without one, those queries run the standard pipeline). The SDK picks the provider from whichever key it finds (the platforms and their default models are in `providers/llm_provider.py`, `SUPPORTED_PLATFORMS`):
 
 ```bash
 # Any ONE of these is sufficient:

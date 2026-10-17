@@ -445,6 +445,8 @@ class UploadResult:
         chunk_count: Number of chunks created
         processing_time_ms: Processing duration
         message: Status message
+        duplicate_of: Set when the session already held this content: the
+            document that holds it, which is what was returned
     """
 
     document_id: str
@@ -454,6 +456,7 @@ class UploadResult:
     processing_time_ms: float
     message: str = ""
     error: Optional[str] = None
+    duplicate_of: Optional[str] = None
 
     @property
     def success(self) -> bool:

@@ -198,6 +198,9 @@ if TYPE_CHECKING:
     from .standalone import create_rag_backend
     from .vector_backends import VectorStoreAdapter, register_backend
 
+# Only the block above needs it; left in the namespace it was `lasagna.TYPE_CHECKING`.
+del TYPE_CHECKING
+
 
 def __getattr__(name: str):
     if name in _LAZY_IMPORTS:

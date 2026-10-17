@@ -158,33 +158,62 @@ def _check_llm_sampling() -> Optional[Check]:
     return Check("llm_sampling", _WARN, note)
 
 
-def _check_model_cache() -> Check:
+def _check_model_cache(session_id: str = "default") -> Check:
     """Whether the first search will trigger a multi-gigabyte download.
 
-    This is the single most common 'it hangs' report. It is not a hang.
+    This is the single most common 'it hangs' report. It is not a hang. The
+    models checked are the session's own (its embedder, and its reranker when
+    reranking is on): it counted the cache's folders and said "ok, 4 model(s)
+    cached" while the profile's models were not among them.
     """
-    home = os.environ.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface")
-    hub = os.path.join(home, "hub")
-    if not os.path.isdir(hub):
-        from .setup_text import model_cache_hint
+    from .config import rag_config
+    from .model_downloads import is_cached
+    from .setup_text import model_cache_hint
 
-        return Check("model_cache", _WARN, "no Hugging Face cache found", model_cache_hint())
-    try:
-        entries = [e for e in os.listdir(hub) if e.startswith("models--")]
-    except OSError:
-        entries = []
-    if not entries:
-        return Check(
-            "model_cache",
-            _WARN,
-            "cache exists but holds no models",
-            "The first search will download the embedding model.",
-        )
-    return Check("model_cache", _OK, f"{len(entries)} model(s) cached")
+    config = rag_config.with_session(session_id)
+    models = [config.embedding_model]
+    if config.enable_reranking:
+        models.append(config.reranker_model)
+    models = [m for m in dict.fromkeys(models) if m]
+    missing = [m for m in models if not is_cached(m)]
+    if not missing:
+        return Check("model_cache", _OK, f"cached for session {session_id!r}: {', '.join(models)}")
+    return Check(
+        "model_cache",
+        _WARN,
+        f"not downloaded for session {session_id!r}: {', '.join(missing)}",
+        model_cache_hint(missing, session_id),
+    )
 
 
 #: The vector stores Lasagna ships an adapter for (``vector_backends/``).
 _BUILTIN_VECTOR_BACKENDS = ("milvus", "pgvector", "qdrant", "weaviate", "pinecone", "opensearch")
+
+
+def unknown_vector_backend(name: str) -> Optional[Tuple[str, str]]:
+    """``(what, advice)`` when ``name`` is no built-in or plugin vector backend, else None.
+
+    Plugins (``lasagna_vector_*`` packages) are discovered only for a name that
+    is not built in.
+    """
+    if name in _BUILTIN_VECTOR_BACKENDS:
+        return None
+    known = set(_BUILTIN_VECTOR_BACKENDS)
+    try:
+        from lasagna.vector_backends.registry import discover_backends, get_registry
+
+        discover_backends()
+        known |= set(get_registry().list_backends())
+    except Exception:  # noqa: BLE001 - a broken plugin must not hide the answer
+        pass
+    if name in known:
+        return None
+    from ._text import did_you_mean
+
+    return (
+        f"unknown backend {name!r}{did_you_mean(name, known)}",
+        f"set RAG_VECTOR_BACKEND to one of: {', '.join(sorted(known))}",
+    )
 
 
 def _check_vector_backend() -> Check:
@@ -195,25 +224,10 @@ def _check_vector_backend() -> Check:
     except Exception as exc:  # pragma: no cover - config import is exercised elsewhere
         return Check("vector_backend", _FAIL, f"could not read config: {exc}")
 
-    if name not in _BUILTIN_VECTOR_BACKENDS:
-        # A typo ("milvuss") was reported as "ok", and the first upload failed.
-        known = set(_BUILTIN_VECTOR_BACKENDS)
-        try:
-            from lasagna.vector_backends.registry import discover_backends, get_registry
-
-            discover_backends()  # plugins: lasagna_vector_* packages
-            known |= set(get_registry().list_backends())
-        except Exception:  # noqa: BLE001 - a broken plugin must not hide the answer
-            pass
-        if name not in known:
-            from ._text import did_you_mean
-
-            return Check(
-                "vector_backend",
-                _FAIL,
-                f"unknown backend {name!r}{did_you_mean(name, known)}",
-                f"set RAG_VECTOR_BACKEND to one of: {', '.join(sorted(known))}",
-            )
+    # A typo ("milvuss") was reported as "ok", and the first upload failed.
+    unknown = unknown_vector_backend(name)
+    if unknown is not None:
+        return Check("vector_backend", _FAIL, *unknown)
 
     module = {"milvus": "pymilvus", "qdrant": "qdrant_client", "chroma": "chromadb"}.get(name)
     if module and not _installed(module):
@@ -265,7 +279,8 @@ def _check_plugins() -> List[Check]:
         return [Check("plugins", _OK, "no third-party plugins installed")]
 
     loaded = [e for e in entries if e.get("ok")]
-    checks = [Check("plugins", _OK, f"{len(loaded)}/{len(entries)} entry point(s) loaded")]
+    noun = "entry point" if len(entries) == 1 else "entry points"
+    checks = [Check("plugins", _OK, f"{len(loaded)} of {len(entries)} {noun} loaded")]
     for entry in entries:
         if entry.get("ok"):
             continue
@@ -328,8 +343,11 @@ def _check_gh_cli() -> Check:
     )
 
 
-def diagnose(*, check_gh: bool = True) -> Diagnosis:
-    """Run every check and return a redacted, serialisable result."""
+def diagnose(*, check_gh: bool = True, session_id: str = "default") -> Diagnosis:
+    """Run every check and return a redacted, serialisable result.
+
+    ``session_id`` is the session whose models the cache check looks for.
+    """
     from .provenance import capture, redact
 
     env = capture()
@@ -338,7 +356,7 @@ def diagnose(*, check_gh: bool = True) -> Diagnosis:
         _check_writable_dirs(),
         _check_llm_credentials(env),
         *filter(None, [_check_llm_sampling()]),
-        _check_model_cache(),
+        _check_model_cache(session_id),
         _check_accelerator(env),
         *_check_optional_extras(),
         *_check_plugins(),

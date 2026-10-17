@@ -162,7 +162,8 @@ Servers and deployment:
 - Every log line written during a request carries its request id, and
   `LASAGNA_LOG_FORMAT=json` writes one JSON object per line.
 - `GET /api/v1/health/ready` pings the vector store, the database and Redis,
-  each with a 2 s timeout, and lists what did not answer in `failing`.
+  each with a 2 s timeout, and lists what did not answer in `failing` (Redis,
+  which the cache, rate limits and uploads fall back from, in `degraded`).
 - `/api/v1` and the MCP tool schemas are under the deprecation policy in
   `GOVERNANCE.md`, recorded in `tests/snapshots/openapi.json` and
   `tests/snapshots/mcp_tools.json`. Errors are documented as `ErrorResponse`.
@@ -187,8 +188,10 @@ Documentation and examples:
   check and a validated bundle. No API key.
 - **A BEIR reproduction**, `examples/reproduction/`: BM25, two dense models,
   hybrid RRF and BM25 with a cross-encoder on the full SciFact and NFCorpus test
-  sets. The dense models land within 0.002 NDCG@10 of MTEB, BM25 with the
-  cross-encoder within 0.004 of the BEIR paper, BM25 within 0.008.
+  sets. The dense models land within 0.002 NDCG@10 of MTEB and BM25 with the
+  cross-encoder within 0.004 of the BEIR paper; BM25 is 0.015 and 0.005 below
+  Anserini's single-field BM25, the like-for-like run (0.008 below BEIR's
+  multifield one).
 - A terminal demo, `docs/assets/demo.gif`, regenerated from a real run by
   `docs/assets/demo/record.sh`.
 - `examples/acceptance/offline_demo.py` takes the features above through the
@@ -442,8 +445,6 @@ Each of these still works in 0.1.x, says so when used, and is removed in 0.2.0.
 - `lasagna benchmark compare` and `lasagna benchmark leaderboard`: use
   `lasagna results compare` and `lasagna results leaderboard`.
 - `lasagna results interaction --bootstrap`: use `--resamples`.
-- The MCP tools `search_knowledge` and `search_with_context`: use `search`.
-  They still answer, but are listed only under `--tools all`.
 
 ### Fixed
 
@@ -648,6 +649,62 @@ Results tooling:
 - **The short-list warning blamed the wrong setting.** It told users to raise
   `retrieval_chunk_overfetch` even when BM25 had simply run out of documents
   matching a one- or two-word query; it names the cause.
+- **Claimed numbers never reached a results table.** The README and
+  CONTRIBUTING promise that a component's `claims` let a table show the
+  claimed number beside the reproduced one; nothing did, and a sweep naming
+  `my_ideas:longer_first` re-registered the function without the claims its
+  decorator declared. A run records each component's paper and claims
+  (`components` in its metadata and bundle), and the leaderboard
+  `benchmark experiment` prints, `results leaderboard` in markdown and LaTeX,
+  and `results view` show the claim and its paper beside the measured value.
+- **The stage isolation proof mostly skipped.** `pytest -rs
+  tests/test_stage_isolation_behavioural.py` skipped 17 cases: the
+  cross-encoder, combined and MMR rerankers and the semantic and
+  structure-aware chunkers tried their gigabyte defaults offline, and the LLM
+  components had no LLM. They run with cross-encoder/ms-marco-TinyBERT-L-2-v2
+  and all-MiniLM-L6-v2 through config overrides, or a stub LLM, and fail
+  rather than skip when they cannot run. `needs_embedding_weights` can name
+  the models a test loads, so CI's weights job runs these and the offline
+  job skips them only when the models are not cached. Four stay skipped,
+  each naming why: colbert (colbertv2.0, 440 MB), monot5 (990 MB), cohere
+  (its API) and flashrank (its package).
+- **A dataset missing offline failed in every task.** With SciFact not
+  cached and offline mode on, the Colab example printed the dataset error once
+  per arm and again in the failed-task list, then a green "Experiment
+  Complete ... Failed: 3" box and a "Next:" command. A run checks once, before
+  any task, that each benchmark's Hugging Face data is cached when offline
+  mode is on, and stops with one error naming the benchmark and the fix. When
+  every task fails, the summary box is red, says so, and prints no "Next:".
+- `benchmark run ./my.jsonl` no longer warns that your own file is "an easier
+  task than the published benchmark", names its results folder by the file's
+  stem (`benchmark_my_<time>`, not `benchmark_._my.jsonl_<time>`), and says
+  "1 run", "embedded in 0.4 s" and "latency: 0.42 ms" instead of "1 run(s)",
+  "0.0 min" and "0.0 ms". `validate-data` on data nothing can be measured on
+  is one error with exit 1; it printed "valid jsonl data" first. A factorial
+  with an inert arm prints the isolation verdict before the inert line.
+  `component validate cross_encoder` checks the registered component, with a
+  likely name for a typo; it was refused as not being module:function.
+- `lasagna status` without `-s` said "No documents uploaded yet." while
+  another session held documents, and took about 7 s without a server. It
+  names the sessions with documents and how to show one, and reads the
+  metadata database directly, opening the vector store only when a document
+  could predate per-model collections (0.3 s).
+- `lasagna doctor` said "ok, 4 model(s) cached" while the profile's own models
+  were not downloaded. It checks the session's embedder and reranker (`-s`
+  picks the session) and names any that are missing, with their sizes.
+- **Chunks rewrote their text and pointed at the wrong place.** The semantic
+  and structure-aware chunkers joined sentences with single spaces, so
+  "**Is the widget free?** Yes" came back as "**Is the widget free? ** Yes"
+  and paragraph breaks as spaces; spans counted stripped whitespace, ran
+  past the text (0-500 for 233 characters), or were missing for a
+  one-sentence text. A chunk is now the source text at the span it reports.
+  The places where text is split are unchanged, and so is every benchmark
+  number (the BERT-family tokenizers the benchmarks use ignore the
+  whitespace that changed).
+- Every upload on the default profile warned that `chunking_strategy='semantic'`
+  was overridden and `hierarchical` would run. The settings file and the
+  built-in defaults declare `hierarchical`, which is what runs with
+  `enable_hierarchical` on, as the presets already declare theirs.
 
 First run:
 
@@ -695,8 +752,7 @@ First run:
 - `lasagna status` names a pre-0.1.0 collection that no configured model
   reads, and how to search it again.
 - `lasagna init` states what each profile downloads (91 MB for `speed`,
-  3.1 GB for `standard`), asks again for an empty or broken API key, and no
-  longer cuts its title box off.
+  3.1 GB for `standard`), and no longer cuts its title box off.
 - **Another project's credentials leaked in.** pymilvus loads the nearest
   `.env` when imported: from a virtualenv inside a project, that project's
   keys appeared in `os.environ` and provider auto-detection used them. Lasagna
@@ -718,6 +774,93 @@ First run:
   currently not supported in MacOs." It concerns torchelastic workers, which
   Lasagna never starts. Importing `lasagna` drops that one message from that
   one torch logger; other torch warnings still show.
+- **The Python quickstart failed silently offline, then hung.** On the
+  default profile with BGE-M3 not downloaded and `HF_HUB_OFFLINE` set,
+  `wait_for_processing` returned the failed document without a word, the
+  search after it failed with a traceback, and Python then waited about 58 s
+  to exit while the worker retried the missing model twice, 30 s apart.
+  `wait_for_processing` raises `DocumentProcessingError` with the reason and
+  the fix (`raise_on_failure=False` returns the document instead); a model
+  that is not downloaded while offline is refused before any load is tried; a
+  missing model, a missing or unreadable file, a missing package and a
+  rejected credential are not retried; a document stays "processing" between
+  retries instead of reading as failed; and a pending retry no longer holds
+  the interpreter at exit. `lasagna upload` in the same state took 67 s and
+  printed three ERROR lines after its own; it prints one error with the fix
+  after about 10 s.
+- **Rerunning the quickstart duplicated the corpus.** Each run uploaded
+  paper.pdf again into the same session, `lasagna status` listed every copy,
+  and search returned the same passage once per copy. An upload whose bytes
+  the session already holds (ready or processing) returns that document with
+  `duplicate_of` set, from the SDK, the CLI ("Already uploaded"), REST and
+  MCP; `allow_duplicates=True`, `lasagna upload --force` or the REST form
+  field `allow_duplicates=true` index it again. Uploads with an explicit
+  `document_id` (reindex, benchmark corpora) or a component override are
+  never deduplicated. Search also returns a chunk at most once.
+- **Setting only `embedding_model` broke ingestion.**
+  `KnowledgeConfig(embedding_model="BAAI/bge-small-en-v1.5")` (or
+  `RAG_EMBEDDING_MODEL` alone) kept the settings file's 1024 dimensions: the
+  store refused the 384-dimension vectors with a pymilvus traceback, the
+  document failed and search returned nothing. A model set without its size
+  takes its own, from a table of common models or its files in the Hugging
+  Face cache; when neither knows it, the upload is refused before anything is
+  stored, naming `embedding_dim`.
+- **The CLI ignored environment variables.** `RAG_ENABLE_RERANKING=false
+  lasagna status` still listed reranking, and `RAG_EMBEDDING_MODEL=...
+  lasagna upload` embedded with BGE-M3: the CLI passed the default profile's
+  stored snapshot of the settings file to its client as explicit settings,
+  which beat the environment and were saved over the session. Every command
+  now resolves session, environment, settings file and defaults in the order
+  docs/configuration.md gives, and `status` and the `serve` banner print the
+  settings a search on that session runs with.
+- **`lasagna init` wrote an API key Lasagna then did not read.** It saved
+  OPENAI_API_KEY to ./.env (readable by everyone), said Lasagna reads no
+  other key from .env, and `doctor` reported no key. It no longer asks for or
+  writes a key: it says which variable to export, and that `doctor` will see
+  it. The "Cloud API" embedding question is gone (nothing read its answer;
+  the profile chooses the model), the summary names the profile's model,
+  which is what `status` shows, and each provider is labeled with the model
+  Lasagna calls by default (it read "OpenAI (GPT-4o)").
+- **The README's `serve --mcp` could not search.** Every MCP tool call over
+  `/mcp/sse` answered "Either session_id or session_token is required".
+  `lasagna serve --session/-s <session>` names the session that MCP tool
+  calls and REST requests without `X-Session-ID` use (it sets
+  `RAG_SESSION_ID`, which REST now honors too), the banner names it, and the
+  README block passes `-s my-corpus`. A call that names no session says
+  how to name one.
+- **MCP errors leaked queries and confused agents.** A failed search wrote a
+  134-line traceback to the client's log with every frame's local variables,
+  the query text among them six times; every log sink in the package now has
+  `diagnose=False`. The missing-LLM error ended "or call
+  configure_providers()", a Python call an agent cannot make; it says which
+  variable to set where Lasagna runs. And on the default profile every MCP
+  search went to the agentic loop and failed without an LLM key, while the
+  README said only complex queries need one: without an LLM the MCP `search`
+  runs the session's standard pipeline and names `agentic` in
+  `degraded_stages`, as REST does for a query it routes there. The README
+  and docs/configuration.md say so.
+- **Health answers contradicted each other.** `/api/v1/health` answered 200
+  with `"unhealthy"` and an empty `failing`, `/api/v1/health/ready` 503 naming
+  the embedding model, the MCP `get_system_status` tool "healthy", and the
+  deployment guide both "always with 200" and "503 while ... not loaded".
+  One model now: liveness (`/api/v1/health/live`, and the MCP service's
+  `/health`) checks nothing; readiness answers 503 naming each failing
+  component, and counts Redis down as degraded, since the cache, rate limits
+  and uploads fall back; `/api/v1/health` and `get_system_status` report the
+  same component states with `failing` and `degraded`, `/api/v1/health`
+  always with 200. The embedding check is for the model the served session
+  (`serve -s`, else `default`) searches with.
+- `lasagna upload` took one file, so the README looped over a folder, one
+  process and one model load per file. It takes several paths and glob
+  patterns (`lasagna upload ./docs/*.md -s my-corpus`) through one client,
+  reports a row per file, and exits 1 when any failed.
+- `RAG_VECTOR_BACKEND=milvuss lasagna benchmark run smoke` ran, failed its
+  task and advised pointing RAG_DB_DIR at a new directory. `upload`,
+  `search`, `serve`, `benchmark run` and `benchmark experiment` check the
+  backend name first and stop with the likely name and the list, as `doctor`
+  does. `RAG_SETTINGS_FILE` (or `LASAGNA_SETTINGS_FILE`) naming a file that
+  does not exist is an error; it logged a warning and ran on the packaged
+  settings. "1 task(s) failed" and "plugin(s)" are pluralized.
 
 Requests to current models:
 
@@ -790,8 +933,8 @@ Servers and deployment:
   server (`lasagna serve`, `lasagna-mcp`) now answers `503` naming the model,
   the sessions that have documents and `lasagna configure --profile speed -s
   <session>`, and never downloads a model inside a request unless
-  `allow_model_download_in_requests` is set; readiness reports the default
-  model as down when it cannot load. MCP `get_system_status` reports the
+  `allow_model_download_in_requests` is set; readiness reports the served
+  session's model as down when it cannot load. MCP `get_system_status` reports the
   session's collection and model (it read the default one: `row_count 0` for a
   session with 76 chunks), and `lasagna search` on a session with no documents
   names the sessions that have some instead of loading a model.
@@ -1010,6 +1153,35 @@ Servers and deployment:
   keys) into an image layer. A root `.dockerignore` keeps every `.env` except
   `.env.example`, key files, virtual environments, `.git`, build output,
   caches and test artifacts out of the build.
+- `GET /` advertised `/configurator`, which answered 404 in a source checkout
+  where the page is not built; it now says it is not built and how to build
+  it, as the `serve` banner does. `/docs` loads Swagger UI from a CDN and was
+  blank offline: it serves the `swagger-ui-bundle` package's copy when that
+  is installed, and otherwise shows, when the bundle cannot load, where the
+  schema and the endpoint reference are.
+- The deployment guide's quick start begins with cloning the repository,
+  which the stack builds from, and says why Kubernetes embeds with
+  `BAAI/bge-large-en-v1.5` while compose uses `BAAI/bge-m3`, what that means
+  for a corpus moved between them, and how to align them.
+- The docs disagreed: the default first-run download was 4.5 GB in the
+  README and the guide, 3.1 GB in docs/configuration.md and `lasagna init`,
+  and 5.4 GB in code comments. Every page states 3.1 GB, the default
+  profile's weights as `core/setup_text.py` records them, and the README and
+  guide add the 2.3 GB the `flag-embedding` extra adds (FlagEmbedding also
+  fetches BGE-M3's ONNX copy). CONTRIBUTING no longer cites a CHANGELOG
+  "Known issues" entry that does not exist, and gives the guide's measured
+  pip time. The SDK's getting-started page no longer makes an LLM key a
+  prerequisite, and the RAG skill says a keyless complex query falls back.
+- Release hygiene: the MCP server no longer registers the deprecated
+  `search_knowledge` and `search_with_context` aliases in a first release (29
+  tools; `--tools safe` still serves 22), `lasagna.TYPE_CHECKING` is no longer
+  importable from the top-level package, and runtime messages (the model
+  license warning, the power verdict, several errors) use plain punctuation
+  instead of " -- ".
+- MCP tool descriptions were reST docstrings, `:param:` fields and double
+  backticks included. A description is the docstring's prose as plain text,
+  ending with what the tool returns, and each parameter's text is that
+  parameter's `description` in the input schema, where clients look for it.
 
 ### Known issues
 

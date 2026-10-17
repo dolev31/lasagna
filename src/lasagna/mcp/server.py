@@ -30,6 +30,7 @@ import os
 import sys
 import functools
 import inspect
+import re
 import json
 import logging
 import time
@@ -88,7 +89,16 @@ def _configure_rag_logging(level: str) -> None:
         return
     logger.remove()
     # Color only on a terminal: a client launching the server reads a pipe.
-    logger.add(sys.stderr, format=LOG_FORMAT, level=level, colorize=sys.stderr.isatty())
+    # diagnose=False: a failed search's traceback printed every frame's local
+    # variables, the query text among them six times, into the client's log.
+    logger.add(
+        sys.stderr,
+        format=LOG_FORMAT,
+        level=level,
+        colorize=sys.stderr.isatty(),
+        backtrace=False,
+        diagnose=False,
+    )
 
 
 # No-op at import time (_owns_logging is False).
@@ -127,11 +137,6 @@ DESTRUCTIVE_TOOLS = frozenset(
     }
 )
 
-#: Deprecated aliases of ``search``. Under ``safe`` they stay callable, so a
-#: client written against them keeps working, but are not listed: an agent
-#: shown three search tools spends a turn choosing between them.
-UNLISTED_UNDER_SAFE = frozenset({"search_knowledge", "search_with_context"})
-
 #: Accepted values of ``--tools`` / ``LASAGNA_MCP_TOOLS``.
 TOOL_SETS = ("safe", "all")
 TOOLS_ENV = "LASAGNA_MCP_TOOLS"
@@ -150,13 +155,10 @@ def resolve_tool_set(value: Optional[str] = None) -> str:
 
 
 class _LasagnaMCP(FastMCP):
-    """FastMCP that can keep a registered tool callable without listing it.
+    """FastMCP that reports Lasagna's version as ``serverInfo.version``.
 
-    It also reports Lasagna's version as ``serverInfo.version``: the MCP SDK
-    reported its own ("1.30.0").
+    The MCP SDK reported its own ("1.30.0").
     """
-
-    unlisted: frozenset = frozenset()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -166,10 +168,7 @@ class _LasagnaMCP(FastMCP):
 
     def listed_tool_count(self) -> int:
         """How many tools ``tools/list`` returns."""
-        return len(set(self._tool_manager._tools) - set(self.unlisted))
-
-    async def list_tools(self):
-        return [tool for tool in await super().list_tools() if tool.name not in self.unlisted]
+        return len(self._tool_manager._tools)
 
     def sse_app(self, *args, **kwargs):
         """FastMCP's SSE app, refusing a foreign ``Host`` with the setting that admits it.
@@ -452,6 +451,17 @@ def _log_tool_result(tool_name: str, success: bool, result_summary: str, duratio
     """Log tool call result."""
     status = "SUCCESS" if success else "FAILED"
     logger.info(f"TOOL RESULT: {tool_name} | {status} | {result_summary} | {duration_ms:.1f}ms")
+
+
+def _llm_configured() -> bool:
+    """Whether an LLM provider can be built from this process's environment."""
+    from lasagna.providers import LLMProviderNotConfigured, get_llm_provider
+
+    try:
+        get_llm_provider()
+    except LLMProviderNotConfigured:
+        return False
+    return True
 
 
 def _log_tool_failure(what: str, exc: BaseException) -> None:
@@ -1076,8 +1086,9 @@ def _resolve_session(
         session_id = os.environ.get("RAG_SESSION_ID", "").strip()
     if not session_id:
         raise ValueError(
-            "Either session_id or session_token is required (or set RAG_SESSION_ID "
-            "in the MCP server's environment)"
+            "No session named: pass session_id (or session_token), or start the server "
+            "with one: lasagna serve --mcp -s <session>, or RAG_SESSION_ID=<session> in "
+            "lasagna-mcp's environment."
         )
 
     if transport_guard.enforcement_active():
@@ -1141,14 +1152,11 @@ async def search(
 ) -> str:
     """Search the knowledge base with the session's retrieval pipeline.
 
-    Use this tool for every search; ``search_knowledge`` and
-    ``search_with_context`` are deprecated aliases of it.
-
     Returns formatted context with citations ready for LLM injection,
     plus a trailing ``<search_metadata>`` JSON block with structured
     citation data.
 
-    Retrieval behaviour (hybrid search, reranking, HyDE, adaptive routing)
+    Retrieval behavior (hybrid search, reranking, HyDE, adaptive routing)
     is governed by the session configuration: callers only specify *what*
     to search and optional scope constraints.
 
@@ -1197,7 +1205,17 @@ async def search(
         # Resolve top_k: caller override → session config
         effective_top_k = top_k if top_k is not None else config.rerank_top_k
 
-        if config.use_agentic_rag:
+        # Without an LLM the agentic loop cannot run, and every search failed:
+        # run the session's standard pipeline instead and say so, as REST does
+        # for a query it routes to the agentic tier.
+        agentic = bool(config.use_agentic_rag)
+        if agentic and not _llm_configured():
+            from lasagna.utils import degraded
+
+            agentic = False
+            degraded.record("agentic", "no LLM is configured; ran the standard pipeline")
+
+        if agentic:
             from lasagna.agentic.agentic_rag import AgenticRAG
 
             agentic_rag = AgenticRAG.create(
@@ -1359,74 +1377,6 @@ def _append_search_metadata(formatted_context: str, citations: list, chunks: lis
         payload["degraded_stages"] = degraded.current()
     metadata = json.dumps(payload, ensure_ascii=False)
     return f"{formatted_context}\n<search_metadata>{metadata}</search_metadata>"
-
-
-# ---------------------------------------------------------------------------
-# Deprecated aliases — kept for one release cycle
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def search_knowledge(
-    query: str,
-    session_id: str = "",
-    top_k: int = 5,
-    min_score: float = 0.0,
-    document_ids: Optional[str] = None,
-    allow_broaden: bool = False,
-    use_reranking: bool = True,
-    use_hyde: bool = False,
-    trace_id: Optional[str] = None,
-    session_token: Optional[str] = None,
-    routing_tier: Optional[str] = None,
-) -> str:
-    """Deprecated: use ``search`` instead.
-
-    Delegates to ``search``. Parameters ``min_score``, ``use_reranking``,
-    ``use_hyde``, and ``routing_tier`` are accepted but ignored.
-    """
-    import warnings
-
-    warnings.warn(
-        "search_knowledge is deprecated; use the 'search' tool", DeprecationWarning, stacklevel=2
-    )
-    return await search(
-        query=query,
-        session_id=session_id,
-        top_k=top_k,
-        document_ids=document_ids,
-        allow_broaden=allow_broaden,
-        trace_id=trace_id,
-        session_token=session_token,
-    )
-
-
-@mcp.tool()
-async def search_with_context(
-    query: str,
-    session_id: str = "",
-    document_ids: Optional[str] = None,
-    allow_broaden: bool = False,
-    trace_id: Optional[str] = None,
-    session_token: Optional[str] = None,
-) -> str:
-    """Deprecated: use ``search`` instead.
-
-    Delegates to ``search`` with default ``top_k`` (session config).
-    """
-    import warnings
-
-    warnings.warn(
-        "search_with_context is deprecated; use the 'search' tool", DeprecationWarning, stacklevel=2
-    )
-    return await search(
-        query=query,
-        session_id=session_id,
-        document_ids=document_ids,
-        allow_broaden=allow_broaden,
-        trace_id=trace_id,
-        session_token=session_token,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1632,6 +1582,10 @@ def upload_document(
             "chunks_count": doc.chunks_count,
             "file_size_kb": doc.file_size // 1024,
         }
+        duplicate_of = getattr(doc, "duplicate_of", None)
+        if isinstance(duplicate_of, str) and duplicate_of:
+            report["duplicate_of"] = duplicate_of
+            report["note"] = "The session already holds this content, so it was not uploaded again."
         if status_value == "error":
             # A failed ingest went back as an ordinary report with isError=False.
             _log_tool_result("upload_document", False, f"status={status_value}", duration_ms)
@@ -1976,14 +1930,24 @@ def get_system_status() -> str:
         # Check if using V2 backend
         is_v2 = hasattr(backend, "embedding_manager")
 
+        # The component states readiness and GET /api/v1/health report: this
+        # said "healthy" while /health/ready answered 503.
+        from lasagna.api.rest.routes.health import component_checks_blocking, summarize
+
+        checks = component_checks_blocking(backend)
+        overall, failing, degraded_components = summarize(checks)
+
         stats = {
-            "status": "healthy",
+            "status": overall,
+            "failing": failing,
+            "degraded": degraded_components,
+            "checks": {name: check.model_dump() for name, check in checks.items()},
             "session_id": session_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "backend_version": "V2" if is_v2 else "V1",
             "components": {
                 "milvus": {
-                    "connected": True,
+                    "connected": checks["vector_backend"].status == "up",
                     "collection_name": collection_name,
                     "collection_exists": has_collection,
                 },
@@ -3852,10 +3816,14 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
 
     @mcp_instance.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> JSONResponse:
-        """Health check endpoint."""
+        """Liveness: the process is up. No dependency is checked here.
+
+        The get_system_status tool reports each component, as the REST API's
+        /api/v1/health does; "healthy" here claimed what nothing had checked.
+        """
         try:
             status = {
-                "status": "healthy",
+                "status": "alive",
                 "server": "rag_knowledge_mcp",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "endpoints": {
@@ -3964,8 +3932,6 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
 _TOOLS = (
     # Search
     search,
-    search_knowledge,  # deprecated alias
-    search_with_context,  # deprecated alias
     list_documents,
     upload_document,
     delete_document,
@@ -4001,6 +3967,66 @@ _TOOLS = (
 )
 
 
+#: A reST field line in a tool docstring: ``:param name: text`` or ``:returns: text``.
+_DOC_FIELD = re.compile(r"^:(param|returns?|raises?)(?:\s+(\w+))?\s*:\s*(.*)$")
+_LIST_ITEM = re.compile(r"^\s*(?:[-*]|\d+\.)\s")
+
+
+def _split_docstring(doc: Optional[str]) -> Tuple[str, Dict[str, str]]:
+    """A tool's description as plain text, and each parameter's own text.
+
+    Clients showed the docstring as written: reST ``:param:`` fields and
+    double backticks, about 26 KB across the tools with ``--tools all``. The
+    prose becomes the description (paragraphs unwrapped, lists kept), the
+    ``:returns:`` field its last line, and each ``:param:`` the description of
+    that parameter in the input schema.
+    """
+    text = inspect.cleandoc(doc or "")
+    prose: List[str] = []
+    fields: Dict[str, str] = {}
+    current: Optional[str] = None
+    for line in text.splitlines():
+        match = _DOC_FIELD.match(line.strip())
+        if match:
+            kind, name, rest = match.groups()
+            current = name if kind == "param" else "_returns" if kind.startswith("return") else None
+            if current:
+                fields[current] = rest.strip()
+            continue
+        if current and line[:1].isspace() and line.strip():
+            fields[current] += " " + line.strip()
+            continue
+        current = None
+        prose.append(line)
+
+    paragraphs = []
+    for block in "\n".join(prose).split("\n\n"):
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if not lines:
+            continue
+        if any(_LIST_ITEM.match(line) for line in lines):
+            paragraphs.append("\n".join(lines))
+        else:
+            paragraphs.append(" ".join(lines))
+    returns = fields.pop("_returns", None)
+    if returns:
+        paragraphs.append(f"Returns: {returns}")
+
+    def plain(value: str) -> str:
+        return value.replace("``", "`")
+
+    return plain("\n\n".join(paragraphs)), {k: plain(v) for k, v in fields.items()}
+
+
+def _describe_parameters(server: FastMCP, tool_name: str, parameters: Dict[str, str]) -> None:
+    """Put each parameter's text in the tool's input schema, where clients read it."""
+    tool = server._tool_manager.get_tool(tool_name)
+    properties = (tool.parameters or {}).get("properties", {}) if tool else {}
+    for name, text in parameters.items():
+        if name in properties:
+            properties[name]["description"] = text
+
+
 def create_mcp_server(
     host: str = "0.0.0.0",
     port: int = 8005,
@@ -4016,8 +4042,7 @@ def create_mcp_server(
 
     ``tools`` is ``"safe"`` or ``"all"``; ``None`` reads ``LASAGNA_MCP_TOOLS``
     and falls back to ``"safe"``. The safe set leaves out ``DESTRUCTIVE_TOOLS``
-    entirely, so ``call_tool`` cannot reach them either, and lists the
-    deprecated search aliases without removing them.
+    entirely, so ``call_tool`` cannot reach them either.
     """
     tool_set = resolve_tool_set(tools)
     # FastMCP sets up the stdlib root logger (a rich handler at INFO) in its
@@ -4032,9 +4057,9 @@ def create_mcp_server(
     for fn in _TOOLS:
         if tool_set == "safe" and fn.__name__ in DESTRUCTIVE_TOOLS:
             continue
-        server.add_tool(_flag_failures(fn))
-    if tool_set == "safe":
-        server.unlisted = UNLISTED_UNDER_SAFE
+        description, parameters = _split_docstring(fn.__doc__)
+        server.add_tool(_flag_failures(fn), description=description)
+        _describe_parameters(server, fn.__name__, parameters)
 
     # Custom HTTP routes (welcome, docs, health, api/call)
     _register_custom_routes(server, host, port)

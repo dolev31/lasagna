@@ -64,14 +64,9 @@ def test_the_cli_reads_the_saved_settings(monkeypatch):
     from lasagna import cli
     import lasagna.core.session_config as sc
 
-    state = SimpleNamespace(
-        profiles=[SimpleNamespace(name="default", config={})],
-        session_overrides={"embedding_model": "all-MiniLM-L6-v2", "embedding_dim": 384},
-    )
-    mgr = SimpleNamespace(
-        get_active_profile=lambda session_id=None: "default",
-        get_session_state=lambda session_id=None: state,
-    )
+    saved = {"embedding_model": "all-MiniLM-L6-v2", "embedding_dim": 384}
+    # The default profile with the client's saved overrides: what it chose.
+    mgr = SimpleNamespace(get_chosen_config=lambda session_id=None: dict(saved))
     monkeypatch.setattr(sc, "get_knowledge_config_manager", lambda **kw: mgr)
     config = cli._load_profile_config("sdk-corpus")
     assert (config.embedding_model, config.embedding_dim) == ("all-MiniLM-L6-v2", 384)

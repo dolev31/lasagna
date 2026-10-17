@@ -558,6 +558,14 @@ def json_schema() -> Dict[str, Any]:
                         ),
                     },
                     "variance_source": {"enum": ["run", "sample"]},
+                    "components": {
+                        "type": "object",
+                        "description": (
+                            "The paper and claimed metrics of each component the run "
+                            "named that declared them, keyed by the name the run used: "
+                            "{name: {stage, paper, claims}}."
+                        ),
+                    },
                     "nothing_samples": {
                         "type": "boolean",
                         "description": (
