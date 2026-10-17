@@ -52,6 +52,8 @@ def data_dir(tmp_path, monkeypatch):
     monkeypatch.delenv("RAG_VECTOR_BACKEND_CONFIG", raising=False)
     monkeypatch.delenv("MILVUS_URI", raising=False)
     monkeypatch.chdir(tmp_path)
+    # Configured from this environment, not from an earlier test's.
+    providers.reset_providers()
     reset_rag_config()
     yield tmp_path / "data"
     providers.reset_providers()
