@@ -20,13 +20,13 @@ pytest.importorskip("datasets")
 
 
 def _build(root: Path, config: str, info: bool = True) -> Path:
-    build = root / "mteb___scifact" / config / "0.0.0" / "cf10ab6856b1"
+    build = root / "mteb___scifact" / config / "0.0.0" / "fingerprint"
     build.mkdir(parents=True)
     (build / f"scifact-{config}.arrow").write_bytes(b"\0")
     if info:
         (build / "dataset_info.json").write_text("{}")
     # What `datasets` leaves beside every build.
-    (build.parent / "cf10ab6856b1_builder.lock").write_text("")
+    (build.parent / "fingerprint_builder.lock").write_text("")
     return build
 
 
@@ -58,7 +58,7 @@ def test_a_build_without_its_info_file_is_missing(cache):
 
 
 def test_an_interrupted_download_is_missing(cache):
-    incomplete = cache / "mteb___scifact" / "corpus" / "0.0.0" / "cf10ab6856b1.incomplete"
+    incomplete = cache / "mteb___scifact" / "corpus" / "0.0.0" / "fingerprint.incomplete"
     incomplete.mkdir(parents=True)
     assert not datasets.dataset_cached("mteb/scifact")
 
