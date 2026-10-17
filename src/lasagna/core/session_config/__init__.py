@@ -134,6 +134,7 @@ class KnowledgeConfigManager(
         self._migrate_session_files_from_parent()
         self._migrate_legacy_data()
         self._load_global_profiles()
+        self._mark_saved_profiles_read()
         self._load_session_states()
 
     def _migrate_session_files_from_parent(self):

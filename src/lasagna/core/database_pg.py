@@ -1096,6 +1096,30 @@ class PostgresRAGDatabase:
                     rows.append(d)
                 return rows
 
+    def get_saved_profiles(self) -> List[Dict[str, Any]]:
+        """Every saved (not built-in) profile, of every owner."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT user_id, profile_name, description, config
+                    FROM rag_profiles
+                    WHERE is_builtin = false
+                    ORDER BY profile_name, user_id
+                    """
+                )
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for row in cur.fetchall():
+                    d = dict(zip(cols, row))
+                    if isinstance(d.get("config"), str):
+                        try:
+                            d["config"] = json.loads(d["config"])
+                        except (json.JSONDecodeError, TypeError):
+                            d["config"] = {}
+                    rows.append(d)
+                return rows
+
     def delete_profile(self, user_id: str, profile_name: str) -> bool:
         """Delete a user's custom profile. Cannot delete built-in profiles."""
         with self._conn() as conn:

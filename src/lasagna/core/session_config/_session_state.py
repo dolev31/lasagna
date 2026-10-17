@@ -102,6 +102,12 @@ class SessionStateMixin:
             saved = next(
                 (p for p in self._global_custom_profiles if p.name == active_profile), None
             )
+            if saved is None and hasattr(self, "_refresh_saved_profiles"):
+                # Saved by another process since this one read the list.
+                self._refresh_saved_profiles(force=True)
+                saved = next(
+                    (p for p in self._global_custom_profiles if p.name == active_profile), None
+                )
             if saved is not None:
                 profiles.append(copy.deepcopy(saved))
             else:
@@ -140,6 +146,8 @@ class SessionStateMixin:
         with self._lock:
             self._reload_if_changed()
             self._cleanup_old_sessions()
+            if hasattr(self, "_refresh_saved_profiles"):
+                self._refresh_saved_profiles()
             self._adopt_persisted_session(session_id)
             self._record_use(session_id)
 

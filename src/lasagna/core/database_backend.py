@@ -190,6 +190,10 @@ class DatabaseBackend(Protocol):
         """Delete a user's custom profile.  Cannot delete built-in profiles."""
         ...
 
+    def get_saved_profiles(self) -> List[Dict[str, Any]]:
+        """Every saved (not built-in) profile, of every owner."""
+        ...
+
     def delete_all_user_profiles(self, user_id: str) -> int:
         """Delete all non-builtin profiles for a user.  Returns count deleted."""
         ...

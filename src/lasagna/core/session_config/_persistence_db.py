@@ -10,11 +10,12 @@ Write path: PostgreSQL (durable) → Redis update (cache invalidation/refresh)
 
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
 from ._data_models import (
+    ANONYMOUS,
     SESSION_TTL_SECONDS,
     RAGProfile,
     KnowledgeConfigState,
@@ -85,33 +86,59 @@ class DatabasePersistenceMixin:
         """No-op for PostgreSQL backend (no legacy JSON files to migrate)."""
         pass
 
-    def _load_global_profiles(self) -> None:
-        """Load global custom profiles from PostgreSQL."""
+    def _read_saved_profiles(self) -> Optional[List[RAGProfile]]:
+        """Every saved profile in PostgreSQL, of every owner; None when it cannot be read."""
         try:
             db = _get_pg_db()
-            user_id = getattr(self, "_user_id", "__global__")
-            rows = db.get_profiles(user_id)
-
-            self._global_custom_profiles = []
-            self._global_profile_names = set()
-
-            for row in rows:
-                if row.get("is_builtin"):
-                    continue  # Built-in profiles come from _load_defaults()
-                profile = RAGProfile(
-                    name=row["profile_name"],
-                    description=row.get("description", ""),
-                    config=row.get("config", {}),
-                )
-                self._global_custom_profiles.append(profile)
-                self._global_profile_names.add(profile.name)
-
-            if self._global_custom_profiles:
-                logger.info(
-                    f"Loaded {len(self._global_custom_profiles)} custom profile(s) from PostgreSQL"
-                )
+            reader = getattr(db, "get_saved_profiles", None)
+            rows = reader() if reader else db.get_profiles(getattr(self, "_user_id", ANONYMOUS))
         except Exception as exc:
             logger.warning(f"Failed to load profiles from PostgreSQL: {exc}")
+            return None
+        return [
+            RAGProfile(
+                name=row["profile_name"],
+                description=row.get("description", ""),
+                config=row.get("config", {}),
+                user_id=row.get("user_id") or ANONYMOUS,
+            )
+            for row in rows
+            if not row.get("is_builtin")  # Built-in profiles come from _load_defaults()
+        ]
+
+    def _load_global_profiles(self) -> None:
+        """Load global custom profiles from PostgreSQL."""
+        profiles = self._read_saved_profiles()
+        if profiles is None:
+            return
+        self._global_custom_profiles = profiles
+        self._global_profile_names = {p.name for p in profiles}
+
+    def _save_global_profile(self, profile: RAGProfile) -> None:
+        """Store one saved profile, under its owner, leaving every other row as it is.
+
+        This deleted every profile of this manager's user and wrote back the
+        ones it had read: a profile another worker had saved since was gone.
+        """
+        try:
+            _get_pg_db().save_profile(
+                user_id=profile.user_id or ANONYMOUS,
+                profile_name=profile.name,
+                config=profile.config,
+                description=profile.description,
+                is_builtin=False,
+            )
+            self._cache_profiles(profile.user_id or ANONYMOUS)
+        except Exception as exc:
+            logger.warning(f"Failed to save profile {profile.name!r} to PostgreSQL: {exc}")
+
+    def _delete_global_profile(self, profile: RAGProfile) -> None:
+        """Delete one saved profile's row."""
+        try:
+            _get_pg_db().delete_profile(profile.user_id or ANONYMOUS, profile.name)
+            self._cache_profiles(profile.user_id or ANONYMOUS)
+        except Exception as exc:
+            logger.warning(f"Failed to delete profile {profile.name!r} from PostgreSQL: {exc}")
 
     def _load_session_states(self) -> None:
         """Load session states from PostgreSQL.
@@ -192,34 +219,6 @@ class DatabasePersistenceMixin:
         Redis caching handles the read-hot path.
         """
         pass
-
-    def _persist_global_profiles(self) -> None:
-        """Persist global custom profiles to PostgreSQL + Redis cache.
-
-        Uses snapshot-style persist: delete all non-builtin profiles for this
-        user, then re-insert the current in-memory state. This ensures deleted
-        profiles are removed from the database (not just from memory).
-        """
-        try:
-            db = _get_pg_db()
-            user_id = getattr(self, "_user_id", "__global__")
-
-            # Delete all existing custom profiles, then re-insert current state
-            db.delete_all_user_profiles(user_id)
-            for profile in self._global_custom_profiles:
-                db.save_profile(
-                    user_id=user_id,
-                    profile_name=profile.name,
-                    config=profile.config,
-                    description=profile.description,
-                    is_builtin=False,
-                )
-
-            # Update Redis cache
-            self._cache_profiles(user_id)
-
-        except Exception as exc:
-            logger.warning(f"Failed to persist profiles to PostgreSQL: {exc}")
 
     def _delete_persisted_session(self, session_id: str) -> None:
         """Delete a single session from PostgreSQL + Redis cache."""

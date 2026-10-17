@@ -229,7 +229,8 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   database, so a profile set with `lasagna configure` applies to a
   `KnowledgeClient` for that session in another process.
   `RAG_SESSION_BACKEND=memory` keeps a process's sessions to itself. Changes
-  that several processes make to one session at once are all kept. A
+  that several processes make at once to one session, or to the saved
+  profiles, are all kept. A
   session's settings stay while it holds documents; those of a session without
   documents are deleted after `session_idle_days` (30) without a read or write.
 - **One vector collection per embedding model**

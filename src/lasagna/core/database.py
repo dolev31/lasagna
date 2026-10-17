@@ -1265,6 +1265,31 @@ class RAGDatabase:
                 rows.append(d)
             return rows
 
+    def get_saved_profiles(self) -> List[Dict[str, Any]]:
+        """Every saved (not built-in) profile, of every owner."""
+        import json as _json
+
+        with self.connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT user_id, profile_name, description, config
+                FROM rag_profiles
+                WHERE is_builtin = 0
+                ORDER BY profile_name, user_id
+                """
+            )
+            rows = []
+            for row in cursor.fetchall():
+                d = dict(row)
+                if isinstance(d.get("config"), str):
+                    try:
+                        d["config"] = _json.loads(d["config"])
+                    except (ValueError, TypeError):
+                        d["config"] = {}
+                rows.append(d)
+            return rows
+
     def delete_profile(self, user_id: str, profile_name: str) -> bool:
         """Delete a user's custom profile. Cannot delete built-in profiles."""
         with self.transaction() as conn:
@@ -1276,11 +1301,7 @@ class RAGDatabase:
             return cursor.rowcount > 0
 
     def delete_all_user_profiles(self, user_id: str) -> int:
-        """Delete all non-builtin profiles for a user.
-
-        Used by _persist_global_profiles() to do a snapshot-style persist:
-        delete all then re-insert current state.
-        """
+        """Delete all non-builtin profiles for a user."""
         with self.transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(

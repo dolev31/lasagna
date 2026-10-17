@@ -23,7 +23,15 @@ def isolated_manager(tmp_path, monkeypatch, *, stored_dim=None):
         mgr = KnowledgeConfigManager()
     mgr._global_custom_profiles = []
     mgr._global_profile_names = set()
-    for name in ("_persist_global_profiles", "_persist_session_states", "_reload_if_changed"):
+    # Saved profiles stay in this manager: none is written, and the shared
+    # store's are never read in (``_read_saved_profiles`` answering None).
+    for name in (
+        "_save_global_profile",
+        "_delete_global_profile",
+        "_read_saved_profiles",
+        "_persist_session_states",
+        "_reload_if_changed",
+    ):
         monkeypatch.setattr(mgr, name, lambda *a, **k: None)
     monkeypatch.setattr(
         "lasagna.core.session_config.get_knowledge_config_manager", lambda *a, **k: mgr

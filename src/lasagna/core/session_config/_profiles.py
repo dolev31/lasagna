@@ -7,6 +7,7 @@ profile defaults loading from TOML, and profile listing/statistics.
 import copy
 import os
 import sys
+import time
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -36,6 +37,12 @@ from ._data_models import (
 )
 
 
+#: How stale this process's list of saved profiles may be before it is read again.
+_PROFILES_RECHECK_SECONDS = 1.0
+
+#: How many profile changes this process has saved, over all of its managers.
+_profile_writes_here = 0
+
 # Module-level cache for parsed TOML defaults.  In PostgreSQL mode a new
 # KnowledgeConfigManager is created per request; without this cache every
 # request would re-read and re-parse settings.lasagna.toml from disk.
@@ -63,10 +70,58 @@ class ProfileMixin:
     - self._global_custom_profiles: List[RAGProfile]
     - self._global_profile_names: set
     - self._session_states: Dict[str, KnowledgeConfigState]
-    - self._persist_global_profiles(): method
+    - self._read_saved_profiles(), self._save_global_profile(),
+      self._delete_global_profile(): methods (from PersistenceMixin)
     - self._persist_session_states(): method
     - self.get_session_state(): method
     """
+
+    def _refresh_saved_profiles(self, *, force: bool = False) -> None:
+        """Read the saved profiles again, when another manager may have changed them.
+
+        Each process read them once, when it started: a profile another
+        process saved later was unknown here (a session on it came back as
+        default), and one it changed kept its old settings here. Read at most
+        once a second, unless ``force`` or this process saved a change since;
+        the sessions' copies of a saved profile follow its stored settings.
+        """
+        now = time.monotonic()
+        if (
+            not force
+            and now - getattr(self, "_profiles_checked_at", float("-inf"))
+            < _PROFILES_RECHECK_SECONDS
+            and getattr(self, "_profile_writes_seen", 0) == _profile_writes_here
+        ):
+            return
+        self._profiles_checked_at = now
+        self._profile_writes_seen = _profile_writes_here
+        reader = getattr(self, "_read_saved_profiles", None)
+        profiles = reader() if reader is not None else None
+        if profiles is None:
+            return
+        with self._lock:
+            self._global_custom_profiles = profiles
+            self._global_profile_names = {p.name for p in profiles}
+            saved = {p.name: p for p in profiles if not self._is_protected_profile_name(p.name)}
+            for state in self._session_states.values():
+                for i, profile in enumerate(state.profiles):
+                    current = saved.get(profile.name)
+                    if current is not None and (
+                        current.config != profile.config
+                        or current.description != profile.description
+                    ):
+                        state.profiles[i] = copy.deepcopy(current)
+
+    def _mark_saved_profiles_read(self) -> None:
+        """Note that the saved profiles were just read (the manager's first load)."""
+        self._profiles_checked_at = time.monotonic()
+        self._profile_writes_seen = _profile_writes_here
+
+    def _saved_profiles_changed(self) -> None:
+        """Note that this manager saved a profile change: the process's others read it at once."""
+        global _profile_writes_here
+        _profile_writes_here += 1
+        self._profile_writes_seen = _profile_writes_here
 
     def _load_defaults(self) -> None:
         """Load default profiles from settings.lasagna.toml.
@@ -491,6 +546,7 @@ class ProfileMixin:
         When ``user_id`` is ``"__anonymous__"``, all custom profiles are shown
         (backward compatibility for single-user deployments).
         """
+        self._refresh_saved_profiles()
         builtin_names = {p.name for p in self._default_profiles}
         result = []
 
@@ -550,6 +606,11 @@ class ProfileMixin:
         answered "Unknown profile", because only the session's copy was looked
         at.
         """
+        if profile_name not in self._global_profile_names and not any(
+            p.name == profile_name for p in state.profiles
+        ):
+            # Perhaps saved by another process since this one read the list.
+            self._refresh_saved_profiles(force=True)
         if profile_name in self._foreign_profile_names(user_id):
             return None
         for profile in state.profiles:
@@ -714,6 +775,7 @@ class ProfileMixin:
             self._validate_or_raise(config)
 
         with self._session_write(session_id) as state:
+            self._refresh_saved_profiles(force=True)
             is_new = profile_name not in self._global_profile_names
             # Counted per owner. One shared count let a tenant fill it and lock
             # every other tenant out of saving any profile at all.
@@ -784,7 +846,8 @@ class ProfileMixin:
 
             state.profiles = self._ensure_default_profile(state.profiles)
 
-            self._persist_global_profiles()
+            self._save_global_profile(new_profile)
+            self._saved_profiles_changed()
             if set_active:
                 self._persist_single_session(session_id or "default")
 
@@ -821,6 +884,7 @@ class ProfileMixin:
             raise ValueError("New profile name must be 1-100 characters.")
 
         with self._session_write(session_id) as state:
+            self._refresh_saved_profiles(force=True)
             if new_name in self._global_profile_names or any(
                 p.name == new_name for p in state.profiles
             ):
@@ -837,6 +901,7 @@ class ProfileMixin:
             if state.active_profile == old_name:
                 state.active_profile = new_name
 
+            renamed = None
             for gp in self._global_custom_profiles:
                 if gp.name == old_name:
                     # Same ownership rule as save_profile and delete_profile.
@@ -847,10 +912,17 @@ class ProfileMixin:
                         gp.description = gp.description.replace(old_name, new_name)
                     self._global_profile_names.discard(old_name)
                     self._global_profile_names.add(new_name)
+                    renamed = gp
                     break
 
             state.profiles = self._ensure_default_profile(state.profiles)
-            self._persist_global_profiles()
+            if renamed is not None:
+                # The new row first: stopped in between, both names are kept.
+                self._save_global_profile(renamed)
+                self._delete_global_profile(
+                    RAGProfile(name=old_name, description="", config={}, user_id=renamed.user_id)
+                )
+                self._saved_profiles_changed()
             self._persist_single_session(session_id or "default")
 
             logger.info(f"Renamed profile '{old_name}' to '{new_name}' globally")
@@ -871,6 +943,7 @@ class ProfileMixin:
             raise ValueError("Built-in profiles cannot be deleted.")
 
         with self._session_write(session_id) as state:
+            self._refresh_saved_profiles(force=True)
             # Ownership check: prevent deleting profiles owned by other users.
             # Profiles owned by "__anonymous__" are shared/legacy and deletable by anyone.
             existing = next(
@@ -900,7 +973,9 @@ class ProfileMixin:
             self._global_profile_names.discard(profile_name)
 
             state.profiles = self._ensure_default_profile(state.profiles)
-            self._persist_global_profiles()
+            if existing is not None:
+                self._delete_global_profile(existing)
+                self._saved_profiles_changed()
             self._persist_single_session(session_id or "default")
 
             logger.info(f"Deleted profile '{profile_name}' globally")
@@ -929,10 +1004,11 @@ class ProfileMixin:
             for gp in self._global_custom_profiles:
                 if gp.name == profile_name:
                     gp.description = description
+                    self._save_global_profile(gp)
+                    self._saved_profiles_changed()
                     break
 
             state.profiles = self._ensure_default_profile(state.profiles)
-            self._persist_global_profiles()
             self._persist_single_session(session_id or "default")
 
         return state.to_dict()
@@ -945,6 +1021,7 @@ class ProfileMixin:
 
     def get_profile_stats(self) -> Dict[str, Any]:
         """Get statistics about profiles and sessions."""
+        self._refresh_saved_profiles()
         with self._lock:
             return {
                 "global_custom_profiles_count": len(self._global_custom_profiles),
@@ -957,6 +1034,7 @@ class ProfileMixin:
 
     def list_global_profiles(self, user_id: str = "__anonymous__") -> List[Dict[str, Any]]:
         """List global custom profiles visible to the given user."""
+        self._refresh_saved_profiles()
         with self._lock:
             result = []
             for p in self._global_custom_profiles:

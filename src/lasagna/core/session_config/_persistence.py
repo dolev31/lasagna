@@ -7,11 +7,12 @@ replacing the legacy JSON file persistence.
 import json
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
 from ._data_models import (
+    ANONYMOUS,
     SESSION_TTL_SECONDS,
     MAX_CACHED_SESSIONS,
     RAGProfile,
@@ -163,34 +164,61 @@ class PersistenceMixin:
             except Exception:
                 pass
 
-    def _load_global_profiles(self) -> None:
-        """Load global custom profiles from SQLite."""
+    def _read_saved_profiles(self) -> Optional[List[RAGProfile]]:
+        """Every saved profile in SQLite, of every owner; None when it cannot be read.
+
+        Of every owner: only the shared ones were read, so a profile a tenant
+        had saved was gone after a restart while its row stayed.
+        """
         try:
             db = _get_db()
-            user_id = getattr(self, "_user_id", "__global__")
-            rows = db.get_profiles(user_id)
-
-            self._global_custom_profiles = []
-            self._global_profile_names = set()
-
-            for row in rows:
-                if row.get("is_builtin"):
-                    continue
-                profile = RAGProfile(
-                    name=row["profile_name"],
-                    description=row.get("description", ""),
-                    config=row.get("config", {}),
-                    user_id=row.get("user_id", "__anonymous__"),
-                )
-                self._global_custom_profiles.append(profile)
-                self._global_profile_names.add(profile.name)
-
-            if self._global_custom_profiles:
-                logger.info(
-                    f"Loaded {len(self._global_custom_profiles)} custom profile(s) from database"
-                )
+            reader = getattr(db, "get_saved_profiles", None)
+            rows = reader() if reader else db.get_profiles(getattr(self, "_user_id", ANONYMOUS))
         except Exception as exc:
             logger.warning(f"Failed to load profiles from database: {exc}")
+            return None
+        return [
+            RAGProfile(
+                name=row["profile_name"],
+                description=row.get("description", ""),
+                config=row.get("config", {}),
+                user_id=row.get("user_id") or ANONYMOUS,
+            )
+            for row in rows
+            if not row.get("is_builtin")
+        ]
+
+    def _load_global_profiles(self) -> None:
+        """Load global custom profiles from SQLite."""
+        profiles = self._read_saved_profiles()
+        if profiles is None:
+            return
+        self._global_custom_profiles = profiles
+        self._global_profile_names = {p.name for p in profiles}
+
+    def _save_global_profile(self, profile: RAGProfile) -> None:
+        """Store one saved profile, under its owner, leaving every other row as it is.
+
+        This wrote back every profile this process had read at startup, after
+        deleting all of them: a profile another process had saved since was
+        deleted, and its sessions fell back to default.
+        """
+        try:
+            _get_db().save_profile(
+                user_id=profile.user_id or ANONYMOUS,
+                profile_name=profile.name,
+                config=profile.config,
+                description=profile.description,
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to save profile {profile.name!r} to database: {exc}")
+
+    def _delete_global_profile(self, profile: RAGProfile) -> None:
+        """Delete one saved profile's row."""
+        try:
+            _get_db().delete_profile(profile.user_id or ANONYMOUS, profile.name)
+        except Exception as exc:
+            logger.warning(f"Failed to delete profile {profile.name!r} from database: {exc}")
 
     def _load_session_states(self) -> None:
         """Load session states from SQLite."""
@@ -226,28 +254,6 @@ class PersistenceMixin:
         The singleton pattern ensures all writes go through this instance.
         """
         pass
-
-    def _persist_global_profiles(self) -> None:
-        """Persist global custom profiles to SQLite.
-
-        Uses snapshot-style persist: delete all non-builtin profiles for this
-        user, then re-insert the current in-memory state. This ensures deleted
-        profiles are removed from the database (not just from memory).
-        """
-        try:
-            db = _get_db()
-            user_id = getattr(self, "_user_id", "__global__")
-            # Delete all existing custom profiles, then re-insert current state
-            db.delete_all_user_profiles(user_id)
-            for profile in self._global_custom_profiles:
-                db.save_profile(
-                    user_id=profile.user_id if profile.user_id != "__anonymous__" else user_id,
-                    profile_name=profile.name,
-                    config=profile.config,
-                    description=profile.description,
-                )
-        except Exception as exc:
-            logger.warning(f"Failed to persist profiles to database: {exc}")
 
     def _delete_persisted_session(self, session_id: str) -> None:
         """Delete a single session from SQLite."""
