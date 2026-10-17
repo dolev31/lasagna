@@ -161,12 +161,15 @@ setup, recall@100 and the remaining BM25 gap are in
 pip install lasagna-rag
 ```
 
+Start with the `speed` profile: a 92 MB embedding model, no LLM and no API key.
+
 ```python
 import asyncio
-from lasagna.sdk import KnowledgeClient
+from lasagna.sdk import KnowledgeClient, config_for_speed
 
 async def main():
-    client = KnowledgeClient(session_id="quickstart")   # same session on every run
+    # The same session on every run, on the speed profile.
+    client = KnowledgeClient(session_id="quickstart", config=config_for_speed())
     doc = await client.upload("paper.pdf")
     await client.documents.wait_for_processing(doc.document_id)  # upload returns once queued
 
@@ -179,37 +182,46 @@ async def main():
 asyncio.run(main())
 ```
 
-Or from the shell:
+Or from the shell (`lasagna init` asks the same questions interactively):
 
 ```bash
-lasagna init                       # interactive setup; pick the speed profile
+lasagna configure --profile speed  # the speed profile for the default session
 lasagna upload paper.pdf
 lasagna search "what did the ablation show?"
 lasagna serve                      # REST API and configuration page on 127.0.0.1:8000
 ```
 
-> **The first run downloads models.** The default profile fetches an embedding
-> model on the first upload or search and a reranker on the first search that
-> reranks: **about 3.2 GB downloaded** (BGE-M3, 2.3 GB, and the mxbai reranker,
-> 881 MB), and 2.3 GB more with the `flag-embedding` extra (which `[all]`
-> includes), since FlagEmbedding fetches BGE-M3's whole repository, ONNX export
-> included. On release-gate runs the first search result took 3–40 minutes on
-> a cold cache; the spread is the connection. After that, a warm
-> search on the `speed` profile takes tens of milliseconds (median 32 ms over
-> 18,442 chunks on Milvus Lite). From a source checkout, `python -m e2e.run`
-> measures this on your own machine (the `e2e` package is not in the wheel); with
-> pip, `lasagna doctor` checks what is installed and cached.
+> **What the first run takes.** On an Apple M1 Max (10 cores, 64 GB), the
+> script above printed its first result 30 to 35 seconds after it started with
+> an empty model cache (the 92 MB download included), and 8 seconds with the
+> model cached. A search after that took 15 ms (the median of ten, on one
+> document; release-gate runs measured a 32 ms median over 18,442 chunks on
+> Milvus Lite). In the shell, each command loads the model and opens the store
+> again, so a `lasagna search` took about 10 seconds; while `lasagna serve`
+> runs, the CLI asks the server instead.
 >
-> The `speed` profile downloads 92 MB and never calls an LLM: choose it in
-> `lasagna init`, run `lasagna configure --profile speed`, or from Python pass
-> `config=config_for_speed()` (from `lasagna.sdk`) to `KnowledgeClient`; the
-> embedding model is process-wide, so two clients in one process share it. A
-> client's settings are saved as its session's, and a client without `config=`
-> reads the session's saved settings, so the CLI, REST API, MCP server and a
-> rerun of this script search that corpus with the same model. The other
-> profiles send queries they judge complex to an agentic loop, which calls an
-> LLM; without an API key those queries run the profile's standard pipeline,
-> and the result's `degraded_stages` names `agentic`.
+> **The default profile is the quality option.** A session with no profile
+> uses it (leave out `config=` and `--profile`): BGE-M3 embeddings and the
+> mxbai reranker, **about 3.2 GB downloaded** on the first upload and the first
+> search that reranks (BGE-M3, 2.3 GB, and the reranker, 881 MB), and
+> 2.3 GB more with the `flag-embedding` extra (which `[all]` includes), since
+> FlagEmbedding fetches BGE-M3's whole repository, ONNX export included. On
+> release-gate runs its first search result took 3–40 minutes on a cold cache;
+> the spread is the connection. Warm, a search took 117 ms (median) on the same
+> M1 Max using its GPU, and 3.1 seconds on two CPU threads. The default,
+> `standard`, `balanced` and `max_quality` profiles send queries they judge
+> complex to an agentic loop, which calls an LLM; without an API key those
+> queries run the profile's standard pipeline, and the result's
+> `degraded_stages` names `agentic`. From a source checkout,
+> `python -m e2e.run` measures the cold start on your own machine (the `e2e`
+> package is not in the wheel); with pip, `lasagna doctor` checks what is
+> installed and cached.
+>
+> **Settings belong to a session.** A client's settings are saved as its
+> session's, and a client without `config=` reads the session's saved
+> settings, so the CLI, REST API, MCP server and a rerun of this script search
+> that corpus with the same model. Each session has its own embedding model:
+> two clients in one process on different sessions can use different models.
 > [Configuration](https://github.com/dolev31/lasagna/blob/main/docs/configuration.md)
 > explains profiles, which setting wins when several places set it, and where
 > data is kept (`~/.lasagna`).
@@ -335,7 +347,8 @@ config applies.
 > One notebook writes a reranker as a single function, sweeps it against a
 > built-in cross-encoder on 100 SciFact queries over the full corpus, and ends
 > with a paired significance test, the stage isolation check and a validated
-> results bundle. No API key.
+> results bundle. No API key. It is stored without outputs: run it on Colab, or
+> locally with Jupyter, to see them.
 
 Adding a technique is one decorator on a plain function. The function becomes
 a component of its stage, interchangeable with every built-in, and runs inside
@@ -348,8 +361,8 @@ import lasagna
 
 
 @lasagna.reranker(paper="Doe et al. 2026", claims={"beir/scifact": {"ndcg@10": 0.456}})
-def longer_first(query, text):
-    return len(text.split())  # your technique: score one passage
+def keyword_overlap(query, text):  # your technique: score one passage
+    return len(set(query.lower().split()) & set(text.lower().split()))
 
 
 if __name__ == "__main__":  # try it on three passages
@@ -364,8 +377,8 @@ if __name__ == "__main__":  # try it on three passages
                        document_id="d3", chunk_id="c3"),
     ]
 
-    mine = registry.get("reranker", "longer_first").rerank("q", candidates)
-    entry = next(e for e in registry.list_rerankers() if e["name"] == "longer_first")
+    mine = registry.get("reranker", "keyword_overlap").rerank("length of a passage", candidates)
+    entry = next(e for e in registry.list_rerankers() if e["name"] == "keyword_overlap")
     print("retrieval order:", [d.document_id for d in candidates])
     print("my reranker:    ", [d.document_id for d in mine])
     print("claims recorded:", entry["claims"])
@@ -398,16 +411,16 @@ agentic loop, subclass the stage's interface (`BaseReranker`,
 `@registry.register` instead.
 
 Then measure it. A sweep names the function by its import path,
-`my_ideas:longer_first`, with no registration call and no package:
+`my_ideas:keyword_overlap`, with no registration call and no package:
 
 ```yaml
 # sweep.yaml, next to my_ideas.py
-name: does longer_first help
+name: does keyword_overlap help
 benchmarks: [{name: smoke}]
 tracks: [retrieval]
 pipeline:
   base_profile: speed
-  rerankers: [cross_encoder, "my_ideas:longer_first"]
+  rerankers: [cross_encoder, "my_ideas:keyword_overlap"]
 n_runs: 1     # retrieval does not sample; repeat runs when an LLM stage is in the loop
 ```
 

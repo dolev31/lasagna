@@ -16,11 +16,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Iterable, Iterator, List, Optional
+from typing import Dict, Iterable, Iterator, List, Optional
 
 from loguru import logger
 
 _stages: ContextVar[Optional[List[str]]] = ContextVar("lasagna_degraded_stages", default=None)
+_reasons: ContextVar[Optional[Dict[str, str]]] = ContextVar(
+    "lasagna_degraded_reasons", default=None
+)
 
 
 def record(stage: str, reason: object = "") -> None:
@@ -34,11 +37,24 @@ def record(stage: str, reason: object = "") -> None:
     stages = _stages.get()
     if stages is not None and stage not in stages:
         stages.append(stage)
+    reasons = _reasons.get()
+    if reasons is not None and reason and stage not in reasons:
+        reasons[stage] = str(reason)
 
 
 def current() -> List[str]:
     """The stages collected so far by the active `collecting` block, or none."""
     return list(_stages.get() or [])
+
+
+def reasons() -> Dict[str, str]:
+    """Why each collected stage fell back, as `record` was told: ``{stage: text}``.
+
+    The MCP search tool shows them to the agent. A search that missed the
+    session's documents (``documents_elsewhere``) replied "Try rephrasing your
+    search", and the reason, with its fix, went to the server's log only.
+    """
+    return dict(_reasons.get() or {})
 
 
 def report(stages: Iterable[str]) -> None:
@@ -60,7 +76,9 @@ def collecting() -> Iterator[List[str]]:
     """Collect the stages that fall back inside the ``with``, in order."""
     stages: List[str] = []
     token = _stages.set(stages)
+    reasons_token = _reasons.set({})
     try:
         yield stages
     finally:
+        _reasons.reset(reasons_token)
         _stages.reset(token)

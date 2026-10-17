@@ -496,6 +496,33 @@ def build_bundle(
     if problem:
         raise MetricsVersionError(f"Cannot bundle: {problem}")
     rows = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results._results]
+    integrity = _integrity(rows, run_meta)
+
+    bundle = {
+        "schema_version": SCHEMA_VERSION,
+        "metrics_version": run_meta["metrics_version"],
+        "experiment": run_meta,
+        "submitter": submitter or {},
+        "configs": config_entries(results),
+        "results": rows,
+        "integrity": integrity,
+    }
+    # The id covers the content, so an edited bundle no longer matches its id.
+    bundle["run_id"] = _content_hash(bundle)
+    return bundle
+
+
+def config_entries(results: Any) -> List[Dict[str, Any]]:
+    """The bundle's ``configs``: one entry per (benchmark, config), with its key.
+
+    The one place a run's comparability keys are computed. ``results bundle``,
+    ``results compare``, the leaderboard and its LaTeX captions all read them
+    from here (a bundle's own entries are these, written when it was made).
+    ``compare`` used to hash one held-fixed block per benchmark with the run
+    metadata missing for a bundle, and printed a key no other command showed.
+    """
+    run_meta = dict(getattr(results, "experiment_config", {}) or {})
+    rows = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results._results]
 
     # Every distinct config's overrides, so "varied" can mean "differs somewhere
     # in this run" rather than "present in this config" -- see varied_dimensions.
@@ -534,21 +561,67 @@ def build_bundle(
             # vary the same two flags and differ only in the values.
             "varied_levels": varied_levels(own, across),
         }
+    return list(configs.values())
 
-    integrity = _integrity(rows, run_meta)
 
-    bundle = {
-        "schema_version": SCHEMA_VERSION,
-        "metrics_version": run_meta["metrics_version"],
-        "experiment": run_meta,
-        "submitter": submitter or {},
-        "configs": list(configs.values()),
-        "results": rows,
-        "integrity": integrity,
-    }
-    # The id covers the content, so an edited bundle no longer matches its id.
-    bundle["run_id"] = _content_hash(bundle)
-    return bundle
+def validation_problems(bundle: Dict[str, Any], *, strict: bool = False) -> List[str]:
+    """Why ``results validate`` calls ``bundle`` INVALID; empty when it is valid.
+
+    Recomputes the comparability key, the run id and every aggregate from the
+    recorded fields. ``results compare`` runs the same checks before it says
+    two bundles are comparable: it called an edited bundle comparable.
+    ``strict`` counts integrity warnings as problems.
+    """
+    problems: List[str] = []
+
+    schema = str(bundle.get("schema_version", ""))
+    if not schema.startswith("1."):
+        problems.append(f"unsupported schema_version {schema!r} (this build reads 1.x)")
+
+    for field in ("run_id", "experiment", "configs", "results", "integrity"):
+        if field not in bundle:
+            problems.append(f"missing required block: {field}")
+
+    if "run_id" in bundle and _content_hash(bundle) != bundle["run_id"]:
+        problems.append("run_id does not match the bundle contents: it was edited after generation")
+
+    for cfg in bundle.get("configs", []):
+        recomputed = comparability_key(cfg.get("held_fixed", {}))
+        if recomputed != cfg.get("comparability_key"):
+            problems.append(
+                f"config {config_label(cfg)}: comparability key does not match its "
+                f"held_fixed block ({cfg.get('comparability_key')} vs {recomputed})"
+            )
+        benchmark = cfg.get("benchmark")
+        held_benchmark = (cfg.get("held_fixed") or {}).get("benchmark")
+        if benchmark and held_benchmark != benchmark:
+            problems.append(
+                f"config {config_label(cfg)}: held_fixed.benchmark is {held_benchmark!r}, "
+                f"not the entry's benchmark"
+            )
+
+    problems.extend(metrics_version_problems(bundle))
+    problems.extend(
+        f"aggregate disagrees with per-query scores: {m}"
+        for m in aggregate_mismatches(bundle.get("results") or [])
+    )
+    problems.extend(
+        f"per-query score above what its ranked list supports: {m}"
+        for m in ranked_list_mismatches(bundle.get("results") or [])
+    )
+
+    env = (bundle.get("experiment") or {}).get("environment") or {}
+    for required in ("lasagna_version", "python", "platform"):
+        if not env.get(required):
+            problems.append(f"provenance incomplete: environment.{required} is missing")
+
+    integrity = bundle.get("integrity") or {}
+    problems.extend(f"integrity: {code}" for code in integrity.get("blocking") or [])
+    for line in (integrity.get("isolation") or {}).get("undeclared", []):
+        problems.append(f"  {line}")
+    if strict:
+        problems.extend(f"integrity (strict): {code}" for code in integrity.get("warnings") or [])
+    return problems
 
 
 def json_schema() -> Dict[str, Any]:

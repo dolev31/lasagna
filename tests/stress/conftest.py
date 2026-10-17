@@ -76,8 +76,9 @@ def get_available_backends() -> List[str]:
     """Return vector backends available on the current architecture.
 
     Auto-skip rules:
-    - milvus: x86_64/amd64 only (no ARM64 Docker image)
-    - milvus-lite: ARM64 fallback (single-process embedded)
+    - milvus: on x86_64/amd64 hosts (the suite's choice; the standalone image is
+      published for amd64 and arm64)
+    - milvus-lite: on other hosts (single-process embedded)
     - pinecone: requires PINECONE_API_KEY
     """
     backends = ["pgvector", "qdrant", "weaviate", "opensearch"]

@@ -321,8 +321,9 @@ profile the worker processes documents and these threads are a fallback.
 | `GET /api/v1/health` | Detailed status: the same component states, `failing` and `degraded` as readiness (`healthy`, `degraded` or `unhealthy`), always with 200 | `make health`, dashboards |
 
 None of them needs a credential or is rate limited. Before the backend has loaded,
-`/health/ready` and `/health` answer 503 (there is nothing to check yet); after that
-`/health` always answers 200. Both report `version` and `require_auth`. The MCP
+`/api/v1/health/ready` and `/api/v1/health` answer 503 (there is nothing to check yet);
+after that `/api/v1/health` always answers 200. Both report `version` and `require_auth`.
+`lasagna serve` serves the same paths, under `/api/v1` like every REST route. The MCP
 service's `GET /health` on port 8005 is liveness only; its `get_system_status` tool
 reports the component states.
 

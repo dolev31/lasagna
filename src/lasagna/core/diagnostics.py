@@ -168,7 +168,7 @@ def _check_model_cache(session_id: str = "default") -> Check:
     cached" while the profile's models were not among them.
     """
     from .config import rag_config
-    from .model_downloads import is_cached
+    from .model_downloads import fix_for_model, is_cached, offline
     from .setup_text import model_cache_hint
 
     config = rag_config.with_session(session_id)
@@ -179,6 +179,17 @@ def _check_model_cache(session_id: str = "default") -> Check:
     missing = [m for m in models if not is_cached(m)]
     if not missing:
         return Check("model_cache", _OK, f"cached for session {session_id!r}: {', '.join(models)}")
+    if offline():
+        # Nothing can download them, so the first upload or search fails:
+        # this said "downloads 3.2 GB" and "0 blocking" with HF_HUB_OFFLINE=1.
+        return Check(
+            "model_cache",
+            _FAIL,
+            f"not downloaded for session {session_id!r}, and Hugging Face offline mode "
+            f"is on (HF_HUB_OFFLINE), so its first upload or search fails: "
+            f"{', '.join(missing)}",
+            fix_for_model(session_id, missing[0]),
+        )
     return Check(
         "model_cache",
         _WARN,

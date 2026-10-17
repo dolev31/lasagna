@@ -430,7 +430,7 @@ search. `rank` is the position, from 1.
 A server never downloads a model inside a request: when the session's embedding
 model is not on disk (for example an unconfigured session, which uses the
 settings file's BGE-M3), the search answers `503` with the command that fixes
-it, and `/health/ready` reports the served session's model as `down`.
+it, and `/api/v1/health/ready` reports the served session's model as `down`.
 `RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS=true` lets the server download instead.
 
 **Response:** `SearchResponse`

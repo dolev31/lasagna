@@ -145,16 +145,22 @@ class ConfigError(ValueError):
     """A setting has a value it cannot take. The message names it and the fix."""
 
 
-#: Numeric settings with a range; a value outside it is refused.
+#: Numeric settings with a range; a value outside it is refused. A setting the
+#: configurator schema (``configurator/schema.py``) also bounds has the schema's
+#: range here, so the environment, a settings file, a session and a sweep arm
+#: accept the same values (a test checks). ``chunk_size`` starts at 1: it counts
+#: words or tokens under ``chunk_unit``, where 10 is a sensible size; the
+#: environment's floor of 50 refused what an arm ran.
 _VALID_RANGES: Dict[str, Tuple[float, float]] = {
-    "chunk_size": (50, 100_000),
-    "chunk_overlap": (0, 50_000),
-    "default_top_k": (1, 1000),
+    "chunk_size": (1, 100_000),
+    "chunk_overlap": (0, 100_000),
+    "default_top_k": (1, 10_000),
     "rerank_top_k": (1, 1000),
-    "embedding_dim": (32, 8192),
+    "embedding_dim": (1, 16_384),
     "hybrid_alpha": (0.0, 1.0),
     "mmr_lambda": (0.0, 1.0),
-    "similarity_threshold": (-1.0, 1.0),
+    # The cut is on a normalized score, which is never negative.
+    "similarity_threshold": (0.0, 1.0),
     "connection_pool_size": (1, 500),
     "routing_confidence_threshold": (0.0, 1.0),
     "max_concurrent_uploads": (1, 20),
@@ -916,8 +922,14 @@ class RAGConfig:
                 if os.environ.get("LASAGNA_SETTINGS_FILE")
                 else "RAG_SETTINGS_FILE"
             )
+            # The path once; a relative one also says where it was looked for.
+            where = (
+                ""
+                if Path(settings_file_env).is_absolute()
+                else f" (a relative path is read from the package folder: {override_path})"
+            )
             raise ConfigError(
-                f"{name} is {settings_file_env}, and no file is there ({override_path}). "
+                f"{name} is {settings_file_env}, and no file is there{where}. "
                 f"Point {name} at an existing settings file, or unset it to use the "
                 f"packaged settings.lasagna.toml."
             )
@@ -2386,7 +2398,7 @@ class RAGConfig:
 
     @property
     def enable_query_routing(self) -> bool:
-        """Enable intelligent query routing to FAST/STANDARD/COMPREHENSIVE tiers."""
+        """Route each query to the fast, standard or comprehensive tier by its estimated complexity."""
         return self._get_knowledge_setting(
             "rag", "enable_query_routing", default=self._config["enable_query_routing"]
         )

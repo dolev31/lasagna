@@ -54,9 +54,12 @@ of the process (tests, or a notebook that should leave saved sessions alone).
 
 **From Python**, a `KnowledgeConfig` passed to `KnowledgeClient` splits the
 same way: the fields that choose what the process connects to (vector backend,
-database, cache, embedding model) are written where environment variables go,
-before the backend starts, and apply to the whole process; the search and
-chunking fields become session overrides for the client's session. The
+database, cache) are written where environment variables go, before the
+backend starts, and apply to the whole process; the search and chunking fields
+become session overrides for the client's session. The embedding model is
+both: the process's default, and the client's session setting, which wins, so
+each session indexes and searches with its own model and two clients in one
+process on different sessions can use different models. The
 [SDK configuration page](../src/lasagna/sdk/docs/configuration.md) lists which
 is which.
 
@@ -128,6 +131,15 @@ metadata database and the Milvus Lite store in `dbs/`, uploaded files in
 
 `LASAGNA_DATA_DIR` moves the results and the cache with the rest;
 `llm_cache: {path: ...}` in a sweep puts the cache file elsewhere.
+
+Milvus Lite admits one process per store. When another process holds the
+default one (a running `lasagna serve`, an MCP server, or another benchmark),
+`lasagna benchmark run` and `lasagna benchmark experiment` use a store of
+their own in `<data dir>/bench/dbs` and say so. Benchmark corpora are ingested
+there once and reused by later runs that find the default store held; a run
+that finds it free uses `dbs/` as before. A store chosen with `LASAGNA_DB_DIR`
+or a `db_path` is never moved: the run stops before it starts and says what to
+do. An experiment started from Python stops the same way.
 
 Before 0.1.0 the data directory was `~/.rag_knowledge`. The first time the
 default is used and only `~/.rag_knowledge` exists, it is renamed to

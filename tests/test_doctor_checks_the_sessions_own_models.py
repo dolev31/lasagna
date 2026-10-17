@@ -26,7 +26,11 @@ def small_models_only(monkeypatch):
     monkeypatch.setattr(model_downloads, "is_cached", lambda model: model in CACHED)
 
 
-def test_four_cached_models_are_not_the_default_profiles():
+def test_four_cached_models_are_not_the_default_profiles(monkeypatch):
+    # Online: the first run downloads them. Offline the check blocks instead
+    # (test_agent_builder_surfaces_say_what_happened.py).
+    monkeypatch.setenv("HF_HUB_OFFLINE", "0")
+    monkeypatch.delenv("TRANSFORMERS_OFFLINE", raising=False)
     check = diagnostics._check_model_cache("default")
     assert check.status == "warning"
     assert "BAAI/bge-m3" in check.detail and "not downloaded" in check.detail
