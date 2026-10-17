@@ -2400,7 +2400,7 @@ def benchmark_compare(
         results_compare(results_a, results_b, metric=metric)
         return
 
-    runs = [_load_results(path) for path in (results_a, results_b)]
+    runs = [_load_results(path, "compared") for path in (results_a, results_b)]
     for path, run in zip((results_a, results_b), runs):
         _require_metric(run, metric, where=Path(path).name)
     console.print(runs[0].to_latex(metric))
@@ -2490,7 +2490,9 @@ def benchmark_leaderboard(
     _deprecated_spelling("benchmark leaderboard", "results leaderboard")
     # Every option by value: called directly, a typer function's defaults are
     # its OptionInfo objects, and `fmt` arrived as one ("Unknown format").
-    results_leaderboard(results_path, metric=metric, output=None, fmt="markdown")
+    results_leaderboard(
+        results_path, metric=metric, output=None, fmt="markdown", allow_invalid=False
+    )
 
 
 @benchmark_app.command("validate-data")
@@ -3041,11 +3043,45 @@ def _results_file(path: str) -> Path:
     return given
 
 
-def _load_results(path: str):
-    """The run at ``path`` (a results.json or its folder), or a one-line error."""
+def _refuse_invalid_bundle(
+    path: str, problems: List[str], purpose: str = "used", can_allow: bool = False
+) -> None:
+    """Exit listing why `results validate` rejects the bundle at ``path``.
+
+    Every results command that reads a bundle checks it with the function
+    `results validate` uses. `results leaderboard` and `results view` showed
+    an edited bundle's numbers beside its original run id, and `results
+    bundle` gave one a fresh run id.
+    """
+    lines = [
+        f"{path} is not a valid bundle, so its numbers cannot be {purpose} "
+        f"({_count(len(problems), 'problem')}):",
+        *(f"  - {p.strip()}" for p in problems),
+        f"`lasagna results validate {shlex.quote(path)}` checks it again."
+        + (" To show it anyway, marked INVALID, add --allow-invalid." if can_allow else ""),
+    ]
+    _error("\n".join(lines))
+
+
+def _load_results(path: str, purpose: str = "used"):
+    """The run at ``path`` (a results.json, its folder, or a valid bundle), or a one-line error.
+
+    A bundle `results validate` rejects is refused, its problems listed;
+    ``purpose`` finishes "its numbers cannot be ...".
+    """
+    from .knowledge_evaluation_sdk.bundle import validation_problems
+    from .knowledge_evaluation_sdk.leaderboard import _is_bundle
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
     file = _results_file(path)
+    try:
+        data = json.loads(file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        data = None  # BenchmarkResults.load says what is wrong with it below
+    if _is_bundle(data):
+        problems = validation_problems(data)
+        if problems:
+            _refuse_invalid_bundle(path, problems, purpose)
     try:
         return BenchmarkResults.load(str(file))
     except json.JSONDecodeError as exc:
@@ -3066,7 +3102,7 @@ def results_bundle(
     """Package a run into a self-contained, publishable bundle."""
     from .knowledge_evaluation_sdk.bundle import MetricsVersionError
 
-    results = _load_results(results_path)
+    results = _load_results(results_path, "bundled again")
     submitter = {k: v for k, v in {"name": name, "affiliation": affiliation}.items() if v}
     try:
         bundle = results.to_bundle(submitter=submitter or None)
@@ -3160,37 +3196,12 @@ def results_compare(
     refused. Per benchmark, configs are comparable when their comparability
     keys match: the keys `results bundle` prints and the leaderboard groups by.
     """
-    first, second = _comparable_run(a), _comparable_run(b)
+    first, second = _load_results(a, "compared"), _load_results(b, "compared")
     for path, results in ((a, first), (b, second)):
         _require_metric(results, metric, where=Path(path).name)
     console.print(
         first.compare(second, metric, names=(a, b)), markup=False, highlight=False, soft_wrap=True
     )
-
-
-def _comparable_run(path: str):
-    """The run at ``path``, refused when it is a bundle `results validate` calls INVALID.
-
-    An edited bundle was reported "Comparable: yes", beside numbers that no
-    longer matched their own per-query scores.
-    """
-    from .knowledge_evaluation_sdk.bundle import validation_problems
-    from .knowledge_evaluation_sdk.leaderboard import _is_bundle
-
-    file = _results_file(path)
-    try:
-        data = json.loads(file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
-        data = None  # _load_results says what is wrong with it
-    if _is_bundle(data):
-        problems = validation_problems(data)
-        if problems:
-            _error(
-                f"{path} is not a valid bundle, so its numbers cannot be compared "
-                f"({_count(len(problems), 'problem')}, the first: {problems[0].strip()}). "
-                f"`lasagna results validate {shlex.quote(path)}` lists them."
-            )
-    return _load_results(path)
 
 
 @results_app.command("power")
@@ -3213,7 +3224,7 @@ def results_power(
     the observed difference would need.
     """
 
-    results = _load_results(results_path)
+    results = _load_results(results_path, "tested")
     benchmark = _pick_benchmark(
         results,
         benchmark,
@@ -3324,7 +3335,7 @@ def results_significance(
     if correction not in ("holm", "none"):
         _error(f"Unknown correction {correction!r}. Use 'holm' or 'none'.")
 
-    results = _load_results(results_path)
+    results = _load_results(results_path, "tested")
     benchmark = _pick_benchmark(
         results,
         benchmark,
@@ -3493,7 +3504,7 @@ def results_per_query(
     rebuild the ranking the metrics were computed on.
     """
 
-    results = _load_results(results_path)
+    results = _load_results(results_path, "shown")
     if benchmark:
         benchmark = _resolve_benchmark(results, benchmark)
     rows = results.per_query(benchmark)
@@ -3646,7 +3657,7 @@ def results_interaction(
     function of the main effects.
     """
 
-    results = _load_results(results_path)
+    results = _load_results(results_path, "shown")
     benchmark = _pick_benchmark(
         results,
         benchmark,
@@ -3981,6 +3992,11 @@ def results_leaderboard(
         help="markdown, or latex: one booktabs table per comparability group, printed "
         "when no --output is given",
     ),
+    allow_invalid: bool = typer.Option(
+        False,
+        "--allow-invalid",
+        help="Show bundles `results validate` rejects, each number marked INVALID",
+    ),
 ):
     """Leaderboards of bundles or a run's results.json, by comparability key.
 
@@ -3988,13 +4004,21 @@ def results_leaderboard(
     comparable by construction. Rows in different groups are not, and are never
     put in the same table. A results.json with no --output prints the run's own
     leaderboard, the one `benchmark experiment` prints when it finishes.
+    Bundles are checked as `results validate` checks them: one that fails is
+    refused when named on its own and left out of a folder, unless
+    --allow-invalid shows it marked INVALID. A results.json is not validated.
     """
-    from .knowledge_evaluation_sdk.bundle import MetricsVersionError
+    from .knowledge_evaluation_sdk.bundle import (
+        InvalidBundleError,
+        MetricsVersionError,
+        invalid_mark,
+    )
     from .knowledge_evaluation_sdk.leaderboard import (
         FORMATS,
         _is_bundle,
         build,
-        grouped_rows,
+        checked_bundles,
+        group_bundles,
         load_bundles,
         render_latex,
     )
@@ -4028,16 +4052,25 @@ def results_leaderboard(
             return
     try:
         if fmt == "latex" and not output:
-            # The tables alone and unwrapped, so `> tables.tex` captures valid LaTeX.
+            bundles, left_out = checked_bundles(directory, metric, allow_invalid=allow_invalid)
+            # The tables alone and unwrapped, so `> tables.tex` captures valid
+            # LaTeX; what was left out follows as comments.
             console.print(
-                render_latex(grouped_rows(directory, metric), metric),
+                render_latex(group_bundles(bundles, metric), metric)
+                + "".join(
+                    f"% Left out {b['_path']}: {invalid_mark(b['_problems'])}. "
+                    "--allow-invalid shows it marked INVALID.\n"
+                    for b in left_out
+                ),
                 markup=False,
                 highlight=False,
                 soft_wrap=True,
                 end="",
             )
             return
-        index = build(directory, metric=metric, output=output, fmt=fmt)
+        index = build(directory, metric=metric, output=output, fmt=fmt, allow_invalid=allow_invalid)
+    except InvalidBundleError as exc:
+        _refuse_invalid_bundle(directory, exc.problems, "shown", can_allow=True)
     except (MetricsVersionError, ValueError) as exc:
         _error(str(exc))
     console.print(
@@ -4050,6 +4083,19 @@ def results_leaderboard(
             f"  {escape(name)}: {_count(info['n_rows'], 'row')} in "
             f"{_count(info['n_groups'], 'comparability group')}, {info['n_verified']} verified"
         )
+    shown = [b for b in index["invalid"] if b["shown"]]
+    left_out = [b for b in index["invalid"] if not b["shown"]]
+    if shown:
+        console.print("[red]Shown marked INVALID[/red], rejected by `lasagna results validate`:")
+    for b in shown:
+        console.print(f"  {escape(b['path'] or directory)}: {escape(b['watermark'])}")
+    if left_out:
+        console.print(
+            "[yellow]Left out[/yellow], rejected by `lasagna results validate` "
+            "(--allow-invalid shows them marked INVALID):"
+        )
+    for b in left_out:
+        console.print(f"  {escape(b['path'] or directory)}: {escape(b['watermark'])}")
     if output:
         console.print(f"[green]Wrote {escape(output)}[/green]")
 
@@ -4074,6 +4120,11 @@ def results_view(
     ),
     output: str = typer.Option("view.html", "--output", "-o", help="HTML file to write"),
     open_page: bool = typer.Option(False, "--open", help="Open the page in your browser"),
+    allow_invalid: bool = typer.Option(
+        False,
+        "--allow-invalid",
+        help="Show a bundle `results validate` rejects, the page marked INVALID",
+    ),
 ):
     """Write one HTML page with everything a run measured.
 
@@ -4082,14 +4133,25 @@ def results_view(
     significance table with its verdict, every metric per arm, and a per-query
     diff between two arms with what each retrieved. The page is one file with
     no external requests, so it opens offline and can be attached anywhere.
+    A bundle is checked as `results validate` checks it, and one that fails
+    is refused unless --allow-invalid; a results.json is not validated.
     """
+    from .knowledge_evaluation_sdk.bundle import InvalidBundleError
     from .knowledge_evaluation_sdk.viewer import render_html
 
     path = Path(results_path)
     if not path.exists():
         _error(f"No such file: {results_path}")
     try:
-        page = render_html(path, metric=metric, benchmark=benchmark or None, diff=diff)
+        page = render_html(
+            path,
+            metric=metric,
+            benchmark=benchmark or None,
+            diff=diff,
+            allow_invalid=allow_invalid,
+        )
+    except InvalidBundleError as exc:
+        _refuse_invalid_bundle(results_path, exc.problems, "shown", can_allow=True)
     except json.JSONDecodeError as exc:
         _error(f"{results_path} is not valid JSON ({exc}). Pass a results.json or a bundle.")
     except ValueError as exc:

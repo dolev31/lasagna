@@ -764,6 +764,13 @@ one table held the same configuration fixed; rows in different tables are
 never ranked together), or writes one `.tex` file per benchmark with `-o`.
 Arm names are escaped for LaTeX.
 
+Every `results` command that reads a bundle checks it as `results validate`
+does. A bundle that fails (a number edited after it was made, missing
+provenance) is refused with its problems listed, or left out of a folder's
+leaderboard with its name printed. `--allow-invalid` on `leaderboard` and
+`view` shows it anyway, every number marked INVALID. A `results.json` is not a
+bundle, and is shown as not validated.
+
 **Publish a number someone else can check:**
 
 ```bash

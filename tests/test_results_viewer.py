@@ -24,6 +24,7 @@ from lasagna.knowledge_evaluation_sdk.bundle import METRICS_VERSION
 from lasagna.knowledge_evaluation_sdk.results import BenchmarkResults, verdict_lines
 from lasagna.knowledge_evaluation_sdk.stages import OTHER, STAGES
 from lasagna.knowledge_evaluation_sdk.viewer import render_html
+from tests._bundles import sealed
 
 typer_testing = pytest.importorskip("typer.testing")
 
@@ -78,7 +79,7 @@ def _results(tmp_path, tasks, name="viewer test"):
         "n_runs": 1,
         "tracks": ["retrieval"],
         "pipeline": {"base_profile": "speed"},
-        "environment": {"lasagna_version": "0.1.0"},
+        "environment": {"lasagna_version": "0.1.0", "python": "3.12.0", "platform": "test"},
         # A 0.1.0 run records the metric definitions it used; a bundle requires it.
         "metrics_version": METRICS_VERSION,
     }
@@ -326,7 +327,7 @@ def bundles(tmp_path):
             _bundle("lab_c", "key_two", "bm25 & {friends} ~50% #1 $5 ^2 \\x", (0.40,)),
         ]
     ):
-        (folder / f"b{i}.json").write_text(json.dumps(b))
+        (folder / f"b{i}.json").write_text(json.dumps(sealed(b)))
     return folder
 
 

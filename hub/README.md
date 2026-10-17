@@ -51,7 +51,9 @@ Rows are grouped by `(benchmark, comparability_key)`. Everything inside a group
 held the same things fixed, so the numbers are commensurable by construction;
 each group renders as its own table with that configuration in the header.
 A row that records no stage settings (`fixed_stages`) shares a table only with
-rows from its own bundle, and is never marked verified.
+rows from its own bundle, and is never marked verified. A bundle that fails
+`lasagna results validate` is left out, and the command and `index.json`
+(`invalid`) name it.
 
 This is the difference between a leaderboard and a list. A single table of
 everyone's best number, with different embedding models and sample counts
