@@ -177,7 +177,7 @@
      "name": "What is LASAGNA?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "LASAGNA is an open-source framework for controlled evaluation of retrieval-augmented generation. Each pipeline stage sits behind a fixed interface, so swapping one method cannot silently change the implementation at another. Adding a new technique is a single line of code, and the framework tests it inside a complete modern pipeline without reimplementing the surrounding stack. The release has eight swappable stages and 53 built-in components. A sweep checks that its arms differ only in the stage they name, and it reports a paired significance test for each comparison. LASAGNA was used to test 450 configurations across eight benchmarks and corpora from 5K to 200K documents."
+      "text": "LASAGNA is an open-source framework for controlled evaluation of retrieval-augmented generation. Each pipeline stage sits behind a fixed interface, so swapping one method cannot silently change the implementation at another. Adding a new technique is a single line of code, and the framework tests it inside a complete modern pipeline without reimplementing the surrounding stack. The release has eight swappable stages and 55 built-in components. A sweep checks that its arms differ only in the stage they name, and it reports a paired significance test for each comparison. LASAGNA was used to test 450 configurations across eight benchmarks and corpora from 5K to 200K documents."
      }
     },
     {
@@ -185,7 +185,7 @@
      "name": "Which RAG methods does LASAGNA include?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "The release ships 53 built-in components across eight stages, and each one that implements a published method names its paper. Retrievers: dense, BM25, SPLADE, and hybrid fusion by reciprocal rank or by normalized scores. Rerankers include cross-encoders, ColBERT, monoT5 and RankGPT. Query enhancers include HyDE, Query2doc, step-back prompting and RAG-Fusion. Agentic loops: Self-Ask, IRCoT, FLARE, Adaptive-RAG and Self-RAG; the last two prompt a general LLM where their papers train a model. Generators write concise, cited (ALCE), chain-of-thought or chain-of-note answers. Chunkers, embedders and document processors complete the set."
+      "text": "The release ships 55 built-in components across eight stages, and each one that implements a published method names its paper. Retrievers: dense, BM25, SPLADE, and hybrid fusion by reciprocal rank or by normalized scores. Rerankers include cross-encoders, ColBERT, monoT5 and RankGPT. Query enhancers include HyDE, Query2doc, step-back prompting and RAG-Fusion. Agentic loops: Self-Ask, IRCoT, FLARE, Adaptive-RAG and Self-RAG; the last two prompt a general LLM where their papers train a model. Generators write concise, cited (ALCE), chain-of-thought or chain-of-note answers. Chunkers, embedders and document processors complete the set."
      }
     },
     {
@@ -335,7 +335,7 @@
       <div class="duo-item reveal" id="lasagna">
         <p class="kicker">The framework</p>
         <h2>LASAGNA</h2>
-        <p>LASAGNA is an open-source framework for controlled RAG evaluation. Each stage sits behind a fixed interface, so swapping one method cannot silently change the implementation at another. Adding a new technique is a single line of code; the framework tests it inside a complete modern pipeline without reimplementing the surrounding stack. The release has eight swappable stages, from document processing to answer generation, and 53 built-in components.</p>
+        <p>LASAGNA is an open-source framework for controlled RAG evaluation. Each stage sits behind a fixed interface, so swapping one method cannot silently change the implementation at another. Adding a new technique is a single line of code; the framework tests it inside a complete modern pipeline without reimplementing the surrounding stack. The release has eight swappable stages, from document processing to answer generation, and 55 built-in components.</p>
       </div>
     </div>
 
@@ -504,11 +504,11 @@ lasagna results significance <span class="tok-s">"&lt;output&gt;/results.json"</
       <h3 class="use-facts-title reveal">In the release</h3>
       <dl class="terms">
         <div class="term reveal"><dt>Eight swappable stages</dt><dd>Document processing, chunking, embedding, query enhancement, retrieval, reranking, an agentic loop and answer generation. Swap one and the other seven stay fixed.</dd></div>
-        <div class="term reveal"><dt>53 built-in components</dt><dd>Dense, BM25, SPLADE and hybrid retrievers. Cross-encoder, ColBERT, monoT5 and RankGPT rerankers. HyDE, Query2doc, step-back and RAG-Fusion. Self-Ask, IRCoT, FLARE, Adaptive-RAG and Self-RAG loops. Cited (ALCE) and chain-of-note answers. Plus chunkers, embedders and document processors. Each one that implements a published method names its paper.</dd></div>
+        <div class="term reveal"><dt>55 built-in components</dt><dd>Dense, BM25, SPLADE and hybrid retrievers. Cross-encoder, ColBERT, monoT5 and RankGPT rerankers. HyDE, Query2doc, step-back and RAG-Fusion. Self-Ask, IRCoT, FLARE, Adaptive-RAG and Self-RAG loops. Cited (ALCE) and chain-of-note answers. Plus chunkers, embedders and document processors. Each one that implements a published method names its paper.</dd></div>
         <div class="term reveal"><dt>Fair arms for chunkers and embedders</dt><dd>A chunker or embedder under test gets a corpus of its own, chunked or embedded by that component, so the comparison measures the component and not a shared index.</dd></div>
         <div class="term reveal"><dt>Stage isolation, checked</dt><dd>Each run records what reached every stage. If two arms differ at a stage neither of them names, the run says so. An arm whose ranked lists never moved is flagged as inert.</dd></div>
         <div class="term reveal"><dt>Paired significance tests</dt><dd>A paired sign-flip test with a t interval for each comparison, Holm correction across a sweep, and a 2×2 test of whether two techniques compound or overlap.</dd></div>
-        <div class="term reveal"><dt>Serve it to your agent</dt><dd>An MCP server with 31 tools for Claude Code, Claude Desktop and Cursor, a REST API, and a Docker stack for production on any of the six vector backends. The pipeline you measure is the pipeline you serve.</dd></div>
+        <div class="term reveal"><dt>Serve it to your agent</dt><dd>An MCP server for Claude Code, Claude Desktop and Cursor (22 tools by default, none that deletes; 29 with --tools all), a REST API, and a Docker stack for production on any of the six vector backends. The pipeline you measure is the pipeline you serve.</dd></div>
         <div class="term reveal"><dt>31 benchmarks, four metric families</dt><dd>BEIR, HotpotQA, SQuAD v2, MuSiQue, Natural Questions, MS MARCO and more. Retrieval metrics; answer metrics with and without an LLM judge, including ALCE citation scores; and latency, tokens and LLM calls per query.</dd></div>
       </dl>
     </div>
@@ -562,11 +562,11 @@ lasagna results significance <span class="tok-s">"&lt;output&gt;/results.json"</
       </details>
       <details>
         <summary><h3>What is LASAGNA?</h3></summary>
-        <p>LASAGNA is an open-source framework for controlled evaluation of retrieval-augmented generation. Each pipeline stage sits behind a fixed interface, so swapping one method cannot silently change the implementation at another. Adding a new technique is a single line of code, and the framework tests it inside a complete modern pipeline without reimplementing the surrounding stack. The release has eight swappable stages and 53 built-in components. A sweep checks that its arms differ only in the stage they name, and it reports a paired significance test for each comparison. LASAGNA was used to test 450 configurations across eight benchmarks and corpora from 5K to 200K documents.</p>
+        <p>LASAGNA is an open-source framework for controlled evaluation of retrieval-augmented generation. Each pipeline stage sits behind a fixed interface, so swapping one method cannot silently change the implementation at another. Adding a new technique is a single line of code, and the framework tests it inside a complete modern pipeline without reimplementing the surrounding stack. The release has eight swappable stages and 55 built-in components. A sweep checks that its arms differ only in the stage they name, and it reports a paired significance test for each comparison. LASAGNA was used to test 450 configurations across eight benchmarks and corpora from 5K to 200K documents.</p>
       </details>
       <details>
         <summary><h3>Which RAG methods does LASAGNA include?</h3></summary>
-        <p>The release ships 53 built-in components across eight stages, and each one that implements a published method names its paper. Retrievers: dense, BM25, SPLADE, and hybrid fusion by reciprocal rank or by normalized scores. Rerankers include cross-encoders, ColBERT, monoT5 and RankGPT. Query enhancers include HyDE, Query2doc, step-back prompting and RAG-Fusion. Agentic loops: Self-Ask, IRCoT, FLARE, Adaptive-RAG and Self-RAG; the last two prompt a general LLM where their papers train a model. Generators write concise, cited (ALCE), chain-of-thought or chain-of-note answers. Chunkers, embedders and document processors complete the set.</p>
+        <p>The release ships 55 built-in components across eight stages, and each one that implements a published method names its paper. Retrievers: dense, BM25, SPLADE, and hybrid fusion by reciprocal rank or by normalized scores. Rerankers include cross-encoders, ColBERT, monoT5 and RankGPT. Query enhancers include HyDE, Query2doc, step-back prompting and RAG-Fusion. Agentic loops: Self-Ask, IRCoT, FLARE, Adaptive-RAG and Self-RAG; the last two prompt a general LLM where their papers train a model. Generators write concise, cited (ALCE), chain-of-thought or chain-of-note answers. Chunkers, embedders and document processors complete the set.</p>
       </details>
       <details>
         <summary><h3>Does the best RAG pipeline on a small corpus stay the best at large scale?</h3></summary>
