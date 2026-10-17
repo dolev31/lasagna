@@ -354,8 +354,11 @@ pods carry `prometheus.io/scrape` annotations for port 8000, path `/metrics`.
 | `lasagna_degraded_fallbacks_total` | `stage` |
 
 Metrics are counted in the process that does the work. With the `celery` profile, documents
-are processed in the worker container, which serves no `/metrics`, so the api's
-`lasagna_ingests_total` counts only the documents the api processed itself.
+are processed in the worker container, so the worker serves its own `/metrics` on
+`RAG_WORKER_METRICS_PORT` (9100 in compose, `celery-worker:9100`, and in k8s, where the
+worker pods carry the same `prometheus.io/scrape` annotations for port 9100). Scrape both:
+the worker's `lasagna_ingests_total` counts the documents it processed, the api's those the
+api processed itself (no worker answered, or Celery off).
 
 `lasagna_degraded_fallbacks_total{stage}` counts a pipeline stage that failed and fell back
 to a lesser result (`hyde`, `graphrag`, `hybrid`, `query_expansion`, `agentic`, `routing`). The

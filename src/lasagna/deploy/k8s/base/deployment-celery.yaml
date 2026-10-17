@@ -17,6 +17,11 @@ spec:
       labels:
         app.kubernetes.io/name: lasagna
         app.kubernetes.io/component: celery-worker
+      # The worker processes the uploads, so it serves lasagna_ingests_total.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: "/metrics"
     spec:
       terminationGracePeriodSeconds: 120
       # The image's rag user (uid and gid 1000) owns the uploads volume.
@@ -45,6 +50,12 @@ spec:
                 name: lasagna-config
             - secretRef:
                 name: lasagna-secrets
+          env:
+            - name: RAG_WORKER_METRICS_PORT
+              value: "9100"
+          ports:
+            - name: metrics
+              containerPort: 9100
           volumeMounts:
             - name: uploads
               mountPath: /data/uploads

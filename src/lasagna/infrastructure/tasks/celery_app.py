@@ -21,7 +21,12 @@ Usage::
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from datetime import timedelta
+from pathlib import Path
+from typing import Optional
 
 from loguru import logger
 
@@ -84,16 +89,77 @@ def refuse_model_downloads_in_worker(**_signal) -> None:
     refuse_downloads_for_this_process()
 
 
+#: The process serving this worker's metrics (``worker_metrics``), if any.
+_metrics_server: Optional["subprocess.Popen"] = None
+
+
+def serve_worker_metrics(**_signal) -> None:
+    """Serve the worker's Prometheus metrics on ``RAG_WORKER_METRICS_PORT``.
+
+    Ingests are counted where documents are processed, and with the celery
+    profile that is the worker, which served no ``/metrics``: the api's
+    ``lasagna_ingests_total`` counted only what the api processed itself.
+    Every pool process writes to ``PROMETHEUS_MULTIPROC_DIR`` (compose and
+    Kubernetes set it), and a process of its own serves them
+    (:mod:`lasagna.infrastructure.tasks.worker_metrics`).
+    """
+    global _metrics_server
+    port = os.environ.get("RAG_WORKER_METRICS_PORT", "").strip()
+    if not port or _metrics_server is not None:
+        return
+    from lasagna.core.config import rag_config
+
+    shared = os.environ.get("PROMETHEUS_MULTIPROC_DIR", "").strip()
+    problem = None
+    if not rag_config.enable_prometheus:
+        problem = "RAG_ENABLE_PROMETHEUS is not on. Set RAG_ENABLE_PROMETHEUS=true"
+    elif not port.isdigit():
+        problem = f"RAG_WORKER_METRICS_PORT={port!r} is not a port number"
+    elif not shared:
+        problem = (
+            "PROMETHEUS_MULTIPROC_DIR is not set, so the pool processes' counts cannot be "
+            "collected. Set it to a directory the worker can write (the image has "
+            "/tmp/prometheus_multiproc)"
+        )
+    if problem:
+        logger.warning(f"The worker serves no metrics: {problem}.")
+        return
+    # This container's own directory: a restarted worker would add its counts
+    # to the last run's.
+    for stale in Path(shared).glob("*.db"):
+        stale.unlink(missing_ok=True)
+    _metrics_server = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "lasagna.infrastructure.tasks.worker_metrics",
+            port,
+            str(os.getpid()),
+        ]
+    )
+    logger.info(f"Worker metrics: http://0.0.0.0:{port}/metrics")
+
+
+def stop_worker_metrics(**_signal) -> None:
+    """Stop the metrics process when the worker shuts down."""
+    global _metrics_server
+    if _metrics_server is not None:
+        _metrics_server.terminate()
+        _metrics_server = None
+
+
 def _connect_worker_signals() -> None:
-    """Run :func:`refuse_model_downloads_in_worker` in every worker process."""
+    """Run the worker-only setup in every worker process."""
     try:
-        from celery.signals import worker_init, worker_process_init
+        from celery.signals import worker_init, worker_process_init, worker_shutdown
     except ImportError:
         return
     # The main process, which forks the pool, and each child (a pool that
     # spawns does not inherit the main process's state).
     worker_init.connect(refuse_model_downloads_in_worker, weak=False)
     worker_process_init.connect(refuse_model_downloads_in_worker, weak=False)
+    worker_init.connect(serve_worker_metrics, weak=False)
+    worker_shutdown.connect(stop_worker_metrics, weak=False)
 
 
 def create_celery_app() -> "Celery":

@@ -406,6 +406,7 @@ environment only: not from the settings file, and not per session.
 | `RAG_CONFIGURATOR` | `false` | Mount the configurator UI at /configurator, with its API routes. |
 | `LASAGNA_LOG_FORMAT` | `text` | json writes one JSON object per log line; text shows a request's id before the message. Any other value stops the server at startup. |
 | `PROMETHEUS_MULTIPROC_DIR` | unset | The directory gunicorn workers share for Prometheus metrics (set in the image). |
+| `RAG_WORKER_METRICS_PORT` | unset | The port a Celery worker serves its Prometheus /metrics on, with RAG_ENABLE_PROMETHEUS on (lasagna_ingests_total for the documents it processed). Unset, the worker serves none. Compose and Kubernetes set 9100. |
 
 ### MCP server
 

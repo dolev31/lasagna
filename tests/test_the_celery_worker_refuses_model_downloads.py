@@ -29,6 +29,7 @@ class _Signal:
 def worker(monkeypatch):
     signals = ModuleType("celery.signals")
     signals.worker_init, signals.worker_process_init = _Signal(), _Signal()
+    signals.worker_shutdown = _Signal()
     monkeypatch.setitem(sys.modules, "celery.signals", signals)
 
     class _Celery:

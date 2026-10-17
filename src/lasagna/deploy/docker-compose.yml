@@ -193,6 +193,11 @@ services:
     env_file: *env-file
     environment:
       <<: *common-env
+      # The worker processes the uploads, so it counts them: Prometheus scrapes
+      # celery-worker:9100/metrics for lasagna_ingests_total.
+      RAG_WORKER_METRICS_PORT: "9100"
+    expose:
+      - "9100"
     volumes:
       - uploads-data:/data/uploads
     # The image's own HEALTHCHECK probes the api on :8000, which this

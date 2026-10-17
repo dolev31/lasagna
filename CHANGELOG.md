@@ -512,6 +512,12 @@ Server and deployment:
   the Celery worker follow `RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS`: a server
   refuses a tokenizer it would have to download, and a worker refuses a
   model, as the API does.
+- **The Celery worker's ingest metrics are scraped.** `lasagna_ingests_total`
+  is counted where a document is processed, and with the celery profile that
+  is the worker, which served no `/metrics`. With `RAG_WORKER_METRICS_PORT`
+  (9100 in compose and k8s, whose worker pods now carry the
+  `prometheus.io/scrape` annotations) the worker serves its own, for every
+  pool process.
 - **A session can no longer point the server at another vector store.**
   Session settings (REST `/api/v1/config`, `/api/config/knowledge/profile` and
   `/import`, the MCP config tools, the config manager) accepted any key, and
