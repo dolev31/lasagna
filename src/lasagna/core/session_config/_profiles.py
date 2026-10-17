@@ -617,6 +617,7 @@ class ProfileMixin:
                 _resolve(profile_config, overrides),
                 change=f"Profile {profile_name!r}",
                 force=force,
+                session_id=session_id,
             )
 
             if profile is None:
@@ -703,6 +704,7 @@ class ProfileMixin:
                     _resolve(config, overrides),
                     change=f"Profile {profile_name!r}",
                     force=force,
+                    session_id=session_id,
                 )
 
             new_profile = RAGProfile(
@@ -846,6 +848,7 @@ class ProfileMixin:
                     _resolve(fallback.config if fallback else {}, {}),
                     change=f"Deleting the active profile {profile_name!r} falls back to 'default', which",
                     force=False,
+                    session_id=session_id,
                 )
             state.profiles = [p for p in state.profiles if p.name != profile_name]
             if state.active_profile == profile_name:

@@ -152,9 +152,13 @@ each model writes to a collection of its own, named
 - Sessions on the same model share its collection, and each session sees only
   its own documents in it.
 - Switching a session to a profile with another model makes it search that
-  model's collection. Documents uploaded before the switch stay where they
-  were, and a session on the old model still finds them. To search them with
-  the new model, upload them again.
+  model's collection, so a session that holds documents is refused the switch,
+  even at the same embedding size: none of its documents would be found.
+  Use a new session for the new model, or switch with
+  `lasagna configure --profile <name> -s <session> --force` and reindex the
+  documents with the new model (`client.documents.reindex(document_id)` in
+  the SDK, or the MCP tool `reindex_document`). Until then they stay where
+  they were, and a session on the old model still finds them.
 - A `collection_name` you set yourself (in the settings file or as
   `RAG_COLLECTION_NAME`) is used as given. The evaluation
   harness names one per sweep arm this way, so sweeps are unaffected.

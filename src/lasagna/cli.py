@@ -1337,7 +1337,8 @@ def configure(
     force: bool = typer.Option(
         False,
         "--force",
-        help="Apply even if the profile's embedding size differs from stored documents",
+        help="Apply even if the session's stored documents would no longer be searched "
+        "(they stay where they are until reindexed)",
     ),
 ):
     """Configure RAG settings.
@@ -1358,7 +1359,10 @@ def configure(
         try:
             mgr.set_active_profile(profile, session_id=session_id, force=force)
         except EmbeddingSizeConflict as exc:
-            _error(f"{exc} Or pass --force to switch anyway.")
+            _error(
+                f"{exc} To switch anyway: lasagna configure --profile {profile} "
+                f"-s {session_id} --force."
+            )
         except ValueError as exc:
             _error(str(exc))
         console.print(f"[green]Applied profile: {profile}[/green]")

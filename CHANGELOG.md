@@ -910,6 +910,16 @@ Requests to current models:
 
 Servers and deployment:
 
+- **`configure --profile` stranded a session's documents.** On a `speed`
+  session holding documents, `configure --profile standard` printed "Applied
+  profile: standard" and exited 0; switching bge-small to `speed` (both 384
+  dimensions) did the same, and search then returned 0 results while `status`
+  said "Documents: 1". The guard compared embedding sizes in the new model's
+  empty collection, so `--force` never had anything to override. Any write to
+  a session's configuration (profile switch, patch, save, import, reset) is
+  now refused when the session's documents are in another collection than the
+  one it would search, naming the choices: a new session, or `--force` and a
+  reindex.
 - **Eleven MCP tools required `session_id` with `RAG_SESSION_ID` set** (stdio
   and `serve --mcp -s`): `get_document_status`, `get_document_info`,
   `set_active_profile`, `patch_rag_config` and seven more answered a raw

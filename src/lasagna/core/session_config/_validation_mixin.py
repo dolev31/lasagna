@@ -116,19 +116,34 @@ class ValidationMixin:
         *,
         change: str,
         force: bool = False,
+        session_id: Optional[str] = None,
+        documents: bool = True,
     ) -> None:
-        """Raise before a write that would embed at another size than what is stored.
+        """Raise before a write that would leave the session's documents unsearched.
 
         Called by every write that can change the session's resolved config,
-        before anything is applied, with ``after`` the config it would leave.
-        Raises ``EmbeddingSizeConflict`` (a ``ValueError``).
+        before anything is applied, with ``after`` the config it would leave:
+        refused when the session's documents are in another collection than
+        the one ``after`` searches (unless ``documents`` is False: the
+        evaluation harness's own writes, which name a collection per arm), or
+        when that collection holds vectors of another size. Raises
+        ``EmbeddingSizeConflict`` (a ``ValueError``).
         """
         if force:
             return
-        from lasagna.api._profile_guard import refuse_embedding_change
+        from lasagna.api._profile_guard import refuse_embedding_change, refuse_leaving_documents
 
+        before = state.get_resolved_config()
+        if documents:
+            refuse_leaving_documents(
+                session_id=session_id or "default",
+                before=before,
+                after=after,
+                change=change,
+                kept=state.active_profile,
+            )
         refuse_embedding_change(
-            before=state.get_resolved_config(),
+            before=before,
             after=after,
             change=change,
             kept=state.active_profile,
