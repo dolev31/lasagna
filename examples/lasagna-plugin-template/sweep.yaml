@@ -31,7 +31,7 @@ benchmarks:
 tracks: [retrieval]
 
 pipeline:
-  # Keyless and small: no LLM, a 91 MB embedder. Naming a reranker turns
+  # Keyless and small: no LLM, a 92 MB embedder. Naming a reranker turns
   # reranking on for its arm.
   base_profile: speed
   rerankers:

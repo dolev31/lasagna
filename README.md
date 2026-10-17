@@ -189,16 +189,17 @@ lasagna serve                      # REST API and configuration page on 127.0.0.
 ```
 
 > **The first run downloads models.** The default profile fetches an embedding
-> model and a reranker on first use: **about 3.1 GB** (BGE-M3, 2.3 GB, and the
-> mxbai reranker, 870 MB), and 2.3 GB more with the `flag-embedding` extra
-> (which `[all]` includes), since FlagEmbedding also fetches BGE-M3's ONNX copy.
-> On release-gate runs the first search result took between 7 and 40 minutes on
+> model on the first upload or search and a reranker on the first search that
+> reranks: **about 3.2 GB downloaded** (BGE-M3, 2.3 GB, and the mxbai reranker,
+> 881 MB), and 2.3 GB more with the `flag-embedding` extra (which `[all]`
+> includes), since FlagEmbedding fetches BGE-M3's whole repository, ONNX export
+> included. On release-gate runs the first search result took 3–40 minutes on
 > a cold cache; the spread is the connection. After that, a warm
 > search on the `speed` profile takes tens of milliseconds (median 32 ms over
 > 18,442 chunks on Milvus Lite). Run `python -m e2e.run` to measure on your own
 > machine.
 >
-> The `speed` profile downloads 91 MB and never calls an LLM: choose it in
+> The `speed` profile downloads 92 MB and never calls an LLM: choose it in
 > `lasagna init`, run `lasagna configure --profile speed`, or from Python pass
 > `config=config_for_speed()` (from `lasagna.sdk`) to `KnowledgeClient`; the
 > embedding model is process-wide, so two clients in one process share it. A
@@ -220,9 +221,9 @@ already holds comes back as that document, with `duplicate_of` set
 (`allow_duplicates=True`, or `lasagna upload --force`, indexes it again).
 
 **The smallest first run.** In the [component comparison](#compare-a-component)
-below, `python my_ideas.py` downloads nothing, and the sweep downloads 182 MB
+below, `python my_ideas.py` downloads nothing, and the sweep downloads 183 MB
 once: the `speed` profile's embedder and the cross-encoder it is compared
-against, 91 MB each. Neither needs a dataset or an API key. It is the fastest
+against, 92 MB each. Neither needs a dataset or an API key. It is the fastest
 way to see what this library is for.
 
 ---
@@ -237,7 +238,7 @@ comparison is what your agent searches with.
 
 ```bash
 pip install lasagna-rag
-lasagna configure --profile speed -s my-corpus   # 91 MB model, no API key
+lasagna configure --profile speed -s my-corpus   # 92 MB model, no API key
 lasagna upload ./docs/*.md -s my-corpus           # several files, one model load
 ```
 
@@ -409,7 +410,7 @@ n_runs: 1     # retrieval does not sample; repeat runs when an LLM stage is in t
 ```
 
 ```bash
-lasagna benchmark experiment sweep.yaml   # downloads 182 MB of models the first time
+lasagna benchmark experiment sweep.yaml   # downloads 183 MB of models the first time
 lasagna results significance "<output>/results.json" -m ndcg@10 --all
 ```
 
@@ -485,7 +486,7 @@ lasagna results interaction "<output>/results.json" --metric ndcg@10
 ```
 
 This one is keyless: `speed` embeds with all-MiniLM-L6-v2, BM25 needs no
-model, and reranking turned on uses the 91 MB MiniLM cross-encoder. A real run
+model, and reranking turned on uses the 92 MB MiniLM cross-encoder. A real run
 on 100 SciFact queries printed:
 
 ```text

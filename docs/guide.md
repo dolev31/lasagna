@@ -55,16 +55,17 @@ split with a regular expression, which can move chunk boundaries, and run
 bundles record that as the `sentence_split_without_punkt` fallback.
 
 **First run downloads models.** The default profile pulls an embedding model
-*and* a reranker: about **3.1 GB** (BGE-M3, 2.3 GB, and the mxbai reranker,
-870 MB; 2.3 GB more with the `flag-embedding` extra, which fetches BGE-M3's ONNX
-copy too), and between 7 and 40 minutes to your first search result on
-release-gate runs, depending on the connection. After that, a warm search on the speed profile takes tens of
+on the first upload or search *and* a reranker on the first search that
+reranks: about **3.2 GB** (BGE-M3, 2.3 GB, and the mxbai reranker, 881 MB;
+2.3 GB more with the `flag-embedding` extra, which fetches BGE-M3's whole
+repository, ONNX export included), and between 3 and 40 minutes to your first
+search result on release-gate runs, depending on the connection. After that, a warm search on the speed profile takes tens of
 milliseconds (median 32 ms over 18,442 chunks on Milvus Lite). The default
 profile takes 7 to 9 s on two CPU threads, because its large reranker scores
 every query; more cores or a GPU cut that.
 
 To try it faster, start on the `speed` profile: dense vector search on a
-91 MB model, no reranker and no API key.
+92 MB model, no reranker and no API key.
 
 ```bash
 lasagna configure --profile speed
@@ -416,7 +417,7 @@ lasagna benchmark run smoke --profile speed
 ```
 
 `smoke` is 24 documents and 12 queries held inside the package: no dataset
-download and no API key, and on `speed` the only model is a 91 MB embedder. It
+download and no API key, and on `speed` the only model is a 92 MB embedder. It
 runs the real retrieval pipeline end to end, so a green run means the stack is
 wired up. `lasagna benchmark run` measures retrieval unless asked for more; add
 `--tracks retrieval,generation` once an LLM key and the `[eval]` extra are set
@@ -439,7 +440,7 @@ config = ExperimentConfig(
     benchmarks=[BenchmarkSpec(name="beir/scifact", n_samples=200)],
     tracks=["retrieval"],  # NDCG, recall and the rest; no LLM, no judge
     pipeline=PipelineSweepSpec(
-        base_profile="speed",  # a 91 MB embedder and no API key
+        base_profile="speed",  # a 92 MB embedder and no API key
         # Sweep across rerankers with everything else fixed. The comparison is
         # only meaningful because the other seven stages do not move.
         rerankers=["cross_encoder", "length_demo"],
@@ -452,8 +453,8 @@ config = ExperimentConfig(
 print(config.mode, "->", len(config.benchmarks), "benchmark(s)")
 ```
 
-This one is keyless: `speed` embeds with a 91 MB model and the cross-encoder
-control is 91 MB. The same file in YAML runs with
+This one is keyless: `speed` embeds with a 92 MB model and the cross-encoder
+control is 92 MB. The same file in YAML runs with
 `lasagna benchmark experiment sweep.yaml`, which is what the
 [README](../README.md#compare-a-component) and
 [Contributing components](contributing-components.md#4-check-it-helps) show.
@@ -528,7 +529,7 @@ pipeline:
 n_runs: 1
 ```
 
-This one is keyless: BM25 needs no model, and `speed` embeds with the 91 MB one.
+This one is keyless: BM25 needs no model, and `speed` embeds with the 92 MB one.
 
 **A generator.** List the answer strategies under `generators:`. Every arm
 retrieves the same way, so a difference comes from how the answer was written.

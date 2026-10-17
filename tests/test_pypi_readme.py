@@ -163,6 +163,7 @@ class TestMeasuredClaimsMatchTheReports:
 
     @pytest.fixture(scope="class")
     def measured(self):
+        """Each metric's values, oldest run first (report folders are UTC timestamps)."""
         import json
 
         runs = {}
@@ -190,12 +191,24 @@ class TestMeasuredClaimsMatchTheReports:
         )
 
     def test_the_download_size_is_right(self, readme, measured):
+        """Against the newest run, not the largest.
+
+        What is downloaded is a property of the code, so an older report
+        describes code that no longer exists: checked against the largest,
+        4.6 GB (BGE-M3 twice and no reranker, measured before both were
+        fixed) stayed the figure to meet. The time range above keeps every
+        run, since time is a property of the connection and each run is one
+        more sample of it. Units are decimal, as the reports (MB = 10^6
+        bytes) and `lasagna init` state them; the old factor of 1024 was off
+        by 2.4%.
+        """
         sizes = measured.get("model_download")
         if not sizes:
             pytest.skip("no download-size metric recorded")
         match = re.search(r"([\d.]+) GB downloaded", readme)
         assert match, "README no longer states a download size"
-        claimed_mb = float(match.group(1)) * 1024
-        assert abs(claimed_mb - max(sizes)) / max(sizes) < 0.05, (
-            f"README claims {match.group(1)} GB; reports measured {max(sizes) / 1024:.2f} GB"
+        claimed_mb = float(match.group(1)) * 1000
+        newest = sizes[-1]
+        assert abs(claimed_mb - newest) / newest < 0.05, (
+            f"README claims {match.group(1)} GB; the newest report measured {newest / 1000:.2f} GB"
         )

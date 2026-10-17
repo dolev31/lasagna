@@ -269,7 +269,7 @@ class ProfileMixin:
             "enable_hybrid_search": False,
             "enable_reranking": False,
             # Used only when an arm or a user turns reranking on: without it the
-            # global 870 MB default loaded, against what this profile is for.
+            # global 881 MB default loaded, against what this profile is for.
             "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
             "enable_hyde": False,
             "enable_mmr": False,

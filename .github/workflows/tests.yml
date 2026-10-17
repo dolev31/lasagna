@@ -223,7 +223,7 @@ jobs:
   e2e-smoke:
     name: E2E gate (quick subset)
     runs-on: ubuntu-latest
-    # Phase p2 downloads the default models (about 4.5 GB) on a cold cache.
+    # Phase p2 downloads the default models (about 3.2 GB) on a cold cache.
     timeout-minutes: 60
     if: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.event.repository.private) }}
     steps:

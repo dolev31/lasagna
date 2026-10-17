@@ -89,11 +89,11 @@ five: `default`, which is the settings file as it stands, and four presets.
 
 | Profile | What it runs | Downloads on first use | Calls an LLM during search |
 |---|---|---|---|
-| `default` | the settings file: BGE-M3, hybrid search, reranking with mxbai-rerank-large-v1, MMR, query routing with agentic retrieval | 3.1 GB | for queries routed to agentic retrieval |
-| `speed` | dense vector search only, all-MiniLM-L6-v2; no reranking, hybrid, MMR, HyDE or agentic loop | 91 MB | never |
-| `standard` | hybrid search, reranking with mxbai-rerank-large-v1, MMR, query routing with agentic retrieval, BGE-M3 | 3.1 GB | for queries routed to agentic retrieval |
-| `balanced` | `standard` plus hierarchical chunking, the structured agentic graph with a hallucination check, and adaptive routing | 3.1 GB | for queries routed to agentic retrieval |
-| `max_quality` | `balanced` plus HyDE, query expansion, RAG fusion, CRAG, an answer quality check and contextual retrieval (an LLM call per chunk at ingest); every query goes to the agentic loop | 3.1 GB | on every search and every upload |
+| `default` | the settings file: BGE-M3, hybrid search, reranking with mxbai-rerank-large-v1, MMR, query routing with agentic retrieval | 3.2 GB | for queries routed to agentic retrieval |
+| `speed` | dense vector search only, all-MiniLM-L6-v2; no reranking, hybrid, MMR, HyDE or agentic loop | 92 MB | never |
+| `standard` | hybrid search, reranking with mxbai-rerank-large-v1, MMR, query routing with agentic retrieval, BGE-M3 | 3.2 GB | for queries routed to agentic retrieval |
+| `balanced` | `standard` plus hierarchical chunking, the structured agentic graph with a hallucination check, and adaptive routing | 3.2 GB | for queries routed to agentic retrieval |
+| `max_quality` | `balanced` plus HyDE, query expansion, RAG fusion, CRAG, an answer quality check and contextual retrieval (an LLM call per chunk at ingest); every query goes to the agentic loop | 3.2 GB | on every search and every upload |
 
 The sizes are the model weights, which `lasagna init` also prints. With query
 routing on, each query is classified by rules: a short factual one runs vector

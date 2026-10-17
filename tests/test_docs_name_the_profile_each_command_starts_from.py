@@ -19,6 +19,7 @@ from lasagna.knowledge_evaluation_sdk.experiment import PipelineSweepSpec
 
 REPO = Path(__file__).resolve().parents[1]
 
+#: Every shipped page but the changelog, which quotes what the docs used to say.
 PAGES = sorted(
     {
         *REPO.glob("*.md"),
@@ -26,6 +27,7 @@ PAGES = sorted(
         *REPO.glob("examples/**/README.md"),
         *REPO.glob("src/lasagna/**/*.md"),
     }
+    - {REPO / "CHANGELOG.md"}
 )
 
 

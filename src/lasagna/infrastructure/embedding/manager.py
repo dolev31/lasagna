@@ -396,7 +396,7 @@ class EmbeddingManager:
                 f"Loading BGE-M3 via FlagEmbedding: {model_name} on {device} (fp16={use_fp16})"
             )
             self._device = device
-            with device_guard(device):
+            with device_guard(device), model_downloads.one_weights_copy():
                 self.model = BGEM3FlagModel(
                     model_name,
                     use_fp16=use_fp16,
@@ -483,7 +483,11 @@ class EmbeddingManager:
             logger.info(f"Loading primary embedding model: {primary_model} on {device}")
             warn_if_restricted(primary_model, component="embedding model")
             self._device = device
-            with device_guard(device), loading_bar_hidden(primary_path):
+            with (
+                device_guard(device),
+                loading_bar_hidden(primary_path),
+                model_downloads.one_weights_copy(),
+            ):
                 self.model = SentenceTransformer(primary_path, device=device)
                 # Verify embedding dimension
                 test_embedding = self.model.encode("test", convert_to_numpy=True)
@@ -513,7 +517,11 @@ class EmbeddingManager:
 
             fallback_path = self._resolve_local_snapshot(fallback_model)
             try:
-                with device_guard(device), loading_bar_hidden(fallback_path):
+                with (
+                    device_guard(device),
+                    loading_bar_hidden(fallback_path),
+                    model_downloads.one_weights_copy(),
+                ):
                     self.model = SentenceTransformer(fallback_path, device=device)
                     test_embedding = self.model.encode("test", convert_to_numpy=True)
                 self.model_name = fallback_model

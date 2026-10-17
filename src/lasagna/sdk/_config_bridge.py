@@ -84,7 +84,7 @@ INIT_TIME_FIELDS: Set[str] = {
     # only as RUNTIME fields, so `KnowledgeClient(config=KnowledgeConfig(
     # embedding_model=...))` wrote a per-session override that could not
     # possibly change a model already loaded -- the SDK's primary configuration
-    # surface silently did nothing for the one setting that costs 3.1 GB to get
+    # surface silently did nothing for the one setting that costs 3.2 GB to get
     # wrong, and the README documented it as a known limitation.
     #
     # They remain in RUNTIME_FIELD_MAP as well: the evaluation harness sweeps

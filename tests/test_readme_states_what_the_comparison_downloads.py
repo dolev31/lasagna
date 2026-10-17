@@ -15,7 +15,7 @@ from pathlib import Path
 import yaml
 
 from lasagna.core.session_config._profiles import ProfileMixin
-from lasagna.core.setup_text import MODEL_WEIGHT_BYTES, human_size
+from lasagna.core.setup_text import MODEL_DOWNLOAD_BYTES, human_size
 
 README = Path(__file__).resolve().parents[1] / "README.md"
 
@@ -39,7 +39,7 @@ def _sweep_download() -> str:
     models = {spec["embedding_model"]}
     if "cross_encoder" in sweep["pipeline"]["rerankers"]:
         models.add(spec["reranker_model"])
-    return human_size(sum(MODEL_WEIGHT_BYTES[m] for m in models))
+    return human_size(sum(MODEL_DOWNLOAD_BYTES[m] for m in models))
 
 
 def test_the_readme_no_longer_says_the_sweep_needs_no_model():
@@ -50,7 +50,7 @@ def test_the_readme_no_longer_says_the_sweep_needs_no_model():
 
 def test_the_stated_sweep_download_is_what_the_sweep_loads():
     size = _sweep_download()
-    assert size == "182 MB"
+    assert size == "183 MB"
     words = " ".join(_text().split())
     assert f"the sweep downloads {size} once" in words
     assert f"downloads {size} of models the first time" in words

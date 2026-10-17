@@ -220,8 +220,8 @@ def test_init_states_each_profiles_download_and_writes_no_key(tmp_path, monkeypa
 
     assert "Lasagna setup" in said and "Configure your knowledge base" in said
     profiles = dict(answers.prompts)["Quality profile?"]
-    assert any("downloads 91 MB: all-MiniLM-L6-v2" in title for title in profiles)
-    assert any("downloads 3.1 GB" in title for title in profiles)
+    assert any("downloads 92 MB: all-MiniLM-L6-v2" in title for title in profiles)
+    assert any("downloads 3.2 GB" in title for title in profiles)
     assert not any("2GB" in title for _, titles in answers.prompts for title in titles or [])
 
     assert "export OPENAI_API_KEY=<your key>" in said
