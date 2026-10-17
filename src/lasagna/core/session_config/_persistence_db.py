@@ -106,6 +106,8 @@ class DatabasePersistenceMixin:
         except Exception as exc:
             logger.warning(f"Failed to load profiles from PostgreSQL: {exc}")
             return None
+        if not isinstance(rows, list):
+            return None  # a stand-in store: keep what this process has
         return [
             RAGProfile(
                 name=row["profile_name"],
@@ -280,14 +282,14 @@ class DatabasePersistenceMixin:
         reached the other workers, the Celery worker or the MCP server.
         """
         cached = None if fresh else self._load_session_from_cache(session_id)
-        if cached:
+        if isinstance(cached, dict) and cached:
             return cached
         try:
             row = _get_pg_db().get_session(session_id)
         except Exception as exc:  # noqa: BLE001 - the cached copy is kept
             logger.debug(f"Could not read session {session_id} from PostgreSQL: {exc}")
             return None
-        return self._row_to_state_data(row) if row else None
+        return self._row_to_state_data(row) if isinstance(row, dict) and row else None
 
     def _touch_persisted_session(self, session_id: str) -> None:
         """Record in PostgreSQL that the session is in use."""

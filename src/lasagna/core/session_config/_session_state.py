@@ -133,6 +133,8 @@ class SessionStateMixin:
             focused_document_ids = []
 
         last_accessed = data.get("last_accessed", time.time())
+        if not isinstance(last_accessed, (int, float)) or isinstance(last_accessed, bool):
+            last_accessed = time.time()
 
         return KnowledgeConfigState(
             profiles=profiles,

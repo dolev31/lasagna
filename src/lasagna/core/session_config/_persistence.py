@@ -178,6 +178,8 @@ class PersistenceMixin:
         except Exception as exc:
             logger.warning(f"Failed to load profiles from database: {exc}")
             return None
+        if not isinstance(rows, list):
+            return None  # a stand-in store: keep what this process has
         return [
             RAGProfile(
                 name=row["profile_name"],
@@ -276,8 +278,8 @@ class PersistenceMixin:
         except Exception as exc:
             logger.debug(f"Could not read session {session_id} from database: {exc}")
             return None
-        if not row:
-            return None
+        if not isinstance(row, dict) or not row:
+            return None  # none stored (or a stand-in store, which has no rows)
         return {
             "active_profile": row.get("active_profile", "default"),
             "session_overrides": row.get("session_overrides", {}),
