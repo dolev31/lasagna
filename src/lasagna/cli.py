@@ -1759,6 +1759,7 @@ def _configure_through_server(
         total=int((report or {}).get("documents") or 0),
         reindex=bool(report),
         own_settings=dict((report or {}).get("own_settings") or {}),
+        warnings=list((report or {}).get("warnings") or []),
     )
     console.print(f"[green]{escape(switched.applied())}[/green]")
     done = summary(switched)

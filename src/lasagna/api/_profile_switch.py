@@ -70,6 +70,8 @@ class SwitchReport:
     reindex: bool = False
     #: The session's own embedding settings that stay in force over the profile's.
     own_settings: Dict[str, Any] = field(default_factory=dict)
+    #: What the switch went through with: a reranker that is not downloaded.
+    warnings: List[str] = field(default_factory=list)
 
     def applied(self) -> str:
         """``Applied profile: speed``, naming the session's own model settings that stay."""
@@ -95,6 +97,7 @@ class SwitchReport:
             "restored": list(self.restored),
             "stranded": [{"document_id": d, "error": e} for d, e in self.stranded],
             "own_settings": dict(self.own_settings),
+            "warnings": list(self.warnings),
         }
 
 
@@ -108,38 +111,53 @@ def _setting(settings: Dict[str, Any], key: str) -> Any:
     return settings[key] if key in settings else getattr(get_rag_config(), key, None)
 
 
-def unloadable_models(settings: Dict[str, Any]) -> List[str]:
-    """Why each model ``settings`` need cannot load here; empty when all can.
-
-    The embedding model, and the reranker when reranking is on: cached, or
-    downloadable under the download policy (offline mode, a server that does
-    not download inside a request). A cached fallback embedder counts, as the
-    embedder loads it then.
-    """
-    from lasagna.core import model_downloads
+def _download_fix(problem: Any, model: str) -> str:
     from lasagna.core.setup_text import download_command
 
-    def fix(problem: Any, model: str) -> str:
-        if problem.offline:
-            return f"{problem} To use it, download it once with network access: {download_command(model)}."
-        return (
-            f"{problem} To use it, download it first ({download_command(model)}), or set "
-            f"RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS=true for the server."
-        )
+    if problem.offline:
+        return f"download it once with network access: {download_command(model)}"
+    return (
+        f"download it first ({download_command(model)}), or set "
+        f"RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS=true for the server"
+    )
 
-    problems = []
+
+def unloadable_models(settings: Dict[str, Any]) -> List[str]:
+    """Why the embedding model ``settings`` need cannot load here; empty when it can.
+
+    Cached, or downloadable under the download policy (offline mode, a server
+    that does not download inside a request). A cached fallback embedder
+    counts, as the embedder loads it then. The reranker is not one of them: a
+    search skips one that is not downloaded and says so (``degraded_stages``
+    ``reranker``, results in retrieval order), so a switch to its profile goes
+    through with the same warning (``reranker_warning``).
+    """
+    from lasagna.core import model_downloads
+
     model = _setting(settings, "embedding_model")
     problem = model_downloads.refusal(model) if model else None
-    if problem is not None:
-        fallback = _setting(settings, "embedding_model_fallback")
-        if not (problem.offline and fallback and model_downloads.is_cached(fallback)):
-            problems.append(fix(problem, model))
-    if _setting(settings, "enable_reranking"):
-        reranker = _setting(settings, "reranker_model")
-        problem = model_downloads.refusal(reranker, kind="reranker model") if reranker else None
-        if problem is not None:
-            problems.append(fix(problem, reranker))
-    return problems
+    if problem is None:
+        return []
+    fallback = _setting(settings, "embedding_model_fallback")
+    if problem.offline and fallback and model_downloads.is_cached(fallback):
+        return []
+    return [f"{problem} To use it, {_download_fix(problem, model)}."]
+
+
+def reranker_warning(settings: Dict[str, Any]) -> Optional[str]:
+    """What searches with ``settings`` will lack when their reranker cannot load here, or None."""
+    from lasagna.core import model_downloads
+
+    if not _setting(settings, "enable_reranking"):
+        return None
+    reranker = _setting(settings, "reranker_model")
+    problem = model_downloads.refusal(reranker, kind="reranker model") if reranker else None
+    if problem is None:
+        return None
+    return (
+        f"{problem} Until it is, searches skip it and return results in retrieval order, "
+        f"not reranked (degraded_stages: reranker); to rerank, {_download_fix(problem, reranker)}."
+    )
 
 
 def _searched_documents(session_id: str) -> List[Dict[str, Any]]:
@@ -246,16 +264,21 @@ def _refuse_unloadable(
     settings of its own (an SDK client's).
     """
     problems = unloadable_models(resolved)
+    rerank = reranker_warning(resolved)
     if problems:
         from lasagna.api._profile_guard import documents_now
 
         state = documents_now(report.session_id, now)
         what = f"Profile {report.profile!r}" + (" with these settings" if settings else "")
         raise ProfileCannotLoad(
-            f"{what} cannot be used here: {' '.join(problems)} Nothing "
-            f"was changed; session {report.session_id!r} stays on profile "
+            f"{what} cannot be used here: {' '.join(problems)}"
+            + (f" {rerank}" if rerank else "")
+            + f" Nothing was changed; session {report.session_id!r} stays on profile "
             f"{report.previous!r}." + (f" {state}" if state else "")
         )
+    if rerank:
+        logger.warning(rerank)
+        report.warnings.append(rerank)
 
 
 def _switch_without_reindex(
@@ -273,6 +296,11 @@ def _switch_without_reindex(
         _refuse_unloadable(
             report, chosen, manager.get_resolved_config(session_id), settings=bool(config)
         )
+    else:
+        rerank = reranker_warning(chosen)
+        if rerank:
+            logger.warning(rerank)
+            report.warnings.append(rerank)
     manager.set_active_profile(
         profile, config=config, session_id=session_id, user_id=user_id, force=force, reset=reset
     )
@@ -525,9 +553,18 @@ def _failure_message(report: SwitchReport) -> str:
 
 
 def summary(report: SwitchReport) -> Optional[str]:
-    """``Reindexed 3 of 3 documents in session r1 with BAAI/bge-m3.``; None without a reindex."""
+    """``Reindexed 3 of 3 documents in session r1 with BAAI/bge-m3.``, and any warning.
+
+    None without a reindex or a warning.
+    """
+    warned = " ".join(report.warnings)
     if not report.reindex:
-        return None
+        return warned or None
+    done = _reindexed(report)
+    return f"{done} {warned}" if warned else done
+
+
+def _reindexed(report: SwitchReport) -> str:
     if not report.total:
         return f"Session {report.session_id} has no documents to reindex."
     own = (

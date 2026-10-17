@@ -174,6 +174,17 @@ def _check_model_cache(session_id: str = "default") -> Check:
     missing = [m for m in models if not is_cached(m)]
     if not missing:
         return Check("model_cache", _OK, f"cached for session {session_id!r}: {', '.join(models)}")
+    if offline() and models[0] not in missing:
+        # Only the reranker: a search skips it and says so, as a switch to its
+        # profile does (it was reported as making every search fail).
+        return Check(
+            "model_cache",
+            _WARN,
+            f"not downloaded for session {session_id!r}, and Hugging Face offline mode "
+            f"is on (HF_HUB_OFFLINE), so its searches skip the reranker and return results "
+            f"in retrieval order: {', '.join(missing)}",
+            fix_for_model(session_id, missing[0]),
+        )
     if offline():
         # Nothing can download them, so the first upload or search fails:
         # this said "downloads 3.2 GB" and "0 blocking" with HF_HUB_OFFLINE=1.

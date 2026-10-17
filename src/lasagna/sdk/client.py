@@ -599,14 +599,20 @@ class KnowledgeClient:
             # As `lasagna configure --force` does: forced past the documents,
             # the models must still load, or every search fails after it.
             from ..api._profile_guard import documents_now
-            from ..api._profile_switch import ProfileCannotLoad, unloadable_models
+            from ..api._profile_switch import ProfileCannotLoad, reranker_warning, unloadable_models
 
-            problems = unloadable_models({**mgr.get_chosen_config(sid), **overrides})
+            settings = {**mgr.get_chosen_config(sid), **overrides}
+            problems = unloadable_models(settings)
+            rerank = reranker_warning(settings)
+            if rerank and not problems:
+                logger.warning(rerank)  # searches skip it, as they say
             if problems:
                 now = documents_now(sid, mgr.get_resolved_config(sid))
                 raise ProfileCannotLoad(
-                    f"These settings cannot be used here: {' '.join(problems)} Nothing was "
-                    f"changed for session {sid!r}." + (f" {now}" if now else "")
+                    f"These settings cannot be used here: {' '.join(problems)}"
+                    + (f" {rerank}" if rerank else "")
+                    + f" Nothing was changed for session {sid!r}."
+                    + (f" {now}" if now else "")
                 )
         else:
             # Before any write, in either session store: the in-memory one

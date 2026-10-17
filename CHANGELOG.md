@@ -136,7 +136,7 @@ Serving:
 - **REST API** (`lasagna serve`, or the Compose stack) under `/api/v1`,
   covered by the deprecation policy in [GOVERNANCE.md](GOVERNANCE.md); search
   responses name the stages that fell back in `degraded_stages` (a reranker
-  that is not downloaded: results in retrieval order, with the download).
+  not downloaded: retrieval order and the download, also when switching to it).
 - **`lasagna upload`** takes files, globs and folders (a folder's readable
   files, subfolders included, saying what it skipped).
 - **Profiles** `speed` (92 MB, no LLM), `standard`, `balanced` and
@@ -261,11 +261,9 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   Concurrent changes from several processes are all kept; the evaluation
   harness keeps its sessions in its own process. A session's settings stay
   while it holds documents, else `session_idle_days` (30; 0 keeps them) after
-  last use. A change the store does not save is refused (503 over REST); with
-  PostgreSQL every worker reads a session as last saved, with or without Redis.
-  A saved profile is its owner's: under auth a tenant cannot change a shared
-  one, and a re-save or delete that would strand another session's documents
-  is refused.
+  last use. A change the store does not save is refused (503); on PostgreSQL
+  every worker reads a session as last saved. A saved profile is its owner's,
+  and a re-save or delete that would strand other sessions' documents is refused.
 - **One vector collection per embedding model**
   (`rag_documents_v2__<model>__<dim>`). An existing `rag_documents_v2` is kept
   under its name by the first model that opens it at its size. A switch that
