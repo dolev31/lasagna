@@ -455,7 +455,7 @@ def _mount_docs(app: FastAPI) -> None:
 
 
 def _answer_switch_in_progress(app: FastAPI) -> None:
-    """409 with the reason for any route refused during a session's profile switch.
+    """409 for a route refused during a session's profile switch, 503 past a store lock's wait.
 
     A delete, a reindex or a settings change of a session while a switch moves
     its documents is refused (``ProfileSwitchInProgress``); a route that does
@@ -468,7 +468,16 @@ def _answer_switch_in_progress(app: FastAPI) -> None:
     async def _conflict(request, exc):
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
+    async def _busy(request, exc):
+        # Another process held a store lock past RAG_STORE_LOCK_TIMEOUT.
+        return JSONResponse(
+            status_code=503, content={"detail": str(exc)}, headers={"Retry-After": "30"}
+        )
+
+    from lasagna.core.store_locks import StoreLockTimeout
+
     app.add_exception_handler(ProfileSwitchInProgress, _conflict)
+    app.add_exception_handler(StoreLockTimeout, _busy)
 
 
 def create_app(

@@ -255,6 +255,9 @@ class _FakeCursor:
     def execute(self, sql, params=()):
         self.log.append((sql, params))
 
+    def fetchone(self):
+        return (True,)
+
 
 class _FakeConnection:
     def __init__(self, log, autocommit):
@@ -287,8 +290,11 @@ def test_on_postgres_the_lock_is_an_advisory_lock_on_its_own_connection(monkeypa
     from lasagna.core.store_locks import lock_key
 
     key = lock_key("document:doc_1")
+    # Waited for a bounded time (RAG_STORE_LOCK_TIMEOUT, 300 s by default).
     assert log == [
+        ("SET lock_timeout = 300000", ()),
         ("SELECT pg_advisory_lock(%s)", (key,)),
+        ("SET lock_timeout = 0", ()),
         ("SELECT pg_advisory_unlock(%s)", (key,)),
     ]
     assert connections[0].closed

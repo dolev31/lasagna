@@ -50,6 +50,17 @@ if _psycopg is None:
         pass
 
 
+def lock_timeout_seconds() -> float:
+    from .store_locks import lock_timeout
+
+    return lock_timeout()
+
+
+def _sqlstate(exc: BaseException) -> Optional[str]:
+    """The SQLSTATE of a psycopg 3 or psycopg2 error, if it has one."""
+    return getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)
+
+
 def _check_driver():
     if _psycopg is None and _psycopg2 is None:
         raise ImportError(
@@ -383,17 +394,45 @@ class PostgresRAGDatabase:
             finally:
                 conn.close()
 
+    @contextmanager
     def _lock_connection(self):
-        """A connection of its own, in autocommit, to hold one advisory lock.
+        """A connection in autocommit to hold one advisory lock, for as long as it is held.
 
-        Not from the pool: a reindex holds its document's lock while it runs,
-        and pooled connections held that long would starve every other query.
+        From the pool while locks hold at most half of it: an advisory lock
+        belongs to its connection, so the connection stays out of the pool
+        until the lock is released, and a reindex holds its document's lock
+        while it runs. Beyond that, a connection of its own, so locks never
+        starve the queries their holders make. Each lock had a connection of
+        its own, outside the pool, whatever the load.
         """
+        pool = getattr(self, "_pool", None)
+        room = getattr(self, "_lock_slots", None)
+        if pool is not None and room is None:
+            with self._lock:
+                if getattr(self, "_lock_slots", None) is None:
+                    self._lock_slots = threading.BoundedSemaphore(max(1, self._pool_max // 2))
+            room = self._lock_slots
+        if pool is not None and room.acquire(blocking=False):
+            try:
+                with pool.connection(timeout=lock_timeout_seconds()) as conn:
+                    conn.autocommit = True
+                    try:
+                        yield conn
+                    finally:
+                        if not conn.closed:
+                            conn.autocommit = False
+            finally:
+                room.release()
+            return
         if self._driver == "psycopg3":
-            return _psycopg.connect(self._dsn, autocommit=True)
-        conn = _psycopg2.connect(self._dsn)
-        conn.autocommit = True
-        return conn
+            conn = _psycopg.connect(self._dsn, autocommit=True)
+        else:
+            conn = _psycopg2.connect(self._dsn)
+            conn.autocommit = True
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     @contextmanager
     def exclusive(self, name: str):
@@ -402,11 +441,13 @@ class PostgresRAGDatabase:
         A session-level advisory lock (``pg_advisory_lock``) on a connection
         held for the duration: every API pod, gunicorn worker, Celery worker
         and MCP server shares it, and a process that dies releases it with its
-        connection. Replacing, retrying and deleting a document, and the
-        duplicate check of an upload, take it. A thread may take a lock it
-        already holds.
+        connection. Replacing, retrying and deleting a document, the duplicate
+        check of an upload, and every change to a session's settings take it.
+        A thread may take a lock it already holds. Waited for at most
+        ``RAG_STORE_LOCK_TIMEOUT`` seconds (300), then ``StoreLockTimeout``:
+        it waited for ever.
         """
-        from .store_locks import HeldLocks, lock_key
+        from .store_locks import HeldLocks, StoreLockTimeout, lock_key, lock_timeout_message
 
         if getattr(self, "_held_locks", None) is None:
             with self._lock:
@@ -421,22 +462,38 @@ class PostgresRAGDatabase:
             finally:
                 held[key] -= 1
             return
-        conn = self._lock_connection()
-        try:
+        timeout = lock_timeout_seconds()
+        with self._lock_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT pg_advisory_lock(%s)", (key,))
+                cur.execute(f"SET lock_timeout = {int(timeout * 1000)}")
+                try:
+                    cur.execute("SELECT pg_advisory_lock(%s)", (key,))
+                except Exception as exc:
+                    if _sqlstate(exc) == "55P03":  # lock_not_available
+                        raise StoreLockTimeout(lock_timeout_message(name, timeout)) from exc
+                    raise
+                cur.execute("SET lock_timeout = 0")
             held[key] = 1
             try:
                 yield
             finally:
                 del held[key]
+                released = None
                 try:
                     with conn.cursor() as cur:
                         cur.execute("SELECT pg_advisory_unlock(%s)", (key,))
-                except Exception as exc:  # closing the connection releases it too
+                        row = cur.fetchone()
+                        released = bool(row[0]) if row else None
+                except Exception as exc:
                     logger.debug(f"Could not release advisory lock {name!r}: {exc}")
-        finally:
-            conn.close()
+                    released = False
+                if released is False:
+                    # Not silent: whoever waited for it may have run meanwhile.
+                    logger.warning(
+                        f"The store lock {name!r} was no longer held when it was released: "
+                        f"its connection to PostgreSQL dropped while it was held, so another "
+                        f"process may have taken it before this one finished."
+                    )
 
     def _create_schema(self):
         with self._conn() as conn:

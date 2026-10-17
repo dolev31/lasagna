@@ -279,6 +279,9 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   the server's download policy instead of downloading inside a request.
 - Uploads, reindexes and deletes of one document wait for each other across
   processes (a PostgreSQL advisory lock, or a file lock beside a SQLite store).
+  On PostgreSQL a lock another process holds is waited for
+  `RAG_STORE_LOCK_TIMEOUT` seconds (300), then the operation fails (503 over
+  REST) with nothing changed.
   A document that fails to index leaves no chunks behind, search returns
   chunks of ready documents only, and uploading a file again whose copies all
   failed retries the newest one under its id.

@@ -37,9 +37,19 @@ _pg_db_lock = threading.Lock()
 def _get_pg_db():
     """Get the PostgreSQL database singleton.
 
-    Uses double-check locking to prevent double initialization of the
-    PG connection pool when called concurrently on first access.
+    The metadata store's own (``get_rag_database``), so a process keeps one
+    connection pool: this module opened a second one, of up to
+    ``database_pool_max`` connections more per process. Its own instance only
+    when the metadata store is not PostgreSQL (``RAG_DATABASE_BACKEND`` set
+    without ``database_backend``). Uses double-check locking to prevent double
+    initialization of the PG connection pool when called concurrently.
     """
+    from lasagna.core.database import get_rag_database
+    from lasagna.core.database_pg import PostgresRAGDatabase
+
+    shared = get_rag_database()
+    if isinstance(shared, PostgresRAGDatabase):
+        return shared
     if not hasattr(_get_pg_db, "_instance"):
         with _pg_db_lock:
             if not hasattr(_get_pg_db, "_instance"):

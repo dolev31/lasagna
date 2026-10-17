@@ -35,6 +35,42 @@ from typing import Dict, Iterator, List
 #: which is correct, only slower.
 STRIPES = 64
 
+#: How long a PostgreSQL store lock is waited for by default, in seconds
+#: (``RAG_STORE_LOCK_TIMEOUT``).
+DEFAULT_LOCK_TIMEOUT = 300.0
+
+
+class StoreLockTimeout(TimeoutError):
+    """Another process held a store lock past ``RAG_STORE_LOCK_TIMEOUT``; nothing was changed."""
+
+
+def lock_timeout() -> float:
+    """``RAG_STORE_LOCK_TIMEOUT`` (seconds, 1 to 86400), else 300."""
+    raw = os.environ.get("RAG_STORE_LOCK_TIMEOUT", "").strip()
+    if not raw:
+        return DEFAULT_LOCK_TIMEOUT
+    try:
+        value = float(raw)
+    except ValueError:
+        value = -1.0
+    if not 1.0 <= value <= 86400.0:
+        raise ValueError(
+            f"RAG_STORE_LOCK_TIMEOUT={raw!r} is not a number of seconds from 1 to 86400. "
+            f"Set one, or unset it for the default ({DEFAULT_LOCK_TIMEOUT:g})."
+        )
+    return value
+
+
+def lock_timeout_message(name: str, waited: float) -> str:
+    """Why an operation stopped waiting for the lock ``name``."""
+    kind, _, what = name.partition(":")
+    held = f"{kind} {what!r}" if what else repr(name)
+    return (
+        f"Another process held {held} for more than {waited:g} seconds, so nothing was "
+        f"changed. Retry when it is done (a profile switch holds a session, and a reindex "
+        f"a document, for as long as they run); RAG_STORE_LOCK_TIMEOUT sets the wait."
+    )
+
 
 def lock_key(name: str) -> int:
     """A stable signed 64-bit key for ``name`` (Python's ``hash`` differs per process)."""

@@ -462,6 +462,14 @@ SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
         "0, false, no or off turns the LLM response cache off for every run.",
         (),
     ),
+    "RAG_STORE_LOCK_TIMEOUT": (
+        "Paths and the process",
+        "300",
+        "Seconds a process waits for a lock another process holds in a PostgreSQL "
+        "metadata store (a document's during a reindex, a session's during a profile "
+        "switch) before the operation fails and says so, with nothing changed.",
+        (),
+    ),
     "LASAGNA_STRICT_PLUGINS": (
         "Paths and the process",
         "unset",
