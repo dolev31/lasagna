@@ -1850,12 +1850,24 @@ class Experiment:
     ) -> BenchmarkResults:
         """Execute the experiment and return results.
 
+        A run that stops before writing results leaves no empty folder behind
+        (see :func:`_tidy_run_folder`).
+
         Args:
             progress_callback: Optional ``(completed, total, task_key) -> None``.
 
         Returns:
             :class:`BenchmarkResults` with all task outcomes.
         """
+        try:
+            return await self._run(progress_callback)
+        finally:
+            _tidy_run_folder(self.config)
+
+    async def _run(
+        self,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    ) -> BenchmarkResults:
         cfg = self.config
         _refuse_a_held_store()
         output_dir = cfg.effective_output_dir()
@@ -1975,7 +1987,7 @@ class Experiment:
                 f"All {len(task_results)} task(s) of '{cfg.name}' failed. First: "
                 f"{first.task_key}: {first.error}. See results.failed_tasks.",
                 RuntimeWarning,
-                stacklevel=2,
+                stacklevel=3,  # past run(), as before it delegated to _run()
             )
 
         logger.info(
@@ -2007,6 +2019,36 @@ def _pick_primary_metric(available: List[str]) -> str:
         if preferred in available:
             return preferred
     return available[0] if available else "ndcg@10"
+
+
+def _tidy_run_folder(cfg: "ExperimentConfig") -> None:
+    """After a run: drop what holds nothing, and say what a stopped run left.
+
+    A run refused before any task (a dataset not cached offline, say) left
+    ``results/<name>_<time>/.checkpoints``, empty, for each attempt. An empty
+    checkpoint folder is removed; so is the run's own timestamped folder when
+    it holds nothing else (a folder named by ``output_dir`` is kept). A run
+    that stopped with finished tasks checkpointed and no results.json keeps
+    them, and says so: ``--resume`` continues from them.
+    """
+    out = Path(cfg.effective_output_dir())
+    checkpoints = Path(cfg.checkpoint_dir or out) / ".checkpoints"
+    finished = len(list(checkpoints.glob("*.json"))) if checkpoints.is_dir() else 0
+    try:
+        if checkpoints.is_dir() and not finished:
+            checkpoints.rmdir()
+        if (out / "results.json").exists():
+            return
+        if finished:
+            logger.warning(
+                f"The run stopped before writing results. {out} holds {finished} finished "
+                f"task(s) as checkpoints: run the same command with --resume to continue "
+                f"from them."
+            )
+        elif not cfg.output_dir and out.is_dir() and not any(out.iterdir()):
+            out.rmdir()
+    except OSError as exc:  # tidying must never hide why the run stopped
+        logger.debug(f"Could not tidy {out}: {exc}")
 
 
 def _save_outputs(
