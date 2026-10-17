@@ -94,7 +94,8 @@ COMPONENT_NAME = "e2e_wordcount_reranker"
 #: way to tell a real swap from a name-field update.
 CONTROL_NAME = "e2e_control_reranker"
 PAPER = "arxiv:0000.00000"
-CLAIMS = {"ndcg@10": 0.4242, "note": "not a real result"}
+#: Claims name the benchmark they were measured on (a made-up number).
+CLAIMS = {"smoke": {"ndcg@10": 0.4242}}
 
 #: Every feature the release adds, end to end; see the module docstring.
 ACCEPTANCE_DEMO = LASAGNA_ROOT / "examples" / "acceptance" / "offline_demo.py"
@@ -602,7 +603,7 @@ _R_HEAD = (
     "from lasagna.core.base_components import BaseReranker, ScoredDocument\n"
     "from lasagna.core.pipeline import KnowledgePipeline\n"
     "@registry.register('reranker', 'demo', paper='arxiv:0000.00000',\n"
-    "                   claims={'ndcg@10': 0.4242})\n"
+    "                   claims={'smoke': {'ndcg@10': 0.4242}})\n"
     "class R(BaseReranker):\n"
     "    def rerank(self, query, documents, top_k=5, **kw):\n"
     "        out = [copy.deepcopy(d) for d in documents]\n"
