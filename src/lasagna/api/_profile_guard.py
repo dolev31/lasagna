@@ -18,6 +18,7 @@ user's overrides on the way back.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from contextlib import contextmanager
@@ -187,16 +188,25 @@ def model_of_collection(collection: str) -> tuple:
 _EMBEDDING_KEYS = ("embedding_model", "embedding_dim", "embedding_truncate_dim")
 
 
-def fixes_for_documents_elsewhere(session_id: str, back: Optional[str]) -> tuple:
+def fixes_for_documents_elsewhere(
+    session_id: str,
+    back: Optional[str],
+    *,
+    surface: str = "cli",
+    indexed_with: Optional[tuple] = None,
+) -> tuple:
     """``(reindex, switch_back)``: what every surface offers for documents in another
     model's collection; ``switch_back`` is None when no built-in profile indexed them.
 
-    ``reindex`` reindexes them with the session's settings as they are, its
-    overrides included (a switch to the profile it is on keeps them).
-    ``switch_back`` makes the session search where they are: a switch to
-    ``back``, the built-in profile whose model indexed them. A session that
+    The one place these commands are made, spelled for ``surface`` (``cli``
+    or ``mcp``). ``reindex`` reindexes them with the session's settings as
+    they are, its overrides included (a switch to the profile it is on keeps
+    them). ``switch_back`` makes the session search where they are: a switch
+    to ``back``, the built-in profile whose model indexed them. A session that
     overrides its embedding model keeps that override across a switch, so the
-    advice was a switch that changed nothing; then its overrides are reset too.
+    advice was a switch that changed nothing; then the override goes instead
+    (``indexed_with``, the documents' ``(model, size)``, names its value over
+    MCP, whose default tools cannot reset a session).
     """
     try:
         from lasagna.core.session_config import get_knowledge_config_manager
@@ -206,12 +216,27 @@ def fixes_for_documents_elsewhere(session_id: str, back: Optional[str]) -> tuple
         overridden = [k for k in _EMBEDDING_KEYS if k in state.session_overrides]
     except Exception:  # noqa: BLE001 - only shapes the advice
         active, overridden = "<profile>", []
-    reindex = f"lasagna configure --profile {active} -s {session_id} --reindex"
+    if surface == "mcp":
+        reindex = (
+            f"set_active_profile(profile_name={active!r}, session_id={session_id!r}, reindex=true)"
+        )
+        switch = f"set_active_profile(profile_name={back!r}, session_id={session_id!r})"
+    else:
+        reindex = f"lasagna configure --profile {active} -s {session_id} --reindex"
+        switch = f"lasagna configure --profile {back} -s {session_id}"
     if back is None:
         return reindex, None
-    switch = f"lasagna configure --profile {back} -s {session_id}"
     if not overridden:
         return reindex, None if back == active else switch
+    if surface == "mcp":
+        model, size = indexed_with or (None, None)
+        if not model:
+            return reindex, None
+        patch = {"embedding_model": model, **({"embedding_dim": int(size)} if size else {})}
+        return reindex, (
+            f"patch_rag_config(session_id={session_id!r}, config_patch="
+            f"{json.dumps(json.dumps(patch))})"
+        )
     named = " and ".join(
         [", ".join(overridden[:-1]), overridden[-1]] if len(overridden) > 1 else overridden
     )
@@ -221,6 +246,20 @@ def fixes_for_documents_elsewhere(session_id: str, back: Optional[str]) -> tuple
         f"MCP tool reset_rag_config"
     )
     return reindex, reset if back == active else f"{reset}, then {switch}"
+
+
+def elsewhere_fixes(session_id: str, collection: str, surface: str) -> tuple:
+    """``fixes_for_documents_elsewhere`` for a search of ``collection``, from the store."""
+    others = sorted(str(c) for c in _searched_counts(session_id) if c not in (None, "", collection))
+    if not others:
+        return None, None
+    back = next((p for p in (model_of_collection(c)[1] for c in others) if p), None)
+    from lasagna.core.config import get_rag_config
+
+    indexed_with = _model_of_documents(others[0], {}, get_rag_config().vector_backend or "milvus")
+    return fixes_for_documents_elsewhere(
+        session_id, back, surface=surface, indexed_with=indexed_with
+    )
 
 
 def _described(collection: str, model: str, other_model: str) -> str:

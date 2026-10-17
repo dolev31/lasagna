@@ -1066,7 +1066,9 @@ def _stage_notes() -> List[str]:
     reasons = degraded.reasons()
     for stage in degraded.current():
         note = reasons.get(stage) or f"the {stage} stage fell back to a lesser result."
-        fix = _MCP_FIXES.get(stage)
+        # The session's own commands when the stage recorded them (made where
+        # every surface's are, _profile_guard.fixes_for_documents_elsewhere).
+        fix = degraded.fix(stage, "mcp") or _MCP_FIXES.get(stage)
         notes.append(f"{stage}: {note}" + (f" {fix}" if fix else ""))
     return notes
 
