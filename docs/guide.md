@@ -457,7 +457,10 @@ print(config.mode, "->", len(config.benchmarks), "benchmark(s)")
 ```
 
 This one is keyless: `speed` embeds with a 92 MB model and the cross-encoder
-control is 92 MB. The same file in YAML runs with
+control is 92 MB. Name `base_profile` in every sweep: one without it starts each
+arm from `standard` (a 3.2 GB download), while `lasagna benchmark run` starts
+from `speed`. `--dry-run` and the run header print the profile each arm starts
+from. The same file in YAML runs with
 `lasagna benchmark experiment sweep.yaml`, which is what the
 [README](../README.md#compare-a-component) and
 [Contributing components](contributing-components.md#4-check-it-helps) show.

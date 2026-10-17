@@ -12,23 +12,22 @@
 # 1. SPEED (start here: a 92 MB download, no LLM):
 #    - Disables reranking, hybrid search, MMR, HyDE, agentic RAG
 #    - Uses all-MiniLM-L6-v2 (384d, 92 MB)
-#    - Target latency: ~50-100ms
 #
 # 2. STANDARD (for quality: a 3.2 GB download, and an LLM for complex queries):
 #    - Enables reranking, hybrid search, MMR, agentic RAG
 #    - Uses BAAI/bge-m3 (1024d, 2.3 GB, dense+sparse+ColBERT, 100+ languages)
-#    - Target latency: ~200-400ms
 #
-# 3. BALANCED (Best Quality-Speed Tradeoff):
+# 3. BALANCED (standard plus hierarchical chunking and the structured agentic graph):
 #    - Enables reranking, hybrid search, MMR, agentic RAG
 #    - Uses BAAI/bge-m3 (1024d, 2.3 GB, dense+sparse+ColBERT, 100+ languages)
-#    - Target latency: ~300-600ms
 #
-# 4. MAX QUALITY (Maximum Recall & Precision):
+# 4. MAX QUALITY (every retrieval feature on, and an LLM call on every search):
 #    - Enables all features including HyDE and query expansion
 #    - Uses BAAI/bge-m3 (1024d, 2.3 GB, dense+sparse+ColBERT, 100+ languages)
 #    - All features: HyDE, query expansion, RAG Fusion, CRAG, quality gates
-#    - Target latency: ~1-3 seconds
+#
+# No latency is given for a profile: it depends on the hardware, the corpus and
+# the LLM. `lasagna benchmark run smoke --profile <name>` measures it here.
 #
 # This file sets the "default" profile values. Built-in profiles override these.
 # =============================================================================
@@ -54,7 +53,7 @@ enable_hybrid_search = true
 
 # Reranking: Re-scores results using a cross-encoder model
 # WHY: More accurate relevance scoring than vector similarity alone
-# IMPACT: +30-50% better precision, +100-200ms latency
+# COST: one cross-encoder pass over the candidates of every search
 enable_reranking = true
 
 # MMR Diversity: Reduces redundancy in search results
@@ -64,7 +63,7 @@ enable_mmr = true
 
 # HyDE: Generates hypothetical answer before searching
 # WHY: Bridges gap between question and document embedding spaces
-# IMPACT: +10-20% better recall for complex questions, +500ms latency
+# COST: one LLM call per search
 # NOTE: Requires OpenAI API key for hyde_model
 enable_hyde = false
 
@@ -233,13 +232,13 @@ reranker_batch_size = 16
 custom_reranker = ""
 custom_query_enhancer = ""
 
-# Contextual Retrieval (Anthropic-style, -67% retrieval failures)
+# Contextual Retrieval (https://www.anthropic.com/news/contextual-retrieval)
 # Enriches each chunk with LLM-generated context at index time
 # Requires LLM calls during document processing - increases indexing time
 enable_contextual_retrieval = false
 
 # RAG Fusion: generate query variations and merge with RRF
-# Improves comprehensiveness (+8-10% accuracy)
+# COST: one LLM call, and one search per variation
 enable_rag_fusion = false
 rag_fusion_n_queries = 3
 
@@ -253,20 +252,21 @@ crag_web_search_fallback = false
 # -----------------------------------------------------------------------------
 # Routes each query to the optimal retrieval tier based on complexity:
 #
-#   FAST:          Vector-only search (~50-100ms). For simple factual/navigational lookups.
-#   STANDARD:      Full pipeline: hybrid + reranking + HyDE (~200-400ms). Default.
-#   COMPREHENSIVE: Agentic multi-hop retrieval (~1-5s). For cross-document reasoning.
+#   FAST:          Vector-only search. For simple factual/navigational lookups.
+#   STANDARD:      Full pipeline: hybrid + reranking + HyDE. Default.
+#   COMPREHENSIVE: Agentic multi-hop retrieval. For cross-document reasoning.
 #
 # The router classifies queries using lightweight pattern matching (zero LLM overhead)
 # and selects the tier that balances cost, latency, and accuracy.
 #
-# Research: Adaptive-RAG (NAACL 2024) reports 30-40% latency reduction, ~28% cost savings,
-# +8% accuracy on complex queries.
+# The idea is Adaptive-RAG's (Jeong et al., NAACL 2024, arXiv:2403.14403), which
+# trains a classifier; "rule_based" here uses rules instead, and its effect on a
+# corpus is measured with a sweep, not assumed.
 
 # Enable/disable query routing (when disabled, uses routing_default_tier for all queries)
 enable_query_routing = true
 
-# Strategy: "rule_based" (deterministic, <1ms) or "adaptive" (escalates tier on low confidence)
+# Strategy: "rule_based" (deterministic, no LLM call) or "adaptive" (escalates tier on low confidence)
 routing_strategy = "rule_based"
 
 # Default tier when routing is disabled: "fast", "standard", "comprehensive"
@@ -422,8 +422,8 @@ tracing_service_name = "rag-knowledge"
 # -----------------------------------------------------------------------------
 # DOCLING - Structure-Aware Document Processing (Optional)
 # -----------------------------------------------------------------------------
-# Docling (IBM Research, MIT-licensed) provides AI-powered document conversion
-# with layout analysis, table extraction (97.9% accuracy), and structure-aware
+# Docling (IBM Research, MIT-licensed) converts documents with layout
+# analysis, table extraction and structure-aware
 # chunking. When enabled, replaces the legacy text-extraction+chunking pipeline
 # for supported formats (PDF, DOCX, PPTX, XLSX, HTML, Markdown, images).
 #
@@ -513,7 +513,7 @@ max_quality_check_attempts = 2
 
 # Coverage assessment mode for retrieval completeness
 #   "keyword" - Fast keyword-based scoring (zero extra latency)
-#   "llm"     - LLM-based analysis of query aspect coverage (+200-500ms)
+#   "llm"     - LLM-based analysis of query aspect coverage (one LLM call per search)
 coverage_scorer_mode = "keyword"
 
 # Final search behavior when use_final_search = true

@@ -353,7 +353,7 @@ def dry_run_lines(exp: "Experiment", probe: bool = True) -> List[str]:
     dry run refuses exactly what the run would.
     """
     from .benchmarks import benchmark_registry
-    from .experiment import _parse_tracks, resolve_mode
+    from .experiment import _parse_tracks, base_profiles_line, resolve_mode
 
     cfg = exp.config
     tasks = exp.generate_tasks()  # names local-file benchmarks, so read them after
@@ -363,6 +363,7 @@ def dry_run_lines(exp: "Experiment", probe: bool = True) -> List[str]:
     lines = [
         f'Dry run of "{cfg.name}": an estimate; nothing is written under the results folder.',
         f"Arms ({len(arms)}): {', '.join(arms)}",
+        base_profiles_line(tasks),
         f"Tasks ({len(tasks)}): {_count(len(benches), 'benchmark')} x "
         f"{_count(len(arms), 'arm')} x {_count(cfg.n_runs, 'run')}",
     ]

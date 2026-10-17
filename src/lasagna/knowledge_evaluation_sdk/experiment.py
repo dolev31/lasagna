@@ -2012,6 +2012,23 @@ class Experiment:
 _pick_primary_metric = primary_metric
 
 
+def base_profiles_line(tasks: Iterable["BenchmarkTask"]) -> str:
+    """``Base profile: standard, for every arm ...``: the profile each arm starts from.
+
+    `lasagna benchmark run` starts from speed and a sweep file without
+    ``base_profile:`` from standard, and neither the dry run nor the run
+    header said which an arm used.
+    """
+    profiles = {t.config_name: t.profile or "standard" for t in tasks}
+    if len(set(profiles.values())) == 1:
+        (profile,) = set(profiles.values())
+        return (
+            f"Base profile: {profile}, for every arm (pipeline.base_profile, standard when "
+            f"unset; an arm's own profile: wins)"
+        )
+    return "Base profiles: " + ", ".join(f"{arm} from {p}" for arm, p in profiles.items())
+
+
 def _tidy_run_folder(cfg: "ExperimentConfig") -> None:
     """After a run: drop what holds nothing, and say what a stopped run left.
 

@@ -312,7 +312,7 @@ class KnowledgeConfig:
     """Enable OCR within Docling pipeline for scanned pages. Default: True"""
 
     docling_table_structure: bool = True
-    """Enable TableFormer table structure extraction (97.9% accuracy). Default: True"""
+    """Enable TableFormer table structure extraction. Default: True"""
 
     docling_max_tokens: int = 512
     """Max tokens per chunk for Docling HybridChunker. Default: 512"""
@@ -701,7 +701,6 @@ def config_for_speed() -> KnowledgeConfig:
 
     Disables all expensive pipeline stages: reranking, HyDE, MMR, hybrid
     search, and agentic RAG. Uses smallest embedding model.
-    Target latency: ~50-100ms.
 
     Returns:
         KnowledgeConfig optimized for speed
@@ -760,7 +759,6 @@ def config_for_standard() -> KnowledgeConfig:
     agentic RAG, context reordering, Docling parsing) with the BGE-M3 model.
     For quality, once :func:`config_for_speed` works: it downloads 3.2 GB (BGE-M3
     and its reranker) and sends complex queries to an LLM.
-    Target latency: ~200-400ms.
 
     Returns:
         KnowledgeConfig with standard settings
@@ -820,7 +818,6 @@ def config_for_balanced() -> KnowledgeConfig:
     Enables the core retrieval features (hybrid search, cross-encoder reranking, MMR,
     agentic RAG, context reordering, Docling, hierarchical chunking) with
     the BGE-M3 model. Best quality-to-speed tradeoff for production use.
-    Target latency: ~300-600ms.
 
     Returns:
         KnowledgeConfig with balanced settings
@@ -883,7 +880,6 @@ def config_for_max_quality() -> KnowledgeConfig:
     Enables all advanced features including HyDE, reranking, query expansion,
     RAG Fusion, CRAG, contextual retrieval, and agentic RAG with more
     iterations. Uses BGE-M3 embedding model for maximum recall.
-    Target latency: ~1-3 seconds.
 
     Returns:
         KnowledgeConfig optimized for maximum quality

@@ -678,7 +678,7 @@ def init():
     console.print()
     console.print(
         Panel.fit(
-            f"[bold green]Setup complete![/bold green]\n\n"
+            f"[bold green]Setup done.[/bold green]\n\n"
             f"Profile: [cyan]{profile}[/cyan]\n"
             f"Vector DB: [cyan]{vector_backend}[/cyan]\n"
             f"Embeddings: [cyan]{embedding}[/cyan] (the {profile} profile's model)\n"
@@ -1497,7 +1497,8 @@ def configure(
         None,
         "--profile",
         "-p",
-        help="Apply a preset profile (speed/standard/balanced/max_quality)",
+        help="Apply a profile: speed, standard, balanced, max_quality, or default (the "
+        "settings file)",
     ),
     session_id: str = typer.Option("default", "--session", "-s", help="Session ID"),
     force: bool = typer.Option(
@@ -2112,7 +2113,11 @@ def benchmark_experiment(
     ),
 ):
     """Run a multi-benchmark experiment from a config file."""
-    from .knowledge_evaluation_sdk.experiment import Experiment, runs_were_identical
+    from .knowledge_evaluation_sdk.experiment import (
+        Experiment,
+        base_profiles_line,
+        runs_were_identical,
+    )
     from .knowledge_evaluation_sdk.checkpoint import CheckpointManager
 
     if not Path(config_file).exists():
@@ -2181,6 +2186,7 @@ def benchmark_experiment(
     console.print(f"  Benchmarks: {len(exp.config.benchmarks)}")
     console.print(f"  Runs: {exp.config.n_runs}")
     console.print(f"  Mode: {exp.config.mode}")
+    console.print(f"  {escape(base_profiles_line(tasks))}", soft_wrap=True)
     console.print(f"  Total tasks: {len(tasks)}")
     if resume:
         done = cp.completed_keys() & {t.task_key for t in tasks}
