@@ -238,7 +238,11 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   under its name by the first model that opens it at its size. A switch that
   would leave a session's documents in another model's collection is refused
   unless it reindexes them (`--reindex`) or is forced (`--force`), and a
-  search or `lasagna doctor` on such a session says so.
+  search or `lasagna doctor` on such a session says so. A switch with
+  `--reindex` holds the session until it ends: uploads, reindexes, deletes and
+  settings changes of that session meanwhile are refused (409), and one
+  stopped part way moves the documents back; if its process died, `lasagna
+  doctor` says so and `lasagna configure --resume-switch` finishes it.
 - **`lasagna benchmark run`** measures retrieval unless `--tracks` names
   generation, and starts from the `speed` profile.
 - **`lasagna-mcp`** speaks stdio and serves the `safe` tool set; `lasagna

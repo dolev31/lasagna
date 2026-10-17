@@ -454,6 +454,23 @@ def _mount_docs(app: FastAPI) -> None:
         return HTMLResponse(page.replace("</body>", note + "</body>"))
 
 
+def _answer_switch_in_progress(app: FastAPI) -> None:
+    """409 with the reason for any route refused during a session's profile switch.
+
+    A delete, a reindex or a settings change of a session while a switch moves
+    its documents is refused (``ProfileSwitchInProgress``); a route that does
+    not map errors itself answered 500.
+    """
+    from fastapi.responses import JSONResponse
+
+    from lasagna.api._profile_guard import ProfileSwitchInProgress
+
+    async def _conflict(request, exc):
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    app.add_exception_handler(ProfileSwitchInProgress, _conflict)
+
+
 def create_app(
     title: str = "Lasagna API",
     cors_origins: Optional[list[str]] = None,
@@ -480,6 +497,7 @@ def create_app(
         docs_url=None,  # served below, with what to do when Swagger UI cannot load
     )
     _mount_docs(app)
+    _answer_switch_in_progress(app)
 
     # -- CORS ---------------------------------------------------------------
     # Explicit origins from RAG_CORS_ORIGINS (comma-separated), then the

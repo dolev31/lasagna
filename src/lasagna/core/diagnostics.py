@@ -22,6 +22,7 @@ import importlib.util
 import os
 import shutil
 import sys
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -244,6 +245,39 @@ def _check_session_documents(session_id: str = "default") -> Optional[Check]:
     )
 
 
+def _check_profile_switches(session_id: str = "default") -> Optional[Check]:
+    """Profile switches that move documents and have not ended: running, or interrupted.
+
+    A switch whose process stopped part way leaves some of a session's
+    documents in the new model's collection while the session stays on its
+    old profile, and every upload and settings change of that session is
+    refused until it is finished or undone. None when there is none.
+    """
+    from lasagna.core.database import get_rag_database
+
+    try:
+        rows = getattr(get_rag_database(), "list_profile_switches", lambda: [])()
+    except Exception as exc:  # noqa: BLE001 - reported, not raised
+        return Check("profile_switch", _WARN, f"could not read the profile switches: {exc}")
+    rows = sorted(rows, key=lambda r: r["session_id"] != session_id)
+    if not rows:
+        return None
+    first = rows[0]
+    sid, previous = first["session_id"], first["previous_profile"]
+    started = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(float(first["started_at"])))
+    more = len(rows) - 1
+    others = f" ({more} more {'session' if more == 1 else 'sessions'} too)" if more else ""
+    return Check(
+        "profile_switch",
+        _FAIL,
+        f"session {sid!r} is switching from profile {previous!r} to {first['profile']!r} "
+        f"(started {started}): running now, or its process stopped before it ended{others}",
+        f"If nothing is switching it now, finish the switch with lasagna configure "
+        f"--resume-switch -s {sid}, or go back with lasagna configure --profile {previous} "
+        f"-s {sid} --reindex.",
+    )
+
+
 def _active_profile(session_id: str) -> str:
     try:
         from .session_config import get_knowledge_config_manager
@@ -451,6 +485,7 @@ def diagnose(*, check_gh: bool = True, session_id: str = "default") -> Diagnosis
         *filter(None, [_check_llm_sampling()]),
         _check_model_cache(session_id),
         *filter(None, [_check_session_documents(session_id)]),
+        *filter(None, [_check_profile_switches(session_id)]),
         _check_accelerator(env),
         *_check_optional_extras(),
         *_check_plugins(),

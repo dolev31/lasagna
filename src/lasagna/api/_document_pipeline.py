@@ -234,7 +234,21 @@ class DocumentPipeline:
         Returns:
             Document metadata
         """
+        from lasagna.api._profile_guard import refuse_during_switch
+        from lasagna.core.session_config._session_state import session_lock
+
+        refuse_during_switch(session_id, "The upload")
         admission = contextlib.ExitStack()
+        # First, before any document's lock: held until this upload's row is
+        # saved, so a profile switch that moves the session's documents sees
+        # it or runs before it. One that started after this upload's settings
+        # were read left it in the old model's collection.
+        admission.enter_context(session_lock(session_id))
+        try:
+            refuse_during_switch(session_id, "The upload")
+        except BaseException:
+            admission.close()
+            raise
         if document_id is not None:
             from lasagna.core.database import get_rag_database
 
@@ -626,10 +640,18 @@ class DocumentPipeline:
             ModelNotDownloaded, QuotaExceededError, ValueError: the new copy
                 cannot be made; the document is unchanged.
         """
+        from lasagna.api._profile_guard import refuse_during_switch
+
+        # During a profile switch that moves the session's documents (another
+        # thread's or process's): this reindex would put the document back
+        # where the switch had just moved it from. Checked again under the
+        # lock, which the switch takes for each document it moves.
+        refuse_during_switch(session_id, "The reindex")
         # The row is read under the lock: read before it, a second reindex
         # waiting for the first replaced the copy the first had already
         # retired, and after a model switch both copies stayed.
         with _document_lock(document_id):
+            refuse_during_switch(session_id, "The reindex")
             return self._reindex_held(self._owned_row(document_id, session_id), config)
 
     def _reindex_held(self, row: Dict[str, Any], config: Optional[RAGConfig] = None) -> Document:
@@ -1928,10 +1950,26 @@ class DocumentPipeline:
                 backend.  Used by reindex flows that need the source file to
                 survive deletion of the old index data.
         """
-        with _document_lock(document_id):
-            return self._delete_document(document_id, session_id, keep_file=keep_file)
+        from lasagna.api._profile_guard import refuse_during_switch
 
-    def _delete_document(self, document_id: str, session_id: str, *, keep_file: bool) -> bool:
+        refuse_during_switch(session_id, "The delete")
+        with _document_lock(document_id):
+            refuse_during_switch(session_id, "The delete")
+            deleted = self._delete_document(
+                document_id, session_id, keep_file=keep_file, clean_session=False
+            )
+        if deleted:
+            # After the document's lock: a session's lock is never taken
+            # under a document's (a switch holds the session's and waits for
+            # each document's).
+            self._remove_from_session_focus(document_id, session_id)
+        return deleted
+
+    def _delete_document(
+        self, document_id: str, session_id: str, *, keep_file: bool, clean_session: bool = True
+    ) -> bool:
+        """Delete the document; ``clean_session`` also drops it from the session's focus
+        (only with the session's lock held, or no document's)."""
         from lasagna.core.database import get_rag_database
 
         rag_db = get_rag_database()
@@ -1988,14 +2026,8 @@ class DocumentPipeline:
                 logger.error(f"Failed to delete document files: {e}")
 
         # Clean up session-level context awareness
-        try:
-            from ..core.session_config import get_knowledge_config_manager
-
-            config_manager = get_knowledge_config_manager()
-            config_manager.remove_document_from_session_state(document_id, session_id)
-            logger.debug(f"Cleaned session state for deleted document: {document_id}")
-        except Exception as e:
-            logger.warning(f"Failed to clean session state for document {document_id}: {e}")
+        if clean_session:
+            self._remove_from_session_focus(document_id, session_id)
 
         # Invalidate search cache
         if rag_config.enable_search_cache:

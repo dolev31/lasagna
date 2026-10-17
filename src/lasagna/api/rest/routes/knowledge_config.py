@@ -179,6 +179,8 @@ async def rename_profile(
             user_id=user_id,
         )
         return _to_response(mgr.get_config(session_id, user_id=user_id))
+    except EmbeddingSizeConflict as conflict:  # a switch of the session is running
+        raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:

@@ -227,6 +227,28 @@ class DatabaseBackend(Protocol):
         ...
 
     # ------------------------------------------------------------------
+    # Profile switches in progress
+    # ------------------------------------------------------------------
+
+    def begin_profile_switch(
+        self, session_id: str, profile: str, previous_profile: str, record: Dict[str, Any]
+    ) -> None:
+        """Record that a switch of the session is moving its documents (replaces any)."""
+        ...
+
+    def get_profile_switch(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """The session's switch that has not finished, or None."""
+        ...
+
+    def list_profile_switches(self) -> List[Dict[str, Any]]:
+        """Every switch that has not finished."""
+        ...
+
+    def end_profile_switch(self, session_id: str) -> None:
+        """Forget the session's switch."""
+        ...
+
+    # ------------------------------------------------------------------
     # Statistics
     # ------------------------------------------------------------------
 

@@ -14,6 +14,16 @@ documents now runs in this order, on every surface (the CLI, REST and MCP):
    fails, those already moved are reindexed back with the old settings, the
    session keeps its old profile, and the error names each document that
    failed and why.
+
+The switch holds the session's lock in the store from start to end, so two
+switches of one session run one after the other, in any processes. While it
+runs, a row in ``profile_switches`` says so: an upload, a reindex, a delete or
+a settings change of the session from anywhere else is refused with
+``ProfileSwitchInProgress``. Interrupted (Ctrl-C, a stopped pod), the documents
+already moved are moved back before the interruption goes on; a process that
+died leaves the row, which ``doctor`` reports and every write names, and the
+next switch of the session with reindex (``lasagna configure --resume-switch``
+repeats the interrupted one) moves those documents too.
 """
 
 from __future__ import annotations
@@ -151,7 +161,25 @@ def switch_profile(
         ReindexFailed: a document could not be reindexed; the session kept
             its old profile (``exc.report`` says what happened to each).
         EmbeddingSizeConflict: refused without ``force``/``reindex``.
+        ProfileSwitchInProgress: without ``reindex``, while another switch
+            of the session runs or after one stopped before it ended.
     """
+    if not reindex:
+        return _switch_without_reindex(
+            manager, profile, session_id, user_id=user_id, force=force, config=config
+        )
+    from lasagna.api._profile_guard import switching
+    from lasagna.core.session_config._session_state import session_lock
+
+    # The whole switch holds the session's lock: a second switch waits for
+    # this one, and an upload's row is saved before it starts or after it ends.
+    with session_lock(session_id), switching(session_id):
+        return _switch_with_reindex(
+            manager, profile, session_id, user_id=user_id, config=config, backend=backend
+        )
+
+
+def _report(manager: Any, profile: str, session_id: str, user_id: str, config) -> tuple:
     state = manager.get_session_state(session_id)
     previous = state.active_profile
     resolved, chosen = manager.preview_active_profile(
@@ -163,19 +191,46 @@ def switch_profile(
         session_id=session_id,
         embedding_model=str(_setting(resolved, "embedding_model") or ""),
     )
-    if force or reindex:
-        problems = unloadable_models(resolved)
-        if problems:
-            raise ProfileCannotLoad(
-                f"Profile {profile!r} cannot be used here: {' '.join(problems)} Nothing was "
-                f"changed; session {session_id!r} stays on profile {previous!r}, and its "
-                f"documents stay searchable."
-            )
-    if not reindex:
-        manager.set_active_profile(
-            profile, config=config, session_id=session_id, user_id=user_id, force=force
+    return report, resolved, chosen
+
+
+def _refuse_unloadable(report: SwitchReport, resolved: Dict[str, Any]) -> None:
+    problems = unloadable_models(resolved)
+    if problems:
+        raise ProfileCannotLoad(
+            f"Profile {report.profile!r} cannot be used here: {' '.join(problems)} Nothing "
+            f"was changed; session {report.session_id!r} stays on profile "
+            f"{report.previous!r}, and its documents stay searchable."
         )
-        return report
+
+
+def _switch_without_reindex(
+    manager: Any, profile: str, session_id: str, *, user_id: str, force: bool, config
+) -> SwitchReport:
+    report, resolved, _ = _report(manager, profile, session_id, user_id, config)
+    if force:
+        _refuse_unloadable(report, resolved)
+    manager.set_active_profile(
+        profile, config=config, session_id=session_id, user_id=user_id, force=force
+    )
+    return report
+
+
+def _store():
+    from lasagna.core.database import get_rag_database
+
+    return get_rag_database()
+
+
+def _switch_with_reindex(
+    manager: Any, profile: str, session_id: str, *, user_id: str, config, backend: Any
+) -> SwitchReport:
+    """Under the session's lock: reindex every document, then switch (see the module docstring)."""
+    from lasagna.api._profile_guard import forget_documents_elsewhere
+    from lasagna.core.config import collection_name_for_settings, get_rag_config
+
+    report, resolved, chosen = _report(manager, profile, session_id, user_id, config)
+    _refuse_unloadable(report, resolved)
 
     # Oldest first, so a rerun after a failure meets the documents in the same order.
     rows = sorted(
@@ -187,33 +242,100 @@ def switch_profile(
         from lasagna.api.rag_backend import get_rag_backend
 
         backend = get_rag_backend()
-    from lasagna.core.config import get_rag_config
-
     target = get_rag_config().with_session_settings(session_id, chosen)
-    for row in rows:
-        document_id = row["document_id"]
-        try:
-            backend.reindex_document(document_id, session_id, config=target)
-            report.reindexed.append(document_id)
-        except Exception as exc:  # noqa: BLE001 - reported per document
-            logger.warning(f"Reindex of {document_id} with profile {profile!r} failed: {exc}")
-            report.failed.append((document_id, str(exc)))
-            break
-    from lasagna.api._profile_guard import forget_documents_elsewhere
-
-    forget_documents_elsewhere(session_id)
-    if report.failed:
-        _restore(backend, session_id, report)
-        raise ReindexFailed(_failure_message(report), report)
-    manager.set_active_profile(
-        profile, config=config, session_id=session_id, user_id=user_id, force=True
-    )
+    # A switch that stopped before it ended (its process died) left documents
+    # in its own target's collection: this switch moves them too, and back if
+    # it fails.
+    interrupted = getattr(_store(), "get_profile_switch", lambda _sid: None)(session_id)
+    left_behind = []
+    if interrupted and interrupted.get("target_collection"):
+        left_behind = [
+            r["document_id"]
+            for r in rows
+            if r.get("collection_name") == interrupted["target_collection"]
+        ]
+    begin = getattr(_store(), "begin_profile_switch", None)
+    if begin is not None:
+        begin(
+            session_id,
+            profile,
+            report.previous,
+            {
+                "config": config or None,
+                "user_id": user_id,
+                "target_collection": collection_name_for_settings(resolved),
+            },
+        )
+    settled = False
+    try:
+        for row in rows:
+            document_id = row["document_id"]
+            try:
+                backend.reindex_document(document_id, session_id, config=target)
+                report.reindexed.append(document_id)
+            except Exception as exc:  # noqa: BLE001 - reported per document
+                logger.warning(f"Reindex of {document_id} with profile {profile!r} failed: {exc}")
+                report.failed.append((document_id, str(exc)))
+                break
+        if report.failed:
+            _restore(backend, session_id, report, left_behind)
+            settled = True
+            raise ReindexFailed(_failure_message(report), report)
+        manager.set_active_profile(
+            profile, config=config, session_id=session_id, user_id=user_id, force=True
+        )
+        settled = True
+    except BaseException:
+        # Interrupted (Ctrl-C, SystemExit), or the switch itself failed: the
+        # documents already moved go back first. Interrupted again while they
+        # do, the row stays, for doctor and the next switch.
+        if not settled:
+            _restore(backend, session_id, report, left_behind)
+            settled = True
+        raise
+    finally:
+        forget_documents_elsewhere(session_id)
+        end = getattr(_store(), "end_profile_switch", None)
+        if settled and end is not None:
+            end(session_id)
     return report
 
 
-def _restore(backend: Any, session_id: str, report: SwitchReport) -> None:
-    """Reindex the documents already moved back with the session's own settings."""
-    for document_id in report.reindexed:
+def resume_switch(manager: Any, session_id: str, *, backend: Any = None) -> SwitchReport:
+    """Repeat the switch of ``session_id`` that stopped before it ended.
+
+    Raises ``ValueError`` when the session has none.
+    """
+    from lasagna.api._profile_guard import unfinished_switch
+
+    record = unfinished_switch(session_id)
+    if record is None:
+        raise ValueError(f"Session {session_id!r} has no profile switch to resume.")
+    return switch_profile(
+        manager,
+        record["profile"],
+        session_id=session_id,
+        user_id=record.get("user_id") or ANONYMOUS,
+        reindex=True,
+        config=record.get("config") or None,
+        backend=backend,
+    )
+
+
+def _restore(
+    backend: Any, session_id: str, report: SwitchReport, left_behind: List[str] = ()
+) -> None:
+    """Reindex the documents already moved back with the session's own settings.
+
+    ``left_behind``: those an interrupted switch had moved, which go back too.
+    """
+    moved = list(report.reindexed) + [d for d in left_behind if d not in report.reindexed]
+    # A document whose reindex failed is where it was, unless that was where
+    # the interrupted switch had left it.
+    failed = {d for d, _ in report.failed} - set(left_behind)
+    for document_id in moved:
+        if document_id in failed:
+            continue
         try:
             backend.reindex_document(document_id, session_id)
             report.restored.append(document_id)

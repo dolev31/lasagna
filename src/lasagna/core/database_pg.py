@@ -213,6 +213,18 @@ CREATE TABLE IF NOT EXISTS content_generations (
 );
 """
 
+#: A profile switch that moves a session's documents, while it runs (see the
+#: SQLite store's ``profile_switches``).
+_CREATE_PROFILE_SWITCHES = """
+CREATE TABLE IF NOT EXISTS profile_switches (
+    session_id TEXT PRIMARY KEY,
+    profile TEXT NOT NULL,
+    previous_profile TEXT NOT NULL,
+    record TEXT NOT NULL DEFAULT '{}',
+    started_at DOUBLE PRECISION NOT NULL
+);
+"""
+
 _CREATE_SESSION_PRINCIPALS = """
 CREATE TABLE IF NOT EXISTS session_principals (
     session_id TEXT PRIMARY KEY,
@@ -441,6 +453,7 @@ class PostgresRAGDatabase:
                 cur.execute(_CREATE_GC_AUDIT_LOG)
                 cur.execute(_CREATE_GC_LOCK)
                 cur.execute(_CREATE_CONTENT_GENERATIONS)
+                cur.execute(_CREATE_PROFILE_SWITCHES)
                 cur.execute(_CREATE_SESSION_PRINCIPALS)
                 cur.execute(_SESSION_PRINCIPALS_INDEX)
                 for idx_sql in _CREATE_INDEXES:
@@ -1300,6 +1313,58 @@ class PostgresRAGDatabase:
         if count > 0:
             logger.info(f"Cleaned up {count} expired config sessions")
         return count
+
+    # ------------------------------------------------------------------
+    # Profile switches in progress
+    # ------------------------------------------------------------------
+
+    def begin_profile_switch(
+        self, session_id: str, profile: str, previous_profile: str, record: Dict[str, Any]
+    ) -> None:
+        """Record that a switch of ``session_id`` to ``profile`` is moving its documents."""
+        import time
+
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO profile_switches
+                    (session_id, profile, previous_profile, record, started_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (session_id) DO UPDATE SET
+                        profile = EXCLUDED.profile,
+                        previous_profile = EXCLUDED.previous_profile,
+                        record = EXCLUDED.record,
+                        started_at = EXCLUDED.started_at
+                    """,
+                    (session_id, profile, previous_profile, json.dumps(record), time.time()),
+                )
+            conn.commit()
+
+    def _profile_switch_rows(self, where: str, params: tuple) -> List[Dict[str, Any]]:
+        from lasagna.core.database import _switch_row
+
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT * FROM profile_switches {where}", params)
+                cols = [d[0] for d in cur.description]
+                return [_switch_row(dict(zip(cols, row))) for row in cur.fetchall()]
+
+    def get_profile_switch(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """The switch of ``session_id`` that has not finished, or None."""
+        rows = self._profile_switch_rows("WHERE session_id = %s", (session_id,))
+        return rows[0] if rows else None
+
+    def list_profile_switches(self) -> List[Dict[str, Any]]:
+        """Every switch that has not finished."""
+        return self._profile_switch_rows("ORDER BY started_at", ())
+
+    def end_profile_switch(self, session_id: str) -> None:
+        """Forget the switch of ``session_id``: it finished, or was undone."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM profile_switches WHERE session_id = %s", (session_id,))
+            conn.commit()
 
     # ------------------------------------------------------------------
     # Lifecycle / Garbage Collection operations

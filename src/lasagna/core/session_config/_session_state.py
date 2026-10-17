@@ -249,10 +249,16 @@ class SessionStateMixin:
         processes: two api workers patching different keys of one session at
         once kept only the second patch, and a change of ``rag_enabled`` put
         back the overrides it had read. Every change to a session's settings
-        goes through this.
+        goes through this. Refused (``ProfileSwitchInProgress``) while a
+        switch that moves the session's documents runs in another thread or
+        process, or stopped before it ended.
         """
+        from lasagna.api._profile_guard import refuse_during_switch
+
         sid = session_id or "default"
+        refuse_during_switch(sid, "This change")  # before waiting behind a switch's lock
         with session_lock(sid):
+            refuse_during_switch(sid, "This change")
             with self._lock:
                 self._adopt_persisted_session(sid, fresh=True)
                 try:

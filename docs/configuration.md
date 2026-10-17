@@ -169,7 +169,12 @@ each model writes to a collection of its own, named
   new profile while the session stays on the old one, and switches only once
   all of them are reindexed. If one fails, the documents already moved are
   moved back, the session keeps its profile, and the error names the document
-  and why. `lasagna doctor -s <session>` reports documents that sit in another
+  and why. While it runs, an upload, reindex, delete or settings change of
+  that session from anywhere else is refused (409 over REST) and a second
+  switch waits for it; stopped part way (Ctrl-C), it moves the documents back
+  first. One whose process died is reported by `lasagna doctor -s <session>`
+  and finished by `lasagna configure --resume-switch -s <session>`.
+  `lasagna doctor -s <session>` also reports documents that sit in another
   model's collection as blocking.
   To switch without moving them, use
   `lasagna configure --profile <name> -s <session> --force` (`force=true`

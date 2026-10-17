@@ -350,6 +350,7 @@ class RAGDatabase:
                 cursor.execute(CREATE_SESSIONS_TABLE)
                 cursor.execute(CREATE_GC_AUDIT_LOG_TABLE)
                 cursor.execute(CREATE_GC_LOCK_TABLE)
+                cursor.execute(CREATE_PROFILE_SWITCHES_TABLE)
 
                 # Run migrations if needed (before indexes, since migrations may add columns)
                 if current_version < SCHEMA_VERSION:
@@ -1435,6 +1436,42 @@ class RAGDatabase:
         return count
 
     # =========================================================================
+    # PROFILE SWITCHES IN PROGRESS
+    # =========================================================================
+
+    def begin_profile_switch(
+        self, session_id: str, profile: str, previous_profile: str, record: Dict[str, Any]
+    ) -> None:
+        """Record that a switch of ``session_id`` to ``profile`` is moving its documents."""
+        import json as _json
+
+        with self.transaction() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO profile_switches "
+                "(session_id, profile, previous_profile, record, started_at) VALUES (?, ?, ?, ?, ?)",
+                (session_id, profile, previous_profile, _json.dumps(record), time.time()),
+            )
+
+    def get_profile_switch(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """The switch of ``session_id`` that has not finished, or None."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM profile_switches WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        return _switch_row(dict(row)) if row else None
+
+    def list_profile_switches(self) -> List[Dict[str, Any]]:
+        """Every switch that has not finished."""
+        with self.connection() as conn:
+            rows = conn.execute("SELECT * FROM profile_switches ORDER BY started_at").fetchall()
+        return [_switch_row(dict(r)) for r in rows]
+
+    def end_profile_switch(self, session_id: str) -> None:
+        """Forget the switch of ``session_id``: it finished, or was undone."""
+        with self.transaction() as conn:
+            conn.execute("DELETE FROM profile_switches WHERE session_id = ?", (session_id,))
+
+    # =========================================================================
     # LIFECYCLE / GARBAGE COLLECTION OPERATIONS
     # =========================================================================
 
@@ -1991,6 +2028,20 @@ class RAGDatabase:
 _UNFINISHED_SQL = "'uploading', 'processing', 'indexing'"
 
 
+def _switch_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """A ``profile_switches`` row with its JSON record unpacked."""
+    import json
+
+    try:
+        record = json.loads(row.pop("record", None) or "{}")
+    except (TypeError, ValueError):
+        record = {}
+    started = row.get("started_at")
+    if hasattr(started, "timestamp"):
+        row["started_at"] = started.timestamp()
+    return {**(record if isinstance(record, dict) else {}), **row}
+
+
 def record_visibility_change(db: Any, session_id: Optional[str]) -> bool:
     """Bump ``session_id``'s content generation after a document was archived or restored.
 
@@ -2013,6 +2064,19 @@ def record_visibility_change(db: Any, session_id: Optional[str]) -> bool:
         )
     return True
 
+
+#: One row per profile switch that moves a session's documents, while it runs:
+#: the profile, the one it leaves, and how to finish it (JSON). A row left by a
+#: process that stopped mid-switch is what ``doctor`` and every write report.
+CREATE_PROFILE_SWITCHES_TABLE = """
+CREATE TABLE IF NOT EXISTS profile_switches (
+    session_id TEXT PRIMARY KEY,
+    profile TEXT NOT NULL,
+    previous_profile TEXT NOT NULL,
+    record TEXT NOT NULL DEFAULT '{}',
+    started_at REAL NOT NULL
+);
+"""
 
 #: One row per session: a counter bumped on every upload and delete, which tells
 #: each process whether its in-memory BM25 index of the session is current.

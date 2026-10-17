@@ -18,9 +18,11 @@ user's overrides on the way back.
 
 from __future__ import annotations
 
+import threading
 import time
+from contextlib import contextmanager
 from types import SimpleNamespace
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional
 
 
 class EmbeddingSizeConflict(ValueError):
@@ -33,6 +35,72 @@ class EmbeddingSizeUnverified(EmbeddingSizeConflict):
 
 class DocumentsLeftBehind(EmbeddingSizeConflict):
     """The change would search another collection than the one holding the session's documents."""
+
+
+class ProfileSwitchInProgress(EmbeddingSizeConflict):
+    """A switch of the session that moves its documents is running, or stopped before it ended."""
+
+
+#: Sessions whose switch this thread is running: its own writes go through.
+_switching = threading.local()
+
+
+@contextmanager
+def switching(session_id: str) -> Iterator[None]:
+    """Let this thread change ``session_id`` while its switch is recorded as running."""
+    held: Dict[str, int] = getattr(_switching, "held", None) or {}
+    _switching.held = held
+    held[session_id] = held.get(session_id, 0) + 1
+    try:
+        yield
+    finally:
+        held[session_id] -= 1
+        if not held[session_id]:
+            del held[session_id]
+
+
+def unfinished_switch(session_id: str) -> Optional[Dict[str, Any]]:
+    """The recorded switch of ``session_id`` that has not ended, or None."""
+    from lasagna.core.database import get_rag_database
+
+    read = getattr(get_rag_database(), "get_profile_switch", None)
+    if read is None:
+        return None
+    try:
+        record = read(session_id)
+    except Exception:  # noqa: BLE001 - a store without the table has no switch
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def switch_in_progress_message(record: Dict[str, Any], change: str) -> str:
+    """Why ``change`` waits for the switch in ``record``, and what ends an interrupted one."""
+    sid, profile, previous = record["session_id"], record["profile"], record["previous_profile"]
+    started = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(float(record["started_at"])))
+    return (
+        f"{change} was refused: session {sid!r} is switching from profile {previous!r} to "
+        f"{profile!r} (started {started}), which reindexes its documents. Retry when the "
+        f"switch has ended. If it was interrupted (the process running it stopped), finish "
+        f"it with lasagna configure --resume-switch -s {sid}, or go back with lasagna "
+        f"configure --profile {previous} -s {sid} --reindex (over REST and MCP: that "
+        f"switch with reindex=true)."
+    )
+
+
+def refuse_during_switch(session_id: str, change: str) -> None:
+    """Raise ``ProfileSwitchInProgress`` while another thread or process switches the session.
+
+    An upload, a reindex, a delete or a settings change during a switch that
+    moves the session's documents raced it: an upload recorded the old
+    collection and was left there when the switch ended, and a patch was
+    overwritten by the switch's own. The thread running the switch is let
+    through.
+    """
+    if session_id in (getattr(_switching, "held", None) or {}):
+        return
+    record = unfinished_switch(session_id)
+    if record is not None:
+        raise ProfileSwitchInProgress(switch_in_progress_message(record, change))
 
 
 #: Documents with vectors, or about to have them; a failed upload stored none.

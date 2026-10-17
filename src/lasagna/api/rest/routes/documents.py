@@ -202,8 +202,12 @@ def upload_failure(exc: Exception, backend: RAGBackend, session_id: str) -> HTTP
     from lasagna.core.database import DocumentIdTaken
     from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_session
 
+    from lasagna.api._profile_guard import ProfileSwitchInProgress
+
     if isinstance(exc, HTTPException):
         return exc
+    if isinstance(exc, ProfileSwitchInProgress):
+        return HTTPException(status_code=409, detail=str(exc))
     if isinstance(exc, ProcessingAtCapacity):
         return HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "5"})
     if isinstance(exc, QuotaExceededError):
@@ -575,9 +579,12 @@ def reindex_failure(exc: Exception, document_id: str, session_id: str) -> HTTPEx
     from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_session
 
     from lasagna.api._document_pipeline import DocumentRemoved
+    from lasagna.api._profile_guard import ProfileSwitchInProgress
 
     if isinstance(exc, HTTPException):
         return exc
+    if isinstance(exc, ProfileSwitchInProgress):
+        return HTTPException(status_code=409, detail=str(exc))
     if isinstance(exc, DocumentRemoved):
         return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, DocumentNotFound):
