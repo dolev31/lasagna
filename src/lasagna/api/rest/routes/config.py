@@ -71,7 +71,8 @@ async def get_config(
             detail=(
                 f"This session's stored configuration has invalid values for "
                 f"{', '.join(keys)}. Correct them with PATCH /api/v1/config, or "
-                f"clear them with POST /api/config/knowledge/reset."
+                f"clear them with POST /api/config/knowledge/reset (the configurator's "
+                f"route; nothing under /api/v1 clears overrides in 0.1.0)."
             ),
         )
 

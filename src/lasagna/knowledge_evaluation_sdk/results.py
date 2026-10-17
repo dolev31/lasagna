@@ -467,6 +467,24 @@ class BenchmarkResults:
     def total_tasks(self) -> int:
         return len(self._results)
 
+    def _arm_tasks(self, benchmark: str, *names: str) -> List[List[TaskResult]]:
+        """The tasks of each arm on ``benchmark``; an arm with none is refused by name.
+
+        "No tasks for (smoke, cross_encoder)" named neither the arms the run
+        has nor the closest one, so a typo in `results power` was a dead end.
+        """
+        from ..core._text import did_you_mean
+
+        found = [self._by_bench_config.get((benchmark, name), []) for name in names]
+        for name, tasks in zip(names, found):
+            if not tasks:
+                arms = sorted(c for b, c in self._by_bench_config if b == benchmark)
+                raise ValueError(
+                    f"No arm named {name!r}{did_you_mean(name, arms)} on {benchmark}. "
+                    f"Its arms: {', '.join(arms) or 'none'}."
+                )
+        return found
+
     @property
     def failed_tasks(self) -> List[TaskResult]:
         return [r for r in self._results if r.error]
@@ -709,10 +727,7 @@ class BenchmarkResults:
             raise ImportError("numpy required: pip install lasagna-rag[eval]")
 
         # Get ALL per-sample scores (including _source_benchmark metadata)
-        tasks_a = self._by_bench_config.get((benchmark, config_a), [])
-        tasks_b = self._by_bench_config.get((benchmark, config_b), [])
-        if not tasks_a or not tasks_b:
-            raise ValueError(f"No tasks for ({benchmark}, {config_a}) or ({benchmark}, {config_b})")
+        tasks_a, tasks_b = self._arm_tasks(benchmark, config_a, config_b)
 
         # Every run contributes, averaged per sample -- see _paired_scores for
         # why the average happens before resampling. This previously read
@@ -971,10 +986,7 @@ class BenchmarkResults:
         pair as its own observation would count the same query several times and
         narrow the interval accordingly.
         """
-        tasks_a = self._by_bench_config.get((benchmark, config_a), [])
-        tasks_b = self._by_bench_config.get((benchmark, config_b), [])
-        if not tasks_a or not tasks_b:
-            raise ValueError(f"No tasks for ({benchmark}, {config_a}) or ({benchmark}, {config_b})")
+        tasks_a, tasks_b = self._arm_tasks(benchmark, config_a, config_b)
 
         idx_a = _mean_by_sample(tasks_a, metric)
         idx_b = _mean_by_sample(tasks_b, metric)
@@ -1143,9 +1155,7 @@ class BenchmarkResults:
         """
         indexes: Dict[str, Dict[Any, float]] = {}
         for name in config_names:
-            tasks = self._by_bench_config.get((benchmark, name), [])
-            if not tasks:
-                raise ValueError(f"No tasks for ({benchmark}, {name})")
+            (tasks,) = self._arm_tasks(benchmark, name)
             index = _mean_by_sample(tasks, metric)
             if not index:
                 raise ValueError(f"No sample scored {metric!r} for ({benchmark}, {name})")
@@ -1879,6 +1889,33 @@ _LATEX_SPECIAL = {
     "~": r"\textasciitilde{}",
     "^": r"\textasciicircum{}",
 }
+
+
+_PREFERRED_METRICS = [
+    # Generation metrics: faithfulness is the most telling (context_precision is trivially 1.0)
+    "faithfulness",
+    "context_recall",
+    # Retrieval IR metrics: NDCG, then F1
+    "ndcg@10",
+    "ndcg_at_10",
+    "f1@10",
+    "f1_at_10",
+    "mrr",
+    "map",
+]
+
+
+def primary_metric(available: Iterable[str]) -> str:
+    """The run's primary metric among ``available``: the report's first column.
+
+    `results per-query` leads with it too; it showed complete_recall@10 and
+    f1@10, the first names alphabetically, before ndcg@10.
+    """
+    names = list(available)
+    for preferred in _PREFERRED_METRICS:
+        if preferred in names:
+            return preferred
+    return names[0] if names else "ndcg@10"
 
 
 def _escape_latex(text: str) -> str:

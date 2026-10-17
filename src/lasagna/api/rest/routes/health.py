@@ -81,12 +81,13 @@ def embedding_problem(backend, session_id: Optional[str] = None) -> Optional[str
     problem = refusal(manager.model_name)
     if problem is None:
         return None
-    from lasagna.core.setup_text import download_command
+    from lasagna.core.model_downloads import still_to_download
+    from lasagna.core.setup_text import downloads_for
 
     return (
         f"{problem} Sessions on another profile still work. For session {session!r}: "
         f"lasagna configure --profile speed -s {session}, or "
-        f"{download_command(manager.model_name)}."
+        f"{downloads_for(still_to_download(session, manager.model_name))}."
     )
 
 

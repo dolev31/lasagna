@@ -18,7 +18,7 @@ import os
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Iterator, Optional
+from typing import Dict, Iterator, List, Optional
 
 _refusing = 0
 
@@ -171,6 +171,19 @@ def check(
         raise problem
 
 
+def refuse_offline(model: str, kind: str = "embedding model") -> None:
+    """Offline, raise :class:`ModelNotDownloaded` for a model that is not on disk.
+
+    Called when a loader fails, so its "We couldn't connect to
+    'https://huggingface.co'" is reported as the model not being downloaded,
+    with the fix, and the caller can fall back (a search skips its reranker).
+    The embedder checks before it loads, since it also accepts a cached
+    fallback.
+    """
+    if model and offline() and not is_cached(model):
+        raise ModelNotDownloaded(model, offline=True, kind=kind)
+
+
 _process_refusal = False
 
 
@@ -221,6 +234,40 @@ _NAME_A_SESSION = {
 }
 
 
+#: How each surface adds a document to a session.
+_ADD_A_DOCUMENT = {
+    "rest": "POST /api/v1/documents, sending the same session",
+    "mcp": "upload_document",
+    "cli": "lasagna upload <file> -s {session}",
+    "sdk": "client.upload_document(path)",
+}
+
+
+def no_documents_note(
+    session_id: str, *, surface: str = "rest", list_others: bool = True
+) -> Optional[str]:
+    """Why a search of ``session_id`` has nothing to search, or None when it has documents.
+
+    Read from the metadata database before any model loads: a misspelled
+    ``X-Session-ID`` was answered with 503 "BAAI/bge-m3 is not downloaded"
+    while the CLI said the session has no documents. ``list_others`` names the
+    sessions that have some (not where sessions belong to other callers).
+    """
+    populated = sessions_with_documents()
+    if populated is None or session_id in populated:
+        return None
+    add = _ADD_A_DOCUMENT.get(surface, _ADD_A_DOCUMENT["rest"]).format(session=session_id)
+    others = {s: n for s, n in populated.items() if s != session_id} if list_others else {}
+    if others:
+        listed = ", ".join(f"{s} ({n})" for s, n in sorted(others.items()))
+        name = _NAME_A_SESSION.get(surface, _NAME_A_SESSION["rest"])
+        return (
+            f"Session {session_id!r} has no documents, so nothing was searched. Sessions "
+            f"with documents: {listed}; name one with {name}, or add a document with {add}."
+        )
+    return f"Session {session_id!r} has no documents, so nothing was searched. Add one with {add}."
+
+
 def fix_for_session(session_id: str, model: str = "", *, surface: str = "rest") -> str:
     """What to run so that ``session_id`` can be searched, naming the sessions that can.
 
@@ -240,11 +287,29 @@ def fix_for_session(session_id: str, model: str = "", *, surface: str = "rest") 
     return " ".join(parts)
 
 
+def still_to_download(session_id: str, model: str = "") -> List[str]:
+    """The models ``session_id`` loads that are not on disk, ``model`` first.
+
+    Its embedder, and its reranker when reranking is on (``session_models``).
+    Every hint that says what to download names all of them: the hint for a
+    missing BGE-M3 named only it (2.3 of the default profile's 3.2 GB), and
+    the next search then failed on the reranker.
+    """
+    from lasagna.core.setup_text import session_models
+
+    try:
+        needed = [m for m in session_models(session_id) if not is_cached(m)]
+    except Exception:  # noqa: BLE001 - the hint still names the model that failed
+        needed = []
+    return list(dict.fromkeys([model, *needed] if model else needed))
+
+
 def fix_for_model(session_id: str, model: str = "") -> str:
     """What to run so that ``session_id`` can use a model, or a smaller one.
 
     Offline, the way to keep the model is to download it while online; a
-    server that refuses downloads can also be told to allow them.
+    server that refuses downloads can also be told to allow them. The download
+    commands cover every model the session still needs (`still_to_download`).
     """
     from lasagna.api._profile_guard import own_model_settings
 
@@ -257,19 +322,25 @@ def fix_for_model(session_id: str, model: str = "") -> str:
     elif session_configured(session_id):
         configured = f"Session {session_id!r} is configured with this model."
     else:
-        configured = f"Session {session_id!r} has no profile, so it uses the default model."
-    from lasagna.core.setup_text import download_command
+        configured = (
+            f"Session {session_id!r} has no profile, so it uses the default configuration's models."
+        )
+    from lasagna.core.setup_text import downloads_for
 
-    download = download_command(model) if model else "hf download <model>"
+    models = still_to_download(session_id, model)
+    download = downloads_for(models) if models else "hf download <model>"
+    one = len(models) <= 1
+    these = "this model" if one else "the session's models"
+    it, they = ("it", "it downloads") if one else ("them", "they download")
     allow = "set RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS=true for the server"
     if offline():
         unset = "unset HF_HUB_OFFLINE" + (f" and {allow}" if _refusing else "")
         keep = (
-            f"To keep this model, download it once with network access ({download}), "
-            f"or {unset} so it downloads on first use."
+            f"To keep {these}, download {it} once with network access ({download}), "
+            f"or {unset} so {they} on first use."
         )
     else:
-        keep = f"To keep this model, download it first ({download}), or {allow}."
+        keep = f"To keep {these}, download {it} first ({download}), or {allow}."
     from lasagna.core.setup_text import profile_download_size
 
     return (

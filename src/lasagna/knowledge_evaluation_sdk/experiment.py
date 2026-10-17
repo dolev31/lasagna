@@ -45,7 +45,7 @@ from loguru import logger
 from .benchmarks import BenchmarkSample, benchmark_registry
 from .benchmarks._base import BaseBenchmarkAdapter as _BaseBenchmarkAdapter
 from .checkpoint import CheckpointManager
-from .results import BenchmarkResults
+from .results import BenchmarkResults, primary_metric
 from .runner import HARNESS_KEYS, BenchmarkRunner, BenchmarkTask, TaskResult
 from ..utils.llm_cache import CacheStats, LLMCacheSettings, llm_cache_scope
 from .cost import PriceTable
@@ -1036,23 +1036,32 @@ def _check_benchmarks_exist(specs: List[BenchmarkSpec]) -> None:
         raise ValueError(f"Unknown {noun} {names}. `lasagna benchmark list` shows them all.")
 
 
-def _check_profiles(pipeline_configs: List[Dict[str, Any]]) -> None:
+def _check_profiles(pipeline_configs: List[Dict[str, Any]], base_profile: str = "") -> None:
     """Refuse an unknown profile name before any corpus is ingested.
 
     A misspelled ``--profile`` resolved to no ingestion defaults, so the run
     fell back to the settings-file embedder and failed much later on that
     model's download ("Could not load any embedding model ... bge-m3"),
-    naming the wrong problem.
+    naming the wrong problem. The message names the key the name came from:
+    a ``base_profile`` typo was reported "in arm 'reranker=cross_encoder'",
+    an arm that names no profile.
     """
     from lasagna.core.session_config._profiles import ProfileMixin
 
     known = set(ProfileMixin._PROFILE_SPECS) | {"default"}
+    profiles = f"Profiles: {', '.join(sorted(known))}."
+    base = base_profile or "standard"
+    if base not in known:
+        raise ValueError(
+            f"Unknown profile {base!r}{_did_you_mean(base, known)} in the sweep's "
+            f"pipeline.base_profile. {profiles}"
+        )
     for pc in pipeline_configs:
         name = pc.get("profile") or "standard"
         if name not in known:
             raise ValueError(
-                f"Unknown profile {name!r}{_did_you_mean(name, known)} in arm "
-                f"{pc.get('name')!r}. Profiles: {', '.join(sorted(known))}."
+                f"Unknown profile {name!r}{_did_you_mean(name, known)} in the profile: "
+                f"key of arm {pc.get('name')!r}. {profiles}"
             )
 
 
@@ -1944,7 +1953,7 @@ class Experiment:
                 "agentic_pipeline arms change generation metrics only: retrieval "
                 "metrics are measured on the standard tier for every arm."
             )
-        _check_profiles(pipeline_configs)
+        _check_profiles(pipeline_configs, cfg.pipeline.base_profile)
         _check_override_keys(pipeline_configs)
         _check_override_values(pipeline_configs)
         _load_component_references(pipeline_configs, [cfg.base_dir] if cfg.base_dir else [])
@@ -1985,12 +1994,24 @@ class Experiment:
     ) -> BenchmarkResults:
         """Execute the experiment and return results.
 
+        A run that stops before writing results leaves no empty folder behind
+        (see :func:`_tidy_run_folder`).
+
         Args:
             progress_callback: Optional ``(completed, total, task_key) -> None``.
 
         Returns:
             :class:`BenchmarkResults` with all task outcomes.
         """
+        try:
+            return await self._run(progress_callback)
+        finally:
+            _tidy_run_folder(self.config)
+
+    async def _run(
+        self,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    ) -> BenchmarkResults:
         cfg = self.config
         _refuse_a_held_store()
         output_dir = cfg.effective_output_dir()
@@ -2110,7 +2131,7 @@ class Experiment:
                 f"All {len(task_results)} task(s) of '{cfg.name}' failed. First: "
                 f"{first.task_key}: {first.error}. See results.failed_tasks.",
                 RuntimeWarning,
-                stacklevel=2,
+                stacklevel=3,  # past run(), as before it delegated to _run()
             )
 
         logger.info(
@@ -2122,26 +2143,55 @@ class Experiment:
         return results
 
 
-_PREFERRED_METRICS = [
-    # Generation metrics — faithfulness is most meaningful (context_precision is trivially 1.0)
-    "faithfulness",
-    "context_recall",
-    # Retrieval IR metrics — prefer NDCG then F1
-    "ndcg@10",
-    "ndcg_at_10",
-    "f1@10",
-    "f1_at_10",
-    "mrr",
-    "map",
-]
+#: The report's primary column, chosen as `results per-query` chooses its first.
+_pick_primary_metric = primary_metric
 
 
-def _pick_primary_metric(available: List[str]) -> str:
-    """Pick the most informative metric to use as the report's primary column."""
-    for preferred in _PREFERRED_METRICS:
-        if preferred in available:
-            return preferred
-    return available[0] if available else "ndcg@10"
+def base_profiles_line(tasks: Iterable["BenchmarkTask"]) -> str:
+    """``Base profile: standard, for every arm ...``: the profile each arm starts from.
+
+    `lasagna benchmark run` starts from speed and a sweep file without
+    ``base_profile:`` from standard, and neither the dry run nor the run
+    header said which an arm used.
+    """
+    profiles = {t.config_name: t.profile or "standard" for t in tasks}
+    if len(set(profiles.values())) == 1:
+        (profile,) = set(profiles.values())
+        return (
+            f"Base profile: {profile}, for every arm (pipeline.base_profile, standard when "
+            f"unset; an arm's own profile: wins)"
+        )
+    return "Base profiles: " + ", ".join(f"{arm} from {p}" for arm, p in profiles.items())
+
+
+def _tidy_run_folder(cfg: "ExperimentConfig") -> None:
+    """After a run: drop what holds nothing, and say what a stopped run left.
+
+    A run refused before any task (a dataset not cached offline, say) left
+    ``results/<name>_<time>/.checkpoints``, empty, for each attempt. An empty
+    checkpoint folder is removed; so is the run's own timestamped folder when
+    it holds nothing else (a folder named by ``output_dir`` is kept). A run
+    that stopped with finished tasks checkpointed and no results.json keeps
+    them, and says so: ``--resume`` continues from them.
+    """
+    out = Path(cfg.effective_output_dir())
+    checkpoints = Path(cfg.checkpoint_dir or out) / ".checkpoints"
+    finished = len(list(checkpoints.glob("*.json"))) if checkpoints.is_dir() else 0
+    try:
+        if checkpoints.is_dir() and not finished:
+            checkpoints.rmdir()
+        if (out / "results.json").exists():
+            return
+        if finished:
+            logger.warning(
+                f"The run stopped before writing results. {out} holds {finished} finished "
+                f"task(s) as checkpoints: run the same command with --resume to continue "
+                f"from them."
+            )
+        elif not cfg.output_dir and out.is_dir() and not any(out.iterdir()):
+            out.rmdir()
+    except OSError as exc:  # tidying must never hide why the run stopped
+        logger.debug(f"Could not tidy {out}: {exc}")
 
 
 def _save_outputs(

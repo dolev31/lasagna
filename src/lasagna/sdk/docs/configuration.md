@@ -174,8 +174,8 @@ for p in profiles:
     print(f"{p['name']}: {p['description']}")
 # Output:
 #   default: Default configuration from settings.lasagna.toml
-#   speed: Vector search only, with all-MiniLM-L6-v2: no reranking, MMR or HyDE
-#   standard: Hybrid search, reranking and agentic retrieval with BGE-M3 (recommended start)
+#   speed: Vector search only, with all-MiniLM-L6-v2: no reranking, MMR or HyDE (start here: a 92 MB download, no LLM)
+#   standard: Hybrid search, reranking and agentic retrieval with BGE-M3 (for quality: a 3.2 GB download, and an LLM for complex queries)
 #   balanced: Standard plus hierarchical chunking and the structured agentic graph, with BGE-M3
 #   max_quality: Every retrieval feature on: HyDE, query expansion, RAG fusion and CRAG
 
@@ -434,7 +434,7 @@ The SDK has four presets, `config_for_speed()`, `config_for_standard()`, `config
 
 ### Speed Profile
 
-Dense vector search with nothing else: no reranking, hybrid search, MMR, HyDE, query routing or agentic loop, and no LLM call during search. It is the only preset that runs without an API key.
+Start here. Dense vector search with nothing else: no reranking, hybrid search, MMR, HyDE, query routing or agentic loop, and no LLM call during search. It downloads 92 MB, and it is the only preset that runs without an API key.
 
 ```python
 from lasagna.sdk import config_for_speed, KnowledgeClient
@@ -451,7 +451,7 @@ client = KnowledgeClient(config=config)
 
 ### Standard Profile
 
-The recommended starting point: hybrid search, cross-encoder reranking, MMR and agentic retrieval, with BGE-M3.
+For quality, once `speed` works: hybrid search, cross-encoder reranking, MMR and agentic retrieval, with BGE-M3. It downloads 3.2 GB (BGE-M3 and its reranker), and sends the queries it judges complex to an LLM; without an API key it answers those with this pipeline alone. The default configuration (no profile) costs the same.
 
 ```python
 from lasagna.sdk import config_for_standard, KnowledgeClient

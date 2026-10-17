@@ -31,6 +31,7 @@ from ..retrieval.search.hybrid import HybridSearcher
 from ..retrieval.search.ranker import CombinedReranker, RerankedResult
 from ..retrieval.enhancement.enhancer import QueryEnhancer
 from ..retrieval.routing import get_query_router, RoutingTier
+from ..core.model_downloads import ModelNotDownloaded
 from ..core.strict import claim_context_presentation, lost_in_the_middle, strict_stages
 from lasagna.agentic.citation_manager import CitationManager, Citation
 from lasagna.utils.monitoring import METRICS, log_json, log_json_debug, hash_text
@@ -1105,6 +1106,7 @@ class SearchOrchestrator:
         mmr_ms = 0.0
         rerank_model = None
         mmr_lambda = None
+        reranker_skipped = False
 
         # GraphRAG expansion: add related chunks via entity graph traversal
         if getattr(config, "enable_graph_retrieval", False) and session_id:
@@ -1154,6 +1156,7 @@ class SearchOrchestrator:
         hits_for_rerank = [h for h in hits_for_rerank if h.get("document_id") in doc_metadata_map]
 
         # Apply reranking
+        reranked = None
         if use_reranking and config.enable_reranking:
             # Check if adaptive-k retrieval is enabled
             chunk_cite_cfg = config.chunk_cite_retrieval
@@ -1173,26 +1176,35 @@ class SearchOrchestrator:
 
             # MMR compares passages with this search's embedder. The reranker
             # is shared by every search, so it is passed for this call only.
-            with (
-                TRACER.span(
-                    "rerank", attributes={"top_k": top_k, "adaptive": use_adaptive}
-                ) as _rerank_span,
-                search_embedder(effective_embedder),
-            ):
-                reranked, rerank_metrics = reranker.rerank(
-                    query=query,
-                    results=hits_for_rerank,
-                    top_k=top_k,
-                    return_metrics=True,
-                    config=config,
-                    **adaptive_kwargs,
-                )
-            rerank_ms = rerank_metrics.get("rerank_ms", 0.0)
-            mmr_ms = rerank_metrics.get("mmr_ms", 0.0)
-            rerank_model = reranker.cross_encoder.model_name
-            if _effective_mmr:
-                mmr_lambda = config.mmr_lambda
-        else:
+            try:
+                with (
+                    TRACER.span(
+                        "rerank", attributes={"top_k": top_k, "adaptive": use_adaptive}
+                    ) as _rerank_span,
+                    search_embedder(effective_embedder),
+                ):
+                    reranked, rerank_metrics = reranker.rerank(
+                        query=query,
+                        results=hits_for_rerank,
+                        top_k=top_k,
+                        return_metrics=True,
+                        config=config,
+                        **adaptive_kwargs,
+                    )
+            except ModelNotDownloaded as exc:
+                # An optional stage that cannot run falls back, as HyDE and
+                # GraphRAG do, and says so; an evaluation raises instead.
+                if strict_stages():
+                    raise
+                self._reranker_not_downloaded(exc, session_id)
+                reranker_skipped = True
+            else:
+                rerank_ms = rerank_metrics.get("rerank_ms", 0.0)
+                mmr_ms = rerank_metrics.get("mmr_ms", 0.0)
+                rerank_model = reranker.cross_encoder.model_name
+                if _effective_mmr:
+                    mmr_lambda = config.mmr_lambda
+        if reranked is None:
             # Convert to RerankedResult without reranking
             # Compute normalized scores so downstream filtering works correctly
             raw_scores = [h["score"] for h in hits_for_rerank[:top_k]]
@@ -1406,8 +1418,10 @@ class SearchOrchestrator:
                 f"relevant content for this query."
             )
 
-        # Populate search cache with results for future queries
-        if search_cache and search_results:
+        # Populate search cache with results for future queries. Not a search
+        # whose reranker was skipped: once the model is on disk, the next
+        # search must rerank.
+        if search_cache and search_results and not reranker_skipped:
             try:
                 # Serialize results for caching
                 cacheable_results = []
@@ -2582,6 +2596,26 @@ class SearchOrchestrator:
                 logger.warning(f"Abstractive compression failed for chunk {result.chunk_id}: {e}")
 
         return results
+
+    @staticmethod
+    def _reranker_not_downloaded(exc: ModelNotDownloaded, session_id: str) -> None:
+        """Say that this search's results are not reranked, and what fixes it.
+
+        Offline with the reranker not on disk, a search failed with
+        transformers' "couldn't connect to huggingface.co"; a server answered
+        503. The search now returns its retrieval order, names ``reranker`` in
+        ``degraded_stages`` and warns with the download command for every
+        model the session still needs.
+        """
+        from lasagna.core.model_downloads import fix_for_model, fix_for_session
+
+        reason = f"{exc} These results are in retrieval order, not reranked."
+        logger.warning(f"{reason} {fix_for_model(session_id, exc.model)}")
+        _degraded.record(
+            "reranker",
+            reason,
+            fixes={"mcp": fix_for_session(session_id, exc.model, surface="mcp")},
+        )
 
     def _unregistered(self, document_ids: set) -> set:
         """Which of ``document_ids`` have no metadata row at all (not merely not ready)."""

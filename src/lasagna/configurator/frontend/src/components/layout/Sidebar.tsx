@@ -3,16 +3,12 @@ import { Plus, Lock, Trash2, Star } from "lucide-react";
 import type { RAGProfile, ParameterDef } from "../../api/types";
 import { REINDEX_KEYS, PROTECTED_PROFILES } from "../../schema/reindexKeys";
 
-/** Short descriptions for built-in profiles, shown in the sidebar. */
-const PROFILE_DESCRIPTIONS: Record<string, string> = {
-  default: "Balanced defaults for most use cases",
-  speed: "Fastest responses, lower accuracy",
-  standard: "Recommended — good balance of speed and quality",
-  balanced: "High quality with reasonable speed",
-  max_quality: "Best accuracy, slower responses",
-};
-
-const RECOMMENDED_PROFILE = "standard";
+/**
+ * The profile to start with, as the README, `lasagna init` and doctor say: a
+ * 92 MB model and no LLM. Each profile's description is the server's
+ * (BUILTIN_PROFILE_DESCRIPTIONS), which states what it costs.
+ */
+const STARTING_PROFILE = "speed";
 
 interface Props {
   profiles: RAGProfile[];
@@ -87,8 +83,8 @@ export default function Sidebar({
           {profiles.map((p) => {
             const isBuiltin = PROTECTED_PROFILES.has(p.name);
             const isActive = p.name === activeProfile;
-            const isRecommended = p.name === RECOMMENDED_PROFILE;
-            const description = PROFILE_DESCRIPTIONS[p.name] || p.description;
+            const isStart = p.name === STARTING_PROFILE;
+            const description = p.description;
             return (
               <div
                 key={p.name}
@@ -101,9 +97,9 @@ export default function Sidebar({
                   <div className="cfg-profile-name-row">
                     {isBuiltin && <Lock size={12} style={{ color: "var(--color-text-muted)", flexShrink: 0 }} />}
                     <span className="name">{p.name}</span>
-                    {isRecommended && (
-                      <span className="badge recommended" title="Recommended for most users">
-                        <Star size={9} /> recommended
+                    {isStart && (
+                      <span className="badge recommended" title="Start here: a 92 MB model, no LLM">
+                        <Star size={9} /> start here
                       </span>
                     )}
                     {!isBuiltin && (

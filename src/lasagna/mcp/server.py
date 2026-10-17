@@ -172,13 +172,22 @@ class _LasagnaMCP(FastMCP):
         return len(self._tool_manager._tools)
 
     async def call_tool(self, name: str, arguments: Dict[str, Any]):
-        """Run a tool; an argument of the wrong type is refused in one plain sentence.
+        """Run a tool; an argument it does not declare, or of the wrong type, is
+        refused in one plain sentence.
 
         FastMCP passed pydantic's text through: ``search {"top_k": "lots"}``
         answered "1 validation error for searchArguments ... errors.pydantic.dev".
+        And it dropped arguments a tool does not declare, so ``search
+        {"session": "nope"}`` searched the server's session and ``{"topk": 1}``
+        returned the default number of results.
         """
         from mcp.server.fastmcp.exceptions import ToolError
 
+        tool = self._tool_manager.get_tool(name)
+        if tool is not None and isinstance(arguments, dict):
+            unknown = _unknown_arguments(name, arguments, tool.parameters or {})
+            if unknown:
+                raise ToolError(unknown)
         try:
             return await super().call_tool(name, arguments)
         except ToolError as exc:
@@ -230,6 +239,24 @@ _SCHEMA_TYPES = {
     "array": "a list",
     "object": "an object",
 }
+
+
+def _unknown_arguments(tool: str, arguments: Dict[str, Any], schema: Dict[str, Any]) -> str:
+    """Why ``arguments`` names something ``tool``'s input schema does not declare; or "".
+
+    Each unknown name gets the closest declared one, and the sentence ends with
+    every argument the tool takes, read from the same schema `tools/list` sends.
+    """
+    from lasagna.core._text import did_you_mean
+
+    properties = schema.get("properties") or {}
+    unknown = [str(key) for key in arguments if key not in properties]
+    if not unknown:
+        return ""
+    named = "; ".join(f"{key!r}{did_you_mean(key, properties)}" for key in unknown)
+    takes = ", ".join(properties) or "no arguments"
+    noun = "argument" if len(unknown) == 1 else "arguments"
+    return f"{tool}: unknown {noun} {named}. {tool} takes: {takes}."
 
 
 def _argument_error(tool: str, cause: Any, schema: Dict[str, Any]) -> Optional[str]:

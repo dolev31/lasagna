@@ -118,7 +118,14 @@ def _results_file(tmp_path):
             {
                 "experiment_name": "mine",
                 "metrics_version": METRICS_VERSION,
-                "experiment_config": {"metrics_version": METRICS_VERSION},
+                "experiment_config": {
+                    "metrics_version": METRICS_VERSION,
+                    "environment": {
+                        "lasagna_version": "0.1.0",
+                        "python": "3.12.0",
+                        "platform": "test",
+                    },
+                },
                 "results": [
                     {
                         "task_key": "smoke|speed|run_0",

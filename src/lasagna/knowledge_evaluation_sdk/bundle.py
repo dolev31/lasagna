@@ -624,6 +624,43 @@ def validation_problems(bundle: Dict[str, Any], *, strict: bool = False) -> List
     return problems
 
 
+#: Problems meaning a recorded number no longer matches the rest of the bundle.
+_EDITED = ("run_id does not match", "aggregate disagrees", "per-query score above")
+
+
+def invalid_mark(problems: List[str]) -> str:
+    """The watermark beside numbers from a bundle ``validation_problems`` rejects.
+
+    Every surface that renders such a bundle on request (``--allow-invalid``)
+    prints it next to the numbers: the leaderboard's markdown, LaTeX and
+    index, and the HTML view. Empty for a valid bundle.
+    """
+    if not problems:
+        return ""
+    if any(p.startswith(_EDITED) or "comparability key does not match" in p for p in problems):
+        return "INVALID: edited after it was made"
+    return "INVALID: fails lasagna results validate"
+
+
+class InvalidBundleError(ValueError):
+    """A bundle ``results validate`` calls INVALID, given to something that shows its numbers.
+
+    ``results leaderboard`` and ``results view`` rendered an edited bundle's
+    numbers next to its original run id, while ``validate`` and ``compare``
+    refused it.
+    """
+
+    def __init__(self, name: str, problems: List[str]):
+        self.name = name
+        self.problems = [p.strip() for p in problems]
+        listed = "\n".join(f"  - {p}" for p in self.problems)
+        n = len(self.problems)
+        super().__init__(
+            f"{name} is not a valid bundle, so its numbers are not shown "
+            f"({n} problem{'' if n == 1 else 's'}):\n{listed}"
+        )
+
+
 def json_schema() -> Dict[str, Any]:
     """The published JSON Schema for a bundle, built from the constants above.
 

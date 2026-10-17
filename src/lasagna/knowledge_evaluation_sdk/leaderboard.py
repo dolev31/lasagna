@@ -32,7 +32,7 @@ import statistics
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from .bundle import config_entry
+from .bundle import InvalidBundleError, config_entry, invalid_mark, validation_problems
 from .run_provenance import claim_text
 
 #: A row from a single run reports no spread, so it can never be confirmed or
@@ -51,13 +51,24 @@ def _is_bundle(data: Any) -> bool:
     return isinstance(data, dict) and "comparability_key" not in data and "configs" in data
 
 
+def _checked(data: Dict[str, Any], path: str) -> Dict[str, Any]:
+    """``data`` with what ``results validate`` finds wrong with it, and its path.
+
+    Checked before anything is added: the run id hashes every other field.
+    """
+    data["_problems"] = validation_problems(data)
+    data["_path"] = path
+    return data
+
+
 def _one_file(path: Path) -> Dict[str, Any]:
     """A bundle, or a run's ``results.json`` bundled in memory.
 
     Bundled the way ``lasagna results bundle`` would, so its rows carry the
     same comparability keys as the file that command writes. A file named on
     its own is not skipped when it cannot be read: there is nothing else to
-    show, so the error reaches the caller.
+    show, so the error reaches the caller. A bundle carries the problems
+    ``results validate`` finds in it; a results.json is not validated.
     """
     data = json.loads(path.read_text(encoding="utf-8"))
     if not _is_bundle(data):
@@ -71,8 +82,7 @@ def _one_file(path: Path) -> Dict[str, Any]:
         data["_source"] = "results"
         data["_path"] = ""
         return data
-    data["_path"] = path.name
-    return data
+    return _checked(data, path.name)
 
 
 def load_bundles(directory: str | Path) -> List[Dict[str, Any]]:
@@ -82,6 +92,9 @@ def load_bundles(directory: str | Path) -> List[Dict[str, Any]]:
     Unreadable files are skipped rather than fatal: one malformed submission
     should not stop the leaderboard for everyone else. The validator is what
     keeps malformed files out; this is defence in depth.
+
+    Each bundle carries ``_problems``, what ``results validate`` finds wrong
+    with it; :func:`checked_bundles` leaves the invalid ones out.
 
     Paths are recorded **relative to the scanned directory**. An absolute path
     would be both broken as a link once the page is committed and a small leak
@@ -98,8 +111,7 @@ def load_bundles(directory: str | Path) -> List[Dict[str, Any]]:
         except (json.JSONDecodeError, OSError):
             continue
         if _is_bundle(data):
-            data["_path"] = path.relative_to(root).as_posix()
-            bundles.append(data)
+            bundles.append(_checked(data, path.relative_to(root).as_posix()))
     return bundles
 
 
@@ -181,6 +193,8 @@ def collect_rows(bundles: Iterable[Dict[str, Any]], metric: str) -> List[Dict[st
                     "run_id": bundle.get("run_id", ""),
                     "path": bundle.get("_path", ""),
                     "source": bundle.get("_source", "bundle"),
+                    # Set only when asked to show a bundle validation rejects.
+                    "invalid": invalid_mark(bundle.get("_problems") or []),
                     # What `group` ranks by: without it every metric sorted
                     # highest first, latency and token counts included.
                     "metric": metric,
@@ -213,11 +227,16 @@ def mark_verified(rows: List[Dict[str, Any]]) -> None:
     `hub/README.md` publishes this badge as "a real reproduction signal rather
     than a badge", and lists the restrictions it relies on; this is the third
     one, which the code did not implement.
+
+    A row from an invalid bundle (shown with ``allow_invalid``) neither earns
+    the badge nor confirms another row.
     """
     for row in rows:
         row["verified"] = False
         exact = row["n_runs"] < _MIN_RUNS_FOR_INTERVAL and row.get("nothing_samples")
         if (row["n_runs"] < _MIN_RUNS_FOR_INTERVAL and not exact) or not _stages_recorded(row):
+            continue
+        if row.get("invalid"):
             continue
         # std == 0 used to disqualify the row, so a deterministic pipeline
         # could never be verified, even by a bit-identical reproduction.
@@ -228,6 +247,7 @@ def mark_verified(rows: List[Dict[str, Any]]) -> None:
             and other["comparability_key"] == row["comparability_key"]
             and other["comparability_key"]
             and _stages_recorded(other)
+            and not other.get("invalid")
             and other["submitter"] != row["submitter"]
             and (other.get("varied_levels") or {}) == (row.get("varied_levels") or {})
             and low <= other["mean"] <= high
@@ -282,9 +302,15 @@ def render_markdown(
         "row links to its bundle; `lasagna results validate` recomputes a bundle's "
         "comparability keys, run id and aggregates."
     )
-    lines = [
-        f"# {benchmark}",
-        "",
+    marks = sorted({r["invalid"] for rows in groups.values() for r in rows if r.get("invalid")})
+    lines = [f"# {benchmark}", ""]
+    if marks:
+        lines += [
+            f"**{'; '.join(marks)}.** Rows marked INVALID come from bundles that "
+            "`lasagna results validate` rejects: their numbers are not results.",
+            "",
+        ]
+    lines += [
         trust,
         "",
         "Each table is one comparability group: those rows held the same "
@@ -333,6 +359,8 @@ def render_markdown(
             else:
                 varied = ", ".join(f"`{d}`" for d in row["varied_dimensions"]) or "_baseline_"
             spread = f" ± {row['std']:.4f}" if row["n_runs"] > 1 else ""
+            if row.get("invalid"):
+                spread += f" **{row['invalid']}**"
             verified = "yes" if row.get("verified") else ""
             claim = f" {claim_text(row.get('claim'))} |" if show_claim else ""
             run = f"`{row['run_id'][:12]}`"
@@ -397,8 +425,12 @@ def render_latex(
                 else " Stage settings were not recorded, so these rows are compared only "
                 "with rows from the same bundle."
             )
+            # In the caption and beside each number, so neither a cropped
+            # table nor a copied row loses it.
+            marks = sorted({r["invalid"] for r in rows if r.get("invalid")})
+            warning = "".join(f"\\textbf{{{esc(m)}.}} " for m in marks)
             caption = (
-                f"{esc(name)}: {esc(metric)}. Held fixed: "
+                f"{warning}{esc(name)}: {esc(metric)}. Held fixed: "
                 f"{esc(described) if described else 'configuration not recorded'}"
                 f" (comparability key \\texttt{{{esc(rows[0]['comparability_key'])}}}).{esc(scoped)}"
             )
@@ -442,7 +474,8 @@ def render_latex(
                 cells = [esc(row["config"])]
                 cells += [esc(_varied(row))] * show_varied
                 cells += [esc(row["submitter"])] * show_submitter
-                cells += [str(row["n_runs"]), f"${value}$"]
+                mark = f" \\textbf{{{esc(row['invalid'])}}}" if row.get("invalid") else ""
+                cells += [str(row["n_runs"]), f"${value}${mark}"]
                 cells += [esc(claim_text(row.get("claim")))] * show_claim
                 cells += ["yes" if row.get("verified") else ""] * show_verified
                 out.append(" & ".join(cells) + " \\\\")
@@ -474,12 +507,43 @@ def _bundles_recording(directory: str | Path, metric: str) -> List[Dict[str, Any
     return bundles
 
 
-def grouped_rows(directory: str | Path, metric: str = "ndcg@10") -> Dict[str, Any]:
-    """Read the bundles under ``directory`` (or the one file it names) as
-    ranked comparability groups."""
-    rows = collect_rows(_bundles_recording(directory, metric), metric)
+def checked_bundles(
+    directory: str | Path, metric: str = "ndcg@10", *, allow_invalid: bool = False
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """The bundles to rank under ``directory``, and the invalid ones left out.
+
+    Invalid is what ``results validate`` calls INVALID (``validation_problems``):
+    an edited bundle was ranked, printed in LaTeX and listed on the page next
+    to its original run id. One file named on its own raises
+    :class:`~.bundle.InvalidBundleError`. In a directory an invalid bundle is
+    left out and returned, so one bad submission does not stop the
+    leaderboard for everyone else. ``allow_invalid`` keeps them; their rows
+    then carry the watermark and are never verified. A results.json is not a
+    bundle and is not validated.
+    """
+    bundles = _bundles_recording(directory, metric)
+    if allow_invalid:
+        return bundles, []
+    invalid = [b for b in bundles if b.get("_problems")]
+    if invalid and Path(directory).is_file():
+        raise InvalidBundleError(Path(directory).name, invalid[0]["_problems"])
+    return [b for b in bundles if not b.get("_problems")], invalid
+
+
+def group_bundles(bundles: Iterable[Dict[str, Any]], metric: str) -> Dict[str, Any]:
+    """``bundles`` as ranked comparability groups, verified rows marked."""
+    rows = collect_rows(bundles, metric)
     mark_verified(rows)
     return group(rows)
+
+
+def grouped_rows(
+    directory: str | Path, metric: str = "ndcg@10", *, allow_invalid: bool = False
+) -> Dict[str, Any]:
+    """Read the valid bundles under ``directory`` (or the one file it names)
+    as ranked comparability groups (see :func:`checked_bundles`)."""
+    bundles, _ = checked_bundles(directory, metric, allow_invalid=allow_invalid)
+    return group_bundles(bundles, metric)
 
 
 def build(
@@ -487,13 +551,19 @@ def build(
     metric: str = "ndcg@10",
     output: Optional[str | Path] = None,
     fmt: str = "markdown",
+    *,
+    allow_invalid: bool = False,
 ) -> Dict[str, Any]:
     """Read bundles (a directory, one bundle or one ``results.json``), group
     them, and optionally write one page per benchmark (``fmt`` is
-    ``"markdown"`` or ``"latex"``) plus an index."""
+    ``"markdown"`` or ``"latex"``) plus an index.
+
+    Invalid bundles are handled as :func:`checked_bundles` says; the index
+    lists them under ``invalid``, with whether they were shown."""
     if fmt not in FORMATS:
         raise ValueError(f"Unknown format {fmt!r}. Use 'markdown' or 'latex'.")
-    rows = collect_rows(_bundles_recording(directory, metric), metric)
+    bundles, left_out = checked_bundles(directory, metric, allow_invalid=allow_invalid)
+    rows = collect_rows(bundles, metric)
     mark_verified(rows)
     grouped = group(rows)
 
@@ -509,6 +579,16 @@ def build(
             }
             for name, keys in sorted(grouped.items())
         },
+        "invalid": [
+            {
+                "path": b.get("_path", ""),
+                "watermark": invalid_mark(b["_problems"]),
+                "problems": [p.strip() for p in b["_problems"]],
+                "shown": shown,
+            }
+            for b, shown in [*((b, True) for b in bundles), *((b, False) for b in left_out)]
+            if b.get("_problems")
+        ],
     }
 
     if output is not None:
