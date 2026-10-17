@@ -16,6 +16,7 @@ from loguru import logger
 
 from ._data_models import (
     ANONYMOUS,
+    MAX_CACHED_SESSIONS,
     SESSION_TTL_SECONDS,
     RAGProfile,
     KnowledgeConfigState,
@@ -169,34 +170,14 @@ class DatabasePersistenceMixin:
         single session — first from Redis cache, then PostgreSQL.  This avoids
         pulling all sessions into memory on every request.
 
-        When ``self._session_id`` is None (startup / singleton mode), loads all
-        active sessions within the TTL window.
+        Without one (the process's own manager, which the session provider
+        keeps) nothing is read now: each session is read when it is first
+        asked for, and at most ``MAX_CACHED_SESSIONS`` are kept. Every session
+        used in the last day was read at startup and kept, with no limit.
         """
         target_session = getattr(self, "_session_id", None)
-
         if target_session:
-            # Request-scoped: load only the target session
             self._load_single_session(target_session)
-            return
-
-        # Startup / singleton mode: load all active sessions
-        try:
-            db = _get_pg_db()
-            rows = db.get_active_sessions(max_age_seconds=SESSION_TTL_SECONDS)
-
-            loaded_count = 0
-            for row in rows:
-                session_id = row.get("session_id")
-                if not session_id:
-                    continue
-                state_data = self._row_to_state_data(row)
-                self._session_states[session_id] = self._state_from_dict(state_data)
-                loaded_count += 1
-
-            if loaded_count:
-                logger.info(f"Loaded {loaded_count} active session(s) from PostgreSQL")
-        except Exception as exc:
-            logger.warning(f"Failed to load session states from PostgreSQL: {exc}")
 
     def _load_single_session(self, session_id: str) -> None:
         """Load a single session from Redis cache → PostgreSQL."""
@@ -363,21 +344,24 @@ class DatabasePersistenceMixin:
             db = _get_pg_db()
             count = db.cleanup_expired_sessions(max_age_seconds=session_idle_seconds())
 
-            # Also clean up in-memory cache
-            expired = []
-            for session_id, state in self._session_states.items():
-                if now - state.last_accessed > SESSION_TTL_SECONDS:
-                    expired.append(session_id)
+            # Also clean up in-memory cache, and keep at most
+            # MAX_CACHED_SESSIONS of it (the least recently used go), as SQLite does.
+            expired = [
+                session_id
+                for session_id, state in self._session_states.items()
+                if now - state.last_accessed > SESSION_TTL_SECONDS
+            ]
+            excess = len(self._session_states) - len(expired) - MAX_CACHED_SESSIONS
+            if excess > 0:
+                kept = sorted(
+                    (item for item in self._session_states.items() if item[0] not in expired),
+                    key=lambda item: item[1].last_accessed,
+                )
+                expired += [session_id for session_id, _ in kept[:excess]]
 
             for session_id in expired:
                 del self._session_states[session_id]
-                # Invalidate Redis cache
-                cache = _get_cache()
-                if cache:
-                    try:
-                        cache.delete(f"{self._CACHE_PREFIX_SESSION}{session_id}")
-                    except Exception:
-                        pass
+                self._session_checked_at.pop(session_id, None)
 
             if expired or count:
                 logger.debug(
