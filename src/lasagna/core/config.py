@@ -3432,6 +3432,48 @@ def get_rag_config() -> RAGConfig:
     return _rag_config
 
 
+class _NoPathsProvider:
+    """A provider for a settings check: no host settings, and paths that exist."""
+
+    def get_rag_settings(self) -> Dict[str, Any]:
+        return {}
+
+    @property
+    def upload_dir(self) -> Path:
+        import tempfile
+
+        return Path(tempfile.gettempdir())
+
+    db_dir = upload_dir
+
+
+def warn_unknown_environment() -> None:
+    """Warn, once each, about ``RAG_*`` and ``LASAGNA_*`` variables that name no setting.
+
+    The warning came only from commands that load the configuration (doctor,
+    configure, search), so ``RAG_CHUNK_SISE=500 lasagna status`` printed
+    nothing. The CLI calls this for every command. It reads the settings as
+    loading them does, without the singleton, the provider's paths or their
+    folders; a value that does not parse is left to the command that uses it.
+    """
+    ignored = NON_SETTING_ENV | _LASAGNA_ONLY_ENV
+    if not any(k.startswith(("RAG_", "LASAGNA_")) and k not in ignored for k in os.environ):
+        return
+    import warnings
+
+    probe = RAGConfig.__new__(RAGConfig)
+    probe._config_provider = _NoPathsProvider()
+    probe._env_overrides = {}
+    try:
+        # Dynaconf's own deprecation notes belong to the load that uses them.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            probe._knowledge_settings = probe._load_knowledge_settings()
+            probe._load_config()
+    except Exception as exc:  # noqa: BLE001 - the command that loads it reports it
+        logger.debug(f"Settings check skipped: {exc}")
+
+
 def _reset_rag_config() -> None:
     """Reset the global RAGConfig singleton (for testing only)."""
     global _rag_config

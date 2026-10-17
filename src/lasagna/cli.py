@@ -177,6 +177,11 @@ def _cli(
     os.environ.setdefault("LASAGNA_SKIP_LOGGING", "1")
     _settings_file_from_dotenv()
     _configure_cli_logging(verbose, hide=_server_only_warning)
+    # Every command, not only those that load the configuration: `status`
+    # said nothing about RAG_CHUNK_SISE=500 while doctor and search warned.
+    from .core.config import warn_unknown_environment
+
+    warn_unknown_environment()
 
 
 def _settings_file_from_dotenv() -> None:
