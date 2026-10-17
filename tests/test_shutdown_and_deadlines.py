@@ -135,7 +135,11 @@ class TestAFullPool:
         monkeypatch.setattr(
             database,
             "get_rag_database",
-            lambda: SimpleNamespace(delete_document=deleted_rows.append),
+            # get_document: an upload with a document_id first looks for the
+            # document it would replace; there is none here.
+            lambda: SimpleNamespace(
+                delete_document=deleted_rows.append, get_document=lambda doc_id: None
+            ),
         )
         source = tmp_path / "a.txt"
         source.write_text("tides")

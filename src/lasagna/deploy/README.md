@@ -234,7 +234,9 @@ With `RAG_REQUIRE_AUTH=true`:
 - Every other request sends the token as `X-Session-Token`. A session named by
   `X-Session-ID` or `?session_id=` without a token is refused with 401, the shared
   `default` session included (unless `RAG_ALLOW_ANONYMOUS_SESSION=true`). An invalid or
-  expired token is 401 with auth on or off.
+  expired token is 401 with auth on or off. So is a token minted while auth was off, once
+  auth is on with `RAG_API_KEYS` set: it names no key. A token minted with
+  `X-Admin-Token` names `admin` and stays valid.
 - Rate limits are counted per API key, not per session (see [Request limits](#request-limits)).
 
 Tokens are HS256 JWTs signed with `RAG_JWT_SECRET`, valid for
@@ -354,8 +356,11 @@ pods carry `prometheus.io/scrape` annotations for port 8000, path `/metrics`.
 | `lasagna_degraded_fallbacks_total` | `stage` |
 
 Metrics are counted in the process that does the work. With the `celery` profile, documents
-are processed in the worker container, which serves no `/metrics`, so the api's
-`lasagna_ingests_total` counts only the documents the api processed itself.
+are processed in the worker container, so the worker serves its own `/metrics` on
+`RAG_WORKER_METRICS_PORT` (9100 in compose, `celery-worker:9100`, and in k8s, where the
+worker pods carry the same `prometheus.io/scrape` annotations for port 9100). Scrape both:
+the worker's `lasagna_ingests_total` counts the documents it processed, the api's those the
+api processed itself (no worker answered, or Celery off).
 
 `lasagna_degraded_fallbacks_total{stage}` counts a pipeline stage that failed and fell back
 to a lesser result (`hyde`, `graphrag`, `hybrid`, `query_expansion`, `agentic`, `routing`). The

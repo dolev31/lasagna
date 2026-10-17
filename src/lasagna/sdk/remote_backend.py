@@ -637,6 +637,48 @@ class RemoteRAGBackend:
     # Document Lifecycle (soft-delete, restore, bulk-delete)
     # =========================================================================
 
+    async def _async_reindex_document(
+        self,
+        document_id: str,
+        session_id: Optional[str] = None,
+    ) -> RemoteUploadResult:
+        """Reindex a document via ``POST /documents/{id}/reindex`` (async).
+
+        Raises:
+            LookupError: The server has no such document in this session.
+            RuntimeError: The reindex failed, with the server's reason; the
+                document is unchanged.
+        """
+        resp = await self._client.post(self._api(f"/documents/{document_id}/reindex"))
+        if resp.status_code == 404:
+            raise LookupError(f"Document not found: {document_id}")
+        if resp.status_code >= 400:
+            try:
+                reason = self._parse_json(resp).get("detail") or resp.text
+            except RuntimeError:
+                reason = resp.text
+            raise RuntimeError(f"{reason} (HTTP {resp.status_code})")
+        data = self._parse_json(resp)
+        return RemoteUploadResult(
+            document_id=data.get("document_id", document_id),
+            filename=data.get("filename", ""),
+            file_type=data.get("file_type", ""),
+            file_size=data.get("file_size", 0),
+            status=data.get("status", "ready"),
+            chunk_count=data.get("chunks_count", 0),
+        )
+
+    def reindex_document(
+        self,
+        document_id: str,
+        session_id: Optional[str] = None,
+    ) -> RemoteUploadResult:
+        """Reindex a document with the session's current settings (sync).
+
+        The interface ``DocumentManager.reindex`` calls, as on ``RAGBackend``.
+        """
+        return self._run_sync(self._async_reindex_document(document_id, session_id))
+
     async def _async_soft_delete_document(
         self,
         document_id: str,

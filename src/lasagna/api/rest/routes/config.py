@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import ValidationError
 
@@ -228,6 +228,11 @@ async def patch_config(
 @router.put("/profiles/{profile_name}", response_model=ConfigResponse)
 async def apply_profile(
     profile_name: str,
+    force: bool = Query(
+        False,
+        description="Switch even when the session's documents would not be searched; "
+        "reindex them afterwards (POST /api/knowledge/reindex).",
+    ),
     session_id: str = Depends(get_session_id),
     user_id: str = Depends(get_profile_owner),
     backend: RAGBackend = Depends(get_backend),
@@ -243,7 +248,7 @@ async def apply_profile(
         from lasagna.core.session_config import get_knowledge_config_manager
 
         mgr = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        mgr.set_active_profile(profile_name, session_id=session_id, user_id=user_id)
+        mgr.set_active_profile(profile_name, session_id=session_id, user_id=user_id, force=force)
     except EmbeddingSizeConflict as conflict:
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as ve:

@@ -161,10 +161,17 @@ each model writes to a collection of its own, named
   model's collection, so a session that holds documents is refused the switch,
   even at the same embedding size: none of its documents would be found.
   Use a new session for the new model, or switch with
-  `lasagna configure --profile <name> -s <session> --force` and reindex the
-  documents with the new model (`client.documents.reindex(document_id)` in
-  the SDK, or the MCP tool `reindex_document`). Until then they stay where
-  they were, and a session on the old model still finds them.
+  `lasagna configure --profile <name> -s <session> --force` (`force=true`
+  over REST and MCP) and reindex the documents with the new model:
+  `client.documents.reindex(document_id)` in the SDK,
+  `POST /api/v1/documents/{id}/reindex` (or `POST /api/knowledge/reindex` for
+  all of a session's documents) over REST, or the MCP tool
+  `reindex_document`. A reindex moves each document to the new model's
+  collection and keeps answering from the old one until the new chunks are
+  stored; one that fails leaves the document as it was. Until then the
+  documents stay where they were, and a session on the old model still finds
+  them. Uploading a file again also indexes it for the new model: an upload
+  is a duplicate only of a copy in the collection the session searches now.
 - A `collection_name` you set yourself (in the settings file or as
   `RAG_COLLECTION_NAME`) is used as given. The evaluation
   harness names one per sweep arm this way, so sweeps are unaffected.

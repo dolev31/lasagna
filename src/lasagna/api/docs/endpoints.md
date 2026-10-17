@@ -180,9 +180,9 @@ Upload and index a document. Accepts multipart form data with a `file` field and
 
 By default (`async_processing` on, Celery off) the file is stored and handed to a background thread pool, and the response comes back before indexing finishes, with `status` `"processing"` and `chunks_count` `0`. Poll `GET /api/v1/documents/{document_id}/status` until it reads `ready`. With `async_processing` off the document is indexed in the request.
 
-`document_id` is an idempotency key: re-uploading with an id the session already owns replaces that document instead of creating a duplicate. An id that belongs to another session is refused with 404.
+`document_id` is an idempotency key: re-uploading with an id the session already owns replaces that document instead of creating a duplicate. The replacement is indexed in the request (the response reads `ready`); the old copy answers searches until the new chunks are stored, and then its chunks and file are removed and the quota counts the document once. A replacement that fails leaves the old copy as it was. An id that belongs to another session is refused with 404.
 
-Without a `document_id`, a file whose bytes the session already holds (ready or still processing) is not uploaded again: the response describes that document and names it in `duplicate_of`. Send `allow_duplicates=true` to index another copy.
+Without a `document_id`, a file whose bytes the session already holds in the collection it searches now (ready, or still within the time processing may take) is not uploaded again: the response describes that document and names it in `duplicate_of`. A copy in another embedding model's collection, a failed one, or one stuck processing does not count, so after a model switch uploading the file again indexes it for the new model. Two identical uploads at the same time index one copy. Send `allow_duplicates=true` to index another copy.
 
 **Request:** Multipart form (`file`, optional `document_id`, optional `allow_duplicates`)
 
@@ -220,7 +220,7 @@ curl -X POST http://localhost:8000/api/v1/documents \
 
 #### `POST /api/v1/documents/batch`
 
-Upload several documents in one request: multipart form data with one or more `files` fields. Files are processed concurrently, up to `max_concurrent_uploads` (default 5) at a time, each through the same pipeline as the single upload. Without Celery, a file that finds every processing thread busy waits for one (at most `processing_timeout`, 300 s), so a batch larger than the pool is processed whole and the response returns once every file is accepted. A batch may hold at most `RAG_MAX_BATCH_FILES` files (default 20, 400 above it) and `RAG_MAX_BATCH_BYTES` in total (default 200 MiB, 413 before the body is read).
+Upload several documents in one request: multipart form data with one or more `files` fields. Files are processed concurrently, up to `max_concurrent_uploads` (default 5) at a time, each through the same pipeline as the single upload. Without Celery, a file that finds every processing thread busy waits for one (at most `processing_timeout`, 300 s), so a batch larger than the pool is processed whole and the response returns once every file is accepted. A batch may hold at most `RAG_MAX_BATCH_FILES` files (default 20, 400 above it) and `RAG_MAX_BATCH_BYTES` in total (default 200 MiB, 413 before the body is read). Duplicates are handled as for the single upload, including two identical files in one batch; the optional `allow_duplicates=true` form field indexes them anyway.
 
 **Response:** `BatchUploadResponse`: `total`, `succeeded`, `failed`, and one `results` entry per file (`document_id`, `filename`, `status`, `file_type`, `file_size`, `chunks_count`, `error`, `duplicate_of`).
 
@@ -343,15 +343,19 @@ Status values: `uploading`, `processing`, `indexing`, `ready`, `error`, `soft_de
 
 #### `POST /api/v1/documents/{document_id}/reindex`
 
-Re-index an existing document. Deletes existing chunks and vectors, then re-processes the source file with current settings. Useful after config changes (e.g. switching embedding model or chunking strategy).
+Re-index an existing document with the session's current settings. Useful after config changes (e.g. switching embedding model or chunking strategy). The stored file is processed in the request; the document keeps answering searches from its old chunks until the new ones are stored, then the old chunks are removed and the document is recorded in the current model's collection. A reindex that fails at any step leaves the document as it was, and the error says so.
 
 **Response:** `UploadResponse`
 
 | Status Code | Condition |
 |-------------|-----------|
 | 200 | Re-indexed |
+| 400 | The settings refuse the file (type, size) or the embedding size is unknown |
 | 404 | Document not found |
+| 409 | The document is still processing, or is archived |
 | 410 | Source file no longer available in storage |
+| 429 | The new chunks would exceed the session's chunk quota |
+| 503 | The session's embedding model is not downloaded |
 | 500 | Internal server error |
 
 ```bash
@@ -928,7 +932,7 @@ Import configuration from JSON. Validates nesting depth (max 5) and profile size
 
 #### `POST /api/knowledge/reindex`
 
-Re-index all documents in the current session with current settings. Iterates over every document, deletes old chunks/vectors (preserving source files), and re-processes each file. Returns partial results if some documents fail.
+Re-index all documents in the current session with current settings, one at a time, as the single-document reindex does. A document whose reindex fails keeps its previous index; the response is then `partial`, and `errors` names each such document with the reason.
 
 **Request:** `ReindexRequest`
 

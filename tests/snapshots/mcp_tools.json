@@ -654,6 +654,12 @@
           "title": "Config Patch",
           "type": "string"
         },
+        "force": {
+          "default": false,
+          "description": "Apply a change of embedding model even when the session's documents would not be searched; reindex them afterwards with reindex_document.",
+          "title": "Force",
+          "type": "boolean"
+        },
         "session_id": {
           "default": "",
           "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
@@ -734,7 +740,7 @@
     ]
   },
   "reindex_document": {
-    "description": "Reindex an existing document.\n\nUseful when the document content has changed or when you want to regenerate embeddings with updated settings.\n\nReturns: Confirmation or error message.",
+    "description": "Reindex an existing document with the session's current settings.\n\nUse it after changing the embedding model or the chunking. The document keeps answering searches from its old chunks until the new ones are stored, and a reindex that fails leaves it as it was.\n\nReturns: Confirmation or error message.",
     "input_schema": {
       "properties": {
         "document_id": {
@@ -991,6 +997,12 @@
     "description": "Set the active RAG profile for a session.\n\nSwitches the session to use the specified profile for all subsequent RAG operations. This affects embedding model, chunking strategy, reranking settings, and more.\n\nReturns: Confirmation message or error.",
     "input_schema": {
       "properties": {
+        "force": {
+          "default": false,
+          "description": "Switch even when the session's documents were embedded with another model and would not be searched; reindex them afterwards with reindex_document.",
+          "title": "Force",
+          "type": "boolean"
+        },
         "profile_name": {
           "description": "Name of the profile to activate: a preset (speed, standard, balanced, max_quality, default) or one saved with save_rag_profile.",
           "title": "Profile Name",

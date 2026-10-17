@@ -350,6 +350,80 @@ class QuotaManager:
             usage.storage_bytes = max(0, usage.storage_bytes - file_size_bytes)
             usage.chunks = max(0, usage.chunks - chunks)
 
+    # -----------------------------------------------------------------------
+    # Replacing a document's copy (a reindex, or an upload under its id)
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    def _refuse_replacement(
+        session_id: str,
+        quota: TenantQuota,
+        storage_bytes: int,
+        uploads_last_hour: int,
+        old_file_size: int,
+        new_file_size: int,
+        counts_as_upload: bool,
+    ) -> None:
+        storage = storage_bytes - old_file_size + new_file_size
+        if new_file_size > old_file_size and storage > quota.max_storage_bytes:
+            raise QuotaExceededError(
+                "max_storage_bytes", quota.max_storage_bytes, storage, session_id
+            )
+        if counts_as_upload and uploads_last_hour >= quota.max_uploads_per_hour:
+            raise QuotaExceededError(
+                "max_uploads_per_hour", quota.max_uploads_per_hour, uploads_last_hour, session_id
+            )
+
+    def check_replace(
+        self,
+        session_id: str,
+        *,
+        old_file_size: int,
+        new_file_size: int,
+        counts_as_upload: bool = False,
+    ) -> None:
+        """Check that a new copy of a document fits; raises QuotaExceededError.
+
+        The document count does not change, and storage changes by the
+        difference in size. Only a new file (an upload under an existing id)
+        counts toward the hourly upload limit; a reindex processes the stored
+        one again. The chunk limit is checked once the new chunks are counted
+        (``check_chunks`` with the difference).
+        """
+        if not self._enabled:
+            return
+        with self._lock:
+            usage = self._get_usage_locked(session_id)
+            self._refuse_replacement(
+                session_id,
+                self._get_quota(session_id),
+                usage.storage_bytes,
+                usage.uploads_last_hour(),
+                old_file_size,
+                new_file_size,
+                counts_as_upload,
+            )
+
+    def record_replace(
+        self,
+        session_id: str,
+        *,
+        old_file_size: int,
+        new_file_size: int,
+        old_chunks: int,
+        new_chunks: int,
+        counts_as_upload: bool = False,
+    ) -> None:
+        """Record that a document's new copy replaced its old one."""
+        if not self._enabled:
+            return
+        with self._lock:
+            usage = self._get_usage_locked(session_id)
+            usage.storage_bytes = max(0, usage.storage_bytes - old_file_size + new_file_size)
+            usage.chunks = max(0, usage.chunks - old_chunks + new_chunks)
+            if counts_as_upload:
+                usage._upload_timestamps[uuid.uuid4().hex] = time.monotonic()
+
     def record_search(self, session_id: str) -> None:
         """Record a search operation."""
         if not self._enabled:
@@ -742,6 +816,77 @@ class RedisQuotaManager(QuotaManager):
         except Exception as exc:
             logger.warning(f"Redis quota record failed, using in-memory: {exc}")
             super().record_delete(session_id, file_size_bytes, chunks)
+
+    def check_replace(
+        self,
+        session_id: str,
+        *,
+        old_file_size: int,
+        new_file_size: int,
+        counts_as_upload: bool = False,
+    ) -> None:
+        if not self._enabled:
+            return
+        sizes = dict(
+            old_file_size=old_file_size,
+            new_file_size=new_file_size,
+            counts_as_upload=counts_as_upload,
+        )
+        if self._redis is None:
+            return super().check_replace(session_id, **sizes)
+        try:
+            now = time.time()
+            storage = int(self._redis.get(self._rkey(session_id, "storage_bytes")) or 0)
+            uploads = int(
+                self._redis.zcount(self._rkey(session_id, "uploads_hourly"), now - 3600, "+inf")
+            )
+            self._refuse_replacement(
+                session_id,
+                self._get_quota(session_id),
+                storage,
+                uploads,
+                old_file_size,
+                new_file_size,
+                counts_as_upload,
+            )
+        except QuotaExceededError:
+            raise
+        except Exception as exc:
+            logger.warning(f"Redis quota check failed, using in-memory: {exc}")
+            return super().check_replace(session_id, **sizes)
+
+    def record_replace(
+        self,
+        session_id: str,
+        *,
+        old_file_size: int,
+        new_file_size: int,
+        old_chunks: int,
+        new_chunks: int,
+        counts_as_upload: bool = False,
+    ) -> None:
+        if not self._enabled:
+            return
+        sizes = dict(
+            old_file_size=old_file_size,
+            new_file_size=new_file_size,
+            old_chunks=old_chunks,
+            new_chunks=new_chunks,
+            counts_as_upload=counts_as_upload,
+        )
+        if self._redis is None:
+            return super().record_replace(session_id, **sizes)
+        try:
+            pipe = self._redis.pipeline()
+            pipe.incrby(self._rkey(session_id, "storage_bytes"), new_file_size - old_file_size)
+            pipe.incrby(self._rkey(session_id, "chunks"), new_chunks - old_chunks)
+            if counts_as_upload:
+                pipe.zadd(self._rkey(session_id, "uploads_hourly"), {uuid.uuid4().hex: time.time()})
+                pipe.expire(self._rkey(session_id, "uploads_hourly"), 3600)
+            pipe.execute()
+        except Exception as exc:
+            logger.warning(f"Redis quota record failed, using in-memory: {exc}")
+            super().record_replace(session_id, **sizes)
 
     def sync_from_counters(
         self,

@@ -579,6 +579,26 @@ class PostgresRAGDatabase:
             conn.commit()
         return updated
 
+    def update_document_fields(self, document_id: str, fields: Dict[str, Any]) -> bool:
+        from lasagna.core.database import DOCUMENT_FIELDS
+
+        unknown = set(fields) - DOCUMENT_FIELDS
+        if unknown:
+            raise ValueError(f"Not document columns: {sorted(unknown)}")
+        if not fields:
+            return self.get_document(document_id) is not None
+        columns = sorted(fields)
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE rag_documents SET {', '.join(f'{c} = %s' for c in columns)} "
+                    "WHERE document_id = %s",
+                    [fields[c] for c in columns] + [document_id],
+                )
+                updated = cur.rowcount > 0
+            conn.commit()
+        return updated
+
     def delete_document(self, document_id: str) -> bool:
         with self._conn() as conn:
             with conn.cursor() as cur:

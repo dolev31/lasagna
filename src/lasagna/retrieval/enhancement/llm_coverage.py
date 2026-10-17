@@ -167,9 +167,7 @@ class LLMCoverageScorer:
 
             data: Dict[str, Any] = json.loads(cleaned)
         except (json.JSONDecodeError, IndexError, ValueError) as exc:
-            logger.warning(
-                f"LLMCoverageScorer: failed to parse LLM response for query '{query[:80]}': {exc}"
-            )
+            logger.warning(f"LLMCoverageScorer: failed to parse the LLM's response: {exc}")
             return _build_default_score()
 
         aspects_found: List[str] = data.get("aspects_found", [])

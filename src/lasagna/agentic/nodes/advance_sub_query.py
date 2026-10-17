@@ -36,7 +36,7 @@ async def advance_sub_query_node(state: RAGGraphState) -> Dict[str, Any]:
     next_idx = current_idx + 1
     next_query = sub_queries[next_idx]
 
-    logger.info(
+    logger.debug(
         "[AdvanceSubQuery] Moving to sub-query {idx}/{total}: '{q}'",
         idx=next_idx + 1,
         total=len(sub_queries),

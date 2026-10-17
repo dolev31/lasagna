@@ -505,6 +505,24 @@ varies from run to run whatever you ask for. There, `n_runs: 3` or more
 measures that spread, and `variance_source: run` keeps the queries fixed so the
 spread is run to run rather than a resampled subset.
 
+### When corpus documents fail to ingest
+
+A document that cannot be chunked (an error, or more than 120 s) is left out of
+the corpus, and the log names it. A partial corpus scores lower than the
+benchmark would, so every task on it fails, naming the count, the first
+documents and the setting that accepts it:
+
+```yaml
+ingest_failure_tolerance: 0.02   # up to 2% of the corpus may be missing (at most 0.1)
+```
+
+A run that accepts a partial corpus records it in each result as
+`corpus_ingest_gap` (how many documents were ingested, how many failed, and a
+digest of the ingested ids). That is part of the comparability key, so the run
+never shares a leaderboard group with one on the complete corpus, and the
+bundle carries a `PARTIAL_CORPUS` warning. A later run that reuses the same
+corpus records the same gap.
+
 ### Sweep the other stages
 
 The same sweep file swaps any stage. Two you will often want:

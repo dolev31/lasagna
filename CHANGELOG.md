@@ -49,7 +49,8 @@ Components, by stage:
   `hybrid_fusion_depth` and `hybrid_convex_normalization`.
 - **Reranker:** `monot5`, `llm_pointwise`, `flashrank` and `cohere`.
   `cross_encoder` loads current Hugging Face rerankers by name, and
-  `reranker_trust_remote_code` allows checkpoints that ship their own code.
+  `reranker_trust_remote_code` allows checkpoints that ship their own code,
+  for the models the operator names with it.
 - **Query enhancer:** `step_back`, `query2doc`, `rewrite` and `multi_query`.
 - **Agentic pipeline:** `self_ask`, `ircot`, `flare`, `adaptive` and `self_rag`,
   each with its paper's defaults as settings (`self_ask_*`, `ircot_*`,
@@ -454,6 +455,92 @@ Each of these still works in 0.1.x, says so when used, and is removed in 0.2.0.
 
 Server and deployment:
 
+- **A model switch refused for a session's documents can be completed on every
+  surface.** The refusal said to switch anyway and reindex, but only the CLI
+  could switch anyway and the CLI could not reindex. `force=true` switches
+  over REST (`PUT /api/v1/config/profiles/{name}`,
+  `PUT /api/config/knowledge/active`) and MCP (`set_active_profile`,
+  `patch_rag_config`), `lasagna configure --profile <name> -s <session>
+  --reindex` switches and reindexes the session's documents, and the refusal
+  names the reindex in the SDK, REST and MCP.
+- **A failed reindex no longer loses the document.** REST
+  `/api/v1/documents/{id}/reindex` and the bulk `/api/knowledge/reindex`
+  deleted the document (row and vectors) and then uploaded it again; the MCP
+  `reindex_document` deleted its chunks first and left it "ready" with no
+  vectors. A model that was not downloaded, an unknown embedding size, a
+  quota, a file type or size the settings no longer accept, or an extraction
+  or insert error lost it, and its file stayed on disk with nothing pointing
+  to it. Every path now checks first, stores the new chunks under new ids,
+  and only then removes the old ones and records the document in the current
+  model's collection (MCP did not record the collection at all). A failure
+  leaves the document searchable, and REST answers 400, 409, 410, 429 or 503
+  saying so. A reindex no longer counts toward the hourly upload limit.
+  `RAGBackend.reindex_document` is the shared implementation.
+- **Uploading under an existing `document_id` replaces the document.** The
+  API docs said it did, and the old copy's chunks, file and quota stayed: on
+  Milvus every chunk was stored twice and search returned the old text beside
+  the new; on Qdrant and pgvector the old chunks past the new count stayed;
+  the quota counted two documents. The new copy is indexed in the request
+  under new chunk ids, then the old chunks and file are removed and the quota
+  counts the difference; a replacement that fails leaves the old copy. An id
+  held by another session is refused by the SDK and the pipeline too, not
+  only by REST.
+- **Upload deduplication looks at the collection the session searches.**
+  After a model switch, uploading a file again, as docs/configuration.md
+  says to, returned `duplicate_of` the old model's copy and left the new
+  model's collection empty. A copy counts only in the current collection,
+  and only when ready or still within the time processing may take, so a
+  document stuck "processing" no longer blocks its retry until GC. Two
+  identical uploads at once (or in one batch) index one copy, and
+  `POST /api/v1/documents/batch` takes `allow_duplicates`.
+- **`client.documents.reindex()` works, and raises when it fails.** It called
+  a `reindex_document` that neither the local nor the remote backend had, so
+  every call failed, and it returned an `UploadResult` with status FAILED
+  rather than raising. Both backends now have it (the remote one calls
+  `POST /api/v1/documents/{id}/reindex`); a failure raises `DocumentError`
+  with the reason and leaves the document unchanged, and an unknown id raises
+  `DocumentNotFoundError`.
+- **A session can no longer run a model repository's code.** With
+  `reranker_trust_remote_code` on, the reranker read the flag from each call's
+  config while `reranker_model` is a session setting, so any session could
+  name any Hugging Face repository as its reranker (or an ensemble member) and
+  the server ran its modelling code. Trust now applies to the models named in
+  the server's settings (`reranker_model`, `ensemble_reranker_models`) or in a
+  sweep arm's own overrides; a model a session chooses loads with trust off.
+  No other setting trusts remote code.
+- A search whose candidates held one chunk twice came back one result short:
+  repeats were removed after reranking and the cut to `top_k`. They are
+  removed from the candidates first.
+- **More session settings are the server's.** A session's component slot
+  takes a registered component name only (`reranker: "os:system"` or a
+  `module:Class` reference was stored); `embedding_provider`,
+  `crag_web_search_fallback` and the API-backed embedders (`openai`,
+  `cohere`, `voyage`) and reranker (`cohere`), which send documents or
+  queries to a third party on the server's key, are refused;
+  `search_params` may not carry `metric_type`, and Milvus and native hybrid
+  search no longer let one inside it override the configured metric; a model
+  or tokenizer named by a relative path that exists on the server, or with a
+  `.`, `..` or backslash in it, is refused as a path. `chunk_tokenizer` and
+  the Celery worker follow `RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS`: a server
+  refuses a tokenizer it would have to download, and a worker refuses a
+  model, as the API does.
+- **The Celery worker's ingest metrics are scraped.** `lasagna_ingests_total`
+  is counted where a document is processed, and with the celery profile that
+  is the worker, which served no `/metrics`. With `RAG_WORKER_METRICS_PORT`
+  (9100 in compose and k8s, whose worker pods now carry the
+  `prometheus.io/scrape` annotations) the worker serves its own, for every
+  pool process.
+- **No query text in logs at INFO or above.** The agentic loop logged each
+  hop's query, each rewritten query and each sub-query at INFO, and several
+  warnings quoted the query or benchmark question they were about. Query text
+  is logged at DEBUG only; warnings name the sample by its id or number. A
+  test reads every log call in the package for a query variable at INFO or
+  above.
+- **Switching auth on ends the tokens minted while it was off.** Such a token
+  names no principal, and with the same `RAG_JWT_SECRET` it stayed valid for
+  its whole lifetime (7 days) after `RAG_REQUIRE_AUTH` was turned on. With
+  auth on and `RAG_API_KEYS` set, a token must name its key, or `admin` for
+  one minted with `X-Admin-Token`.
 - **A session can no longer point the server at another vector store.**
   Session settings (REST `/api/v1/config`, `/api/config/knowledge/profile` and
   `/import`, the MCP config tools, the config manager) accepted any key, and
@@ -512,6 +599,13 @@ Server and deployment:
 - CI pins detect-secrets 1.5.0, the version that wrote `.secrets.baseline`.
 - The release workflow pins `pypa/gh-action-pypi-publish` to the commit v1.14.2
   names; the pin was the tag object.
+- `constraints/0.1.0.txt` pinned typer 0.27.3, and docling-core requires
+  typer<0.27, so `[eval,docling]` and `[all]` with the constraints file could
+  not resolve. It pins typer 0.26.8; `[eval]`, `[eval,docling]` and every
+  extra resolve against it, and the CLI and suite pass with it.
+- Every CI job runs on `ubuntu-24.04` instead of `ubuntu-latest`, which GitHub
+  moves to Ubuntu 26 on 2026-10-19. RELEASING.md says to start the Tests and
+  Release workflows by hand and watch them after Actions billing is restored.
 - **`--resume` no longer restores results computed with another LLM.** The
   resume key was the same for gpt-6-luna on OpenAI and Claude on Anthropic; it
   now includes the LLM provider and model (`MODEL_NAME`, the detected API key),
@@ -536,6 +630,17 @@ Server and deployment:
 
 Numbers that were wrong:
 
+- **A partial corpus is visible in the results.** Fast ingestion tolerated up
+  to 10% of a corpus failing to chunk (120 s timeouts included), and later
+  runs reused that partial corpus through `_ingest_allowlist.json`, with the
+  complete corpus's fingerprint and comparability key and nothing in the
+  result. Each result now records `corpus_ingest_gap` (documents ingested and
+  failed, a digest of the ingested ids, the first failures), the log names
+  the count and the first failures once, and under evaluation a task on a
+  partial corpus fails unless the experiment sets `ingest_failure_tolerance`
+  (0 to 0.1). The comparability key hashes `corpus_ingest_gap` only when it is
+  set: a run on a partial corpus gets a key of its own, and every complete
+  corpus keeps the key it had. Bundles warn `PARTIAL_CORPUS`.
 - **The `mmr`, `combined` and `ensemble` rerankers ran as something else.** On
   the speed profile `mmr` and `ensemble` returned the retrieval order and
   `combined` scored exactly like `cross_encoder`: MMR never received the

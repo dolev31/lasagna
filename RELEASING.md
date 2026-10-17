@@ -10,11 +10,17 @@ is stored anywhere.
 Do these once, in this order, after the repository is public.
 
 1. **GitHub Actions runs.** <https://github.com/settings/billing> must show no
-   failed payment or spending-limit block, or no job starts. Check with a dry
-   run, which builds,
-   checks and smoke-tests but never publishes:
-   `gh workflow run release.yml --repo dolev31/lasagna --ref main`, then
-   `gh run watch --repo dolev31/lasagna`.
+   failed payment or spending-limit block, or no job starts. No workflow has
+   run on GitHub since billing stopped them, so the first run after billing is
+   restored is the first test of the workflows as they stand: start both by
+   hand and watch them to the end before anything else.
+   `gh workflow run tests.yml --repo dolev31/lasagna --ref main` runs every
+   job, including the E2E gate and the live compose stack. The Release dry run
+   builds, checks and smoke-tests but never publishes:
+   `gh workflow run release.yml --repo dolev31/lasagna --ref main`. Follow each
+   with `gh run watch --repo dolev31/lasagna`. Every job runs on
+   `ubuntu-24.04`, named in the workflows rather than `ubuntu-latest`, so a new
+   runner image cannot change a run without a commit.
 2. **PyPI pending publisher.** On pypi.org (account with 2FA), go to Your
    account > Publishing > Add a new pending publisher > GitHub, and enter:
    PyPI project name `lasagna-rag`, owner `dolev31`, repository name `lasagna`,
@@ -91,7 +97,10 @@ uv pip compile pyproject.toml --extra eval --python-version 3.12 \
 
 Write the three header lines of the current file, with the new version, above
 `/tmp/closure.txt`, reinstall the venv with `-c constraints/<version>.txt`, and
-run the suite again. Update the version in `pyproject.toml`, `CITATION.cff`,
+run the suite again. The file pins the `[eval]` closure, but users combine it
+with other extras, so check that every extra still resolves against it:
+`uv pip compile pyproject.toml --all-extras --python-version 3.12 -c constraints/<version>.txt`.
+0.1.0 pins typer 0.26.8, not the newest, because docling-core requires typer<0.27. Update the version in `pyproject.toml`, `CITATION.cff`,
 the README install line and the two `ARG CONSTRAINTS=` lines of
 `src/lasagna/deploy/Dockerfile` (the image installs the same versions), add a
 `## [<version>] - YYYY-MM-DD` section to CHANGELOG.md, and remove the old

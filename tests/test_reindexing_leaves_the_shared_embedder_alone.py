@@ -69,7 +69,16 @@ def backend(tmp_path, monkeypatch):
     b.get_vector_backend = lambda session_id: SimpleNamespace(
         delete=lambda **kw: events.append("chunks deleted")
     )
-    b.process_document = lambda document, path, config=None: events.append("reprocessed")
+
+    def reindex_document(document_id, session_id):
+        # DocumentPipeline.reindex_document resolves the session's embedder the
+        # same way; what it does with the chunks is pinned by
+        # tests/test_a_failed_reindex_keeps_the_document.py.
+        manager.embedder_for(b.get_session_config(session_id))
+        events.append("reindexed")
+        return SimpleNamespace(chunks_count=1, status=SimpleNamespace(value="ready"))
+
+    b._document_pipeline = SimpleNamespace(reindex_document=reindex_document)
 
     monkeypatch.setattr(server, "_get_backend", lambda: b)
     b.events, b.shared_reranker = events, shared_reranker
@@ -87,8 +96,9 @@ def test_reindex_document_leaves_the_shared_embedder_and_reranker_alone(backend)
     reply = server.reindex_document("d1", session_id="s1")
     assert "reindexed successfully" in reply, reply
     _untouched(backend)
-    # The collection is still checked for this session's model before its chunks go.
-    assert backend.events == ["collection checked", "chunks deleted", "reprocessed"]
+    # The collection is checked for this session's model, by the pipeline's
+    # reindex, which keeps the old chunks until the new ones are stored.
+    assert backend.events == ["collection checked", "reindexed"]
 
 
 def test_rebuild_collection_leaves_the_shared_embedder_and_reranker_alone(backend):

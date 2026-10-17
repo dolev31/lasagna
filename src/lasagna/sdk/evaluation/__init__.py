@@ -421,7 +421,7 @@ class KnowledgeEvaluator:
                     reasoning = judge_result.reasoning
 
                 except Exception as e:
-                    logger.warning(f"Judge failed for query '{query}': {e}")
+                    logger.warning(f"Judge failed for sample {i + 1}: {e}")
                     score = 0
                     level = "error"
                     reasoning = f"Judge evaluation failed: {e}"
@@ -453,7 +453,7 @@ class KnowledgeEvaluator:
                     )
 
             except Exception as e:
-                logger.error(f"Evaluation failed for query '{query}': {e}")
+                logger.error(f"Evaluation failed for sample {i + 1}: {e}")
                 details.append(
                     {
                         "query": query,

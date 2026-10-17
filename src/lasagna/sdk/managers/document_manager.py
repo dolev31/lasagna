@@ -128,7 +128,9 @@ class DocumentManager:
             metadata: Optional custom metadata
             document_id: Optional explicit document ID. When provided,
                 used instead of a generated UUID. Useful for benchmark
-                evaluation where corpus doc IDs must match qrels.
+                evaluation where corpus doc IDs must match qrels. An id the
+                session already holds replaces that document: the new copy
+                is indexed before the old one is removed.
             allow_duplicates: Index the file even when the session already
                 holds the same content.
 
@@ -828,18 +830,25 @@ class DocumentManager:
     # =========================================================================
 
     async def reindex(self, document_id: str) -> UploadResult:
-        """Reindex an existing document.
+        """Reindex an existing document with the session's current settings.
 
         Useful when:
-        - Document content has changed
         - Configuration has changed (chunk size, etc.)
-        - Embedding model has been updated
+        - The embedding model has changed: the document moves to the new
+          model's collection
+
+        The document keeps answering searches from its old chunks until the
+        new ones are stored, and a reindex that fails leaves it as it was.
 
         Args:
             document_id: Document ID to reindex
 
         Returns:
-            UploadResult with reindexing status
+            UploadResult with the new chunk count
+
+        Raises:
+            DocumentNotFoundError: If the document does not exist
+            DocumentError: If the reindex failed; the document is unchanged
 
         Example:
             ```python
@@ -854,28 +863,26 @@ class DocumentManager:
         logger.info(f"Reindexing document: {document_id}")
         start_time = datetime.now(timezone.utc)
 
+        if await self._run_sync(backend.get_document_by_id, document_id, session_id) is None:
+            raise DocumentNotFoundError(
+                f"Document not found: {document_id}", document_id=document_id
+            )
         try:
             doc = await self._run_sync(backend.reindex_document, document_id, session_id)
-            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
-
-            return UploadResult(
-                document_id=doc.document_id,
-                filename=doc.filename,
-                status=_resolve_status(doc.status),
-                chunk_count=doc.chunks_count,
-                processing_time_ms=processing_time,
-                message="Document reindexed successfully.",
-            )
-
         except Exception as e:
-            logger.error(f"Reindex failed: {e}")
-            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
-            return UploadResult(
-                document_id=document_id,
-                filename="",
-                status=DocumentStatus.FAILED,
-                chunk_count=0,
-                processing_time_ms=processing_time,
-                message=f"Reindex failed: {str(e)}",
-                error=str(e),
-            )
+            # It returned an UploadResult with status FAILED, which a caller
+            # that did not read the status took for a reindexed document.
+            logger.error(f"Reindex failed for {document_id}: {e}")
+            raise DocumentError(
+                f"Reindex of {document_id} failed, and the document is unchanged: {e}"
+            ) from e
+
+        processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+        return UploadResult(
+            document_id=doc.document_id,
+            filename=doc.filename,
+            status=_resolve_status(doc.status),
+            chunk_count=doc.chunks_count,
+            processing_time_ms=processing_time,
+            message="Document reindexed successfully.",
+        )

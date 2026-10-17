@@ -371,7 +371,8 @@ class MilvusNativeHybridSearcher:
         dense_request = AnnSearchRequest(
             data=[query_embedding],
             anns_field="embedding",
-            param={"metric_type": config.metric_type, **config.search_params},
+            # The metric last: search_params is a session setting, metric_type is not.
+            param={**config.search_params, "metric_type": config.metric_type},
             limit=top_k * 2,  # Get more for fusion
         )
 

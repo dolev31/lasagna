@@ -776,6 +776,136 @@ class TestDocumentLifecycle:
             )
 
 
+#: A second model at the stack's width, for the reindex after a model switch.
+#: CI's image carries it (OPTIONAL_MODELS in tests.yml's build step).
+SECOND_MODEL = os.environ.get("LASAGNA_LIVE_SECOND_MODEL", "BAAI/bge-small-en-v1.5")
+
+
+@pytest.mark.usefixtures("docker_service_available")
+class TestReindex:
+    """A reindex moves a document to the session's current model, or leaves it be.
+
+    Every reindex path used to delete the document before it stored the new
+    copy, so a reindex that failed (a model the server does not have, a quota)
+    lost the document.
+    """
+
+    def _upload(self, headers, tmp_path_factory):
+        path = tmp_path_factory.mktemp("reindex") / "photosynthesis.txt"
+        path.write_text(
+            "Photosynthesis turns light, water and carbon dioxide into glucose and "
+            "oxygen in the chloroplasts of plant cells.",
+            encoding="utf-8",
+        )
+        with open(path, "rb") as f:
+            resp = http.post(
+                f"{BASE_URL}/documents",
+                files={"file": (path.name, f, "text/plain")},
+                headers=headers,
+                timeout=UPLOAD_TIMEOUT,
+            )
+        assert resp.status_code == 201, resp.text
+        return _wait_for_document_ready(resp.json()["document_id"], headers)
+
+    def _model(self, headers, model):
+        """Put the session on ``model``, as the configurator page does."""
+        root = BASE_URL[: -len("/api/v1")] if BASE_URL.endswith("/api/v1") else BASE_URL
+        resp = http.put(
+            f"{root}/api/config/knowledge/active",
+            json={
+                "active_profile": "default",
+                "config": {"embedding_model": model, "embedding_dim": EXPECTED_EMBEDDING_DIM},
+                # The session holds a document in the old model's collection,
+                # so the switch is refused unless forced; the reindex moves it.
+                "force": True,
+            },
+            headers=headers,
+            timeout=DEFAULT_TIMEOUT,
+        )
+        assert resp.status_code == 200, resp.text
+        # Each api worker rereads a session's settings at most once a second
+        # (core/session_config/_session_state.py), and the next request may
+        # reach the other one.
+        time.sleep(1.5)
+
+    def _found(self, headers, document_id):
+        resp = http.post(
+            f"{BASE_URL}/search",
+            json={
+                "query": "How do plants make glucose from light?",
+                "top_k": 3,
+                "use_hyde": False,
+                "use_reranking": False,
+            },
+            headers=headers,
+            timeout=SEARCH_TIMEOUT,
+        )
+        assert resp.status_code == 200, resp.text
+        return document_id in {r["document_id"] for r in resp.json()["results"]}
+
+    def test_a_reindex_after_a_model_switch_moves_the_document(
+        self, own_session_headers, tmp_path_factory
+    ):
+        doc = self._upload(own_session_headers, tmp_path_factory)
+        try:
+            original = http.get(
+                f"{BASE_URL}/config", headers=own_session_headers, timeout=DEFAULT_TIMEOUT
+            ).json()["embedding_model"]
+            self._model(own_session_headers, SECOND_MODEL)
+            resp = http.post(
+                f"{BASE_URL}/documents/{doc['document_id']}/reindex",
+                headers=own_session_headers,
+                timeout=UPLOAD_TIMEOUT,
+            )
+            if resp.status_code == 503 and SECOND_MODEL in resp.text:
+                pytest.skip(f"the image has no {SECOND_MODEL} (OPTIONAL_MODELS)")
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["chunks_count"] > 0
+            assert self._found(own_session_headers, doc["document_id"])
+            # The old model's collection no longer holds it.
+            self._model(own_session_headers, original)
+            assert not self._found(own_session_headers, doc["document_id"])
+        finally:
+            http.delete(
+                f"{BASE_URL}/documents/{doc['document_id']}",
+                headers=own_session_headers,
+                timeout=DEFAULT_TIMEOUT,
+            )
+
+    def test_a_failed_reindex_leaves_the_document_searchable(
+        self, own_session_headers, tmp_path_factory
+    ):
+        doc = self._upload(own_session_headers, tmp_path_factory)
+        try:
+            original = http.get(
+                f"{BASE_URL}/config", headers=own_session_headers, timeout=DEFAULT_TIMEOUT
+            ).json()["embedding_model"]
+            self._model(own_session_headers, "acme/a-model-this-image-lacks")
+            resp = http.post(
+                f"{BASE_URL}/documents/{doc['document_id']}/reindex",
+                headers=own_session_headers,
+                timeout=UPLOAD_TIMEOUT,
+            )
+            assert resp.status_code == 503, resp.text
+            assert "unchanged" in resp.json()["detail"]
+            self._model(own_session_headers, original)
+            after = http.get(
+                f"{BASE_URL}/documents/{doc['document_id']}",
+                headers=own_session_headers,
+                timeout=DEFAULT_TIMEOUT,
+            )
+            assert after.status_code == 200, after.text
+            assert after.json()["status"] == "ready"
+            assert after.json()["chunks_count"] == doc["chunks_count"]
+            assert self._found(own_session_headers, doc["document_id"])
+        finally:
+            http.delete(
+                f"{BASE_URL}/documents/{doc['document_id']}",
+                headers=own_session_headers,
+                timeout=DEFAULT_TIMEOUT,
+            )
+
+
 @pytest.mark.usefixtures("docker_service_available")
 class TestMultiSessionIsolation:
     """Documents in one session must be invisible to another."""

@@ -317,7 +317,7 @@ Cross-reference: see [`rest/DESIGN.md`](../rest/DESIGN.md) for session flow diag
 | Non-versioned configurator | `/api/config/knowledge/` | Matches configurator UI path conventions (frontend hardcodes paths). |
 | Stateless sessions | JWT tokens | No session storage needed; horizontal scaling without shared state. |
 | Two-tier citation lookup | Session store then DB fallback | Preserves API contract (`content` + `highlight`) for recent searches while supporting persistence. |
-| `keep_file` on delete | Skip `storage.delete` during reindex | Prevents data loss when re-processing documents. |
+| Reindex keeps the old copy | New chunks go in under new ids; the old ones are removed after | A reindex that fails (model not downloaded, quota, extraction) leaves the document searchable. |
 | Middleware-cached token decode | `request.state.decoded_session_token` | Single HMAC verification per request; dependencies reuse at zero cost. |
 | Exempt paths for rate-limit + timing | Tuple of prefixes checked per request | Health probes and docs must never be throttled or skew metrics. |
 | Thread-local routing | `threading.local()` in SearchOrchestrator | Concurrent requests cannot overwrite each other's routing tier metadata. |

@@ -320,6 +320,14 @@ SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
         "The directory gunicorn workers share for Prometheus metrics (set in the image).",
         (),
     ),
+    "RAG_WORKER_METRICS_PORT": (
+        "REST API and authentication",
+        "unset",
+        "The port a Celery worker serves its Prometheus /metrics on, with "
+        "RAG_ENABLE_PROMETHEUS on (lasagna_ingests_total for the documents it "
+        "processed). Unset, the worker serves none. Compose and Kubernetes set 9100.",
+        (),
+    ),
     "LASAGNA_MCP_TOOLS": (
         "MCP server",
         "safe",

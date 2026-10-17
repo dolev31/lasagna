@@ -186,7 +186,7 @@ torch==2.14.1
 tqdm==4.70.1
 transformers==5.19.0
 truststore==0.10.4
-typer==0.27.3
+typer==0.26.8
 typing-extensions==4.16.0
 typing-inspect==0.9.0
 typing-inspection==0.4.4

@@ -210,6 +210,12 @@ result = await client.documents.reindex("doc_abc123")
 print(f"Reindexed: {result.chunk_count} new chunks")
 ```
 
+It works on a local client and on one made with `KnowledgeClient.from_url`.
+The document keeps answering searches from its old chunks until the new ones
+are stored; after a model switch it moves to the new model's collection. A
+reindex that fails raises `DocumentError` and leaves the document as it was;
+an unknown id raises `DocumentNotFoundError`.
+
 ---
 
 ## Session Management
@@ -683,7 +689,7 @@ rate limited. For other transient failures, use the retry helpers in
 | `delete_all(confirm)` | `int` | Delete all |
 | `get_chunks(id, offset?, limit?)` | `List[DocumentChunk]` | Get chunks |
 | `wait_for_processing(id, timeout?, poll_interval?, raise_on_failure?)` | `Document` | Wait until indexing finishes; raises `DocumentProcessingError` if it failed |
-| `reindex(id)` | `UploadResult` | Reindex document |
+| `reindex(id)` | `UploadResult` | Reindex with current settings; raises `DocumentError` if it failed |
 
 ### SearchManager
 

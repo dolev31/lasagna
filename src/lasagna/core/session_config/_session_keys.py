@@ -12,6 +12,7 @@ that say where data lives or how the server reaches it.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
@@ -51,18 +52,65 @@ _LOCATION_OR_SECRET = re.compile(
 )
 
 
+#: Settings that send documents or queries to a third-party service on the
+#: server's API key: where embeddings are computed, and CRAG's web search.
+_THIRD_PARTY_KEYS = frozenset({"embedding_provider", "crag_web_search_fallback"})
+
+#: Components that do the same, by slot: embedders and rerankers behind an API.
+_THIRD_PARTY_COMPONENTS = {"embedder": {"openai", "cohere", "voyage"}, "reranker": {"cohere"}}
+
+#: A "." or ".." path segment anywhere in a value.
+_DOT_SEGMENT = re.compile(r"(^|[\\/])\.{1,2}([\\/]|$)")
+
+
 class SessionSettingRefused(ValueError):
     """A session tried to set something only the server's own settings may set."""
 
 
-def _looks_like_location(value: str) -> bool:
+def _names_a_model(key: str) -> bool:
+    """Keys whose value a library loads, from a local folder when one has that name."""
+    return key.endswith(("_model", "_models", "_tokenizer")) or key == "agentic_models"
+
+
+def _looks_like_location(value: str, *, model: bool = False) -> bool:
+    """Whether ``value`` reads as a path or an address.
+
+    For a value that names a model or tokenizer, a relative path counts too:
+    ``models/x`` loads that folder when it exists on the server, whatever the
+    Hugging Face id of the same name holds.
+    """
     text = value.strip()
-    return (
+    if (
         "://" in text
-        or text.startswith(("/", "~", "\\", "./", "../"))
+        or text.startswith(("/", "~", "\\"))
         or bool(re.match(r"^[A-Za-z]:[\\/]", text))
-        or "/../" in text
-    )
+        or bool(_DOT_SEGMENT.search(text))
+    ):
+        return True
+    return model and ("\\" in text or os.path.exists(text))
+
+
+def _component_problem(slot: str, value: Any) -> Optional[str]:
+    """Why a session may not put ``value`` in component slot ``slot``, or None."""
+    if value is None:
+        return None
+    from lasagna.core.registry import registry
+
+    third_party = _THIRD_PARTY_COMPONENTS.get(slot, set())
+    try:
+        registered = isinstance(value, str) and registry.has(slot, value)
+        names = sorted(set(registry.list(slot).get(slot, [])) - third_party)
+    except ValueError:  # not a registry category
+        registered, names = False, []
+    if not registered:
+        listed = f": {', '.join(names)}" if names else ""
+        return (
+            f"names no registered {slot} component ({value!r}); a session picks a "
+            f"component by its registered name{listed}"
+        )
+    if value in third_party:
+        return "sends documents or queries to a third-party service on the server's API key"
+    return None
 
 
 def session_key_problem(key: str, value: Any) -> Optional[str]:
@@ -73,13 +121,20 @@ def session_key_problem(key: str, value: Any) -> Optional[str]:
         return "would run code from a model repository on the server"
     if key in _SERVER_KEYS or _LOCATION_OR_SECRET.search(key):
         return "is a server setting (where data lives or how the server reaches it)"
+    if key in _THIRD_PARTY_KEYS:
+        return "sends documents or queries to a third-party service on the server's API key"
     if key not in _PRESENTATION_KEYS and stage_of(key) not in STAGES:
         return "is not a retrieval or generation setting"
-    values = (
-        list(value.values()) if key == "agentic_models" and isinstance(value, dict) else [value]
-    )
+    if key in STAGES:
+        return _component_problem(key, value)
+    if key == "search_params" and isinstance(value, dict) and "metric_type" in value:
+        return "sets metric_type, which is a server setting"
+    if isinstance(value, dict):
+        values = list(value.values()) if key == "agentic_models" else []
+    else:
+        values = list(value) if isinstance(value, (list, tuple)) else [value]
     for item in values:
-        if isinstance(item, str) and _looks_like_location(item):
+        if isinstance(item, str) and _looks_like_location(item, model=_names_a_model(key)):
             return (
                 f"names a path or URL ({item!r}); a session names models by their "
                 "Hugging Face id or provider model name"

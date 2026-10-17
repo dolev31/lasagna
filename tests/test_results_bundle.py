@@ -223,9 +223,10 @@ class TestTheKeyCanTellConfigurationsApart:
         }
         held = held_fixed_from(row, meta)
         # `judge_model` is legitimately absent: a retrieval-only run has no LLM
-        # judge, and recording None there is accurate rather than a gap.
+        # judge, and recording None there is accurate rather than a gap. So is
+        # `corpus_ingest_gap`: None says every corpus document was ingested.
         # Everything else describes the pipeline and must be populated.
-        optional = {"judge_model"}
+        optional = {"judge_model", "corpus_ingest_gap"}
         empty = sorted(f for f in HELD_FIXED_FIELDS if held.get(f) is None)
         empty = [f for f in empty if f not in optional]
         assert not empty, (

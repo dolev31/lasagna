@@ -817,9 +817,7 @@ def _check_suspicious_citations(
 
     # Emit warnings
     for warning in warnings:
-        logger.warning(
-            f"CITATION_CHECK | session={session_id} | query='{query[:30]}...' | {warning}"
-        )
+        logger.warning(f"CITATION_CHECK | session={session_id} | {warning}")
 
     return warnings
 
@@ -2109,10 +2107,11 @@ def reindex_document(
     force_rebuild: bool = False,
     session_token: Optional[str] = None,
 ) -> str:
-    """Reindex an existing document.
+    """Reindex an existing document with the session's current settings.
 
-    Useful when the document content has changed or when you want to
-    regenerate embeddings with updated settings.
+    Use it after changing the embedding model or the chunking. The document
+    keeps answering searches from its old chunks until the new ones are
+    stored, and a reindex that fails leaves it as it was.
 
     :param document_id: The document ID to reindex.
     :param session_id: Session identifier; used to verify ownership.
@@ -2144,17 +2143,6 @@ def reindex_document(
                 f"session '{session_id}'."
             )
 
-        # Get file path
-        file_path = backend.get_document_file_path(document_id, session_id)
-        if not file_path or not os.path.exists(file_path):
-            duration_ms = (time.time() - start_time) * 1000
-            _log_tool_result("reindex_document", False, "File not found", duration_ms)
-            return (
-                f"Failed to reindex document: the source file for '{document_id}' "
-                f"is no longer on disk."
-            )
-
-        # Delete existing chunks from Milvus
         config = backend.get_session_config(session_id)
 
         if force_rebuild:
@@ -2199,41 +2187,13 @@ def reindex_document(
                         backend.ensure_collection_for_config(config)
                     _set_rebuild_signature(rebuild_signature)
 
-        # The collection is checked for this session's model before its chunks
-        # are deleted; process_document embeds with the same model. The shared
-        # default embedder is left alone: other sessions' requests read it.
-        backend.embedder_for(config)
-        # Delete existing chunks using session-aware backend (BYOVDB support)
-        vb = backend.get_vector_backend(session_id)
-        from lasagna.vector_backends.base import FilterExpression
-
-        vb.delete(
-            collection_name=config.collection_name,
-            filter_expr=FilterExpression.eq("document_id", document_id),
-        )
-        logger.info(f"Deleted existing chunks for document {document_id}")
-
-        # Reprocess the document
-        from lasagna.core.schema import DocumentStatus
-        from lasagna.core.schema import Document as DocModel
-
-        # Create document object for reprocessing
-        doc_obj = DocModel(
-            document_id=doc.document_id,
-            session_id=doc.session_id,
-            filename=doc.filename,
-            file_type=doc.file_type,
-            file_size=doc.file_size,
-            status=DocumentStatus.PROCESSING,
-            chunks_count=0,
-            upload_date=doc.upload_date,
-        )
-
-        backend.process_document(doc_obj, file_path, config=config)
-
-        # Get updated document info
-        updated_docs = backend.get_documents(session_id)
-        updated_doc = next((d for d in updated_docs if d.document_id == document_id), None)
+        # The document keeps its chunks, and answers searches from them, until
+        # the new ones are stored; a reindex that fails leaves it as it was. It
+        # used to delete the chunks first and leave the row "ready" with no
+        # vectors when processing failed, and it wrote the new chunks to the
+        # current collection without recording it. The shared default
+        # embedder is left alone: other sessions' requests read it.
+        updated_doc = backend.reindex_document(document_id, session_id)
 
         duration_ms = (time.time() - start_time) * 1000
 
@@ -2594,7 +2554,10 @@ def get_active_profile(session_id: str = "", session_token: Optional[str] = None
 
 @mcp.tool()
 def set_active_profile(
-    profile_name: str, session_id: str = "", session_token: Optional[str] = None
+    profile_name: str,
+    session_id: str = "",
+    session_token: Optional[str] = None,
+    force: bool = False,
 ) -> str:
     """Set the active RAG profile for a session.
 
@@ -2605,6 +2568,9 @@ def set_active_profile(
     :param session_id: Session identifier.
     :param profile_name: Name of the profile to activate: a preset (speed, standard,
         balanced, max_quality, default) or one saved with save_rag_profile.
+    :param force: Switch even when the session's documents were embedded with
+        another model and would not be searched; reindex them afterwards with
+        reindex_document.
     :returns: Confirmation message or error.
     """
     session_id, user_id = _resolve_session(session_id, session_token)
@@ -2616,7 +2582,7 @@ def set_active_profile(
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
         manager.set_active_profile(
-            profile_name, session_id=session_id, user_id=_profile_owner(user_id)
+            profile_name, session_id=session_id, user_id=_profile_owner(user_id), force=force
         )
 
         duration_ms = (time.time() - start_time) * 1000
@@ -2826,7 +2792,10 @@ def get_rag_config(session_id: str = "", session_token: Optional[str] = None) ->
 
 @mcp.tool()
 def patch_rag_config(
-    config_patch: str, session_id: str = "", session_token: Optional[str] = None
+    config_patch: str,
+    session_id: str = "",
+    session_token: Optional[str] = None,
+    force: bool = False,
 ) -> str:
     """Apply configuration overrides to the current session.
 
@@ -2838,6 +2807,9 @@ def patch_rag_config(
     :param session_id: Session identifier.
     :param config_patch: JSON string with config keys to override.
         Example: '{"rerank_top_k": 10, "enable_reranking": false}'
+    :param force: Apply a change of embedding model even when the session's
+        documents would not be searched; reindex them afterwards with
+        reindex_document.
     :returns: JSON object with updated configuration.
     """
     session_id, user_id = _resolve_session(session_id, session_token)
@@ -2873,7 +2845,7 @@ def patch_rag_config(
             )
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        manager.patch_config(patch, session_id)
+        manager.patch_config(patch, session_id, force=force)
         result = manager.get_config(session_id, user_id=_profile_owner(user_id))
 
         duration_ms = (time.time() - start_time) * 1000
