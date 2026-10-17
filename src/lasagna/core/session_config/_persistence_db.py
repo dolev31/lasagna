@@ -66,13 +66,21 @@ def _get_pg_db():
 
 
 def _get_cache():
-    """Get the session store (Redis or in-memory) for caching."""
-    try:
-        from lasagna.infrastructure.session_store import get_session_store
+    """The session cache every worker shares (Redis), or None.
 
-        return get_session_store()
+    Not a store of this process alone (``RAG_CACHE_BACKEND=memory``, the
+    default): nothing tells it that another worker changed a session, so a
+    worker that had served a session kept that copy for the life of the
+    process. PostgreSQL is read instead, at most once a second per session
+    (``_adopt_persisted_session``).
+    """
+    try:
+        from lasagna.infrastructure.session_store import InMemorySessionStore, get_session_store
+
+        store = get_session_store()
     except Exception:
         return None
+    return None if isinstance(store, InMemorySessionStore) else store
 
 
 class DatabasePersistenceMixin:
@@ -206,8 +214,11 @@ class DatabasePersistenceMixin:
                 state_data = self._row_to_state_data(row)
                 state = self._state_from_dict(state_data)
                 self._session_states[session_id] = state
-                # Warm the Redis cache for subsequent requests
-                self._cache_session(session_id, state)
+                # Only where Redis holds nothing: a worker that saved a change
+                # since this row was read has written Redis after PostgreSQL,
+                # and this older row put over it stayed there, the TTL sliding
+                # on every read.
+                self._cache_session(session_id, state, only_if_absent=True)
         except Exception as exc:
             logger.debug(f"Failed to load session {session_id} from PostgreSQL: {exc}")
 
@@ -309,6 +320,9 @@ class DatabasePersistenceMixin:
         state = self._session_states.get(session_id)
         if state is None:
             return
+        # Redis's copy goes first: if writing the new one fails after the
+        # PostgreSQL write, readers read PostgreSQL rather than the old copy.
+        self._forget_cached_session(session_id)
         try:
             db = _get_pg_db()
             state_dict = {
@@ -376,8 +390,10 @@ class DatabasePersistenceMixin:
     # Redis cache helpers
     # ------------------------------------------------------------------
 
-    def _cache_session(self, session_id: str, state: KnowledgeConfigState) -> None:
-        """Write session state to Redis cache."""
+    def _cache_session(
+        self, session_id: str, state: KnowledgeConfigState, *, only_if_absent: bool = False
+    ) -> None:
+        """Write session state to Redis; ``only_if_absent`` (a refill) never replaces a copy."""
         cache = _get_cache()
         if cache is None:
             return
@@ -389,9 +405,23 @@ class DatabasePersistenceMixin:
                 "focused_document_ids": state.focused_document_ids,
                 "last_accessed": state.last_accessed,
             }
-            cache.save(f"{self._CACHE_PREFIX_SESSION}{session_id}", cache_data)
+            key = f"{self._CACHE_PREFIX_SESSION}{session_id}"
+            if not only_if_absent:
+                cache.save(key, cache_data)
+            elif hasattr(cache, "save_if_absent"):
+                cache.save_if_absent(key, cache_data)
         except Exception as exc:
             logger.debug(f"Failed to cache session {session_id}: {exc}")
+
+    def _forget_cached_session(self, session_id: str) -> None:
+        """Drop Redis's copy of the session, if there is a Redis."""
+        cache = _get_cache()
+        if cache is None:
+            return
+        try:
+            cache.delete(f"{self._CACHE_PREFIX_SESSION}{session_id}")
+        except Exception as exc:
+            logger.debug(f"Failed to drop the cached session {session_id}: {exc}")
 
     def _cache_profiles(self, user_id: str) -> None:
         """Write profile list to Redis cache."""
