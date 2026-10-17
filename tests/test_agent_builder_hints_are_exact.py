@@ -154,3 +154,14 @@ def test_init_lists_every_store_and_preselects_what_the_readme_recommends(monkey
     assert (
         "lasagna init                       # interactive setup; pick the speed profile" in readme
     )
+
+
+def test_a_process_setting_is_not_told_it_is_misspelled(mcp_session):
+    """use_gpu was refused with "(did you mean 'use_gpu'?)"."""
+    server, sid = mcp_session
+    # A value other than the one in force (an echo of it is dropped, not refused).
+    reply = json.loads(server.patch_rag_config('{"use_gpu": "maybe"}', session_id=sid))
+    assert "use_gpu is not a retrieval or generation setting" in reply["error"]
+    assert "did you mean" not in reply["error"]
+    typo = json.loads(server.patch_rag_config('{"rerank_top_kk": 3}', session_id=sid))
+    assert "did you mean 'rerank_top_k'" in typo["error"]
