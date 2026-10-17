@@ -654,6 +654,12 @@
           "title": "Config Patch",
           "type": "string"
         },
+        "force": {
+          "default": false,
+          "description": "Apply a change of embedding model even when the session's documents would not be searched; reindex them afterwards with reindex_document.",
+          "title": "Force",
+          "type": "boolean"
+        },
         "session_id": {
           "default": "",
           "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
@@ -991,6 +997,12 @@
     "description": "Set the active RAG profile for a session.\n\nSwitches the session to use the specified profile for all subsequent RAG operations. This affects embedding model, chunking strategy, reranking settings, and more.\n\nReturns: Confirmation message or error.",
     "input_schema": {
       "properties": {
+        "force": {
+          "default": false,
+          "description": "Switch even when the session's documents were embedded with another model and would not be searched; reindex them afterwards with reindex_document.",
+          "title": "Force",
+          "type": "boolean"
+        },
         "profile_name": {
           "description": "Name of the profile to activate: a preset (speed, standard, balanced, max_quality, default) or one saved with save_rag_profile.",
           "title": "Profile Name",

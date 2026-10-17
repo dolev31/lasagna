@@ -455,6 +455,14 @@ Each of these still works in 0.1.x, says so when used, and is removed in 0.2.0.
 
 Server and deployment:
 
+- **A model switch refused for a session's documents can be completed on every
+  surface.** The refusal said to switch anyway and reindex, but only the CLI
+  could switch anyway and the CLI could not reindex. `force=true` switches
+  over REST (`PUT /api/v1/config/profiles/{name}`,
+  `PUT /api/config/knowledge/active`) and MCP (`set_active_profile`,
+  `patch_rag_config`), `lasagna configure --profile <name> -s <session>
+  --reindex` switches and reindexes the session's documents, and the refusal
+  names the reindex in the SDK, REST and MCP.
 - **A failed reindex no longer loses the document.** REST
   `/api/v1/documents/{id}/reindex` and the bulk `/api/knowledge/reindex`
   deleted the document (row and vectors) and then uploaded it again; the MCP

@@ -84,7 +84,11 @@ async def set_active_profile(
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
         mgr.set_active_profile(
-            body.active_profile, config=body.config or None, session_id=session_id, user_id=user_id
+            body.active_profile,
+            config=body.config or None,
+            session_id=session_id,
+            user_id=user_id,
+            force=body.force,
         )
         return _to_response(mgr.get_config(session_id, user_id=user_id))
     except EmbeddingSizeConflict as conflict:

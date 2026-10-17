@@ -815,6 +815,9 @@ class TestReindex:
             json={
                 "active_profile": "default",
                 "config": {"embedding_model": model, "embedding_dim": EXPECTED_EMBEDDING_DIM},
+                # The session holds a document in the old model's collection,
+                # so the switch is refused unless forced; the reindex moves it.
+                "force": True,
             },
             headers=headers,
             timeout=DEFAULT_TIMEOUT,

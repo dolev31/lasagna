@@ -63,7 +63,7 @@ endpoint; start the server with `--mcp` and register that URL in the client.
 | `safe` (default) | `--tools safe`, or `LASAGNA_MCP_TOOLS=safe` | Every tool except the seven marked *(all only)* below: 22 listed. |
 | `all` | `--tools all`, or `LASAGNA_MCP_TOOLS=all` | All 29, including `delete_document`, `clear_session`, `bulk_delete_session`, `rebuild_collection`, `delete_rag_profile`, `reset_rag_config` and `set_lifecycle_policy`. |
 
-`patch_rag_config` stays in `safe`: it changes only the caller's session, a change can be patched back, and one that would leave stored documents unsearchable is refused. `set_lifecycle_policy` is server-wide: a grace period of zero or a document TTL makes the next garbage collection delete other sessions' documents.
+`patch_rag_config` stays in `safe`: it changes only the caller's session, a change can be patched back, and one that would leave stored documents unsearchable is refused unless `force=true` (then `reindex_document` moves each document to the new model). `set_lifecycle_policy` is server-wide: a grace period of zero or a document TTL makes the next garbage collection delete other sessions' documents.
 
 Under `safe` the seven are not registered at all, so neither a client nor the `/api/call` tester can call them. The embedded `/mcp` mount reads `LASAGNA_MCP_TOOLS` the same way.
 
@@ -121,7 +121,7 @@ Tools that operate on data take an optional `session_id` (it scopes documents an
 | `reset_rag_config` | Reset to defaults. `scope="active"` clears overrides, `"all"` full reset *(all only)* |
 | `list_profiles` | List built-in + custom profiles |
 | `get_active_profile` | Current active profile name |
-| `set_active_profile` | Switch session to a different profile |
+| `set_active_profile` | Switch session to a different profile; `force=true` switches even when its documents were embedded with another model (reindex them after) |
 | `save_rag_profile` | Create or update a named custom profile |
 | `delete_rag_profile` | Delete a custom profile (built-in profiles are protected) *(all only)* |
 | `get_profile_stats` | Profile and session counts |

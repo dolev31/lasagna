@@ -161,8 +161,8 @@ each model writes to a collection of its own, named
   model's collection, so a session that holds documents is refused the switch,
   even at the same embedding size: none of its documents would be found.
   Use a new session for the new model, or switch with
-  `lasagna configure --profile <name> -s <session> --force` and reindex the
-  documents with the new model:
+  `lasagna configure --profile <name> -s <session> --force` (`force=true`
+  over REST and MCP) and reindex the documents with the new model:
   `client.documents.reindex(document_id)` in the SDK,
   `POST /api/v1/documents/{id}/reindex` (or `POST /api/knowledge/reindex` for
   all of a session's documents) over REST, or the MCP tool

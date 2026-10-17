@@ -2554,7 +2554,10 @@ def get_active_profile(session_id: str = "", session_token: Optional[str] = None
 
 @mcp.tool()
 def set_active_profile(
-    profile_name: str, session_id: str = "", session_token: Optional[str] = None
+    profile_name: str,
+    session_id: str = "",
+    session_token: Optional[str] = None,
+    force: bool = False,
 ) -> str:
     """Set the active RAG profile for a session.
 
@@ -2565,6 +2568,9 @@ def set_active_profile(
     :param session_id: Session identifier.
     :param profile_name: Name of the profile to activate: a preset (speed, standard,
         balanced, max_quality, default) or one saved with save_rag_profile.
+    :param force: Switch even when the session's documents were embedded with
+        another model and would not be searched; reindex them afterwards with
+        reindex_document.
     :returns: Confirmation message or error.
     """
     session_id, user_id = _resolve_session(session_id, session_token)
@@ -2576,7 +2582,7 @@ def set_active_profile(
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
         manager.set_active_profile(
-            profile_name, session_id=session_id, user_id=_profile_owner(user_id)
+            profile_name, session_id=session_id, user_id=_profile_owner(user_id), force=force
         )
 
         duration_ms = (time.time() - start_time) * 1000
@@ -2786,7 +2792,10 @@ def get_rag_config(session_id: str = "", session_token: Optional[str] = None) ->
 
 @mcp.tool()
 def patch_rag_config(
-    config_patch: str, session_id: str = "", session_token: Optional[str] = None
+    config_patch: str,
+    session_id: str = "",
+    session_token: Optional[str] = None,
+    force: bool = False,
 ) -> str:
     """Apply configuration overrides to the current session.
 
@@ -2798,6 +2807,9 @@ def patch_rag_config(
     :param session_id: Session identifier.
     :param config_patch: JSON string with config keys to override.
         Example: '{"rerank_top_k": 10, "enable_reranking": false}'
+    :param force: Apply a change of embedding model even when the session's
+        documents would not be searched; reindex them afterwards with
+        reindex_document.
     :returns: JSON object with updated configuration.
     """
     session_id, user_id = _resolve_session(session_id, session_token)
@@ -2833,7 +2845,7 @@ def patch_rag_config(
             )
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        manager.patch_config(patch, session_id)
+        manager.patch_config(patch, session_id, force=force)
         result = manager.get_config(session_id, user_id=_profile_owner(user_id))
 
         duration_ms = (time.time() - start_time) * 1000

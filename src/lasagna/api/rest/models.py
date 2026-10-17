@@ -451,6 +451,11 @@ class KnowledgeConfigFullResponse(BaseModel):
 class SetActiveProfileRequest(BaseModel):
     active_profile: str = Field(..., min_length=1, max_length=100)
     config: Dict[str, Any] = Field(default_factory=dict)
+    force: bool = Field(
+        default=False,
+        description="Switch even when the session's documents would not be searched; "
+        "reindex them afterwards (POST /api/knowledge/reindex).",
+    )
 
 
 class SaveProfileRequest(BaseModel):

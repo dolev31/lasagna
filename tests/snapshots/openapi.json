@@ -2280,6 +2280,12 @@
             "additionalProperties": true,
             "title": "Config",
             "type": "object"
+          },
+          "force": {
+            "default": false,
+            "description": "Switch even when the session's documents would not be searched; reindex them afterwards (POST /api/knowledge/reindex).",
+            "title": "Force",
+            "type": "boolean"
           }
         },
         "required": [
@@ -5025,6 +5031,18 @@
             "schema": {
               "title": "Profile Name",
               "type": "string"
+            }
+          },
+          {
+            "description": "Switch even when the session's documents would not be searched; reindex them afterwards (POST /api/knowledge/reindex).",
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Switch even when the session's documents would not be searched; reindex them afterwards (POST /api/knowledge/reindex).",
+              "title": "Force",
+              "type": "boolean"
             }
           },
           {
