@@ -34,13 +34,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 
 from lasagna.core.session_config._data_models import ANONYMOUS
+from lasagna.sdk.exceptions import ConfigurationError, KnowledgeError
 
 
-class ProfileCannotLoad(ValueError):
+class ProfileCannotLoad(ConfigurationError, ValueError):
     """The new profile's models cannot be loaded here; nothing was changed."""
 
 
-class ReindexFailed(RuntimeError):
+class ReindexFailed(KnowledgeError, RuntimeError):
     """A document could not be reindexed with the new profile; the session kept its old one."""
 
     def __init__(self, message: str, report: "SwitchReport"):

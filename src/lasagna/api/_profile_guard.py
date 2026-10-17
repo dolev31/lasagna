@@ -25,9 +25,15 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any, Dict, Iterator, Optional
 
+from lasagna.sdk.exceptions import ConfigurationError
 
-class EmbeddingSizeConflict(ValueError):
-    """The change embeds at a size the stored documents were not embedded at."""
+
+class EmbeddingSizeConflict(ConfigurationError, ValueError):
+    """The change embeds at a size the stored documents were not embedded at.
+
+    A ``ConfigurationError`` (the SDK's ``KnowledgeError`` family, imported
+    from ``lasagna.sdk``) and a ``ValueError``, which callers already caught.
+    """
 
 
 class EmbeddingSizeUnverified(EmbeddingSizeConflict):

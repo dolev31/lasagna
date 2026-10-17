@@ -16,6 +16,8 @@ import os
 import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
+from lasagna.sdk.exceptions import ConfigurationError
+
 #: Settings inside a stage that decide where vectors live or how the index is
 #: built, and the model the server falls back to when the session's cannot
 #: load (it is loaded from a local folder of that name too, and only a server
@@ -67,7 +69,7 @@ _THIRD_PARTY_COMPONENTS = {"embedder": {"openai", "cohere", "voyage"}, "reranker
 _DOT_SEGMENT = re.compile(r"(^|[\\/])\.{1,2}([\\/]|$)")
 
 
-class SessionSettingRefused(ValueError):
+class SessionSettingRefused(ConfigurationError, ValueError):
     """A session tried to set something only the server's own settings may set."""
 
 

@@ -11,6 +11,8 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from lasagna.sdk.exceptions import ProfileNotFoundError
+
 # Knowledge module folder (for self-contained config)
 KNOWLEDGE_MODULE_DIR = Path(__file__).parent.parent.parent
 
@@ -89,7 +91,7 @@ def kept_in_process(session_id: Optional[str]) -> bool:
     return bool(session_id) and session_id in _kept_in_process
 
 
-class UnknownProfileError(ValueError):
+class UnknownProfileError(ProfileNotFoundError, ValueError):
     """No profile of that name exists for the caller."""
 
 
