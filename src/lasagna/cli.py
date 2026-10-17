@@ -2946,20 +2946,12 @@ def results_power(
     """
 
     results = _load_results(results_path)
-    benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
-    if not benchmarks:
-        _error(
-            f"No successful results in {results_path}. Every task either errored "
-            f"or the file holds no results at all."
-        )
-    if not benchmark:
-        if len(benchmarks) > 1:
-            _error(
-                f"This run covers {len(benchmarks)} benchmarks ({', '.join(benchmarks)}). "
-                "Pass --benchmark: variance differs per benchmark, so one MDE across "
-                "them would describe none of them."
-            )
-        benchmark = benchmarks[0]
+    benchmark = _pick_benchmark(
+        results,
+        benchmark,
+        results_path,
+        "variance differs per benchmark, so one MDE across them would describe none of them.",
+    )
     _require_metric(results, metric, benchmark)
 
     try:
@@ -2993,6 +2985,36 @@ def results_power(
         )
     console.print()
     console.print(f"  {escape(report['interpretation'])}")
+
+
+def _resolve_benchmark(results, benchmark: str) -> str:
+    """``--benchmark`` as the run names it: its id, or the sweep's name for it."""
+    try:
+        return results.resolve_benchmark(benchmark)
+    except ValueError as exc:
+        _error(str(exc))
+
+
+def _pick_benchmark(results, benchmark: str, results_path: str, why_one: str) -> str:
+    """The benchmark a results command reports on: ``--benchmark`` resolved
+    against the run, or the run's only benchmark.
+
+    ``why_one`` finishes "Pass --benchmark: ..." for a run of several.
+    """
+    if benchmark:
+        return _resolve_benchmark(results, benchmark)
+    benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
+    if not benchmarks:
+        _error(
+            f"No successful results in {results_path}. Every task either errored "
+            f"or the file holds no results at all."
+        )
+    if len(benchmarks) > 1:
+        _error(
+            f"This run covers {len(benchmarks)} benchmarks ({', '.join(benchmarks)}). "
+            f"Pass --benchmark: {why_one}"
+        )
+    return benchmarks[0]
 
 
 def _format_effect_size(effect: Optional[float]) -> str:
@@ -3035,20 +3057,12 @@ def results_significance(
         _error(f"Unknown correction {correction!r}. Use 'holm' or 'none'.")
 
     results = _load_results(results_path)
-    benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
-    if not benchmarks:
-        _error(
-            f"No successful results in {results_path}. Every task either errored "
-            f"or the file holds no results at all."
-        )
-    if not benchmark:
-        if len(benchmarks) > 1:
-            _error(
-                f"This run covers {len(benchmarks)} benchmarks ({', '.join(benchmarks)}). "
-                "Pass --benchmark: a correction pooled across benchmarks would be "
-                "correcting for comparisons nobody made."
-            )
-        benchmark = benchmarks[0]
+    benchmark = _pick_benchmark(
+        results,
+        benchmark,
+        results_path,
+        "a correction pooled across benchmarks would be correcting for comparisons nobody made.",
+    )
     _require_metric(results, metric, benchmark)
 
     try:
@@ -3211,8 +3225,18 @@ def results_per_query(
     rebuild the ranking the metrics were computed on.
     """
 
-    rows = _load_results(results_path).per_query(benchmark)
+    results = _load_results(results_path)
+    if benchmark:
+        benchmark = _resolve_benchmark(results, benchmark)
+    rows = results.per_query(benchmark)
     if config:
+        if config not in results.configs:
+            from .core._text import did_you_mean
+
+            _error(
+                f"No config {config!r} in this run{did_you_mean(config, results.configs)}. "
+                f"It has: {', '.join(results.configs)}."
+            )
         rows = [r for r in rows if r["config"] == config]
     if not rows:
         _error("No per-query scores in this run. Nothing scored, or an older results file.")
@@ -3355,16 +3379,13 @@ def results_interaction(
     """
 
     results = _load_results(results_path)
-
-    benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
-    if not benchmark:
-        if len(benchmarks) != 1:
-            _error(
-                f"This run covers {len(benchmarks)} benchmarks ({', '.join(benchmarks)}). "
-                "Pass --benchmark: an interaction is a property of one benchmark, and "
-                "pooling across them mixes different corpora into one number."
-            )
-        benchmark = benchmarks[0]
+    benchmark = _pick_benchmark(
+        results,
+        benchmark,
+        results_path,
+        "an interaction is a property of one benchmark, and pooling across them mixes "
+        "different corpora into one number.",
+    )
     _require_metric(results, metric, benchmark)
 
     configs = sorted({r.config_name for r in results._results if not r.error})

@@ -352,6 +352,39 @@ def require_metric(metric: str, recorded: Iterable[str], where: str = "these res
     raise ValueError(f"No metric {metric!r} in {where}{did_you_mean(metric, names)}. {listing}")
 
 
+def resolve_benchmark(given: str, benchmarks: Iterable[str]) -> str:
+    """The benchmark of a run that ``given`` names, or ``ValueError``.
+
+    ``given`` is a benchmark's id or the name the sweep gave it: your own data
+    registers as ``<name>@<content hash>`` (``local/<stem>@<hash>`` without a
+    name), so ``tickets`` and ``my_data`` name ``tickets@7d85fdce34c4`` and
+    ``local/my_data@...``. Every `lasagna results` command resolves
+    ``--benchmark`` here. They used to compare it with the id as typed, and
+    `--benchmark tickets` was told the run recorded no metrics at all.
+    """
+    from ..core._text import did_you_mean
+
+    names = sorted(set(benchmarks))
+    if given in names:
+        return given
+    short: Dict[str, List[str]] = defaultdict(list)
+    for name in names:
+        base = name.split("@", 1)[0]
+        for alias in {base, base.removeprefix("local/")}:
+            short[alias].append(name)
+    matches = short.get(given, [])
+    if len(matches) == 1:
+        return matches[0]
+    if matches:
+        raise ValueError(
+            f"{given!r} names {len(matches)} benchmarks in these results ({', '.join(matches)}). "
+            "Pass one of them in full."
+        )
+    close = did_you_mean(given, list(short) + names)
+    listing = ", ".join(names) if names else "none"
+    raise ValueError(f"No benchmark {given!r} in these results{close}. They have: {listing}.")
+
+
 def lower_is_better(metric: str) -> bool:
     """Whether a smaller ``metric`` ranks first (``noise_sensitivity_regen`` too)."""
     for suffix in ("_regen", "_agentic"):
@@ -479,6 +512,11 @@ class BenchmarkResults:
             if values:
                 result[config] = _aggregate(values)
         return result
+
+    def resolve_benchmark(self, benchmark: str) -> str:
+        """``benchmark`` as this run names it: its id or the sweep's name for it
+        (:func:`resolve_benchmark`)."""
+        return resolve_benchmark(benchmark, self.benchmarks)
 
     def get_metric_names(self) -> List[str]:
         """Return all unique metric names across results."""

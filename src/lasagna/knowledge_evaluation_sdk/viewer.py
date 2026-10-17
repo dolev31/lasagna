@@ -709,11 +709,7 @@ def render_html(
         raise ValueError("These results hold no tasks, so there is nothing to show.")
     benchmarks = res.benchmarks
     if benchmark:
-        if benchmark not in benchmarks:
-            raise ValueError(
-                f"No benchmark {benchmark!r} in these results. They have: {', '.join(benchmarks)}."
-            )
-        benchmarks = [benchmark]
+        benchmarks = [res.resolve_benchmark(benchmark)]
     metric = metric or _default_metric(res)
     res.require_metric(metric)
     if diff:
