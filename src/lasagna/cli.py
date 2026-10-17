@@ -3566,9 +3566,14 @@ def results_per_query(
 
     # The sort column first: `--sort-by ndcg@10` used to show the first six
     # metrics alphabetically, which can leave out ndcg@10 itself.
+    # Without one, the run's primary metric (the report's first column): the
+    # first six alphabetically started at complete_recall@10 and f1@10.
+    from .knowledge_evaluation_sdk.results import primary_metric
+
     available = sorted(_metric_columns(rows))
-    if sort_by in available:
-        available = [sort_by] + [m for m in available if m != sort_by]
+    first = sort_by or primary_metric(available)
+    if first in available:
+        available = [first] + [m for m in available if m != first]
     n_queries = len({(r["benchmark"], str(r["sample_id"])) for r in rows})
     configs = sorted({str(r["config"]) for r in rows})
     # Rows, not queries: each query appears once per config.
@@ -3719,14 +3724,17 @@ def results_interaction(
     table.add_column("Mean", justify="right")
     table.add_column("vs neither", justify="right")
     base = report["means"][neither]
-    for label, name in (
-        ("neither", neither),
-        ("A only", only_a),
-        ("B only", only_b),
-        ("both", both),
+    # Each cell by its factor levels, then its arm: the first row read
+    # "neither  neither".
+    for (level_a, level_b), name in (
+        (("off", "off"), neither),
+        (("on", "off"), only_a),
+        (("off", "on"), only_b),
+        (("on", "on"), both),
     ):
         mean = report["means"][name]
         delta = "-" if name == neither else f"{mean - base:+.4f}"
+        label = f"{escape(only_a)} {level_a}, {escape(only_b)} {level_b}"
         table.add_row(f"{label}  [dim]{escape(name)}[/dim]", f"{mean:.4f}", delta)
     console.print(table)
     for line in _identical_cells(results, benchmark, [neither, only_a, only_b, both]):
