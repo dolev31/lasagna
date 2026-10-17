@@ -188,9 +188,12 @@ def _decode_jwt(token: str) -> dict:
 
     import jwt  # pyjwt
 
+    from .session_token import CLOCK_LEEWAY_SECONDS
+
     return jwt.decode(
         token,
         secret,
         algorithms=["HS256"],
+        leeway=CLOCK_LEEWAY_SECONDS,  # the issuer's clock and this one differ
         options={"require": ["sub"], "verify_signature": True},
     )

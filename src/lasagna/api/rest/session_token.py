@@ -36,6 +36,13 @@ _DEFAULT_TTL = int(os.environ.get("RAG_SESSION_TOKEN_TTL_SECONDS", "604800"))  #
 # Ephemeral fallback secret — generated once per process, lost on restart.
 _fallback_secret: Optional[str] = None
 
+#: How far apart the clock that minted a token and the one checking it may be,
+#: in seconds. API replicas' clocks differ, and a VM's clock is stepped back to
+#: its host's now and then (Colima: about 0.1 s every 30 s), so a token minted
+#: a moment "after" the checking clock's now failed as not yet valid (iat) on
+#: its next use, and the client minted another.
+CLOCK_LEEWAY_SECONDS = 60
+
 
 class MissingSigningSecret(RuntimeError):
     """``RAG_REQUIRE_AUTH`` is on and there is no shared signing secret."""
@@ -147,6 +154,7 @@ def decode_session_claims(token: str) -> Optional[dict]:
             token,
             secret,
             algorithms=["HS256"],
+            leeway=CLOCK_LEEWAY_SECONDS,
             options={"require": ["sub", "sid", "exp", "typ"]},
         )
         if payload.get("typ") != "session" or payload.get("iss") not in ACCEPTED_ISSUERS:
