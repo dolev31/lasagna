@@ -103,6 +103,12 @@ class BenchmarkTask:
     #: part of a corpus is not that benchmark's metric, and the shortfall
     #: is invisible downstream -- retrieval scores simply come out lower.
     corpus_truncated: bool = False
+    #: The share of corpus documents allowed to fail ingestion before a task
+    #: on that corpus fails (``ingest_failure_tolerance``, default none).
+    ingest_failure_tolerance: float = 0.0
+    #: None when every corpus document was ingested; otherwise the counts, a
+    #: digest of the ingested ids and the first failures. Populated at ingestion.
+    corpus_ingest_gap: Optional[Dict[str, Any]] = None
     #: "run" holds the query subset fixed across runs so the spread is
     #: pipeline nondeterminism; "sample" redraws each run. See ``_execute_task``.
     variance_source: str = "run"
@@ -233,6 +239,9 @@ class TaskResult:
     corpus_fingerprint: str = ""
     hf_revision: str = ""
     corpus_truncated: bool = False
+    #: Documents of the corpus that could not be ingested: None when there were
+    #: none. In the comparability key when set (bundle.HELD_FIXED_FIELDS).
+    corpus_ingest_gap: Optional[Dict[str, Any]] = None
     #: Where the searchable corpus came from.
     #:
     #: A pooled-gold corpus is assembled from the samples' own gold context,
@@ -361,6 +370,7 @@ class TaskResult:
             "corpus_provenance": self.corpus_provenance,
             "hf_revision": self.hf_revision,
             "corpus_truncated": self.corpus_truncated,
+            "corpus_ingest_gap": self.corpus_ingest_gap,
             "resolved_mode": self.resolved_mode,
             "mode_resolution_reason": self.mode_resolution_reason,
             "variance_source": self.variance_source,
@@ -575,6 +585,7 @@ class BenchmarkRunner:
             result.corpus_provenance = task.corpus_provenance
             result.hf_revision = task.hf_revision
             result.corpus_truncated = task.corpus_truncated
+            result.corpus_ingest_gap = task.corpus_ingest_gap
             result.resolved_mode = task.resolved_mode or task.mode
             result.mode_resolution_reason = task.mode_resolution_reason
             result.variance_source = task.variance_source

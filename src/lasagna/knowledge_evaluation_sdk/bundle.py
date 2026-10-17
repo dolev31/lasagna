@@ -173,7 +173,18 @@ HELD_FIXED_FIELDS = (
     "fixed_stages",
     # The embedder answer_similarity scores with (RAG_EVAL_SIMILARITY_MODEL).
     "similarity_model",
+    # None when every corpus document was ingested; otherwise how many were,
+    # and a digest of their ids. Up to 10% of documents could fail to chunk
+    # and the run reused that partial corpus with the same key as a complete
+    # one. Hashed only when set (_KEY_FIELDS_WHEN_SET), so complete corpora
+    # keep their keys.
+    "corpus_ingest_gap",
 )
+
+#: Fields hashed only when not None: absent from every result before they
+#: existed, and None for a result they do not concern, whose key therefore
+#: does not move.
+_KEY_FIELDS_WHEN_SET = frozenset({"corpus_ingest_gap"})
 
 #: Fields hashed only for blocks at or after the metrics version that added
 #: them, so a bundle minted before still recomputes to the key it carries.
@@ -264,6 +275,8 @@ def comparability_key(held_fixed: Dict[str, Any]) -> str:
         if since is not None and version < since:
             continue
         value = held_fixed.get(field)
+        if value is None and field in _KEY_FIELDS_WHEN_SET:
+            continue
         payload[field] = KEY_DEFAULTS[field] if value is None and field in KEY_DEFAULTS else value
 
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
@@ -350,6 +363,7 @@ def held_fixed_from(
         "judge_model": run_meta.get("judge_model"),
         "similarity_model": run_meta.get("similarity_model"),
         "bm25_stemming": _field("bm25_stemming"),
+        "corpus_ingest_gap": _ingest_gap_key(result.get("corpus_ingest_gap")),
         "fixed_stages": (
             {
                 stage: (entry or {}).get("digest")
@@ -360,6 +374,13 @@ def held_fixed_from(
             else None
         ),
     }
+
+
+def _ingest_gap_key(gap: Any) -> Optional[Dict[str, Any]]:
+    """The part of a result's ``corpus_ingest_gap`` that identifies the corpus."""
+    if not gap:
+        return None
+    return {k: gap.get(k) for k in ("documents", "ingested", "failed", "ingested_digest")}
 
 
 def varied_dimensions(
@@ -609,7 +630,9 @@ def json_schema() -> Dict[str, Any]:
                             "required": [
                                 f
                                 for f in HELD_FIXED_FIELDS
-                                if f not in KEY_DEFAULTS and f not in _KEY_FIELDS_SINCE
+                                if f not in KEY_DEFAULTS
+                                and f not in _KEY_FIELDS_SINCE
+                                and f not in _KEY_FIELDS_WHEN_SET
                             ],
                             # A field gated by version is required from that
                             # version on, so a current bundle cannot omit it.
@@ -800,6 +823,12 @@ def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str
     # truncated run and a full one would otherwise group together.
     if any(r.get("corpus_truncated") for r in rows):
         blocking.append("TRUNCATED_CORPUS")
+
+    # Documents that failed to ingest, accepted with ingest_failure_tolerance.
+    # The comparability key already keeps such rows apart from complete ones;
+    # this is for the reader who sees the number on its own.
+    if any(r.get("corpus_ingest_gap") for r in rows):
+        warnings.append("PARTIAL_CORPUS")
 
     # Mutable upstream. Without a pinned revision, "same benchmark" is an
     # assumption about someone else's repository rather than a fact about this

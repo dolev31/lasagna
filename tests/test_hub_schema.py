@@ -110,7 +110,11 @@ class TestTheSchemaAcceptsWhatWeProduce:
         carries. Anything else is a field the key hashes and the schema does
         not demand — unrecomputable by design.
         """
-        from lasagna.knowledge_evaluation_sdk.bundle import HELD_FIXED_FIELDS, KEY_DEFAULTS
+        from lasagna.knowledge_evaluation_sdk.bundle import (
+            _KEY_FIELDS_WHEN_SET,
+            HELD_FIXED_FIELDS,
+            KEY_DEFAULTS,
+        )
 
         held = checked_in["properties"]["configs"]["items"]["properties"]["held_fixed"]
         required = set(held["required"])
@@ -119,7 +123,9 @@ class TestTheSchemaAcceptsWhatWeProduce:
         # not hash them).
         for rule in held.get("allOf", []):
             required |= set(rule["then"]["required"])
-        unaccounted = set(HELD_FIXED_FIELDS) - required - set(KEY_DEFAULTS)
+        # A field hashed only when set may be omitted: absent and None are not
+        # hashed, so the key recomputes the same either way.
+        unaccounted = set(HELD_FIXED_FIELDS) - required - set(KEY_DEFAULTS) - _KEY_FIELDS_WHEN_SET
         assert not unaccounted, (
             f"{sorted(unaccounted)} are hashed into the comparability key but are "
             f"neither required by the schema nor given a default, so a bundle can "

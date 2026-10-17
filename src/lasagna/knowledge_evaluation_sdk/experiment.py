@@ -595,6 +595,10 @@ class ExperimentConfig:
     judge_model: str = ""  # LLM model for RAGAS judge (default: DEFAULT_JUDGE_MODEL)
     ingestion_per_config: bool = False  # True = each config variant gets its own corpus session
     max_corpus_docs: int = 0  # 0 = no limit; >0 = cap corpus size (e.g. 500 for pilot runs)
+    #: The share of a corpus's documents that may fail to ingest (0 to 0.1)
+    #: before every task on it fails. None by default: a partial corpus scores
+    #: lower and the number would read as the method's.
+    ingest_failure_tolerance: float = 0.0
     #: Evaluation tracks to run: "retrieval", "generation", or both (the
     #: default). A component sweep scored on retrieval needs no LLM or RAGAS.
     tracks: List[str] = field(default_factory=lambda: ["retrieval", "generation"])
@@ -1122,6 +1126,7 @@ _TOP_LEVEL_KEYS = frozenset(
         "judge_model",
         "ingestion_per_config",
         "max_corpus_docs",
+        "ingest_failure_tolerance",
         "tracks",
         "llm_cache",
         "prices",
@@ -1328,6 +1333,7 @@ def _parse_config(data: Dict[str, Any]) -> ExperimentConfig:
         judge_model=data.get("judge_model", ""),
         ingestion_per_config=data.get("ingestion_per_config", False),
         max_corpus_docs=data.get("max_corpus_docs", 0),
+        ingest_failure_tolerance=_parse_ingest_tolerance(data.get("ingest_failure_tolerance")),
         tracks=_parse_tracks(data.get("tracks")),
         llm_cache=LLMCacheSettings.parse(data.get("llm_cache")),
         prices=PriceTable.parse(data.get("prices")),
@@ -1351,6 +1357,77 @@ def _parse_tracks(value: Any) -> List[str]:
     if unknown or not tracks:
         raise ValueError(f"tracks must be a non-empty subset of {list(_TRACKS)}; got {value!r}")
     return [t for t in _TRACKS if t in tracks]
+
+
+def _parse_ingest_tolerance(value: Any) -> float:
+    """``ingest_failure_tolerance:``, a share of the corpus from 0 to 0.1."""
+    from ._fast_ingest import _MAX_CHUNK_FAILURE_RATE
+
+    if value is None:
+        return 0.0
+    try:
+        share = float(value)
+    except (TypeError, ValueError):
+        share = -1.0
+    if isinstance(value, bool) or not 0.0 <= share <= _MAX_CHUNK_FAILURE_RATE:
+        raise ValueError(
+            f"ingest_failure_tolerance is the share of corpus documents that may fail to "
+            f"ingest, from 0 to {_MAX_CHUNK_FAILURE_RATE} (ingestion stops above that); "
+            f"got {value!r}"
+        )
+    return share
+
+
+def _ingest_gap(
+    corpus_ids: Iterable[str], valid_to_corpus: Dict[str, str], failed_valid_ids: Iterable[str]
+) -> Optional[Dict[str, Any]]:
+    """What a corpus is missing after ingestion, or None when nothing is.
+
+    The counts and a digest of the ingested ids go into the comparability key
+    (``corpus_ingest_gap``), so a partial corpus never shares a leaderboard
+    group with the complete one; the first failures are for the reader.
+    """
+    failed = sorted({valid_to_corpus.get(v, v) for v in failed_valid_ids})
+    if not failed:
+        return None
+    every = sorted(set(corpus_ids))
+    ingested = sorted(set(every) - set(failed))
+    return {
+        "documents": len(every),
+        "ingested": len(ingested),
+        "failed": len(failed),
+        "ingested_digest": hashlib.sha256("\n".join(ingested).encode()).hexdigest()[:16],
+        "first_failed": failed[:5],
+    }
+
+
+def _partial_corpus_refusal(gap: Optional[Dict[str, Any]], tolerance: float) -> Optional[str]:
+    """Why a task on a partial corpus must not run, or None.
+
+    Under evaluation (strict stages) a corpus missing more documents than the
+    experiment's ``ingest_failure_tolerance`` allows fails the task: up to 10%
+    of documents could fail to chunk, and the run scored the rest under the
+    benchmark's name, and later runs reused that partial corpus.
+    """
+    from lasagna.core.strict import strict_stages
+
+    from ._fast_ingest import _MAX_CHUNK_FAILURE_RATE
+
+    if not gap or not strict_stages() or gap["failed"] <= tolerance * gap["documents"]:
+        return None
+    needed = -(-gap["failed"] * 1000 // gap["documents"]) / 1000  # rounded up
+    accept = (
+        f", or accept the partial corpus with `ingest_failure_tolerance: {needed}` in the "
+        f"experiment file; its results then get a comparability key of their own"
+        if needed <= _MAX_CHUNK_FAILURE_RATE
+        else ""
+    )
+    return (
+        f"{gap['failed']} of {gap['documents']} corpus documents could not be ingested "
+        f"(first: {', '.join(gap['first_failed'])}; the log has each reason), so this task "
+        f"would score a partial corpus. Fix those documents or the chunker and run "
+        f"again{accept}."
+    )
 
 
 def _generate_pipeline_configs(spec: PipelineSweepSpec) -> List[Dict[str, Any]]:
@@ -1570,6 +1647,7 @@ class Experiment:
                         profile=pipe_cfg.get("profile", "standard"),
                         filters=bench_spec.filters,
                         max_corpus_docs=cfg.max_corpus_docs,
+                        ingest_failure_tolerance=cfg.ingest_failure_tolerance,
                         variance_source=cfg.variance_source,
                         tracks=(tuple(cfg.tracks) if list(cfg.tracks) != list(_TRACKS) else None),
                     )
@@ -1848,6 +1926,7 @@ def _run_metadata(cfg: "ExperimentConfig", concurrency: Optional[int] = None) ->
         # different numbers, so it belongs in the comparability key.
         "similarity_model": _similarity_model_for_record(),
         "max_corpus_docs": cfg.max_corpus_docs,
+        "ingest_failure_tolerance": cfg.ingest_failure_tolerance,
         "tracks": list(cfg.tracks),
         "environment": capture(),
         # The system under test. Five of the fourteen comparability-key fields
@@ -3415,6 +3494,9 @@ async def _ensure_corpus_ingested(
         expected_valid_ids = {corpus_to_valid[cid] for cid in corpus}
         ready_ids: set = set()
         _skip_ingest = False
+        # Documents that could not be ingested, in this run or (allowlisted)
+        # in the run that built the corpus being reused.
+        failed_valid_ids: set = set()
         try:
             # limit must exceed corpus size to avoid false "partial" detection.
             # It was min(max(n + 1000, 50_000), 16_000), which is 16,000 for
@@ -3452,6 +3534,7 @@ async def _ensure_corpus_ingested(
                     )
                     ready_ids = existing_doc_ids
                     _skip_ingest = True  # all missing are allowlisted errors
+                    failed_valid_ids = set(missing_ids)
                 else:
                     # Stale/partial — clean up and re-ingest
                     logger.warning(
@@ -3493,6 +3576,7 @@ async def _ensure_corpus_ingested(
                 f"Fast ingestion complete: {total_chunks} chunks from "
                 f"{len(ingested_ids)} docs, {len(error_ids)} errors"
             )
+            failed_valid_ids = set(error_ids)
 
             # Persist error allowlist for future resume
             if error_ids:
@@ -3508,6 +3592,17 @@ async def _ensure_corpus_ingested(
                 _allowlist_path.write_text(json.dumps(_al, indent=2))
 
         logger.info(f"Corpus ingestion complete for '{benchmark_name}' (cache_key='{cache_key}')")
+        ingest_gap = _ingest_gap(corpus, valid_to_corpus, failed_valid_ids)
+        if ingest_gap:
+            # Once per corpus, not per task: every task on it reads the slot.
+            logger.warning(
+                f"{ingest_gap['failed']} of {ingest_gap['documents']} documents of "
+                f"'{benchmark_name}' could not be ingested (first: "
+                f"{', '.join(ingest_gap['first_failed'])}). Results on this corpus record "
+                f"corpus_ingest_gap and do not share a comparability key with the complete "
+                f"corpus; under evaluation a task fails unless ingest_failure_tolerance "
+                f"allows it."
+            )
 
         # Publish result and wake waiters.
         async with _corpus_cache_lock:
@@ -3522,6 +3617,7 @@ async def _ensure_corpus_ingested(
             # `TRUNCATED_CORPUS` -- one of only two blocking integrity codes --
             # could never fire and truncated bundles validated clean.
             slot["corpus_truncated"] = bool(getattr(adapter, "corpus_truncated", False))
+            slot["corpus_ingest_gap"] = ingest_gap
             slot["ready"].set()
 
         return _corpus_sessions[cache_key]
@@ -3742,6 +3838,16 @@ async def _eval_live(
     # pooled-gold number can never share a leaderboard row with a real one.
     task.corpus_provenance = corpus_info.get("corpus_provenance", "native")
     task.corpus_truncated = bool(corpus_info.get("corpus_truncated", False))
+    task.corpus_ingest_gap = corpus_info.get("corpus_ingest_gap")
+    refusal = _partial_corpus_refusal(task.corpus_ingest_gap, task.ingest_failure_tolerance)
+    if refusal:
+        return TaskResult(
+            task_key=task.task_key,
+            benchmark_name=task.benchmark_name,
+            config_name=task.config_name,
+            run_index=task.run_index,
+            error=refusal,
+        )
 
     # Every task on a pooled corpus needs the labels, not just the one that
     # ingested it. A waiter otherwise gets samples with empty expected_docs and

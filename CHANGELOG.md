@@ -572,6 +572,17 @@ Server and deployment:
 
 Numbers that were wrong:
 
+- **A partial corpus is visible in the results.** Fast ingestion tolerated up
+  to 10% of a corpus failing to chunk (120 s timeouts included), and later
+  runs reused that partial corpus through `_ingest_allowlist.json`, with the
+  complete corpus's fingerprint and comparability key and nothing in the
+  result. Each result now records `corpus_ingest_gap` (documents ingested and
+  failed, a digest of the ingested ids, the first failures), the log names
+  the count and the first failures once, and under evaluation a task on a
+  partial corpus fails unless the experiment sets `ingest_failure_tolerance`
+  (0 to 0.1). The comparability key hashes `corpus_ingest_gap` only when it is
+  set: a run on a partial corpus gets a key of its own, and every complete
+  corpus keeps the key it had. Bundles warn `PARTIAL_CORPUS`.
 - **The `mmr`, `combined` and `ensemble` rerankers ran as something else.** On
   the speed profile `mmr` and `ensemble` returned the retrieval order and
   `combined` scored exactly like `cross_encoder`: MMR never received the
