@@ -219,9 +219,11 @@ not be indexed. Rerunning the script uploads nothing new: a file the session
 already holds comes back as that document, with `duplicate_of` set
 (`allow_duplicates=True`, or `lasagna upload --force`, indexes it again).
 
-**Nothing to download at all?** The [component comparison](#compare-a-component)
-below runs as is, with no model, corpus or key. It is the fastest way to see
-what this library is for.
+**The smallest first run.** In the [component comparison](#compare-a-component)
+below, `python my_ideas.py` downloads nothing, and the sweep downloads 182 MB
+once: the `speed` profile's embedder and the cross-encoder it is compared
+against, 91 MB each. Neither needs a dataset or an API key. It is the fastest
+way to see what this library is for.
 
 ---
 
@@ -407,7 +409,7 @@ n_runs: 1     # retrieval does not sample; repeat runs when an LLM stage is in t
 ```
 
 ```bash
-lasagna benchmark experiment sweep.yaml
+lasagna benchmark experiment sweep.yaml   # downloads 182 MB of models the first time
 lasagna results significance "<output>/results.json" -m ndcg@10 --all
 ```
 

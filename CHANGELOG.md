@@ -727,6 +727,11 @@ Results tooling:
 
 First run:
 
+- The README said its component comparison "runs as is, with no model,
+  corpus or key"; with an empty Hugging Face cache the sweep failed
+  ("all-MiniLM-L6-v2 is not downloaded"). It says `python my_ideas.py`
+  downloads nothing and the sweep downloads 182 MB once, the size a test
+  computes from the sweep the README shows.
 - `lasagna doctor` said the first search downloads "~5 GB" and the speed
   profile "an 80 MB model" (measured: 3.1 GB and 91 MB), and that retrieval
   works without an API key, while the default configuration sends complex
