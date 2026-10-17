@@ -65,6 +65,13 @@ atexit.register(shutil.rmtree, _ISOLATED_DATA_DIR, True)
 # was, so models a developer has downloaded are reused rather than fetched
 # again (and stay found with HF_HUB_OFFLINE set).
 #
+# The hub is offline unless the run says otherwise. Online, a plain ``pytest``
+# downloaded about 2.3 GB (ColBERT, monoT5 and the mxbai reranker, which the
+# isolation tests skip only offline), and CI never saw it because its test step
+# sets HF_HUB_OFFLINE=1 itself. A run that should download, such as CI's weights
+# job, sets HF_HUB_OFFLINE=0. Set before sentence_transformers is imported
+# below: huggingface_hub and transformers read it once, at import.
+#
 # The package sets RAGAS_DO_NOT_TRACK on import; setting it here as well keeps
 # the suite silent even for a test that builds a ragas judge before importing
 # lasagna. tests/test_ragas_telemetry_is_off.py checks the package default.
@@ -79,6 +86,7 @@ os.environ.setdefault(
         os.environ.get("XDG_CACHE_HOME") or os.path.join(_REAL_HOME, ".cache"), "huggingface"
     ),
 )
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ["HOME"] = os.path.join(_ISOLATED_DATA_DIR, "home")
 os.makedirs(os.environ["HOME"], exist_ok=True)
 os.environ["RAGAS_DO_NOT_TRACK"] = "true"
@@ -126,8 +134,9 @@ if _missing:
 # cache they download it from the Hugging Face Hub. That is what CI does. With
 # HF_HUB_OFFLINE (or TRANSFORMERS_OFFLINE) set and no cached copy they cannot
 # pass, and a RuntimeError from the model loader says nothing about the code
-# under test, so they are skipped with the reason instead. Online runs are
-# unaffected.
+# under test, so they are skipped with the reason instead. The suite is offline
+# by default (above); with HF_HUB_OFFLINE=0 nothing is skipped and a model that
+# cannot load fails its test.
 # ---------------------------------------------------------------------------
 _TRUTHY = {"1", "true", "yes", "on"}
 
@@ -195,7 +204,11 @@ def pytest_collection_modifyitems(config, items):
             if configured:
                 continue
             reason = "loads the configured embedding model; Hugging Face offline mode is set and "
-        item.add_marker(pytest.mark.skip(reason=reason + "no cached copy was found"))
+        item.add_marker(
+            pytest.mark.skip(
+                reason=reason + "no cached copy was found (HF_HUB_OFFLINE=0 downloads it)"
+            )
+        )
 
 
 @pytest.fixture(autouse=True)

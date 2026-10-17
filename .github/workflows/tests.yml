@@ -179,8 +179,11 @@ jobs:
             --cov --cov-report=term-missing:skip-covered
 
       # The only tests allowed the network: they load the configured embedding
-      # model from the Hugging Face Hub.
+      # model from the Hugging Face Hub. The suite keeps the hub offline unless
+      # told otherwise (tests/conftest.py), so this step says so.
       - name: Tests that load real embedding weights
+        env:
+          HF_HUB_OFFLINE: "0"
         run: pytest tests/ --ignore=tests/live --ignore=tests/stress -q -m needs_embedding_weights
 
       # Milvus Lite and Qdrant both run in-process, so the vector-backend
@@ -212,6 +215,8 @@ jobs:
 
       - name: OpenSearch, pgvector and Docling unit tests
         if: matrix.python-version == '3.12'
+        env:
+          HF_HUB_OFFLINE: "0"
         run: |
           pytest tests/test_opensearch_backend.py tests/test_pgvector_backend.py \
             tests/test_docling_processor.py tests/test_mock_targets_resolve.py \

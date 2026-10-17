@@ -17,6 +17,11 @@ pre-commit install
 pytest tests/ --ignore=tests/live --ignore=tests/stress
 ```
 
+The suite keeps the Hugging Face hub offline and downloads nothing: a test that
+needs weights you have not cached skips and names them. To run those tests and
+download what they name, as CI's weights job does:
+`HF_HUB_OFFLINE=0 pytest tests/ --ignore=tests/live --ignore=tests/stress -m needs_embedding_weights`.
+
 Before you push, `scripts/ci-local.sh` runs what CI runs on a push (lint and
 type check, both secret scans, the suite with the coverage floor, backend
 conformance, the license check and dependency audit, the plugin template) in
