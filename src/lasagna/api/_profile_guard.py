@@ -498,10 +498,14 @@ def refuse_embedding_change(
     try:
         stored = stored_embedding_dim(collection, vector_backend)
     except Exception as exc:
+        from loguru import logger
+
+        # The cause in the log; the answer names it by kind, not by its text.
+        logger.warning(f"Could not read the embedding size of {collection!r}: {exc}")
         raise EmbeddingSizeUnverified(
             f"{change} would embed at {wanted} dimensions, and the vector store could "
-            f"not be read to check that against the stored documents ({exc}). "
-            f"{remedy}"
+            f"not be read to check that against the stored documents "
+            f"({type(exc).__name__}; the log has the cause). {remedy}"
         ) from exc
     if stored is not None and stored != wanted:
         raise EmbeddingSizeConflict(

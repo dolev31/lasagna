@@ -275,7 +275,7 @@ def _switch_with_reindex(
                 report.reindexed.append(document_id)
             except Exception as exc:  # noqa: BLE001 - reported per document
                 logger.warning(f"Reindex of {document_id} with profile {profile!r} failed: {exc}")
-                report.failed.append((document_id, str(exc)))
+                report.failed.append((document_id, _plain_reason(exc, document_id, session_id)))
                 break
         if report.failed:
             _restore(backend, session_id, report, left_behind)
@@ -322,6 +322,17 @@ def resume_switch(manager: Any, session_id: str, *, backend: Any = None) -> Swit
     )
 
 
+def _plain_reason(exc: BaseException, document_id: str, session_id: str) -> str:
+    """Why a document's reindex failed, as REST's reindex route says it: never a trace.
+
+    The raw exception text reached the 409 of every surface, internal paths and
+    library messages included; it is in the log line above instead.
+    """
+    from lasagna.api.rest.routes.documents import reindex_failure
+
+    return str(reindex_failure(exc, document_id, session_id).detail)
+
+
 def _restore(
     backend: Any, session_id: str, report: SwitchReport, left_behind: List[str] = ()
 ) -> None:
@@ -341,7 +352,7 @@ def _restore(
             report.restored.append(document_id)
         except Exception as exc:  # noqa: BLE001 - reported per document
             logger.warning(f"Could not move {document_id} back after a failed switch: {exc}")
-            report.stranded.append((document_id, str(exc)))
+            report.stranded.append((document_id, _plain_reason(exc, document_id, session_id)))
     report.reindexed = []
 
 
