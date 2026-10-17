@@ -134,9 +134,10 @@ numbers are already known. On the full SciFact and NFCorpus test sets, Lasagna's
 built-in components land within 0.002 NDCG@10 of MTEB for the dense models, and
 within 0.004 of the BEIR paper for BM25 followed by a MiniLM cross-encoder.
 BM25 is 0.001 and 0.008 below the BEIR paper, which indexed the title and the
-text as separate fields; like for like, against Anserini's BM25 over one field
-holding both, as Lasagna's is, it is 0.015 (SciFact) and 0.005 (NFCorpus)
-below, a difference in the BM25 implementation rather than the harness.
+text as separate fields. Lasagna's BM25 is its own, rank_bm25's Okapi BM25 over
+one field holding both; like for like, against Anserini's BM25 over one such
+field, it is 0.015 (SciFact) and 0.005 (NFCorpus) below
+([how the two differ](https://github.com/dolev31/lasagna/blob/main/examples/reproduction/README.md#notes-on-the-differences)).
 Nothing was tuned: BM25 uses BEIR's k1 and b, and every model is its published
 checkpoint.
 
