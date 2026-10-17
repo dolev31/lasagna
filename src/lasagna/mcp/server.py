@@ -2910,7 +2910,9 @@ def patch_rag_config(
             # or every later search fails.
             from lasagna.api._profile_switch import unloadable_models
 
-            problems = unloadable_models({**manager.get_resolved_config(session_id), **patch})
+            # What search runs with (the session's choice over the server's
+            # settings), not the profile's packaged configuration.
+            problems = unloadable_models({**manager.get_chosen_config(session_id), **patch})
             if problems:
                 raise ValueError(
                     f"{' '.join(problems)} Nothing was changed for session {session_id!r}."

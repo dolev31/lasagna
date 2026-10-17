@@ -185,11 +185,15 @@ def _report(manager: Any, profile: str, session_id: str, user_id: str, config) -
     resolved, chosen = manager.preview_active_profile(
         profile, session_id, config=config, user_id=user_id
     )
+    # What search will run with: the session's choice over the process's own
+    # settings. The profile's whole configuration carries the packaged
+    # settings file's models, so a server started with RAG_RERANKER_MODEL set
+    # refused a forced switch for a reranker it never loads.
     report = SwitchReport(
         profile=profile,
         previous=previous,
         session_id=session_id,
-        embedding_model=str(_setting(resolved, "embedding_model") or ""),
+        embedding_model=str(_setting(chosen, "embedding_model") or ""),
     )
     return report, resolved, chosen
 
@@ -207,9 +211,9 @@ def _refuse_unloadable(report: SwitchReport, resolved: Dict[str, Any]) -> None:
 def _switch_without_reindex(
     manager: Any, profile: str, session_id: str, *, user_id: str, force: bool, config
 ) -> SwitchReport:
-    report, resolved, _ = _report(manager, profile, session_id, user_id, config)
+    report, _, chosen = _report(manager, profile, session_id, user_id, config)
     if force:
-        _refuse_unloadable(report, resolved)
+        _refuse_unloadable(report, chosen)
     manager.set_active_profile(
         profile, config=config, session_id=session_id, user_id=user_id, force=force
     )
@@ -227,10 +231,10 @@ def _switch_with_reindex(
 ) -> SwitchReport:
     """Under the session's lock: reindex every document, then switch (see the module docstring)."""
     from lasagna.api._profile_guard import forget_documents_elsewhere
-    from lasagna.core.config import collection_name_for_settings, get_rag_config
+    from lasagna.core.config import get_rag_config
 
-    report, resolved, chosen = _report(manager, profile, session_id, user_id, config)
-    _refuse_unloadable(report, resolved)
+    report, _, chosen = _report(manager, profile, session_id, user_id, config)
+    _refuse_unloadable(report, chosen)
 
     # Oldest first, so a rerun after a failure meets the documents in the same order.
     rows = sorted(
@@ -263,7 +267,7 @@ def _switch_with_reindex(
             {
                 "config": config or None,
                 "user_id": user_id,
-                "target_collection": collection_name_for_settings(resolved),
+                "target_collection": target.collection_name,
             },
         )
     settled = False
