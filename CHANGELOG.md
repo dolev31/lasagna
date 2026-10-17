@@ -1424,6 +1424,10 @@ Servers and deployment:
   backticks included. A description is the docstring's prose as plain text,
   ending with what the tool returns, and each parameter's text is that
   parameter's `description` in the input schema, where clients look for it.
+- The `monot5` reranker failed on every install ("Error parsing line ... in
+  spiece.model"): its checkpoint ships only a SentencePiece tokenizer, and
+  `sentencepiece` was not a dependency. It is now a core dependency, and CI's
+  weights job runs monoT5 on its real checkpoint.
 
 ### Known issues
 

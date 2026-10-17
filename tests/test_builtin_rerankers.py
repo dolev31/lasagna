@@ -363,25 +363,18 @@ class TestCohere:
 
 
 # ---------------------------------------------------------------------------
-# Real models, when cached
+# Real models: run where cached, and in CI's weights job
 # ---------------------------------------------------------------------------
-
-
-def _cached(name):
-    try:
-        from huggingface_hub import try_to_load_from_cache
-    except ImportError:
-        return False
-    return isinstance(try_to_load_from_cache(name, "config.json"), str)
 
 
 QUESTION = "what is the capital of france"
 PASSAGES = ("Bananas are rich in potassium.", "Paris is the capital and largest city of France.")
 
 
-@pytest.mark.skipif(
-    not _cached("castorini/monot5-base-msmarco-10k"), reason="monoT5 checkpoint not cached"
-)
+# Marked, not skipped when uncached: CI's weights job downloads and runs it. It
+# used to skip everywhere, and monoT5 failed on every install for want of
+# sentencepiece (tests/test_monot5_loads_its_tokenizer.py) with nothing noticing.
+@pytest.mark.needs_embedding_weights("castorini/monot5-base-msmarco-10k")
 def test_monot5_prefers_the_passage_that_answers(monkeypatch):
     monkeypatch.setattr(rerankers.MonoT5Reranker, "_models", {})
     out = rerankers.MonoT5Reranker().rerank(QUESTION, _docs(*PASSAGES), top_k=2)

@@ -168,6 +168,7 @@ scikit-network==0.33.5
 scipy==1.18.1
 seaborn==0.13.2
 sentence-transformers==6.1.0
+sentencepiece==0.2.2
 sentry-sdk==2.71.0
 setuptools==84.0.0
 shellingham==1.5.4
