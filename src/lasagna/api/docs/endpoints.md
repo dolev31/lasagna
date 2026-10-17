@@ -180,7 +180,7 @@ Upload and index a document. Accepts multipart form data with a `file` field and
 
 By default (`async_processing` on, Celery off) the file is stored and handed to a background thread pool, and the response comes back before indexing finishes, with `status` `"processing"` and `chunks_count` `0`. Poll `GET /api/v1/documents/{document_id}/status` until it reads `ready`. With `async_processing` off the document is indexed in the request.
 
-`document_id` is an idempotency key: re-uploading with an id the session already owns replaces that document instead of creating a duplicate. An id that belongs to another session is refused with 404.
+`document_id` is an idempotency key: re-uploading with an id the session already owns replaces that document instead of creating a duplicate. The replacement is indexed in the request (the response reads `ready`); the old copy answers searches until the new chunks are stored, and then its chunks and file are removed and the quota counts the document once. A replacement that fails leaves the old copy as it was. An id that belongs to another session is refused with 404.
 
 Without a `document_id`, a file whose bytes the session already holds (ready or still processing) is not uploaded again: the response describes that document and names it in `duplicate_of`. Send `allow_duplicates=true` to index another copy.
 

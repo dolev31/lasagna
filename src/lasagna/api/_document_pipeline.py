@@ -175,13 +175,38 @@ class DocumentPipeline:
             filename: Original filename
             document_id: Optional explicit document ID. When provided, used
                 instead of generating a random UUID. Useful for benchmark
-                evaluation where corpus doc IDs must match qrels.
+                evaluation where corpus doc IDs must match qrels. An id the
+                session already holds replaces that document
+                (``_replace_document``, processed in this thread); one held
+                by another session raises ValueError.
             allow_duplicates: Index the file even when the session already
                 holds the same content.
 
         Returns:
             Document metadata
         """
+        if document_id is not None:
+            from lasagna.core.database import get_rag_database
+
+            held = get_rag_database().get_document(document_id)
+            if held is not None and held.get("session_id") != session_id:
+                raise ValueError(
+                    f"document_id {document_id!r} belongs to another session; choose another id."
+                )
+            if held is not None:
+                # The id names a document this session holds: its new copy
+                # replaces it (chunks, file and quota), in this thread. The old
+                # copy's chunks used to stay: twice in Milvus, past the new
+                # count where the store upserts, and the quota counted both.
+                return self._replace_document(
+                    held,
+                    source_path=file_path,
+                    filename=filename,
+                    counts_as_upload=True,
+                    _chunker_override=_chunker_override,
+                    _document_processor_override=_document_processor_override,
+                )
+
         if not (
             allow_duplicates
             or document_id is not None

@@ -463,6 +463,15 @@ Server and deployment:
   leaves the document searchable, and REST answers 400, 409, 410, 429 or 503
   saying so. A reindex no longer counts toward the hourly upload limit.
   `RAGBackend.reindex_document` is the shared implementation.
+- **Uploading under an existing `document_id` replaces the document.** The
+  API docs said it did, and the old copy's chunks, file and quota stayed: on
+  Milvus every chunk was stored twice and search returned the old text beside
+  the new; on Qdrant and pgvector the old chunks past the new count stayed;
+  the quota counted two documents. The new copy is indexed in the request
+  under new chunk ids, then the old chunks and file are removed and the quota
+  counts the difference; a replacement that fails leaves the old copy. An id
+  held by another session is refused by the SDK and the pipeline too, not
+  only by REST.
 - **A session can no longer point the server at another vector store.**
   Session settings (REST `/api/v1/config`, `/api/config/knowledge/profile` and
   `/import`, the MCP config tools, the config manager) accepted any key, and

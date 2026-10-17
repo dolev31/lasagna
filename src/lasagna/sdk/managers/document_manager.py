@@ -128,7 +128,9 @@ class DocumentManager:
             metadata: Optional custom metadata
             document_id: Optional explicit document ID. When provided,
                 used instead of a generated UUID. Useful for benchmark
-                evaluation where corpus doc IDs must match qrels.
+                evaluation where corpus doc IDs must match qrels. An id the
+                session already holds replaces that document: the new copy
+                is indexed before the old one is removed.
             allow_duplicates: Index the file even when the session already
                 holds the same content.
 
