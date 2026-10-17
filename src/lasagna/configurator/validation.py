@@ -85,9 +85,14 @@ def _check_types_against_defaults(
     result: ValidationResult,
     prefix: str = "",
 ) -> None:
+    from lasagna.core.config import _NULLABLE_TYPES
+
     for key, value in config.items():
         name = f"{prefix}{key}"
         expected = defaults.get(key) if isinstance(defaults, dict) else None
+        if value is not None and expected is None and not prefix and key in _NULLABLE_TYPES:
+            # A setting whose default is "unset" still takes one type.
+            expected = {int: 0, float: 0.0, str: ""}[_NULLABLE_TYPES[key]]
         if value is None or expected is None:
             continue
         if isinstance(expected, dict) and isinstance(value, dict):
@@ -95,6 +100,14 @@ def _check_types_against_defaults(
             continue
         if name not in covered and not _has_type_of(value, expected):
             result.add_error(name, f"Expected {_type_name(expected)}, got {type(value).__name__}")
+        elif (
+            name not in covered
+            and isinstance(expected, (list, tuple))
+            and expected
+            and all(isinstance(item, str) for item in expected)
+            and not all(isinstance(item, str) for item in value)
+        ):
+            result.add_error(name, "Expected a list of strings")
 
 
 def validate_config(
@@ -148,8 +161,16 @@ def validate_config(
                 result.add_error(p.key, f"Expected a non-empty name, got {value!r}")
         elif p.type == "enum" and p.enum_options:
             valid_values = {o.value for o in p.enum_options}
-            if value not in valid_values:
+            if not isinstance(value, str):
+                # An object here raised "unhashable type: 'dict'" from the
+                # membership test below, naming neither the key nor the type.
+                result.add_error(
+                    p.key, f"Expected one of {sorted(valid_values)}, got {type(value).__name__}"
+                )
+            elif value not in valid_values:
                 result.add_error(p.key, f"Invalid value '{value}'. Valid: {sorted(valid_values)}")
+        elif p.type == "string" and not isinstance(value, str):
+            result.add_error(p.key, f"Expected a string, got {type(value).__name__}")
         elif p.validate_as == "string_list":
             if not isinstance(value, list):
                 result.add_error(p.key, f"Expected list, got {type(value).__name__}")
@@ -206,7 +227,12 @@ def validate_config(
         "intfloat/e5-large-v2": 1024,
         "intfloat/multilingual-e5-large": 1024,
     }
-    if model in model_dims and dim is not None and dim != model_dims[model]:
+    if (
+        isinstance(model, str)
+        and model in model_dims
+        and dim is not None
+        and dim != model_dims[model]
+    ):
         result.add_warning(
             "embedding_dim",
             f"embedding_dim ({dim}) doesn't match expected dimension for {model} ({model_dims[model]}). "

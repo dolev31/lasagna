@@ -189,8 +189,23 @@ def sessions_with_documents() -> Optional[Dict[str, int]]:
     return {s: c.get("documents", 0) for s, c in counters.items() if c.get("documents")}
 
 
-def fix_for_session(session_id: str, model: str = "") -> str:
-    """What to run so that ``session_id`` can be searched, naming the sessions that can."""
+#: How each surface names a session, for the advice that names another one.
+#: The MCP server said "the X-Session-ID header ... or -s", neither of which an
+#: MCP caller has.
+_NAME_A_SESSION = {
+    "rest": "the X-Session-ID header (or a session token)",
+    "mcp": "the tool's session_id argument, or RAG_SESSION_ID in the server's env block",
+    "cli": "-s",
+    "sdk": "KnowledgeClient(session_id=...)",
+}
+
+
+def fix_for_session(session_id: str, model: str = "", *, surface: str = "rest") -> str:
+    """What to run so that ``session_id`` can be searched, naming the sessions that can.
+
+    ``surface`` (``rest``, ``mcp``, ``cli`` or ``sdk``) decides how the advice
+    says to name another session.
+    """
     populated = sessions_with_documents() or {}
     others = {s: n for s, n in populated.items() if s != session_id}
     parts = []
@@ -198,7 +213,7 @@ def fix_for_session(session_id: str, model: str = "") -> str:
         listed = ", ".join(f"{s} ({n})" for s, n in sorted(others.items()))
         parts.append(
             f"Session {session_id!r} has no documents. Sessions with documents: {listed}; "
-            f"name one with the X-Session-ID header, RAG_SESSION_ID or -s."
+            f"name one with {_NAME_A_SESSION.get(surface, _NAME_A_SESSION['rest'])}."
         )
     parts.append(fix_for_model(session_id, model))
     return " ".join(parts)
@@ -215,7 +230,9 @@ def fix_for_model(session_id: str, model: str = "") -> str:
         if session_configured(session_id)
         else f"Session {session_id!r} has no profile, so it uses the default model."
     )
-    download = f"hf download {model}" if model else "hf download <model>"
+    from lasagna.core.setup_text import download_command
+
+    download = download_command(model) if model else "hf download <model>"
     allow = "set RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS=true for the server"
     if offline():
         unset = "unset HF_HUB_OFFLINE" + (f" and {allow}" if _refusing else "")

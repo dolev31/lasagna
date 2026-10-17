@@ -646,7 +646,7 @@
     ]
   },
   "patch_rag_config": {
-    "description": "Apply configuration overrides to the current session.\n\nMerges the provided settings with the active profile's config. These overrides persist for the session duration. Only retrieval and generation settings: the vector store, collection, paths, URLs and credentials are the server's, and a patch naming one is refused.\n\nReturns: JSON object with updated configuration.",
+    "description": "Apply configuration overrides to the current session.\n\nMerges the provided settings with the active profile's config. These overrides persist for the session duration. Only retrieval and generation settings: the vector store, collection, paths, URLs and credentials are the server's, and a patch naming one is refused.\n\nReturns: JSON object naming each setting the patch changed, with its value before and after (get_rag_config shows the whole configuration).",
     "input_schema": {
       "properties": {
         "config_patch": {

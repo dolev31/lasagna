@@ -1576,11 +1576,13 @@ class RAGConfig:
         model = self.embedding_model
         if known_embedding_dim(model) is not None:
             return None
+        from lasagna.core.setup_text import download_command
+
         return (
             f"embedding_model is {model}, but embedding_dim was not set with it and the "
             f"model's size cannot be read (it is not downloaded). Set embedding_dim with the "
             f"model (RAG_EMBEDDING_DIM, or KnowledgeConfig(embedding_dim=...)), or download "
-            f"the model first (hf download {model})."
+            f"the model first ({download_command(model)})."
         )
 
     def _setting_rank(self, key: str) -> int:

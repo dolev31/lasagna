@@ -117,7 +117,7 @@ Tools that operate on data take an optional `session_id` (it scopes documents an
 | Tool | Description |
 | ---- | ----------- |
 | `get_rag_config` | Full resolved config for session (profile + overrides) |
-| `patch_rag_config` | Apply runtime overrides: pass JSON like `{"enable_reranking": false}` |
+| `patch_rag_config` | Apply runtime overrides: pass JSON like `{"enable_reranking": false}`; returns each setting it changed, before and after, and a wrong type is refused naming the key and the type it takes |
 | `reset_rag_config` | Reset to defaults. `scope="active"` clears overrides, `"all"` full reset *(all only)* |
 | `list_profiles` | List built-in + custom profiles |
 | `get_active_profile` | Current active profile name |

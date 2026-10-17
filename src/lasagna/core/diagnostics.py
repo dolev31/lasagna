@@ -122,13 +122,13 @@ def _check_optional_extras() -> List[Check]:
     return checks
 
 
-def _check_llm_credentials(env: Dict[str, Any]) -> Check:
+def _check_llm_credentials(env: Dict[str, Any], session_id: str = "default") -> Check:
     """Presence only. The names of the variables are fine to print; values never are."""
     if env.get("llm_credentials_present"):
         return Check("llm_credentials", _OK, "an LLM API key is configured")
     from .setup_text import llm_key_hint
 
-    return Check("llm_credentials", _WARN, "no LLM API key detected", llm_key_hint())
+    return Check("llm_credentials", _WARN, "no LLM API key detected", llm_key_hint(session_id))
 
 
 def _check_llm_sampling() -> Optional[Check]:
@@ -447,7 +447,7 @@ def diagnose(*, check_gh: bool = True, session_id: str = "default") -> Diagnosis
     checks: List[Check] = [
         _check_vector_backend(),
         _check_writable_dirs(),
-        _check_llm_credentials(env),
+        _check_llm_credentials(env, session_id),
         *filter(None, [_check_llm_sampling()]),
         _check_model_cache(session_id),
         *filter(None, [_check_session_documents(session_id)]),

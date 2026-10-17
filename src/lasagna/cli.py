@@ -522,6 +522,7 @@ def init():
             questionary.Choice("Pinecone (managed cloud)", value="pinecone"),
             questionary.Choice("Weaviate (self-hosted or cloud)", value="weaviate"),
             questionary.Choice("Qdrant (self-hosted or cloud)", value="qdrant"),
+            questionary.Choice("OpenSearch (self-hosted or AWS)", value="opensearch"),
         ],
     ).ask()
     if vector_backend is None:
@@ -537,13 +538,14 @@ def init():
         choices=[
             questionary.Choice(f"{label} ({profile_download_text(value)})", value=value)
             for label, value in (
-                ("Speed: vector search only, fastest", "speed"),
-                ("Standard: hybrid search and reranking, recommended", "standard"),
+                # As the README says: the first run downloads 92 MB and needs no key.
+                ("Speed: vector search only, no LLM, recommended to start", "speed"),
+                ("Standard: hybrid search, reranking, an LLM loop for complex queries", "standard"),
                 ("Balanced: standard plus hierarchical chunking", "balanced"),
                 ("Max quality: every retrieval feature on", "max_quality"),
             )
         ],
-        default="standard",
+        default="speed",
     ).ask()
     if profile is None:
         raise typer.Exit(0)

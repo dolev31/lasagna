@@ -1353,7 +1353,7 @@ CONTENT:
         return _RAG_DISABLED_MSG
     except ModelNotDownloaded as e:
         _log_tool_result("search", False, str(e), (time.time() - start_time) * 1000)
-        return f"Search failed: {e} {fix_for_session(session_id, e.model)}"
+        return f"Search failed: {e} {fix_for_session(session_id, e.model, surface='mcp')}"
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_failure("search failed", e)
@@ -2824,7 +2824,8 @@ def patch_rag_config(
     :param force: Apply a change of embedding model even when the session's
         documents would not be searched; reindex them afterwards with
         reindex_document.
-    :returns: JSON object with updated configuration.
+    :returns: JSON object naming each setting the patch changed, with its value
+        before and after (get_rag_config shows the whole configuration).
     """
     session_id, user_id = _resolve_session(session_id, session_token)
     start_time = time.time()
@@ -2869,12 +2870,26 @@ def patch_rag_config(
                 raise ValueError(
                     f"{' '.join(problems)} Nothing was changed for session {session_id!r}."
                 )
+        before = manager.get_resolved_config(session_id)
         manager.patch_config(patch, session_id, force=force)
-        result = manager.get_config(session_id, user_id=_profile_owner(user_id))
+        after = manager.get_resolved_config(session_id)
+        # What changed, not the whole configuration: the reply was every
+        # profile of the session, a few hundred lines for one setting.
+        changed = {
+            key: {"before": before.get(key), "after": after.get(key)}
+            for key in patch
+            if before.get(key) != after.get(key)
+        }
+        result = {
+            "session_id": session_id,
+            "active_profile": manager.get_active_profile(session_id=session_id),
+            "changed": changed,
+            "unchanged": sorted(key for key in patch if key not in changed),
+        }
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("patch_rag_config", True, f"keys={list(patch.keys())}", duration_ms)
-        return json.dumps(result, indent=2)
+        return json.dumps(result, indent=2, default=str)
 
     except json.JSONDecodeError as e:
         duration_ms = (time.time() - start_time) * 1000
