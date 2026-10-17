@@ -242,8 +242,10 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
 - Every setting has a `LASAGNA_` variable, which wins over the `RAG_` one; the
   `RAG_` names keep working with no warning. `config_for_quality()` is an alias
   of `config_for_max_quality()`.
-- `lasagna.sdk.__all__` lists the 33 names a client of a knowledge base
-  imports; every other name it listed still imports from `lasagna.sdk`.
+- `lasagna.sdk.__all__` lists the 40 names a client of a knowledge base
+  imports, among them the `KnowledgeError`s a settings change it cannot apply
+  raises (`DocumentsLeftBehind`, `ProfileCannotLoad`, `SettingsNotSaved`; it
+  logged a warning); every other name it listed still imports from it.
 
 #### Defaults that changed
 
@@ -256,7 +258,12 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   `RAG_SESSION_BACKEND=memory` keeps a process's sessions to itself.
   Concurrent changes from several processes are all kept; the evaluation
   harness keeps its sessions in its own process. A session's settings stay
-  while it holds documents, else `session_idle_days` (30) after last use.
+  while it holds documents, else `session_idle_days` (30; 0 keeps them) after
+  last use. A change the store does not save is refused (503 over REST); with
+  PostgreSQL every worker reads a session as last saved, with or without Redis.
+  A saved profile is its owner's: under auth a tenant cannot change a shared
+  one, and a re-save or delete that would strand another session's documents
+  is refused.
 - **One vector collection per embedding model**
   (`rag_documents_v2__<model>__<dim>`). An existing `rag_documents_v2` is kept
   under its name by the first model that opens it at its size. A switch that
@@ -264,7 +271,8 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   unless it reindexes them (`--reindex`) or is forced (`--force`), and a
   search or `lasagna doctor` on such a session says so. A `--reindex` switch
   holds the session (other writes get 409) and moves documents back if
-  stopped; `lasagna configure --resume-switch` finishes one whose process died.
+  stopped; `lasagna configure --resume-switch` finishes one whose process died,
+  and `lasagna configure --reset` drops a session's own settings.
 - **`lasagna benchmark run`** measures retrieval unless `--tracks` names
   generation, and starts from the `speed` profile.
 - **`lasagna-mcp`** speaks stdio and serves the `safe` tool set; `lasagna
@@ -293,8 +301,9 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   the server's download policy instead of downloading inside a request.
 - Uploads, reindexes and deletes of one document wait for each other across
   processes (a PostgreSQL advisory lock, or a file lock beside a SQLite store).
-  On PostgreSQL such a lock is waited for `RAG_STORE_LOCK_TIMEOUT` (300 s),
-  then the operation fails with 503.
+  Such a lock is waited for `RAG_STORE_LOCK_TIMEOUT` (300 s), then the
+  operation fails with 503. Two experiments on one vector store wait for each
+  other's corpus ingest, and a task whose corpus changed under it fails.
   A document that fails to index leaves no chunks behind, search returns
   chunks of ready documents only, and uploading a file again whose copies all
   failed retries the newest one under its id.
