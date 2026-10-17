@@ -63,7 +63,10 @@ Experiments:
 - **Sweeps** (`lasagna benchmark experiment sweep.yaml`) over components and
   settings, factorial designs, repeated runs and baseline arms; chunker and
   embedder arms get corpora of their own. A key the harness does not read is
-  an error naming the likely intended one.
+  an error naming the likely intended one, and a value out of its setting's
+  range is an error naming the arm, before anything is ingested and in
+  `--dry-run` too. The ranges are the same for an arm, a session, a settings
+  file and the environment.
 - **Your own data as a benchmark.** A JSONL or CSV file, or a BEIR folder:
   `benchmarks: [{path: data/my.jsonl}]` or `lasagna benchmark run ./my.jsonl`.
   It registers as `local/<stem>@<12 hex digits of its sha256>`, so an edited

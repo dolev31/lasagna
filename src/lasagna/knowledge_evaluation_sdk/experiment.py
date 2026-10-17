@@ -957,6 +957,51 @@ def _check_override_keys(pipeline_configs: List[Dict[str, Any]]) -> None:
         )
 
 
+def _check_override_values(pipeline_configs: List[Dict[str, Any]]) -> None:
+    """Refuse an arm whose settings the pipeline would refuse, before any corpus is ingested.
+
+    An arm's settings are validated when its task applies them, so
+    ``chunk_size: -5`` and ``hybrid_alpha: 7`` passed the dry run, failed two
+    tasks of three mid-sweep, and the run still printed a "Next:" step. The
+    same validator now checks every arm first (``validate_config``: the ranges
+    and types in ``configurator/schema.py``, which the environment's ranges
+    match), over the profile's settings as the task merges them. It checks
+    validity only: the caps on what a session may store are not applied, so
+    an arm may go past them.
+    """
+    import copy
+
+    from lasagna.configurator.validation import validate_config
+    from lasagna.core.pipeline import KnowledgePipeline
+
+    profiles: Dict[str, Dict[str, Any]] = {}
+    problems: List[str] = []
+    for pc in pipeline_configs:
+        settings = {
+            k: v
+            for k, v in (pc.get("overrides") or {}).items()
+            if k not in _COMPONENT_KEYS and k not in HARNESS_KEYS
+        }
+        if not settings:
+            continue
+        profile = pc.get("profile") or "standard"
+        if profile not in profiles:
+            profiles[profile] = dict(KnowledgePipeline.from_profile(profile)._config)
+        merged = copy.deepcopy(profiles[profile])
+        merged.update(settings)
+        result = validate_config(merged)
+        problems.extend(
+            f"arm {pc.get('name')!r}: {e['key']}: {e['message']}" for e in result.errors
+        )
+    if problems:
+        raise ValueError(
+            "These arms have settings the pipeline refuses, so their tasks would fail: "
+            + "; ".join(problems)
+            + ". Fix them in the sweep file; docs/reference/settings.md gives each "
+            "setting's range."
+        )
+
+
 def _load_component_references(
     pipeline_configs: List[Dict[str, Any]], search_paths: List[str]
 ) -> None:
@@ -1691,6 +1736,7 @@ class Experiment:
             )
         _check_profiles(pipeline_configs)
         _check_override_keys(pipeline_configs)
+        _check_override_values(pipeline_configs)
         _load_component_references(pipeline_configs, [cfg.base_dir] if cfg.base_dir else [])
         _check_components_exist(pipeline_configs)
         _check_components_conform(pipeline_configs)

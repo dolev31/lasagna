@@ -34,7 +34,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `vector_backend` | str | `"milvus"` | `LASAGNA_VECTOR_BACKEND`, `RAG_VECTOR_BACKEND` | Vector database backend to use. |
 | `vector_backend_config` | object | `{}` | `LASAGNA_VECTOR_BACKEND_CONFIG`, `RAG_VECTOR_BACKEND_CONFIG` | Backend-specific configuration. |
 | `collection_name` | str | `"rag_documents_v2"` | `LASAGNA_COLLECTION_NAME`, `RAG_COLLECTION_NAME` | The vector collection this configuration reads and writes. |
-| `embedding_dim` | int, 32 to 8192 | `1024` | `LASAGNA_EMBEDDING_DIM`, `RAG_EMBEDDING_DIM` | Vector size; an embedding_model set without one brings its own size. |
+| `embedding_dim` | int, 1 to 16384 | `1024` | `LASAGNA_EMBEDDING_DIM`, `RAG_EMBEDDING_DIM` | Vector size; an embedding_model set without one brings its own size. |
 | `metric_type` | str | `"COSINE"` | `LASAGNA_METRIC_TYPE`, `RAG_METRIC_TYPE` | vector similarity: COSINE, L2 or IP. |
 | `index_type` | str | `"HNSW"` | `LASAGNA_INDEX_TYPE`, `RAG_INDEX_TYPE` | dense index on servers; Milvus Lite always uses FLAT. |
 | `index_params` | object | `{"M": 16, "efConstruction": 256}` | `LASAGNA_INDEX_PARAMS`, `RAG_INDEX_PARAMS` | HNSW build parameters. |
@@ -58,8 +58,8 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | Setting | Type | Default | Environment variables | Description |
 |---|---|---|---|---|
 | `chunking_strategy` | str | `"hierarchical"` | `LASAGNA_CHUNKING_STRATEGY`, `RAG_CHUNKING_STRATEGY` | what runs: enable_hierarchical, then preserve_headers or preserve_tables, override another name. |
-| `chunk_size` | int, 50 to 100000 | `800` | `LASAGNA_CHUNK_SIZE`, `RAG_CHUNK_SIZE` | How large each piece of content should be (in characters). Smaller = more precise, larger = more context. |
-| `chunk_overlap` | int, 0 to 50000 | `0` | `LASAGNA_CHUNK_OVERLAP`, `RAG_CHUNK_OVERLAP` | Research: no measurable benefit from overlap (arXiv:2601.14123) |
+| `chunk_size` | int, 1 to 100000 | `800` | `LASAGNA_CHUNK_SIZE`, `RAG_CHUNK_SIZE` | How large each piece of content should be (in characters). Smaller = more precise, larger = more context. |
+| `chunk_overlap` | int, 0 to 100000 | `0` | `LASAGNA_CHUNK_OVERLAP`, `RAG_CHUNK_OVERLAP` | Research: no measurable benefit from overlap (arXiv:2601.14123) |
 | `semantic_threshold` | float | `0.75` | `LASAGNA_SEMANTIC_THRESHOLD`, `RAG_SEMANTIC_THRESHOLD` | How sensitive the smart splitter is to topic changes. Lower = more splits, higher = fewer splits. |
 | `semantic_breakpoint_method` | str | `"absolute"` | `LASAGNA_SEMANTIC_BREAKPOINT_METHOD`, `RAG_SEMANTIC_BREAKPOINT_METHOD` | How the semantic chunker picks breakpoints: 'absolute' or a Kamradt method. |
 | `semantic_breakpoint_amount` | float or none | none | `LASAGNA_SEMANTIC_BREAKPOINT_AMOUNT`, `RAG_SEMANTIC_BREAKPOINT_AMOUNT` | The breakpoint method's parameter; None uses the method's default. |
@@ -99,8 +99,8 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `enable_hybrid_search` | bool | `true` | `LASAGNA_ENABLE_HYBRID_SEARCH`, `RAG_ENABLE_HYBRID_SEARCH` | Finds results by both meaning and exact keywords, so it catches acronyms, IDs, and rare terms that pure AI search misses. |
 | `hybrid_alpha` | float, 0.0 to 1.0 | `0.7` | `LASAGNA_HYBRID_ALPHA`, `RAG_HYBRID_ALPHA` | Balance between understanding meaning (right) and matching exact words (left). Most documents work best around 0.7. |
 | `sparse_method` | str | `"bm25"` | `LASAGNA_SPARSE_METHOD`, `RAG_SPARSE_METHOD` | Which keyword-based retrieval method to use alongside AI vector search. |
-| `default_top_k` | int, 1 to 1000 | `20` | `LASAGNA_DEFAULT_TOP_K`, `RAG_DEFAULT_TOP_K` | Research: 75+ introduces hard negatives (ICLR 2025) |
-| `similarity_threshold` | float, -1.0 to 1.0 | `0.3` | `LASAGNA_SIMILARITY_THRESHOLD`, `RAG_SIMILARITY_THRESHOLD` | Cut applied to the per-query normalized score when the agentic loop or an evaluation's generation track searches. Searches from the CLI, REST, MCP and the SDK apply no threshold unless the request sets min_score. |
+| `default_top_k` | int, 1 to 10000 | `20` | `LASAGNA_DEFAULT_TOP_K`, `RAG_DEFAULT_TOP_K` | Research: 75+ introduces hard negatives (ICLR 2025) |
+| `similarity_threshold` | float, 0.0 to 1.0 | `0.3` | `LASAGNA_SIMILARITY_THRESHOLD`, `RAG_SIMILARITY_THRESHOLD` | Cut applied to the per-query normalized score when the agentic loop or an evaluation's generation track searches. Searches from the CLI, REST, MCP and the SDK apply no threshold unless the request sets min_score. |
 | `rrf_k` | int | `60` | `LASAGNA_RRF_K`, `RAG_RRF_K` | RRF constant for Reciprocal Rank Fusion. |
 | `enable_bm25_stemming` | bool | `true` | `LASAGNA_ENABLE_BM25_STEMMING`, `RAG_ENABLE_BM25_STEMMING` | Enable Porter stemming for BM25. |
 | `bm25_max_sessions` | int | `1000` | `LASAGNA_BM25_MAX_SESSIONS`, `RAG_BM25_MAX_SESSIONS` | Maximum number of in-memory BM25 session indices to keep. |
