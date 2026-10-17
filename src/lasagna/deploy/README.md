@@ -543,11 +543,12 @@ At runtime, `PATCH /api/v1/config` changes one session's search settings, and wi
   and the MCP server) keeps one pool of up to `RAG_DATABASE_POOL_MAX` connections (10).
   Uploads, reindexes, deletes, profile switches and session changes hold an advisory
   lock while they run, on a pooled connection while locks hold at most half the pool
-  and on a connection of their own beyond that, so a process uses at most the pool
-  plus one connection per lock it holds past that half. With the api's four workers,
-  plan for `max_connections` of at least `(workers + 2) x (pool + 5)` per replica. A
-  lock held by another process is waited for `RAG_STORE_LOCK_TIMEOUT` seconds (300),
-  then the operation fails and says so.
+  and on a connection of their own beyond that, at most half the pool's size of
+  those, so a process uses at most 1.5 times `RAG_DATABASE_POOL_MAX` connections (15).
+  With the api's four workers, plan for `max_connections` of at least
+  `(workers + 2) x (1.5 x pool)` per replica. A lock held by another process, or a
+  connection for one past that limit, is waited for `RAG_STORE_LOCK_TIMEOUT` seconds
+  (300), then the operation fails and says so.
 - **Data directory.** Lasagna keeps its data in `~/.lasagna` (`dbs/` and `uploads/`), or
   in `LASAGNA_DATA_DIR`; `LASAGNA_DB_DIR` and `LASAGNA_UPLOAD_DIR` move each part (the
   `RAG_` names also work). In the image the home directory is `/home/rag`, which is not

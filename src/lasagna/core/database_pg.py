@@ -402,8 +402,10 @@ class PostgresRAGDatabase:
         belongs to its connection, so the connection stays out of the pool
         until the lock is released, and a reindex holds its document's lock
         while it runs. Beyond that, a connection of its own, so locks never
-        starve the queries their holders make. Each lock had a connection of
-        its own, outside the pool, whatever the load.
+        starve the queries their holders make, and at most half the pool's
+        size of those (the whole size without a pool), waited for up to
+        ``RAG_STORE_LOCK_TIMEOUT`` and then ``StoreLockTimeout``: a process
+        holding many locks opened a connection for each, with no limit.
         """
         pool = getattr(self, "_pool", None)
         room = getattr(self, "_lock_slots", None)
@@ -424,15 +426,36 @@ class PostgresRAGDatabase:
             finally:
                 room.release()
             return
-        if self._driver == "psycopg3":
-            conn = _psycopg.connect(self._dsn, autocommit=True)
-        else:
-            conn = _psycopg2.connect(self._dsn)
-            conn.autocommit = True
+        own = getattr(self, "_own_lock_slots", None)
+        if own is None:
+            with self._lock:
+                if getattr(self, "_own_lock_slots", None) is None:
+                    cap = max(1, self._pool_max // 2) if pool is not None else self._pool_max
+                    self._own_lock_slots = (threading.BoundedSemaphore(cap), cap)
+            own = self._own_lock_slots
+        slots, cap = own
+        wait = lock_timeout_seconds()
+        if not slots.acquire(timeout=wait):
+            from .store_locks import StoreLockTimeout
+
+            raise StoreLockTimeout(
+                f"This process held {cap} store locks on connections of their own, beyond "
+                f"those on its pool, for more than {wait:g} seconds, so nothing was changed. "
+                f"Retry when they are done; RAG_STORE_LOCK_TIMEOUT sets the wait, and "
+                f"RAG_DATABASE_POOL_MAX the connections a process may open."
+            )
         try:
-            yield conn
+            if self._driver == "psycopg3":
+                conn = _psycopg.connect(self._dsn, autocommit=True)
+            else:
+                conn = _psycopg2.connect(self._dsn)
+                conn.autocommit = True
+            try:
+                yield conn
+            finally:
+                conn.close()
         finally:
-            conn.close()
+            slots.release()
 
     @contextmanager
     def exclusive(self, name: str, timeout: Optional[float] = None):
