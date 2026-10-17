@@ -620,6 +620,12 @@ Numbers that were wrong:
 
 Results tooling:
 
+- **A sweep naming an unknown benchmark started anyway.** `benchmarks: [{name:
+  smok}]` printed "Starting experiment", then failed every task with a quoted
+  `KeyError` listing every benchmark; `--dry-run` printed the list three times
+  and exited 0, and a missing local `path` also got as far as "Starting
+  experiment". Benchmark names and data files are checked first, in the run
+  and the dry run, with one error naming the closest benchmark and exit 1.
 - **A claim printed beside any benchmark.** Claims were keyed by metric
   alone, so `benchmark run smoke --reranker my_ideas:keyword_overlap` printed
   "claimed 0.4200 (Someone et al. 2026)" next to a 24-document smoke test, in

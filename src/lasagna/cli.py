@@ -1796,6 +1796,14 @@ def benchmark_experiment(
         console.print(f"Resuming from {escape(latest)}", soft_wrap=True)
 
     _require_vector_backend()
+    try:
+        tasks = exp.generate_tasks()
+    except (ValueError, TypeError, KeyError, ImportError) as exc:
+        # The pre-flight's refusals (unknown benchmark or component, a missing
+        # data file, wrong signature, a contract failure) end in one actionable
+        # sentence, before "Starting experiment"; a 40-line Rich traceback
+        # buried it, and an unknown benchmark failed every task instead.
+        _error(str(exc))
     cp = CheckpointManager(exp.config.checkpoint_dir or exp.config.effective_output_dir())
     if not resume:
         # When not resuming, clear any stale checkpoints from a previous run
@@ -1807,14 +1815,6 @@ def benchmark_experiment(
     console.print(f"  Benchmarks: {len(exp.config.benchmarks)}")
     console.print(f"  Runs: {exp.config.n_runs}")
     console.print(f"  Mode: {exp.config.mode}")
-
-    try:
-        tasks = exp.generate_tasks()
-    except (ValueError, TypeError, KeyError, ImportError) as exc:
-        # The pre-flight's refusals (unknown component, wrong signature, a
-        # contract failure) end in one actionable sentence; a 40-line Rich
-        # traceback buried it.
-        _error(str(exc))
     console.print(f"  Total tasks: {len(tasks)}")
     if resume:
         done = cp.completed_keys() & {t.task_key for t in tasks}
