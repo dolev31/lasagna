@@ -213,8 +213,15 @@ def _process_document_impl(
         # model and makes its collection ready.
         config = backend.get_session_config(session_id)
 
-        # Run the full processing pipeline
-        backend._document_pipeline.process_document(doc, file_path, config=config)
+        # Run the full processing pipeline. A retry, or a Celery message
+        # delivered again after its worker died, first removes the chunks the
+        # earlier attempt stored: Milvus `insert` kept both copies of each id.
+        backend._document_pipeline.process_document(
+            doc,
+            file_path,
+            config=config,
+            clear_previous_attempt=queued or retry_ctx.retries > 0,
+        )
 
         # Refresh from DB — must exist after processing
         updated = backend._get_document_metadata(document_id)

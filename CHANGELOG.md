@@ -1439,6 +1439,14 @@ Servers and deployment:
 - Two reindexes of one document at once left two copies after a model
   switch: the second read the row before the lock and replaced a copy the
   first had already retired. The row is now read under the lock.
+- **A document that fails to index leaves nothing for search to serve.** A
+  failure after the vector insert left the chunks in the store, and search
+  served chunks of failed documents and of documents still processing. Such a
+  failure now removes the inserted chunks, a retry or a Celery message
+  delivered again first removes what an earlier attempt stored (Milvus kept
+  both copies of each id), and search returns chunks of ready documents only.
+  A replacement keeps its row, file and chunks in agreement at every failure
+  point.
 
 ### Known issues
 

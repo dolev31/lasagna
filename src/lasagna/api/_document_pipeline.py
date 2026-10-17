@@ -834,17 +834,19 @@ class DocumentPipeline:
         partition_key: Optional[str],
         *,
         indexed_here: bool,
+        quiet: bool = False,
     ) -> None:
         """Remove chunks this processing inserted, best effort and logged.
 
         Ids of their own, so the document's other chunks (the copy a reindex
         replaces) are untouched. What cannot be removed here the orphan scan
         finds: a document's chunks with no row, or chunks no row counts.
+        ``quiet``: the insert itself failed, and may have stored none of them.
         """
         try:
             self._delete_chunk_ids(backend, collection, ids, partition_key)
         except Exception as exc:
-            logger.warning(
+            (logger.debug if quiet else logger.warning)(
                 f"Could not remove the {len(ids)} new chunk(s) of {document.document_id} from "
                 f"{collection!r} ({type(exc).__name__}: {exc}); the weekly orphan scan, "
                 "or POST /api/v1/admin/gc/repair?dry_run=false, removes them."
@@ -977,6 +979,7 @@ class DocumentPipeline:
         _document_processor_override: Any = None,
         *,
         replacing: Optional[Dict[str, Any]] = None,
+        clear_previous_attempt: bool = False,
     ):
         """Extract, chunk, embed and index an uploaded document.
 
@@ -988,6 +991,13 @@ class DocumentPipeline:
         ``_replace_document``). The new chunks go in under ids of their own;
         only then are the old ones removed and the row pointed at the new
         copy, so a failure before that leaves the old copy as it was.
+
+        A failure after the chunks are inserted removes them again (best
+        effort, logged; the orphan scan is the backstop): they used to stay,
+        and search served the chunks of a document that had failed.
+        ``clear_previous_attempt`` first removes chunks an earlier attempt at
+        this document left (a retry, a Celery message delivered again after its
+        worker died): Milvus ``insert`` kept both copies of each id.
         """
         start_time = _time.monotonic()
         logger.info(f"Processing document: {document.document_id}")
@@ -1286,12 +1296,15 @@ class DocumentPipeline:
         old_copy = (
             self._replaced_chunks(replacing, config, backend, partition_key) if replacing else None
         )
+        new_ids = [f"{chunk_prefix}_chunk_{idx}" for idx in range(len(chunk_entries))]
+        if clear_previous_attempt and not replacing:
+            self._clear_previous_attempt(document, backend, config, partition_key)
 
         def _insert_all_chunks() -> tuple[int, list[dict]]:
             batch_data = []
             chunks_for_bm25 = []
             for idx, (content, metadata, embedding, sparse_tokens) in enumerate(chunk_entries):
-                chunk_id = f"{chunk_prefix}_chunk_{idx}"
+                chunk_id = new_ids[idx]
                 insert_doc = {
                     "chunk_id": chunk_id,
                     "document_id": document.document_id,
@@ -1324,6 +1337,85 @@ class DocumentPipeline:
 
             return len(batch_data), chunks_for_bm25
 
+        inserted = False
+        try:
+            chunk_count, chunks_for_bm25 = self._insert_or_rebuild(
+                _insert_all_chunks, document, config, backend
+            )
+            inserted = True
+            if replacing:
+                self._retire_replaced_chunks(
+                    document, old_copy, config, backend, new_ids, partition_key
+                )
+                # From here the old copy's chunks are gone: the row is pointed at
+                # the new ones in one write, and what follows it cannot undo it.
+                processing_time = _time.monotonic() - start_time
+                self._commit_replacement(
+                    document,
+                    file_path,
+                    config,
+                    backend,
+                    chunk_count=chunk_count,
+                    processing_time=processing_time,
+                    text_length=text_length,
+                    preview_text=self._generate_preview_text(text),
+                )
+            else:
+                self._finish_new_document(
+                    document,
+                    config,
+                    chunks_for_bm25,
+                    parent_chunks_data,
+                    chunk_count=chunk_count,
+                    start_time=start_time,
+                    text_length=text_length,
+                    preview_text=self._generate_preview_text(text),
+                )
+        except Exception as exc:
+            self._discard_new_chunks(
+                document,
+                backend,
+                config.collection_name,
+                new_ids,
+                partition_key,
+                # A replacement indexes keywords only once committed; the old
+                # copy's entries stay with the old copy.
+                indexed_here=config.enable_hybrid_search and not replacing,
+                quiet=not inserted,
+            )
+            if inserted and not isinstance(exc, DocumentRemoved):
+                logger.info(
+                    f"Removed the chunks inserted for {document.document_id} after "
+                    f"{type(exc).__name__}"
+                )
+            raise
+
+        if replacing:
+            # The row names the new copy: what is left only maintains what is
+            # derived from it, so a failure is logged and not raised.
+            self._refresh_derived_state(document, config, chunks_for_bm25, parent_chunks_data)
+
+        _stage_times["insert"] = _time.monotonic() - _t_insert_start
+        processing_time = _time.monotonic() - start_time
+        logger.debug(
+            f"[DOC PROFILE] {document.document_id}: "
+            f"extract={_stage_times.get('extract_chunk', 0):.2f}s "
+            f"embed={_stage_times.get('embed', 0):.2f}s "
+            f"insert={_stage_times.get('insert', 0):.2f}s "
+            f"total={processing_time:.2f}s "
+            f"chunks={chunk_count}"
+        )
+        METRICS.counter("lasagna_ingests", 1, tags={"outcome": "ready"})
+
+        logger.info(
+            f"Document processed: {document.document_id} "
+            f"({chunk_count} chunks, {processing_time:.2f}s)"
+        )
+
+    def _insert_or_rebuild(
+        self, insert_all, document: Document, config: RAGConfig, backend: Any
+    ) -> tuple:
+        """``insert_all()``, rebuilding an empty collection of the wrong size or schema once."""
         _is_dim_mismatch_error = is_dim_mismatch_error
 
         def _is_schema_type_mismatch_error(exc: Exception) -> bool:
@@ -1337,7 +1429,7 @@ class DocumentPipeline:
             return _is_dim_mismatch_error(exc) or _is_schema_type_mismatch_error(exc)
 
         try:
-            chunk_count, chunks_for_bm25 = _insert_all_chunks()
+            return insert_all()
         except Exception as exc:
             if not _is_recoverable_schema_error(exc):
                 raise
@@ -1347,7 +1439,6 @@ class DocumentPipeline:
             # thread-safe methods — do NOT hold _rebuild_lock while calling
             # into collection manager (would risk deadlock with
             # _collection_init_lock).
-            should_rebuild = False
             with self._rebuild_lock:
                 if self._rebuilding:
                     raise RuntimeError(
@@ -1382,72 +1473,106 @@ class DocumentPipeline:
                     raise ValueError(error_msg) from exc
 
                 self._rebuilding = True
-                should_rebuild = True
 
             # Rebuild outside _rebuild_lock to avoid deadlock with _collection_init_lock
-            if should_rebuild:
-                try:
-                    mismatch_type = (
-                        "schema type"
-                        if _is_schema_type_mismatch_error(exc)
-                        else "embedding dimension"
-                    )
-                    logger.warning(
-                        f"Insert failed due to {mismatch_type} mismatch. "
-                        f"Rebuilding collection '{config.collection_name}' and retrying."
-                    )
-                    self._collection_manager.recreate_collection_for_config(config, backend=backend)
-                    if config.enable_hybrid_search:
-                        self.hybrid_searcher.clear_session(document.session_id)
-                    chunk_count, chunks_for_bm25 = _insert_all_chunks()
-                finally:
-                    with self._rebuild_lock:
-                        self._rebuilding = False
+            try:
+                mismatch_type = (
+                    "schema type" if _is_schema_type_mismatch_error(exc) else "embedding dimension"
+                )
+                logger.warning(
+                    f"Insert failed due to {mismatch_type} mismatch. "
+                    f"Rebuilding collection '{config.collection_name}' and retrying."
+                )
+                self._collection_manager.recreate_collection_for_config(config, backend=backend)
+                if config.enable_hybrid_search:
+                    self.hybrid_searcher.clear_session(document.session_id)
+                return insert_all()
+            finally:
+                with self._rebuild_lock:
+                    self._rebuilding = False
 
-        if replacing:
-            self._retire_replaced_chunks(
-                document,
-                old_copy,
-                config,
-                backend,
-                [c["chunk_id"] for c in chunks_for_bm25],
-                partition_key,
+    def _clear_previous_attempt(
+        self, document: Document, backend: Any, config: RAGConfig, partition_key: Optional[str]
+    ) -> None:
+        """Remove the chunks an earlier attempt at this new document left in its collection.
+
+        Raised, not logged: indexing on top of them would serve each passage twice.
+        """
+        try:
+            backend.delete(
+                collection_name=config.collection_name,
+                filter_expr=FilterExpression.eq("document_id", document.document_id),
+                partition_key=partition_key,
             )
+        except Exception as exc:
+            raise RuntimeError(
+                f"The chunks an earlier attempt at {document.document_id} left in "
+                f"{config.collection_name!r} could not be removed ({type(exc).__name__}: "
+                f"{exc}), so it was not indexed again."
+            ) from exc
 
-        # Index for BM25 hybrid search
+    def _finish_new_document(
+        self,
+        document: Document,
+        config: RAGConfig,
+        chunks_for_bm25: List[Dict[str, Any]],
+        parent_chunks_data: Any,
+        *,
+        chunk_count: int,
+        start_time: float,
+        text_length: int,
+        preview_text: str,
+    ) -> None:
+        """Index a new document's chunks for keyword search, store its parents, mark it ready."""
+        from lasagna.core.database import get_rag_database
+
         if config.enable_hybrid_search:
-            if replacing:
-                self.hybrid_searcher.remove_document(document.document_id, document.session_id)
             self.hybrid_searcher.index_chunks(chunks_for_bm25, document.session_id, build_now=False)
         self._record_content_change(document.session_id, indexed_here=config.enable_hybrid_search)
 
-        from lasagna.core.database import get_rag_database
-
-        if replacing:
-            get_rag_database().delete_parent_chunks_by_document(document.document_id)
         # Store parent chunks in SQLite for auto-merge retrieval
         if parent_chunks_data:
-            rag_db = get_rag_database()
-            parent_count = rag_db.save_parent_chunks(parent_chunks_data)
+            parent_count = get_rag_database().save_parent_chunks(parent_chunks_data)
             logger.info(f"Stored {parent_count} parent chunks for document {document.document_id}")
 
-        _stage_times["insert"] = _time.monotonic() - _t_insert_start
-
-        # Generate and store preview text for document awareness
-        preview_text = self._generate_preview_text(text)
-
-        # Update document status
-        processing_time = _time.monotonic() - start_time
-        logger.debug(
-            f"[DOC PROFILE] {document.document_id}: "
-            f"extract={_stage_times.get('extract_chunk', 0):.2f}s "
-            f"embed={_stage_times.get('embed', 0):.2f}s "
-            f"insert={_stage_times.get('insert', 0):.2f}s "
-            f"total={processing_time:.2f}s "
-            f"chunks={chunk_count}"
+        recorded = self._update_document_status(
+            document.document_id,
+            DocumentStatus.READY,
+            chunks_count=chunk_count,
+            processing_time=_time.monotonic() - start_time,
+            text_length=text_length,
+            preview_text=preview_text,
         )
-        if replacing:
-            # One write: the row names the new file, collection and counts.
+        if recorded is False:
+            # Deleted while it was processed (by a path that does not wait for
+            # the document's lock): its chunks would stay with no row.
+            raise DocumentRemoved(
+                f"Document {document.document_id} was deleted while it was being processed, "
+                "so the chunks just made for it were removed."
+            )
+
+    def _commit_replacement(
+        self,
+        document: Document,
+        file_path: str,
+        config: RAGConfig,
+        backend: Any,
+        *,
+        chunk_count: int,
+        processing_time: float,
+        text_length: int,
+        preview_text: str,
+    ) -> None:
+        """Point the row at the new copy (file, collection and counts) in one write.
+
+        Runs after the old copy's chunks are retired, so a failure here would
+        leave a row naming chunks that are gone: the new chunks are removed by
+        the caller and the document is marked failed, with the way out, when
+        that can still be written.
+        """
+        from lasagna.core.database import get_rag_database
+
+        try:
             recorded = get_rag_database().update_document_fields(
                 document.document_id,
                 {
@@ -1467,37 +1592,61 @@ class DocumentPipeline:
                     "collection_name": config.collection_name,
                 },
             )
-        else:
-            recorded = self._update_document_status(
-                document.document_id,
-                DocumentStatus.READY,
-                chunks_count=chunk_count,
-                processing_time=processing_time,
-                text_length=text_length,
-                preview_text=preview_text,
+        except Exception as exc:
+            reason = (
+                f"Its previous chunks were removed, and the new copy could not be recorded "
+                f"({type(exc).__name__}: {exc}). Reindex it again."
             )
+            try:
+                self._update_document_status(
+                    document.document_id, DocumentStatus.ERROR, error_message=reason
+                )
+            except Exception as status_exc:
+                logger.warning(f"Could not mark {document.document_id} failed: {status_exc}")
+            raise RuntimeError(f"Reindex of {document.document_id} failed. {reason}") from exc
         if recorded is False:
-            # Deleted while it was processed (by a path that does not wait for
-            # the document's lock): its new chunks would stay in the vector
-            # store with no row.
-            self._discard_new_chunks(
-                document,
-                backend,
-                config.collection_name,
-                [c["chunk_id"] for c in chunks_for_bm25],
-                partition_key,
-                indexed_here=config.enable_hybrid_search,
-            )
             raise DocumentRemoved(
                 f"Document {document.document_id} was deleted while it was being processed, "
                 "so the chunks just made for it were removed."
             )
-        METRICS.counter("lasagna_ingests", 1, tags={"outcome": "ready"})
 
-        logger.info(
-            f"Document processed: {document.document_id} "
-            f"({chunk_count} chunks, {processing_time:.2f}s)"
-        )
+    def _refresh_derived_state(
+        self,
+        document: Document,
+        config: RAGConfig,
+        chunks_for_bm25: List[Dict[str, Any]],
+        parent_chunks_data: Any,
+    ) -> None:
+        """The keyword index and parent chunks of a replaced document; logged, never raised."""
+        from lasagna.core.database import get_rag_database
+
+        indexed_here = config.enable_hybrid_search
+        if indexed_here:
+            try:
+                self.hybrid_searcher.remove_document(document.document_id, document.session_id)
+                self.hybrid_searcher.index_chunks(
+                    chunks_for_bm25, document.session_id, build_now=False
+                )
+            except Exception as exc:
+                # Recorded as a change made elsewhere, so this process rebuilds too.
+                indexed_here = False
+                logger.warning(
+                    f"Keyword index not updated for {document.document_id}: {exc}; it is "
+                    "rebuilt from the vector store on the next search."
+                )
+        self._record_content_change(document.session_id, indexed_here=indexed_here)
+        try:
+            get_rag_database().delete_parent_chunks_by_document(document.document_id)
+            if parent_chunks_data:
+                parent_count = get_rag_database().save_parent_chunks(parent_chunks_data)
+                logger.info(
+                    f"Stored {parent_count} parent chunks for document {document.document_id}"
+                )
+        except Exception as exc:
+            logger.warning(
+                f"Parent chunks of {document.document_id} not stored ({exc}); auto-merge "
+                "returns its chunks unmerged until it is reindexed."
+            )
 
     # File extensions natively supported by Docling's DocumentConverter.
     # Plain text (.txt), JSON, and XML are NOT supported — they fall back
@@ -1913,7 +2062,14 @@ class DocumentPipeline:
         )
 
     def get_documents_metadata_batch(self, document_ids: List[str]) -> Dict[str, Document]:
-        """Get document metadata for multiple documents in a single query."""
+        """The documents search may return chunks of, by id, in one query: ready ones.
+
+        Search attaches each chunk to its document's row through this, and a
+        chunk without one is dropped. Archived documents were left out, while
+        a failed document, or one still processing, was served: its chunks
+        stay in the store when the failure came after the insert, or until
+        its row is marked ready.
+        """
         from lasagna.core.database import get_rag_database
 
         if not document_ids:
@@ -1928,6 +2084,8 @@ class DocumentPipeline:
         result = {}
 
         for row in rag_db.get_documents_batch(valid_ids):
+            if row.get("status", DocumentStatus.READY.value) != DocumentStatus.READY.value:
+                continue
             upload_date = row.get("upload_date")
             if isinstance(upload_date, str):
                 upload_date = datetime.fromisoformat(upload_date)
