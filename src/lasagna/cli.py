@@ -449,7 +449,12 @@ def _benchmark_store() -> None:
     from . import providers
     from .core import paths
     from .core.config import rag_config, reset_rag_config
-    from .core.local_server import lite_store_locked
+    from .core.local_server import _served_here, lite_store_locked
+
+    def held(path: str) -> bool:
+        # This process's own Milvus Lite server holds its store too; that is
+        # this process using it, not another one holding it.
+        return lite_store_locked(path) and not _served_here(path)
 
     if (rag_config.vector_backend or "milvus") != "milvus":
         return
@@ -457,11 +462,11 @@ def _benchmark_store() -> None:
     if backend.get("uri") or os.environ.get("MILVUS_URI"):
         return
     store = str(backend.get("db_path") or paths.db_dir() / "rag_milvus.db")
-    if not lite_store_locked(store):
+    if not held(store):
         return
     own = paths.data_dir() / "bench" / "dbs"
     chosen = bool(backend.get("db_path") or paths.env_get("DB_DIR"))
-    if chosen or lite_store_locked(str(own / "rag_milvus.db")):
+    if chosen or held(str(own / "rag_milvus.db")):
         _error(
             f"Another process is using the local store at {store} (a running `lasagna "
             f"serve`, an MCP server or another benchmark), so this benchmark cannot open "

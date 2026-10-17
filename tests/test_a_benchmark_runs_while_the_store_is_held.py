@@ -197,3 +197,21 @@ def test_the_benchmark_commands_choose_the_store_before_anything_reads_the_confi
     assert out.returncode == 0, out.stderr
     seen = json.loads(out.stdout.strip().splitlines()[-1])
     assert seen == [{"created": False, "bound": []}] * 2
+
+
+def test_a_store_this_process_serves_is_not_another_processs(data_dir, sweep, monkeypatch):
+    """Milvus Lite's server is a child of the process that opened the store, and holds
+    its lock: an earlier search in the same process made every later benchmark
+    command refuse the store as "in use by another process"."""
+    from lasagna.core import local_server
+
+    store = data_dir / "dbs" / "rag_milvus.db"
+    monkeypatch.setattr(local_server, "_served_here", lambda path: path == str(store))
+    fd = _hold(store)
+    try:
+        result = runner.invoke(cli.app, ["benchmark", "experiment", "sweep.yaml"])
+    finally:
+        os.close(fd)
+    assert result.exit_code == 0, result.output
+    assert "uses its own" not in result.output and "cannot open it" not in result.output
+    assert sweep["db_dir"] == str(data_dir / "dbs")
