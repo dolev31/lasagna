@@ -60,9 +60,9 @@ Keep the quotes in step 5. The run directory is named after the sweep's `name`,
 and free text can hold spaces or a `?`, which the shell would split or expand
 (zsh stops with "no matches found").
 
-Without `--profile speed`, step 3 runs the `standard` profile, which downloads
-about 3.1 GB of models. `benchmark run` measures retrieval unless asked for
-more; `--tracks retrieval,generation` adds answer generation, which needs an
+`benchmark run` starts from the `speed` profile when `--profile` is not given;
+`--profile standard` downloads about 3.1 GB of models. It measures retrieval
+unless asked for more; `--tracks retrieval,generation` adds answer generation, which needs an
 LLM API key and the `eval` extra.
 
 Step 4 is the one the template exists for, and it needs `sweep.yaml` rather

@@ -727,6 +727,10 @@ Results tooling:
 
 First run:
 
+- `docs/configuration.md`, the evaluation skill and the plugin template said
+  `benchmark run` starts from `standard` (a 3.1 GB download); it starts from
+  `speed`. They now say so, and that a sweep file without `base_profile:`
+  starts from `standard`; a test checks each page against the code.
 - `lasagna init` asked "LLM provider?" and threw the answer away: it wrote
   only `vector_backend`, yet the summary said "LLM: OpenAI, gpt-6-luna". The
   question is gone, since the provider follows the API key exported in the

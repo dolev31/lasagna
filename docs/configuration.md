@@ -104,8 +104,9 @@ profile's pipeline instead, and the result names `agentic` in
 every query to the agentic loop. `speed` is the
 profile that never calls an LLM and downloads no large model. A benchmark run
 picks its profile with
-`lasagna benchmark run --profile`, or `base_profile:` in a sweep file, and
-`lasagna benchmark run` starts from `standard` unless told otherwise.
+`lasagna benchmark run --profile`, or `base_profile:` in a sweep file.
+`lasagna benchmark run` starts from `speed` unless told otherwise, and a sweep
+file without `base_profile:` starts from `standard`.
 
 ## Where data lives
 
