@@ -1322,6 +1322,30 @@ class TestTheSessionStoreAcrossWorkers:
             ).json()["session_overrides"]
             assert {k: stored.get(k) for k in changes} == changes, stored
 
+    def test_a_patch_on_one_worker_reaches_every_worker_within_a_second(self, own_session_headers):
+        """Without Redis each worker kept the copy of a session it had read, for good.
+
+        With ``RAG_CACHE_BACKEND=memory`` every process had an in-memory store
+        of the sessions it read that nothing invalidated, so after a patch on
+        one worker another kept answering with the old value. Every worker
+        reads PostgreSQL at most a second after a change now.
+        """
+        fresh = {**own_session_headers, "Connection": "close"}
+
+        def read(session):
+            return session.get(f"{BASE_URL}/config", headers=fresh, timeout=DEFAULT_TIMEOUT)
+
+        # Every worker reads the session first, so each holds a copy of it.
+        _at_once([read] * 8)
+        for value in (5, 6, 7):
+            changed = http.patch(
+                f"{BASE_URL}/config", json={"rerank_top_k": value}, headers=fresh, timeout=15
+            )
+            assert changed.status_code == 200, changed.text
+            time.sleep(1.5)  # the recheck interval (1 s), and a margin
+            seen = [r.json()["rerank_top_k"] for r in _at_once([read] * 8)]
+            assert seen == [value] * 8, seen
+
     def test_profiles_saved_on_several_workers_are_all_kept(self):
         names = [f"live-{uuid.uuid4().hex[:6]}-{i}" for i in range(6)]
 

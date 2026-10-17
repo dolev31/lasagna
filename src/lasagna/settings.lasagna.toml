@@ -604,7 +604,7 @@ soft_delete_grace_hours = 24
 # Env override: RAG_GC_ERROR_RETENTION_DAYS
 error_retention_days = 7
 
-# Days of inactivity before a session is eligible for cleanup.
+# Days of inactivity before a session is eligible for cleanup; 0 disables it.
 # Env override: RAG_GC_SESSION_IDLE_DAYS
 session_idle_days = 30
 

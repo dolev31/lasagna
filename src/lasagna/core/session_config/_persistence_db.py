@@ -16,10 +16,12 @@ from loguru import logger
 
 from ._data_models import (
     ANONYMOUS,
+    MAX_CACHED_SESSIONS,
     SESSION_TTL_SECONDS,
     RAGProfile,
     KnowledgeConfigState,
     kept_in_process,
+    not_saved,
     session_idle_seconds,
 )
 
@@ -65,13 +67,21 @@ def _get_pg_db():
 
 
 def _get_cache():
-    """Get the session store (Redis or in-memory) for caching."""
-    try:
-        from lasagna.infrastructure.session_store import get_session_store
+    """The session cache every worker shares (Redis), or None.
 
-        return get_session_store()
+    Not a store of this process alone (``RAG_CACHE_BACKEND=memory``, the
+    default): nothing tells it that another worker changed a session, so a
+    worker that had served a session kept that copy for the life of the
+    process. PostgreSQL is read instead, at most once a second per session
+    (``_adopt_persisted_session``).
+    """
+    try:
+        from lasagna.infrastructure.session_store import InMemorySessionStore, get_session_store
+
+        store = get_session_store()
     except Exception:
         return None
+    return None if isinstance(store, InMemorySessionStore) else store
 
 
 class DatabasePersistenceMixin:
@@ -143,7 +153,7 @@ class DatabasePersistenceMixin:
             )
             self._cache_profiles(profile.user_id or ANONYMOUS)
         except Exception as exc:
-            logger.warning(f"Failed to save profile {profile.name!r} to PostgreSQL: {exc}")
+            raise not_saved(f"profile {profile.name!r}", exc) from exc
 
     def _delete_global_profile(self, profile: RAGProfile) -> None:
         """Delete one saved profile's row."""
@@ -151,7 +161,7 @@ class DatabasePersistenceMixin:
             _get_pg_db().delete_profile(profile.user_id or ANONYMOUS, profile.name)
             self._cache_profiles(profile.user_id or ANONYMOUS)
         except Exception as exc:
-            logger.warning(f"Failed to delete profile {profile.name!r} from PostgreSQL: {exc}")
+            raise not_saved(f"the deletion of profile {profile.name!r}", exc) from exc
 
     def _load_session_states(self) -> None:
         """Load session states from PostgreSQL.
@@ -160,34 +170,14 @@ class DatabasePersistenceMixin:
         single session — first from Redis cache, then PostgreSQL.  This avoids
         pulling all sessions into memory on every request.
 
-        When ``self._session_id`` is None (startup / singleton mode), loads all
-        active sessions within the TTL window.
+        Without one (the process's own manager, which the session provider
+        keeps) nothing is read now: each session is read when it is first
+        asked for, and at most ``MAX_CACHED_SESSIONS`` are kept. Every session
+        used in the last day was read at startup and kept, with no limit.
         """
         target_session = getattr(self, "_session_id", None)
-
         if target_session:
-            # Request-scoped: load only the target session
             self._load_single_session(target_session)
-            return
-
-        # Startup / singleton mode: load all active sessions
-        try:
-            db = _get_pg_db()
-            rows = db.get_active_sessions(max_age_seconds=SESSION_TTL_SECONDS)
-
-            loaded_count = 0
-            for row in rows:
-                session_id = row.get("session_id")
-                if not session_id:
-                    continue
-                state_data = self._row_to_state_data(row)
-                self._session_states[session_id] = self._state_from_dict(state_data)
-                loaded_count += 1
-
-            if loaded_count:
-                logger.info(f"Loaded {loaded_count} active session(s) from PostgreSQL")
-        except Exception as exc:
-            logger.warning(f"Failed to load session states from PostgreSQL: {exc}")
 
     def _load_single_session(self, session_id: str) -> None:
         """Load a single session from Redis cache → PostgreSQL."""
@@ -205,8 +195,11 @@ class DatabasePersistenceMixin:
                 state_data = self._row_to_state_data(row)
                 state = self._state_from_dict(state_data)
                 self._session_states[session_id] = state
-                # Warm the Redis cache for subsequent requests
-                self._cache_session(session_id, state)
+                # Only where Redis holds nothing: a worker that saved a change
+                # since this row was read has written Redis after PostgreSQL,
+                # and this older row put over it stayed there, the TTL sliding
+                # on every read.
+                self._cache_session(session_id, state, only_if_absent=True)
         except Exception as exc:
             logger.debug(f"Failed to load session {session_id} from PostgreSQL: {exc}")
 
@@ -218,6 +211,7 @@ class DatabasePersistenceMixin:
             "session_overrides": row.get("session_overrides", {}),
             "rag_enabled": row.get("rag_enabled", True),
             "focused_document_ids": row.get("focused_document_ids", []),
+            "user_id": row.get("user_id") or ANONYMOUS,
             "last_accessed": (
                 row["last_accessed"].timestamp()
                 if hasattr(row.get("last_accessed"), "timestamp")
@@ -233,20 +227,14 @@ class DatabasePersistenceMixin:
         """
         pass
 
-    def _delete_persisted_session(self, session_id: str) -> None:
-        """Delete a single session from PostgreSQL + Redis cache."""
+    def _delete_persisted_session(self, session_id: str) -> bool:
+        """Delete a single session from PostgreSQL and Redis; whether a row was there."""
         try:
-            db = _get_pg_db()
-            db.delete_session(session_id)
-            # Invalidate Redis cache
-            cache = _get_cache()
-            if cache:
-                try:
-                    cache.delete(f"{self._CACHE_PREFIX_SESSION}{session_id}")
-                except Exception:
-                    pass
+            deleted = bool(_get_pg_db().delete_session(session_id))
         except Exception as exc:
-            logger.warning(f"Failed to delete session {session_id} from PostgreSQL: {exc}")
+            raise not_saved(f"the deletion of session {session_id!r}'s settings", exc) from exc
+        self._forget_cached_session(session_id)
+        return deleted
 
     def _persist_session_states(self) -> None:
         """Persist session states to PostgreSQL + Redis cache."""
@@ -291,6 +279,14 @@ class DatabasePersistenceMixin:
             return None
         return self._row_to_state_data(row) if isinstance(row, dict) and row else None
 
+    def _sessions_on_profile(self, profile_name: str) -> Optional[List[Dict[str, Any]]]:
+        """The stored sessions on ``profile_name`` (id, owner, overrides); None when unknown."""
+        lister = getattr(_get_pg_db(), "list_sessions_on_profile", None)
+        if lister is None:
+            return None  # a stand-in store
+        rows = lister(profile_name)
+        return rows if isinstance(rows, list) else None
+
     def _touch_persisted_session(self, session_id: str) -> None:
         """Record in PostgreSQL that the session is in use."""
         try:
@@ -299,25 +295,32 @@ class DatabasePersistenceMixin:
             logger.debug(f"Could not record the use of session {session_id}: {exc}")
 
     def _persist_single_session(self, session_id: str) -> None:
-        """Persist a single session (more efficient than persisting all)."""
+        """Persist one session; ``SettingsNotSaved`` when PostgreSQL does not take it.
+
+        A failure was logged, and the change answered as made.
+        """
         if kept_in_process(session_id):
             return  # the evaluation harness's: this process's only
         state = self._session_states.get(session_id)
         if state is None:
             return
+        # Redis's copy goes first: if writing the new one fails after the
+        # PostgreSQL write, readers read PostgreSQL rather than the old copy.
+        self._forget_cached_session(session_id)
         try:
             db = _get_pg_db()
             state_dict = {
-                "user_id": getattr(self, "_user_id", "__anonymous__"),
+                # Whose profile of that name the session is on, as SQLite keeps it.
+                "user_id": getattr(state, "user_id", None) or ANONYMOUS,
                 "active_profile": state.active_profile,
                 "session_overrides": state.session_overrides,
                 "rag_enabled": state.rag_enabled,
                 "focused_document_ids": state.focused_document_ids,
             }
             db.save_session(session_id, state_dict)
-            self._cache_session(session_id, state)
         except Exception as exc:
-            logger.warning(f"Failed to persist session {session_id} to PostgreSQL: {exc}")
+            raise not_saved(f"the settings of session {session_id!r}", exc) from exc
+        self._cache_session(session_id, state)
 
     def _cleanup_old_sessions(self) -> None:
         """Remove expired sessions from PostgreSQL.
@@ -343,23 +346,27 @@ class DatabasePersistenceMixin:
 
         try:
             db = _get_pg_db()
-            count = db.cleanup_expired_sessions(max_age_seconds=session_idle_seconds())
+            idle = session_idle_seconds()  # None: session_idle_days = 0 keeps them
+            count = db.cleanup_expired_sessions(max_age_seconds=idle) if idle is not None else 0
 
-            # Also clean up in-memory cache
-            expired = []
-            for session_id, state in self._session_states.items():
-                if now - state.last_accessed > SESSION_TTL_SECONDS:
-                    expired.append(session_id)
+            # Also clean up in-memory cache, and keep at most
+            # MAX_CACHED_SESSIONS of it (the least recently used go), as SQLite does.
+            expired = [
+                session_id
+                for session_id, state in self._session_states.items()
+                if now - state.last_accessed > SESSION_TTL_SECONDS
+            ]
+            excess = len(self._session_states) - len(expired) - MAX_CACHED_SESSIONS
+            if excess > 0:
+                kept = sorted(
+                    (item for item in self._session_states.items() if item[0] not in expired),
+                    key=lambda item: item[1].last_accessed,
+                )
+                expired += [session_id for session_id, _ in kept[:excess]]
 
             for session_id in expired:
                 del self._session_states[session_id]
-                # Invalidate Redis cache
-                cache = _get_cache()
-                if cache:
-                    try:
-                        cache.delete(f"{self._CACHE_PREFIX_SESSION}{session_id}")
-                    except Exception:
-                        pass
+                self._session_checked_at.pop(session_id, None)
 
             if expired or count:
                 logger.debug(
@@ -372,8 +379,10 @@ class DatabasePersistenceMixin:
     # Redis cache helpers
     # ------------------------------------------------------------------
 
-    def _cache_session(self, session_id: str, state: KnowledgeConfigState) -> None:
-        """Write session state to Redis cache."""
+    def _cache_session(
+        self, session_id: str, state: KnowledgeConfigState, *, only_if_absent: bool = False
+    ) -> None:
+        """Write session state to Redis; ``only_if_absent`` (a refill) never replaces a copy."""
         cache = _get_cache()
         if cache is None:
             return
@@ -383,11 +392,26 @@ class DatabasePersistenceMixin:
                 "session_overrides": state.session_overrides,
                 "rag_enabled": state.rag_enabled,
                 "focused_document_ids": state.focused_document_ids,
+                "user_id": getattr(state, "user_id", None) or ANONYMOUS,
                 "last_accessed": state.last_accessed,
             }
-            cache.save(f"{self._CACHE_PREFIX_SESSION}{session_id}", cache_data)
+            key = f"{self._CACHE_PREFIX_SESSION}{session_id}"
+            if not only_if_absent:
+                cache.save(key, cache_data)
+            elif hasattr(cache, "save_if_absent"):
+                cache.save_if_absent(key, cache_data)
         except Exception as exc:
             logger.debug(f"Failed to cache session {session_id}: {exc}")
+
+    def _forget_cached_session(self, session_id: str) -> None:
+        """Drop Redis's copy of the session, if there is a Redis."""
+        cache = _get_cache()
+        if cache is None:
+            return
+        try:
+            cache.delete(f"{self._CACHE_PREFIX_SESSION}{session_id}")
+        except Exception as exc:
+            logger.debug(f"Failed to drop the cached session {session_id}: {exc}")
 
     def _cache_profiles(self, user_id: str) -> None:
         """Write profile list to Redis cache."""

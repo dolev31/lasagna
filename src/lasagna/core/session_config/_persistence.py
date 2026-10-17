@@ -17,6 +17,7 @@ from ._data_models import (
     MAX_CACHED_SESSIONS,
     RAGProfile,
     kept_in_process,
+    not_saved,
     session_idle_seconds,
 )
 
@@ -214,14 +215,14 @@ class PersistenceMixin:
                 description=profile.description,
             )
         except Exception as exc:
-            logger.warning(f"Failed to save profile {profile.name!r} to database: {exc}")
+            raise not_saved(f"profile {profile.name!r}", exc) from exc
 
     def _delete_global_profile(self, profile: RAGProfile) -> None:
         """Delete one saved profile's row."""
         try:
             _get_db().delete_profile(profile.user_id or ANONYMOUS, profile.name)
         except Exception as exc:
-            logger.warning(f"Failed to delete profile {profile.name!r} from database: {exc}")
+            raise not_saved(f"the deletion of profile {profile.name!r}", exc) from exc
 
     def _load_session_states(self) -> None:
         """Load session states from SQLite."""
@@ -258,13 +259,12 @@ class PersistenceMixin:
         """
         pass
 
-    def _delete_persisted_session(self, session_id: str) -> None:
-        """Delete a single session from SQLite."""
+    def _delete_persisted_session(self, session_id: str) -> bool:
+        """Delete a single session from SQLite; whether a row was there."""
         try:
-            db = _get_db()
-            db.delete_session(session_id)
+            return bool(_get_db().delete_session(session_id))
         except Exception as exc:
-            logger.warning(f"Failed to delete session {session_id} from database: {exc}")
+            raise not_saved(f"the deletion of session {session_id!r}'s settings", exc) from exc
 
     def _read_persisted_session(
         self, session_id: str, *, fresh: bool = False
@@ -289,6 +289,14 @@ class PersistenceMixin:
             "user_id": row.get("user_id", "__anonymous__"),
         }
 
+    def _sessions_on_profile(self, profile_name: str) -> Optional[List[Dict[str, Any]]]:
+        """The stored sessions on ``profile_name`` (id, owner, overrides); None when unknown."""
+        lister = getattr(_get_db(), "list_sessions_on_profile", None)
+        if lister is None:
+            return None  # a stand-in store
+        rows = lister(profile_name)
+        return rows if isinstance(rows, list) else None
+
     def _touch_persisted_session(self, session_id: str) -> None:
         """Record in SQLite that the session is in use."""
         try:
@@ -297,10 +305,11 @@ class PersistenceMixin:
             logger.debug(f"Could not record the use of session {session_id}: {exc}")
 
     def _persist_single_session(self, session_id: str) -> None:
-        """Persist one session.
+        """Persist one session; ``SettingsNotSaved`` when the store does not take it.
 
         Writing every cached session on each change put this process's stale
-        copies of sessions another process had changed back over them.
+        copies of sessions another process had changed back over them. A
+        failure was logged, and the change answered as made.
         """
         if kept_in_process(session_id):
             return  # the evaluation harness's: this process's only
@@ -322,7 +331,7 @@ class PersistenceMixin:
                 },
             )
         except Exception as exc:
-            logger.warning(f"Failed to persist session {session_id} to database: {exc}")
+            raise not_saved(f"the settings of session {session_id!r}", exc) from exc
 
     def _persist_session_states(self) -> None:
         """Persist session states to SQLite."""
@@ -363,7 +372,9 @@ class PersistenceMixin:
         db_count = 0
         try:
             db = _get_db()
-            db_count = db.cleanup_expired_sessions(max_age_seconds=session_idle_seconds())
+            idle = session_idle_seconds()  # None: session_idle_days = 0 keeps them
+            if idle is not None:
+                db_count = db.cleanup_expired_sessions(max_age_seconds=idle)
         except Exception as exc:
             logger.warning(f"SQLite session cleanup failed: {exc}")
 

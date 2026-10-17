@@ -91,6 +91,14 @@ class DocumentBusy(RuntimeError):
     """The document is being processed or is archived, so it is not replaced now; REST 409."""
 
 
+class ReplacementNotRecorded(RuntimeError):
+    """A reindex removed the old chunks and could not record the new copy, whose chunks it removed.
+
+    The document has no chunks until it is reindexed again; a profile switch
+    reindexes it back with the session's settings.
+    """
+
+
 class DocumentRemoved(DocumentNotFound):
     """The document was deleted while it was being processed; REST answers 404 with why.
 
@@ -1665,6 +1673,17 @@ class DocumentPipeline:
         """
         from lasagna.core.database import get_rag_database
 
+        # An archive made while this ran (by a process that did not wait for
+        # the document's lock) is kept: READY was written over it.
+        try:
+            now = get_rag_database().get_document(document.document_id) or {}
+        except Exception:  # noqa: BLE001 - the write below says what the store can do
+            now = {}
+        status = (
+            DocumentStatus.SOFT_DELETED.value
+            if str(now.get("status") or "").lower() == "soft_deleted"
+            else DocumentStatus.READY.value
+        )
         try:
             recorded = get_rag_database().update_document_fields(
                 document.document_id,
@@ -1674,7 +1693,7 @@ class DocumentPipeline:
                     "file_size": document.file_size,
                     "file_type": document.file_type,
                     "upload_date": document.upload_date.isoformat(),
-                    "status": DocumentStatus.READY.value,
+                    "status": status,
                     "error_message": None,
                     "chunks_count": chunk_count,
                     "processing_time": processing_time,
@@ -1696,7 +1715,9 @@ class DocumentPipeline:
                 )
             except Exception as status_exc:
                 logger.warning(f"Could not mark {document.document_id} failed: {status_exc}")
-            raise RuntimeError(f"Reindex of {document.document_id} failed. {reason}") from exc
+            raise ReplacementNotRecorded(
+                f"Reindex of {document.document_id} failed. {reason}"
+            ) from exc
         if recorded is False:
             raise DocumentRemoved(
                 f"Document {document.document_id} was deleted while it was being processed, "

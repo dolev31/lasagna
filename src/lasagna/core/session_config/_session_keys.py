@@ -12,9 +12,13 @@ that say where data lives or how the server reaches it.
 
 from __future__ import annotations
 
+import json
+import math
 import os
 import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+
+from lasagna.sdk.exceptions import ConfigurationError
 
 #: Settings inside a stage that decide where vectors live or how the index is
 #: built, and the model the server falls back to when the session's cannot
@@ -67,7 +71,7 @@ _THIRD_PARTY_COMPONENTS = {"embedder": {"openai", "cohere", "voyage"}, "reranker
 _DOT_SEGMENT = re.compile(r"(^|[\\/])\.{1,2}([\\/]|$)")
 
 
-class SessionSettingRefused(ValueError):
+class SessionSettingRefused(ConfigurationError, ValueError):
     """A session tried to set something only the server's own settings may set."""
 
 
@@ -178,6 +182,13 @@ _LIST_KEYS_WITHOUT_DEFAULT = ("ensemble_reranker_models", "ensemble_reranker_wei
 #: The longest list a session may give a list setting ``SESSION_MAXIMUMS`` does not name.
 LIST_MAXIMUM = 20
 
+#: The most entries a dict setting may hold for a session, when ``SESSION_MAXIMUMS``
+#: does not name it, and the most bytes it may take as JSON (``agentic_prompts``,
+#: ``agentic_models``, ``search_params``, ...). A dict had no limit: 5,000 prompts of
+#: 1 KB each were stored, and every patch merged more into the stored row.
+DICT_MAXIMUM = 50
+DICT_MAXIMUM_BYTES = 16_384
+
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -213,8 +224,36 @@ def list_session_keys() -> List[str]:
     return sorted(set(names))
 
 
+def number_problems(config: Mapping[str, Any]) -> List[Tuple[str, str]]:
+    """``(key, why)`` for each number in ``config`` that is NaN, infinite or a negative count.
+
+    Nested ones too (``search_params.ef``). Every comparison with NaN is
+    false, so a maximum alone let it through: ``hybrid_alpha`` and
+    ``similarity_threshold`` stored NaN (and PostgreSQL then refused the row,
+    JSONB has no NaN), and ``hybrid_fusion_depth`` and ``search_params.ef``
+    stored negative counts. No setting has a negative count.
+    """
+    found = []
+    for key, value in config.items():
+        items = value.items() if isinstance(value, dict) else [(None, value)]
+        for child, item in items:
+            name = f"{key}.{child}" if child is not None else key
+            if isinstance(item, float) and not math.isfinite(item):
+                found.append((name, f"is {item}; numbers are finite"))
+            elif isinstance(item, int) and not isinstance(item, bool) and item < 0:
+                found.append((name, f"is {item}; a count is not negative"))
+    return found
+
+
 def _past_maximum(key: str, value: Any) -> Optional[str]:
     """Why ``value`` is too large for a session's ``key``, or None."""
+    if isinstance(value, dict):
+        cap = int(SESSION_MAXIMUMS.get(key, DICT_MAXIMUM))
+        if len(value) > cap:
+            return f"has at most {cap} entries for a session ({len(value)} given)"
+        size = len(json.dumps(value, default=str))
+        if size > DICT_MAXIMUM_BYTES:
+            return f"is at most {DICT_MAXIMUM_BYTES} bytes as JSON for a session ({size} given)"
     if isinstance(value, (list, tuple)):
         cap = int(SESSION_MAXIMUMS.get(key, LIST_MAXIMUM))
         if len(value) > cap:

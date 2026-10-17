@@ -51,6 +51,9 @@ methods as `RAGBackend` (`upload_document`, `search`, `get_documents`, ...), so 
 not know which they hold. A client method that needs a local-only feature checks
 `KnowledgeClient._is_remote`.
 
-**Embedding-size guard.** Applying runtime config can raise `EmbeddingSizeConflict`
-(`api/_profile_guard.py`) when the change would leave the session's stored vectors at another
-size; the client surfaces it rather than writing the override.
+**Refusals.** Applying runtime config raises when the session does not take it:
+`DocumentsLeftBehind` or `EmbeddingSizeConflict` when the change would leave the session's
+documents unsearched, `ProfileCannotLoad` when a model cannot load here, `ReindexFailed`, and
+`SettingsNotSaved` when the store did not record it. Each is a `KnowledgeError` and imports from
+`lasagna.sdk` (`from lasagna.sdk import DocumentsLeftBehind`). Until the settings apply, every
+operation raises again and `get_config_dict()` reports the session's settings in force.

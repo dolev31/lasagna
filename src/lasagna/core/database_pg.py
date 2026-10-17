@@ -402,8 +402,10 @@ class PostgresRAGDatabase:
         belongs to its connection, so the connection stays out of the pool
         until the lock is released, and a reindex holds its document's lock
         while it runs. Beyond that, a connection of its own, so locks never
-        starve the queries their holders make. Each lock had a connection of
-        its own, outside the pool, whatever the load.
+        starve the queries their holders make, and at most half the pool's
+        size of those (the whole size without a pool), waited for up to
+        ``RAG_STORE_LOCK_TIMEOUT`` and then ``StoreLockTimeout``: a process
+        holding many locks opened a connection for each, with no limit.
         """
         pool = getattr(self, "_pool", None)
         room = getattr(self, "_lock_slots", None)
@@ -424,18 +426,40 @@ class PostgresRAGDatabase:
             finally:
                 room.release()
             return
-        if self._driver == "psycopg3":
-            conn = _psycopg.connect(self._dsn, autocommit=True)
-        else:
-            conn = _psycopg2.connect(self._dsn)
-            conn.autocommit = True
+        own = getattr(self, "_own_lock_slots", None)
+        if own is None:
+            with self._lock:
+                if getattr(self, "_own_lock_slots", None) is None:
+                    size = getattr(self, "_pool_max", 10)
+                    cap = max(1, size // 2) if pool is not None else max(1, size)
+                    self._own_lock_slots = (threading.BoundedSemaphore(cap), cap)
+            own = self._own_lock_slots
+        slots, cap = own
+        wait = lock_timeout_seconds()
+        if not slots.acquire(timeout=wait):
+            from .store_locks import StoreLockTimeout
+
+            raise StoreLockTimeout(
+                f"This process held {cap} store locks on connections of their own, beyond "
+                f"those on its pool, for more than {wait:g} seconds, so nothing was changed. "
+                f"Retry when they are done; RAG_STORE_LOCK_TIMEOUT sets the wait, and "
+                f"RAG_DATABASE_POOL_MAX the connections a process may open."
+            )
         try:
-            yield conn
+            if self._driver == "psycopg3":
+                conn = _psycopg.connect(self._dsn, autocommit=True)
+            else:
+                conn = _psycopg2.connect(self._dsn)
+                conn.autocommit = True
+            try:
+                yield conn
+            finally:
+                conn.close()
         finally:
-            conn.close()
+            slots.release()
 
     @contextmanager
-    def exclusive(self, name: str):
+    def exclusive(self, name: str, timeout: Optional[float] = None):
         """Hold the lock ``name`` against every process using this database.
 
         A session-level advisory lock (``pg_advisory_lock``) on a connection
@@ -445,7 +469,7 @@ class PostgresRAGDatabase:
         check of an upload, and every change to a session's settings take it.
         A thread may take a lock it already holds. Waited for at most
         ``RAG_STORE_LOCK_TIMEOUT`` seconds (300), then ``StoreLockTimeout``:
-        it waited for ever.
+        it waited for ever. ``timeout`` replaces that wait (0 tries once).
         """
         from .store_locks import HeldLocks, StoreLockTimeout, lock_key, lock_timeout_message
 
@@ -462,17 +486,24 @@ class PostgresRAGDatabase:
             finally:
                 held[key] -= 1
             return
-        timeout = lock_timeout_seconds()
+        timeout = lock_timeout_seconds() if timeout is None else max(0.0, float(timeout))
         with self._lock_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(f"SET lock_timeout = {int(timeout * 1000)}")
-                try:
-                    cur.execute("SELECT pg_advisory_lock(%s)", (key,))
-                except Exception as exc:
-                    if _sqlstate(exc) == "55P03":  # lock_not_available
-                        raise StoreLockTimeout(lock_timeout_message(name, timeout)) from exc
-                    raise
-                cur.execute("SET lock_timeout = 0")
+                if timeout <= 0:
+                    # lock_timeout = 0 waits for ever: try once instead.
+                    cur.execute("SELECT pg_try_advisory_lock(%s)", (key,))
+                    row = cur.fetchone()
+                    if not (row and row[0]):
+                        raise StoreLockTimeout(lock_timeout_message(name, timeout))
+                else:
+                    cur.execute(f"SET lock_timeout = {max(1, int(timeout * 1000))}")
+                    try:
+                        cur.execute("SELECT pg_advisory_lock(%s)", (key,))
+                    except Exception as exc:
+                        if _sqlstate(exc) == "55P03":  # lock_not_available
+                            raise StoreLockTimeout(lock_timeout_message(name, timeout)) from exc
+                        raise
+                    cur.execute("SET lock_timeout = 0")
             held[key] = 1
             try:
                 yield
@@ -1338,6 +1369,31 @@ class PostgresRAGDatabase:
                                 d[field] = {} if field == "session_overrides" else []
                     rows.append(d)
                 return rows
+
+    def list_sessions_on_profile(self, profile_name: str) -> List[Dict[str, Any]]:
+        """``session_id``, ``user_id`` and ``session_overrides`` of each session on ``profile_name``."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT session_id, user_id, session_overrides FROM rag_sessions "
+                    "WHERE active_profile = %s",
+                    (profile_name,),
+                )
+                found = []
+                for session_id, user_id, overrides in cur.fetchall():
+                    if isinstance(overrides, str):
+                        try:
+                            overrides = json.loads(overrides)
+                        except (json.JSONDecodeError, TypeError):
+                            overrides = {}
+                    found.append(
+                        {
+                            "session_id": session_id,
+                            "user_id": user_id,
+                            "session_overrides": overrides or {},
+                        }
+                    )
+                return found
 
     def delete_session(self, session_id: str) -> bool:
         """Delete a single session by ID."""

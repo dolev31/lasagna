@@ -173,6 +173,16 @@ from .exceptions import (
 _LAZY_IMPORTS = {
     # Primary (MCP client)
     "MCPKnowledgeClient": (".integrations.mcp_client", "MCPKnowledgeClient"),
+    # What a settings change, a profile switch or a reindex refuses with: each a
+    # ConfigurationError or KnowledgeError, and ValueError as before (ReindexFailed:
+    # RuntimeError; SettingsNotSaved, the store did not record it: BackendError).
+    "EmbeddingSizeConflict": ("..api._profile_guard", "EmbeddingSizeConflict"),
+    "DocumentsLeftBehind": ("..api._profile_guard", "DocumentsLeftBehind"),
+    "ProfileSwitchInProgress": ("..api._profile_guard", "ProfileSwitchInProgress"),
+    "ProfileCannotLoad": ("..api._profile_switch", "ProfileCannotLoad"),
+    "ReindexFailed": ("..api._profile_switch", "ReindexFailed"),
+    "UnknownProfileError": ("..core.session_config._data_models", "UnknownProfileError"),
+    "SettingsNotSaved": ("..core.session_config._data_models", "SettingsNotSaved"),
     # Managers
     "DocumentManager": (".managers", "DocumentManager"),
     "SearchManager": (".managers", "SearchManager"),
@@ -293,6 +303,13 @@ _LAZY_IMPORTS = {
 # _LAZY_IMPORTS.
 if TYPE_CHECKING:
     from .integrations.mcp_client import MCPKnowledgeClient
+    from ..api._profile_guard import (
+        EmbeddingSizeConflict,
+        DocumentsLeftBehind,
+        ProfileSwitchInProgress,
+    )
+    from ..api._profile_switch import ProfileCannotLoad, ReindexFailed
+    from ..core.session_config._data_models import SettingsNotSaved, UnknownProfileError
     from .managers import (
         DocumentManager,
         SearchManager,
@@ -562,4 +579,12 @@ __all__ = [
     "ProfileNotFoundError",
     "BackendError",
     "BackendConnectionError",
+    # What a settings change or a profile switch refuses with
+    "EmbeddingSizeConflict",
+    "DocumentsLeftBehind",
+    "ProfileSwitchInProgress",
+    "ProfileCannotLoad",
+    "ReindexFailed",
+    "UnknownProfileError",
+    "SettingsNotSaved",
 ]

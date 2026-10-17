@@ -510,11 +510,16 @@ class KnowledgeClient:
         REST and MCP, which refuse that change.
 
         Skipped for remote backends — the remote server manages its own config.
+
+        Every failure raises (a refusal, a model that cannot load, a store
+        that did not save them), and every later operation of the client
+        tries again until they apply. A failure other than a refusal was
+        logged and skipped: ``set_config(..., reindex=True)`` returned with
+        nothing reindexed, and the client named a model the session did not
+        search with.
         """
         if self._is_remote:
             return
-        from ..api._profile_guard import EmbeddingSizeConflict
-
         try:
             from ..providers import get_session_provider
             from ._config_bridge import get_runtime_overrides
@@ -522,17 +527,10 @@ class KnowledgeClient:
             overrides = get_runtime_overrides(self._config)
             session_provider = get_session_provider()
 
-            # Remove stale keys: previously bridged but no longer overridden
+            # Keys bridged before and no longer set: removed once the rest is
+            # written, so a refused write leaves the session as it was.
             new_keys = set(overrides.keys())
             stale_keys = self._bridged_runtime_keys - new_keys
-            if stale_keys:
-                session_provider.remove_config_overrides(
-                    self._session_id,
-                    stale_keys,
-                )
-                logger.debug(
-                    f"Removed stale bridge overrides from session {self._session_id}: {stale_keys}"
-                )
 
             # Write current overrides, unless the session has them already
             from ..core.config import get_rag_config
@@ -540,32 +538,41 @@ class KnowledgeClient:
             read = getattr(session_provider, "get_resolved_config", None)
             current = (read(self._session_id) if read is not None else None) or {}
             changed = overrides and _changes(current, overrides, get_rag_config())
-            if overrides and (force or reindex or changed):
-                self._write_settings(session_provider, overrides, force=force, reindex=reindex)
+            if (overrides and (force or reindex or changed)) or stale_keys:
+                self._write_settings(
+                    session_provider, overrides, force=force, reindex=reindex, stale=stale_keys
+                )
+            if stale_keys:
+                session_provider.remove_config_overrides(self._session_id, stale_keys)
+                logger.debug(
+                    f"Removed stale bridge overrides from session {self._session_id}: {stale_keys}"
+                )
 
             self._bridged_runtime_keys = new_keys
             self._settings_refused = None
             logger.debug(
                 f"Runtime config applied to session {self._session_id}: {len(overrides)} keys"
             )
-        except EmbeddingSizeConflict as refused:
-            # The store refused this client's settings. Skipping quietly would
-            # run its searches on the session's other model instead.
-            self._settings_refused = refused
+        except Exception as failed:
+            # Skipping it would run this client's searches on the session's
+            # other settings while it reports its own.
+            self._settings_refused = failed
             raise
-        except Exception as e:
-            # The session store is the metadata database by default, which can
-            # fail to write; then this client searches with the session's
-            # stored settings, not its own.
-            logger.warning(
-                f"This client's settings could not be applied to session "
-                f"{self._session_id!r}, so it searches with the session's stored settings: {e}"
-            )
 
     def _write_settings(
-        self, session_provider, overrides: Dict[str, Any], *, force: bool, reindex: bool
+        self,
+        session_provider,
+        overrides: Dict[str, Any],
+        *,
+        force: bool,
+        reindex: bool,
+        stale: Optional[set] = None,
     ) -> None:
-        """Write this client's settings to its session, or refuse them (see ``_apply_runtime_config``)."""
+        """Write this client's settings to its session, or refuse them (see ``_apply_runtime_config``).
+
+        ``stale``: keys this client set before and no longer does; the
+        caller removes them after this write.
+        """
         from ..core.session_config import get_knowledge_config_manager
         from ..core.session_config._data_models import _resolve
 
@@ -578,26 +585,50 @@ class KnowledgeClient:
             # overrides: every document is reindexed with them first, and
             # the session changes only once all are.
             state = mgr.get_session_state(sid)
+            kept = {k: v for k, v in state.session_overrides.items() if k not in (stale or ())}
             switch_profile(
                 mgr,
                 state.active_profile,
                 session_id=sid,
                 reindex=True,
-                config={**state.session_overrides, **overrides},
+                config={**kept, **overrides},
                 backend=self._backend,
             )
             return
-        if not force:
+        if force:
+            # As `lasagna configure --force` does: forced past the documents,
+            # the models must still load, or every search fails after it.
+            from ..api._profile_guard import documents_now
+            from ..api._profile_switch import ProfileCannotLoad, reranker_warning, unloadable_models
+
+            settings = {**mgr.get_chosen_config(sid), **overrides}
+            problems = unloadable_models(settings)
+            rerank = reranker_warning(settings)
+            if rerank and not problems:
+                logger.warning(rerank)  # searches skip it, as they say
+            if problems:
+                now = documents_now(sid, mgr.get_resolved_config(sid))
+                raise ProfileCannotLoad(
+                    f"These settings cannot be used here: {' '.join(problems)}"
+                    + (f" {rerank}" if rerank else "")
+                    + f" Nothing was changed for session {sid!r}."
+                    + (f" {now}" if now else "")
+                )
+        else:
             # Before any write, in either session store: the in-memory one
             # would otherwise search another collection in this process only.
             state = mgr.get_session_state(sid)
+            active = state.get_active_profile()
+            kept = {k: v for k, v in state.session_overrides.items() if k not in (stale or ())}
             mgr._refuse_unsearchable(
                 state,
-                _resolve(state.get_resolved_config(), overrides),
+                _resolve(_resolve(active.config if active else {}, kept), overrides),
                 change="This client's settings",
                 session_id=sid,
                 remedy=_SDK_REMEDY,
             )
+        if not overrides:
+            return  # only keys to remove, which the caller does
         if getattr(session_provider, "_delegates_to_manager", False):
             # This process's own settings: every key may be set, but not
             # past the session's documents unless forced.
@@ -938,7 +969,14 @@ class KnowledgeClient:
         if reindex or force:
             await self._get_backend_for_settings()
         self._config = self._config.with_updates(**kwargs)
+        # Raises when the session did not take them; until it does (a later
+        # set_config(reindex=True) or force=True applies them), every
+        # operation says so and get_config_dict() reports the session's.
+        await self._apply_updated_config(kwargs, reindex=reindex, force=force)
+        logger.info(f"Config updated: {list(kwargs.keys())}")
 
+    async def _apply_updated_config(self, kwargs: Dict[str, Any], *, reindex: bool, force: bool):
+        """Apply ``set_config``'s new settings to the session (see ``set_config``)."""
         if self._is_remote:
             logger.warning(
                 "set_config() on a remote client only affects local SDK behavior "
@@ -963,18 +1001,15 @@ class KnowledgeClient:
             else:
                 self._apply_runtime_config(force=force)
 
-        logger.info(f"Config updated: {list(kwargs.keys())}")
-
     async def _get_backend_for_settings(self) -> None:
-        """The backend, for a reindex or a forced write; a refusal of the
+        """The backend, for a reindex or a forced write; a failure to apply the
         client's settings so far is what that call resolves, not an error."""
         if self._backend is None and not self._is_remote:
-            from ..api._profile_guard import EmbeddingSizeConflict
-
             try:
                 await self._get_backend()
-            except EmbeddingSizeConflict:
-                pass
+            except Exception:
+                if self._backend is None:
+                    raise  # the backend itself failed, not the settings
 
     def use_preset(self, preset: str) -> None:
         """Apply a configuration preset.
@@ -1022,10 +1057,37 @@ class KnowledgeClient:
     def get_config_dict(self) -> Dict[str, Any]:
         """Get current configuration as dictionary.
 
+        While the client's settings are not applied to its session (refused,
+        or not saved), the settings it sets are reported as the session has
+        them in force, not as asked.
+
         Returns:
             Dictionary with all configuration values
         """
-        return self._config.to_dict()
+        data = self._config.to_dict()
+        if self._settings_refused is not None and self._backend is not None:
+            data.update(self._settings_in_force(data))
+        return data
+
+    def _settings_in_force(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """The session's values, in force now, of the runtime fields this client sets."""
+        from ..core.config import rag_config
+        from ._config_bridge import RUNTIME_FIELD_MAP, get_set_fields
+
+        try:
+            config = rag_config.with_session(self._session_id)
+        except Exception:  # noqa: BLE001 - the client's own values are all there is
+            return {}
+        in_force = {}
+        for field_name in get_set_fields(self._config):
+            key = RUNTIME_FIELD_MAP.get(field_name)
+            if key is None or field_name not in data:
+                continue
+            try:
+                in_force[field_name] = getattr(config, key)
+            except Exception:  # noqa: BLE001 - a key the config does not resolve
+                continue
+        return in_force
 
     # =========================================================================
     # Lifecycle policy
@@ -1216,11 +1278,13 @@ class KnowledgeClient:
 
         try:
             # 1. Delete all documents (includes vector DB cleanup)
+            documents_left = False
             try:
                 result["documents_deleted"] = await self.documents.delete_all(confirm=True)
             except Exception as e:
                 logger.warning(f"Document deletion partial failure: {e}")
                 result["errors"].append(f"documents: {e}")
+                documents_left = True
 
             # 2. Clear all citations
             try:
@@ -1229,15 +1293,24 @@ class KnowledgeClient:
                 logger.warning(f"Citation clearing partial failure: {e}")
                 result["errors"].append(f"citations: {e}")
 
-            # 3. Clear backend session state (cache, BM25, config)
-            try:
-                backend = await self._get_backend()
-                backend_result = backend.clear_session_state(self._session_id)
-                result["cache_invalidated"] = backend_result.get("cache_invalidated", False)
-                result["session_cleared"] = backend_result.get("session_cleared", False)
-            except Exception as e:
-                logger.warning(f"Backend session cleanup partial failure: {e}")
-                result["errors"].append(f"session_state: {e}")
+            # 3. Clear backend session state (cache, BM25, config), unless
+            # documents remain: their settings are what searches them, and
+            # cleared, the ones left were searched with the default model.
+            if documents_left:
+                result["errors"].append(
+                    "session_state: the session's settings were kept, since some of its "
+                    "documents could not be deleted; delete them (client.documents.delete) "
+                    "and call delete_session again"
+                )
+            else:
+                try:
+                    backend = await self._get_backend()
+                    backend_result = backend.clear_session_state(self._session_id)
+                    result["cache_invalidated"] = backend_result.get("cache_invalidated", False)
+                    result["session_cleared"] = backend_result.get("session_cleared", False)
+                except Exception as e:
+                    logger.warning(f"Backend session cleanup partial failure: {e}")
+                    result["errors"].append(f"session_state: {e}")
 
             # 4. Clear client-side state
             self._focused_document_ids = None

@@ -57,6 +57,14 @@ class ValidationMixin:
         if not result.valid:
             messages = "; ".join(f"{e['key']}: {e['message']}" for e in result.errors)
             raise ValueError(f"Invalid configuration: {messages}")
+        # What the configurator's ranges do not cover (a NaN passes every
+        # comparison; search_params and hybrid_fusion_depth have no range).
+        from ._session_keys import number_problems
+
+        problems = number_problems(config)
+        if problems:
+            messages = "; ".join(f"{key}: {why}" for key, why in problems)
+            raise ValueError(f"Invalid configuration: {messages}")
 
     def _session_settings(
         self,

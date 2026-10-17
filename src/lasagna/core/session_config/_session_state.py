@@ -58,6 +58,17 @@ def session_lock(session_id: str):
     return store_lock(f"session:{session_id or 'default'}")
 
 
+#: The fields of a session a change can make, restored when the change fails.
+_CHANGED_FIELDS = (
+    "profiles",
+    "active_profile",
+    "session_overrides",
+    "rag_enabled",
+    "focused_document_ids",
+    "user_id",
+)
+
+
 def _persisted_view(state: Any) -> tuple:
     """The fields the session table keeps, from a state or a stored row."""
     get = state.get if isinstance(state, dict) else lambda k, d=None: getattr(state, k, d)
@@ -66,6 +77,7 @@ def _persisted_view(state: Any) -> tuple:
         get("session_overrides", {}),
         bool(get("rag_enabled", True)),
         list(get("focused_document_ids", []) or []),
+        get("user_id", ANONYMOUS) or ANONYMOUS,
     )
 
 
@@ -100,23 +112,21 @@ class SessionStateMixin:
         profiles = self._ensure_default_profile(profiles)
         profile_names = {p.name for p in profiles}
         active_profile = data.get("active_profile") or "default"
+        # Whose profile of that name the session is on (see set_active_profile).
+        owner = data.get("user_id") or ANONYMOUS
         if active_profile not in profile_names:
-            # The session table keeps the active profile's name, not the
-            # profile: a saved custom profile is found among the saved ones.
-            # Without this every restart put such a session back on default.
-            saved = next(
-                (p for p in self._global_custom_profiles if p.name == active_profile), None
-            )
+            # The session table keeps the active profile's name and owner, not
+            # the profile: a saved custom profile is found among the saved
+            # ones. Without this every restart put such a session back on default.
+            saved = self._saved_for(active_profile, owner)
             if saved is None and hasattr(self, "_refresh_saved_profiles"):
                 # Saved by another process since this one read the list.
                 self._refresh_saved_profiles(force=True)
-                saved = next(
-                    (p for p in self._global_custom_profiles if p.name == active_profile), None
-                )
+                saved = self._saved_for(active_profile, owner)
             if saved is not None:
                 profiles.append(copy.deepcopy(saved))
             else:
-                active_profile = "default"
+                active_profile, owner = "default", ANONYMOUS
 
         session_overrides = data.get("session_overrides", {})
         if not isinstance(session_overrides, dict):
@@ -144,6 +154,7 @@ class SessionStateMixin:
             rag_enabled=rag_enabled,
             focused_document_ids=focused_document_ids,
             last_accessed=last_accessed,
+            user_id=owner,
         )
 
     def get_session_state(self, session_id: Optional[str] = None) -> KnowledgeConfigState:
@@ -266,7 +277,9 @@ class SessionStateMixin:
         back the overrides it had read. Every change to a session's settings
         goes through this. Refused (``ProfileSwitchInProgress``) while a
         switch that moves the session's documents runs in another thread or
-        process, or stopped before it ended.
+        process, or stopped before it ended. A change that raises (a write
+        the store did not take, ``SettingsNotSaved``) leaves nothing of itself
+        in this process: it was served from memory until the next read.
         """
         from lasagna.api._profile_guard import refuse_during_switch
 
@@ -281,8 +294,16 @@ class SessionStateMixin:
             refuse_during_switch(sid, "This change")
             with self._lock:
                 self._adopt_persisted_session(sid, fresh=True)
+                state = self.get_session_state(sid)
+                before = {f: copy.deepcopy(getattr(state, f)) for f in _CHANGED_FIELDS}
+                saved = (list(self._global_custom_profiles), set(self._global_profile_names))
                 try:
-                    yield self.get_session_state(sid)
+                    yield state
+                except BaseException:
+                    for name, value in before.items():
+                        setattr(state, name, value)
+                    self._global_custom_profiles, self._global_profile_names = saved
+                    raise
                 finally:
                     _writes_here[sid] = _writes_here.get(sid, 0) + 1
                     self._session_writes_seen[sid] = _writes_here[sid]
@@ -303,12 +324,16 @@ class SessionStateMixin:
         """
         data = state.to_dict()
         with self._lock:
-            foreign = self._foreign_profile_names(user_id)
-            shown = [p for p in data["profiles"] if p["name"] not in foreign]
+            shown = [p for p in data["profiles"] if self._is_visible_to(p, user_id)]
             names = {p["name"] for p in shown}
-            for profile in self._global_custom_profiles:
+            # The caller's own first, then the shared ones: one per name.
+            for profile in sorted(
+                self._global_custom_profiles,
+                key=lambda p: (p.user_id != user_id, p.user_id != ANONYMOUS, p.user_id or ""),
+            ):
                 if profile.name not in names and self._is_visible_to(profile, user_id):
                     shown.append(profile.to_dict())
+                    names.add(profile.name)
         data["profiles"] = shown
         return data
 
@@ -430,6 +455,13 @@ class SessionStateMixin:
                 documents=not kept_in_process(session_id or "default"),
                 remedy=remedy,
             )
+            if not trusted:
+                # What the patch leaves: one patch at a time stayed in its
+                # limits while the merged dict grew without one.
+                merged = _resolve(state.session_overrides, patch)
+                from ._session_keys import check_session_settings
+
+                check_session_settings({k: merged[k] for k in patch if isinstance(merged[k], dict)})
             _deep_merge(state.session_overrides, patch)
             self._persist_single_session(session_id or "default")
 
@@ -544,6 +576,8 @@ class SessionStateMixin:
         with self._session_write(session_id) as state:
             profiles = [copy.deepcopy(p) for p in state.profiles]
             for imported in imported_profiles:
+                # The session's own, whatever owner the file names.
+                imported.user_id = state.user_id or ANONYMOUS
                 for i, p in enumerate(profiles):
                     if p.name == imported.name:
                         profiles[i] = imported
@@ -645,7 +679,12 @@ class SessionStateMixin:
                 self._persist_single_session(session_id or "default")
 
     def delete_session_state(self, session_id: str) -> bool:
-        """Completely remove a session from config state."""
+        """Completely remove a session from config state: this process's copy and the stored row.
+
+        The stored row went only when this process had the session cached, so
+        a session another worker had read, or one evicted from the cache, kept
+        its settings and came back.
+        """
         deleted = False
 
         with self._lock:
@@ -667,10 +706,12 @@ class SessionStateMixin:
             except Exception as e:
                 logger.warning(f"Could not delete citations file for session {session_id}: {e}")
 
+            # Delete from database (SQLite/PostgreSQL) so it doesn't get
+            # resurrected on next restart.
+            if self._delete_persisted_session(session_id):
+                deleted = True
+            self._session_checked_at.pop(session_id, None)
             if deleted:
-                # Delete from database (SQLite/PostgreSQL) so it doesn't
-                # get resurrected on next restart.
-                self._delete_persisted_session(session_id)
                 logger.info(f"Session state deleted: {session_id}")
 
         return deleted

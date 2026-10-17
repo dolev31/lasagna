@@ -25,9 +25,15 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any, Dict, Iterator, Optional
 
+from lasagna.sdk.exceptions import ConfigurationError
 
-class EmbeddingSizeConflict(ValueError):
-    """The change embeds at a size the stored documents were not embedded at."""
+
+class EmbeddingSizeConflict(ConfigurationError, ValueError):
+    """The change embeds at a size the stored documents were not embedded at.
+
+    A ``ConfigurationError`` (the SDK's ``KnowledgeError`` family, imported
+    from ``lasagna.sdk``) and a ``ValueError``, which callers already caught.
+    """
 
 
 class EmbeddingSizeUnverified(EmbeddingSizeConflict):
@@ -61,16 +67,28 @@ def switching(session_id: str) -> Iterator[None]:
 
 
 def unfinished_switch(session_id: str) -> Optional[Dict[str, Any]]:
-    """The recorded switch of ``session_id`` that has not ended, or None."""
+    """The recorded switch of ``session_id`` that has not ended, or None.
+
+    Raises ``SettingsNotSaved`` when the record cannot be read: answering
+    "no switch" let a write through during a switch it could not see, the
+    race the record exists to stop. A store without the record (a stand-in)
+    has no switch.
+    """
     from lasagna.core.database import get_rag_database
+    from lasagna.core.session_config._data_models import not_saved
 
     read = getattr(get_rag_database(), "get_profile_switch", None)
     if read is None:
         return None
     try:
         record = read(session_id)
-    except Exception:  # noqa: BLE001 - a store without the table has no switch
-        return None
+    except Exception as exc:
+        raise not_saved(
+            f"the record of session {session_id!r}'s profile switches",
+            exc,
+            verb="read",
+            why=", so whether a switch is moving its documents is unknown",
+        ) from exc
     return record if isinstance(record, dict) else None
 
 
@@ -240,12 +258,13 @@ def fixes_for_documents_elsewhere(
     named = " and ".join(
         [", ".join(overridden[:-1]), overridden[-1]] if len(overridden) > 1 else overridden
     )
-    reset = (
-        f"reset the session's overrides, which set {named}, with POST "
-        f"/api/config/knowledge/reset, client.config_manager.reset() in the SDK, or the "
-        f"MCP tool reset_rag_config"
+    # One command: the switch to ``back`` without the session's own settings.
+    # The advice was to reset them over REST, the SDK or MCP and then switch,
+    # which no CLI command could do.
+    return reindex, (
+        f"lasagna configure --profile {back} --reset -s {session_id}, which also drops the "
+        f"session's own {named} (over REST: reset=true on PUT /api/config/knowledge/active)"
     )
-    return reindex, reset if back == active else f"{reset}, then {switch}"
 
 
 def elsewhere_fixes(session_id: str, collection: str, surface: str) -> tuple:
@@ -286,32 +305,108 @@ def documents_elsewhere(session_id: str, collection: str, model: str) -> Optiona
     if cached is not None and generation is not None and cached[1] == generation:
         _elsewhere[key] = (now, generation, cached[2])
         return cached[2]
-    counts = _searched_counts(session_id)
-    total = sum(counts.values())
-    missed = {c: n for c, n in counts.items() if c not in (None, "", collection)}
-    n_missed = sum(missed.values())
-    message = None
-    if missed:
-        others = sorted(str(c) for c in missed)
-        named = [model_of_collection(c) for c in others]
-        back = next((profile for _, profile in named if profile), None)
-        reindex, switch_back = fixes_for_documents_elsewhere(session_id, back)
-        where = ", ".join(_described(c, m, model) for c, (m, _) in zip(others, named))
-        here = _described(collection, model, named[0][0]) if len(named) == 1 else f"{model}'s"
-        message = (
-            f"{n_missed} of {_plural(total, 'document')} in session {session_id!r} "
-            f"{'is' if n_missed == 1 else 'are'} in {where}, and this search uses "
-            f"{here}, so it cannot find {'it' if n_missed == 1 else 'them'}. "
-            f"Reindex them with {model} ({reindex}, or client.documents.reindex(document_id) "
-            f"from a client on that model), or search with the model that indexed them"
-            + (f" ({switch_back})." if switch_back else ".")
-        )
+    message = _elsewhere_message(session_id, collection, model, _searched_counts(session_id))
     if message and (cached is None or cached[2] != message):
         from loguru import logger
 
         logger.warning(message)
     _elsewhere[key] = (now, generation, message)
     return message
+
+
+def _elsewhere_message(
+    session_id: str,
+    collection: str,
+    model: str,
+    counts: Dict[Optional[str], int],
+    *,
+    searcher: str = "this search uses",
+) -> Optional[str]:
+    """Why a search of ``collection`` misses some of the session's documents, with the fixes."""
+    total = sum(counts.values())
+    missed = {c: n for c, n in counts.items() if c not in (None, "", collection)}
+    if not missed:
+        return None
+    n_missed = sum(missed.values())
+    others = sorted(str(c) for c in missed)
+    named = [model_of_collection(c) for c in others]
+    back = next((profile for _, profile in named if profile), None)
+    reindex, switch_back = fixes_for_documents_elsewhere(session_id, back)
+    where = ", ".join(_described(c, m, model) for c, (m, _) in zip(others, named))
+    here = _described(collection, model, named[0][0]) if len(named) == 1 else f"{model}'s"
+    return (
+        f"{n_missed} of {_plural(total, 'document')} in session {session_id!r} "
+        f"{'is' if n_missed == 1 else 'are'} in {where}, and {searcher} "
+        f"{here}, so it cannot find {'it' if n_missed == 1 else 'them'}. "
+        f"Reindex them with {model_in_force(session_id, model)} ({reindex}, or "
+        f"client.documents.reindex(document_id) from a client on that model), or search "
+        f"with the model that indexed them" + (f" ({switch_back})." if switch_back else ".")
+    )
+
+
+def own_model_settings(session_id: str) -> Dict[str, Any]:
+    """The session's own embedding settings that its profile does not set to the same value.
+
+    Overrides win over the profile, and a switch keeps the ones that do not
+    only repeat the profile it leaves: `configure --profile speed --reindex`
+    printed "Applied profile: speed" and reindexed with the model the
+    session's override named, which nothing said.
+    """
+    try:
+        from lasagna.core.session_config import get_knowledge_config_manager
+
+        state = get_knowledge_config_manager(session_id=session_id).get_session_state(session_id)
+        active = state.get_active_profile()
+        profile = active.config if active is not None else {}
+        return {
+            k: state.session_overrides[k]
+            for k in _EMBEDDING_KEYS
+            if k in state.session_overrides and profile.get(k) != state.session_overrides[k]
+        }
+    except Exception:  # noqa: BLE001 - only shapes a message
+        return {}
+
+
+def model_in_force(session_id: str, model: str, own: Optional[Dict[str, Any]] = None) -> str:
+    """``model``, or ``profile 'speed' with embedding_model=... from this session's settings``."""
+    own = own_model_settings(session_id) if own is None else own
+    if not own:
+        return model
+    try:
+        from lasagna.core.session_config import get_knowledge_config_manager
+
+        active = get_knowledge_config_manager(session_id=session_id).get_active_profile(session_id)
+    except Exception:  # noqa: BLE001 - only shapes a message
+        active = "default"
+    named = ", ".join(f"{k}={v}" for k, v in own.items())
+    return f"profile {active!r} with {named} from this session's settings"
+
+
+def documents_now(session_id: str, settings: Dict[str, Any]) -> str:
+    """What is true now of the session's documents, which it searches with ``settings``.
+
+    For a message that says nothing was changed. It said "and its documents
+    stay searchable" whatever they were: after a forced change had left every
+    one in another model's collection, `configure --force` said so of
+    documents no search found. Read from the metadata store; empty when it
+    cannot be read or the session has no documents.
+    """
+    from lasagna.core.config import collection_name_for_settings, get_rag_config
+
+    try:
+        counts = _searched_counts(session_id)
+        collection = collection_name_for_settings(settings)
+        model = settings.get("embedding_model") or get_rag_config().embedding_model
+    except Exception:  # noqa: BLE001 - only completes a message
+        return ""
+    if not sum(counts.values()):
+        return ""
+    message = _elsewhere_message(
+        session_id, collection, model, counts, searcher="the session searches"
+    )
+    if message is None:
+        return "Its documents stay searchable."
+    return f"As before this change: {message}"
 
 
 def forget_documents_elsewhere(session_id: Optional[str] = None) -> None:
@@ -378,11 +473,23 @@ def refuse_leaving_documents(
         for row in db.get_documents(session_id)
         if str(row.get("status") or "").lower() in _SEARCHED_STATUSES
     ]
-    if not rows:
+    archived_rows = _archived_rows(session_id)
+    if not rows and not archived_rows:
         return
     target = collection_name_for_settings(after)
     current = collection_name_for_settings(before)
-    left = [row for row in rows if (row.get("collection_name") or current) != target]
+    if target == current:
+        return
+    archived = archived_left_behind(session_id, target, change, kept, archived_rows)
+    if archived:
+        raise DocumentsLeftBehind(archived)
+    if not rows:
+        return
+    # Only the documents the session searches now: those already in another
+    # collection stay as unsearched as they were, and refusing a change that
+    # keeps the collection blamed it for them (after a forced SDK change,
+    # `configure --profile speed` was refused for documents no search found).
+    left = [row for row in rows if (row.get("collection_name") or current) == current]
     if not left:
         return
     collection = left[0].get("collection_name") or current
@@ -426,9 +533,10 @@ def refuse_leaving_documents(
     )
     if why:
         fixes += (
-            " To use the profile's own model instead, reset the session's overrides first "
-            "(POST /api/config/knowledge/reset, client.config_manager.reset() in the SDK, or "
-            "the MCP tool reset_rag_config)."
+            " To use the profile's own model instead, switch with --reset (lasagna configure "
+            "--reset, or reset=true on PUT /api/config/knowledge/active), which drops the "
+            "session's own settings, or reset them first (client.config_manager.reset() in "
+            "the SDK, or the MCP tool reset_rag_config)."
         )
     raise DocumentsLeftBehind(
         f"{change} would search with {new}{why}, but the "
@@ -436,6 +544,48 @@ def refuse_leaving_documents(
         f"{'was' if one else 'were'} embedded with {old}, in that model's collection, so "
         f"no search would find {them}. Nothing was changed; profile {kept!r} is still "
         f"active. {fixes}"
+    )
+
+
+def _archived_rows(session_id: str) -> list:
+    """The session's archived documents' rows (a stand-in store: none)."""
+    from lasagna.core.database import get_rag_database
+
+    try:
+        return list(get_rag_database().get_documents(session_id, status="soft_deleted"))
+    except TypeError:  # a stand-in store without the status filter
+        return []
+
+
+def archived_left_behind(
+    session_id: str, collection: str, change: str, kept: str, rows: Optional[list] = None
+) -> Optional[str]:
+    """Why ``change``, to search ``collection``, would strand the session's archived documents.
+
+    None when every archived document of the session is in ``collection``. A
+    switch moves only the documents searched (an archived one cannot be
+    reindexed), and restoring one later put it back as ready in the old
+    model's collection, where the session no longer searched.
+    """
+    rows = _archived_rows(session_id) if rows is None else rows
+    left = sorted(
+        str(r["document_id"])
+        for r in rows
+        if (r.get("collection_name") or collection) != collection
+    )
+    if not left:
+        return None
+    one = len(left) == 1
+    shown = ", ".join(left[:5]) + (f" and {len(left) - 5} more" if len(left) > 5 else "")
+    return (
+        f"{change} would search another collection than the one holding "
+        f"{_plural(len(left), 'archived document')} of session {session_id!r} ({shown}). An "
+        f"archived document is not reindexed, so a later restore would put "
+        f"{'it' if one else 'them'} back where the session no longer searches. Nothing was "
+        f"changed; profile {kept!r} is still active. Restore {'it' if one else 'them'} first "
+        f"(client.documents.restore(document_id), POST /api/v1/documents/<id>/restore, or the "
+        f"MCP tool restore_document), so the switch moves {'it' if one else 'them'} too, or "
+        f"delete {'it' if one else 'them'} for good, then switch again."
     )
 
 

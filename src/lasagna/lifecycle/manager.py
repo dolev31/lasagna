@@ -79,7 +79,19 @@ class DocumentLifecycleManager:
 
         Raises:
             ValueError: If the document does not exist or does not belong to the session.
+            ProfileSwitchInProgress: a switch moves the session's documents.
         """
+        # A switch moving the session's documents, and a reindex of this one
+        # (which holds its lock), never meet an archive halfway: a reindex
+        # finishing after it wrote READY over it.
+        from ..api._profile_guard import refuse_during_switch
+        from ..core.store_locks import store_lock
+
+        refuse_during_switch(session_id, f"Archiving {document_id}")
+        with store_lock(f"document:{document_id}"):
+            return self._soft_delete(document_id, session_id)
+
+    def _soft_delete(self, document_id: str, session_id: str) -> dict:
         doc = self._db.get_document(document_id)
         if not doc:
             raise ValueError(f"Document not found: {document_id}")
@@ -116,7 +128,46 @@ class DocumentLifecycleManager:
         Raises:
             ValueError: If the document doesn't exist or isn't soft-deleted.
             DocumentExpiredError: If the grace window has expired.
+            DocumentsLeftBehind: it is in another collection than the one the
+                session searches now.
+            ProfileSwitchInProgress: a switch moves the session's documents.
         """
+        from ..api._profile_guard import refuse_during_switch
+        from ..core.store_locks import store_lock
+
+        refuse_during_switch(session_id, f"Restoring {document_id}")
+        with store_lock(f"document:{document_id}"):
+            return self._restore(document_id, session_id)
+
+    def _refuse_restoring_elsewhere(self, doc: dict, session_id: str) -> None:
+        """Raise when the document sits in another collection than the session searches.
+
+        A switch to another model left archived documents in the old model's
+        collection, and restoring one put it back there as ready, where no
+        search of the session found it.
+        """
+        from ..api._profile_guard import DocumentsLeftBehind, model_of_collection
+        from ..core.config import rag_config
+
+        config = rag_config.with_session(session_id)
+        where = doc.get("collection_name") or config.collection_name
+        if where == config.collection_name:
+            return
+        model, profile = model_of_collection(where)
+        back = (
+            f"lasagna configure --profile {profile} -s {session_id}"
+            if profile
+            else f"lasagna configure --profile <the profile that indexed it> -s {session_id}"
+        )
+        raise DocumentsLeftBehind(
+            f"Document {doc['document_id']} was archived in {model}'s collection, and session "
+            f"{session_id!r} now searches {config.embedding_model}'s, so once restored no "
+            f"search would find it. Nothing was changed. Switch the session back ({back}), "
+            f"restore it, then switch again with --reindex, which moves it with the others; "
+            f"or delete it and upload it again."
+        )
+
+    def _restore(self, document_id: str, session_id: str) -> dict:
         doc = self._db.get_document(document_id)
         if not doc:
             raise ValueError(f"Document not found: {document_id}")
@@ -145,6 +196,7 @@ class DocumentLifecycleManager:
                 raise DocumentExpiredError(
                     f"Cannot restore document {document_id}: grace window expired at {grace_expiry.isoformat()}"
                 )
+        self._refuse_restoring_elsewhere(doc, session_id)
 
         # Pass grace_cutoff to the DB so the WHERE clause atomically enforces the
         # grace window — closes the TOCTOU race between the Python check above and

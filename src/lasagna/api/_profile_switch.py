@@ -33,14 +33,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
-from lasagna.core.session_config._data_models import ANONYMOUS
+from lasagna.core.session_config._data_models import ANONYMOUS, SettingsNotSaved
+from lasagna.sdk.exceptions import ConfigurationError, KnowledgeError
 
 
-class ProfileCannotLoad(ValueError):
+class ProfileCannotLoad(ConfigurationError, ValueError):
     """The new profile's models cannot be loaded here; nothing was changed."""
 
 
-class ReindexFailed(RuntimeError):
+class ReindexFailed(KnowledgeError, RuntimeError):
     """A document could not be reindexed with the new profile; the session kept its old one."""
 
     def __init__(self, message: str, report: "SwitchReport"):
@@ -60,11 +61,29 @@ class SwitchReport:
     failed: List[Tuple[str, str]] = field(default_factory=list)
     #: Moved back to the old profile's settings after a failure.
     restored: List[str] = field(default_factory=list)
-    #: Could not be moved back: still in the new profile's collection.
+    #: Could not be moved back: still in the new profile's collection, or without chunks.
     stranded: List[Tuple[str, str]] = field(default_factory=list)
+    #: Failed after their old chunks were removed: they have none until reindexed back.
+    unrecorded: List[str] = field(default_factory=list)
     total: int = 0
     #: Whether the switch was asked to reindex.
     reindex: bool = False
+    #: The session's own embedding settings that stay in force over the profile's.
+    own_settings: Dict[str, Any] = field(default_factory=dict)
+    #: What the switch went through with: a reranker that is not downloaded.
+    warnings: List[str] = field(default_factory=list)
+
+    def applied(self) -> str:
+        """``Applied profile: speed``, naming the session's own model settings that stay."""
+        line = f"Applied profile: {self.profile}"
+        if not self.own_settings:
+            return line
+        named = ", ".join(f"{k}={v}" for k, v in self.own_settings.items())
+        return (
+            f"{line} with {named} from this session's settings (for the profile's own "
+            f"model: lasagna configure --profile {self.profile} --reset -s {self.session_id} "
+            f"--reindex)"
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -77,6 +96,8 @@ class SwitchReport:
             "failed": [{"document_id": d, "error": e} for d, e in self.failed],
             "restored": list(self.restored),
             "stranded": [{"document_id": d, "error": e} for d, e in self.stranded],
+            "own_settings": dict(self.own_settings),
+            "warnings": list(self.warnings),
         }
 
 
@@ -90,38 +111,53 @@ def _setting(settings: Dict[str, Any], key: str) -> Any:
     return settings[key] if key in settings else getattr(get_rag_config(), key, None)
 
 
-def unloadable_models(settings: Dict[str, Any]) -> List[str]:
-    """Why each model ``settings`` need cannot load here; empty when all can.
-
-    The embedding model, and the reranker when reranking is on: cached, or
-    downloadable under the download policy (offline mode, a server that does
-    not download inside a request). A cached fallback embedder counts, as the
-    embedder loads it then.
-    """
-    from lasagna.core import model_downloads
+def _download_fix(problem: Any, model: str) -> str:
     from lasagna.core.setup_text import download_command
 
-    def fix(problem: Any, model: str) -> str:
-        if problem.offline:
-            return f"{problem} To use it, download it once with network access: {download_command(model)}."
-        return (
-            f"{problem} To use it, download it first ({download_command(model)}), or set "
-            f"RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS=true for the server."
-        )
+    if problem.offline:
+        return f"download it once with network access: {download_command(model)}"
+    return (
+        f"download it first ({download_command(model)}), or set "
+        f"RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS=true for the server"
+    )
 
-    problems = []
+
+def unloadable_models(settings: Dict[str, Any]) -> List[str]:
+    """Why the embedding model ``settings`` need cannot load here; empty when it can.
+
+    Cached, or downloadable under the download policy (offline mode, a server
+    that does not download inside a request). A cached fallback embedder
+    counts, as the embedder loads it then. The reranker is not one of them: a
+    search skips one that is not downloaded and says so (``degraded_stages``
+    ``reranker``, results in retrieval order), so a switch to its profile goes
+    through with the same warning (``reranker_warning``).
+    """
+    from lasagna.core import model_downloads
+
     model = _setting(settings, "embedding_model")
     problem = model_downloads.refusal(model) if model else None
-    if problem is not None:
-        fallback = _setting(settings, "embedding_model_fallback")
-        if not (problem.offline and fallback and model_downloads.is_cached(fallback)):
-            problems.append(fix(problem, model))
-    if _setting(settings, "enable_reranking"):
-        reranker = _setting(settings, "reranker_model")
-        problem = model_downloads.refusal(reranker, kind="reranker model") if reranker else None
-        if problem is not None:
-            problems.append(fix(problem, reranker))
-    return problems
+    if problem is None:
+        return []
+    fallback = _setting(settings, "embedding_model_fallback")
+    if problem.offline and fallback and model_downloads.is_cached(fallback):
+        return []
+    return [f"{problem} To use it, {_download_fix(problem, model)}."]
+
+
+def reranker_warning(settings: Dict[str, Any]) -> Optional[str]:
+    """What searches with ``settings`` will lack when their reranker cannot load here, or None."""
+    from lasagna.core import model_downloads
+
+    if not _setting(settings, "enable_reranking"):
+        return None
+    reranker = _setting(settings, "reranker_model")
+    problem = model_downloads.refusal(reranker, kind="reranker model") if reranker else None
+    if problem is None:
+        return None
+    return (
+        f"{problem} Until it is, searches skip it and return results in retrieval order, "
+        f"not reranked (degraded_stages: reranker); to rerank, {_download_fix(problem, reranker)}."
+    )
 
 
 def _searched_documents(session_id: str) -> List[Dict[str, Any]]:
@@ -145,15 +181,17 @@ def switch_profile(
     reindex: bool = False,
     config: Optional[Dict[str, Any]] = None,
     backend: Any = None,
+    reset: bool = False,
 ) -> SwitchReport:
     """Switch ``session_id`` to ``profile``; with ``reindex``, move its documents first.
 
-    ``config`` is what ``set_active_profile`` takes with a profile. Without
-    ``reindex`` this is ``manager.set_active_profile`` (``force``
-    skips the check that the session's documents stay searchable), plus, when
-    forced, the check that the new profile's models load. With ``reindex``,
-    see the module docstring. ``backend`` is the ``RAGBackend`` that
-    reindexes (default: this process's).
+    ``config`` and ``reset`` are what ``set_active_profile`` takes (``reset``
+    drops the session's own settings). Without ``reindex`` this is
+    ``manager.set_active_profile`` (``force`` skips the check that the
+    session's documents stay searchable), plus, when forced, the check that
+    the new profile's models load. With ``reindex``, see the module
+    docstring. ``backend`` is the ``RAGBackend`` that reindexes (default:
+    this process's).
 
     Raises:
         UnknownProfileError: no such profile.
@@ -166,7 +204,7 @@ def switch_profile(
     """
     if not reindex:
         return _switch_without_reindex(
-            manager, profile, session_id, user_id=user_id, force=force, config=config
+            manager, profile, session_id, user_id=user_id, force=force, config=config, reset=reset
         )
     from lasagna.api._profile_guard import switching
     from lasagna.core.session_config._session_state import session_lock
@@ -175,15 +213,23 @@ def switch_profile(
     # this one, and an upload's row is saved before it starts or after it ends.
     with session_lock(session_id), switching(session_id):
         return _switch_with_reindex(
-            manager, profile, session_id, user_id=user_id, config=config, backend=backend
+            manager,
+            profile,
+            session_id,
+            user_id=user_id,
+            config=config,
+            backend=backend,
+            reset=reset,
         )
 
 
-def _report(manager: Any, profile: str, session_id: str, user_id: str, config) -> tuple:
+def _report(
+    manager: Any, profile: str, session_id: str, user_id: str, config, reset: bool = False
+) -> tuple:
     state = manager.get_session_state(session_id)
     previous = state.active_profile
     resolved, chosen = manager.preview_active_profile(
-        profile, session_id, config=config, user_id=user_id
+        profile, session_id, config=config, user_id=user_id, reset=reset
     )
     # What search will run with: the session's choice over the process's own
     # settings. The profile's whole configuration carries the packaged
@@ -195,27 +241,68 @@ def _report(manager: Any, profile: str, session_id: str, user_id: str, config) -
         session_id=session_id,
         embedding_model=str(_setting(chosen, "embedding_model") or ""),
     )
+    profile_config = manager.preview_active_profile(
+        profile, session_id, config=config, user_id=user_id, reset=True
+    )[0]
+    from lasagna.api._profile_guard import _EMBEDDING_KEYS
+
+    report.own_settings = {
+        k: resolved[k]
+        for k in _EMBEDDING_KEYS
+        if k in resolved and profile_config.get(k) != resolved[k] and not config
+    }
     return report, resolved, chosen
 
 
-def _refuse_unloadable(report: SwitchReport, resolved: Dict[str, Any]) -> None:
+def _refuse_unloadable(
+    report: SwitchReport, resolved: Dict[str, Any], now: Dict[str, Any], *, settings: bool = False
+) -> None:
+    """Raise ``ProfileCannotLoad`` when a model ``resolved`` needs cannot load here.
+
+    ``now`` is the session's resolved config, to say what is true of its
+    documents (see ``documents_now``); ``settings``: the switch brings
+    settings of its own (an SDK client's).
+    """
     problems = unloadable_models(resolved)
+    rerank = reranker_warning(resolved)
     if problems:
+        from lasagna.api._profile_guard import documents_now
+
+        state = documents_now(report.session_id, now)
+        what = f"Profile {report.profile!r}" + (" with these settings" if settings else "")
         raise ProfileCannotLoad(
-            f"Profile {report.profile!r} cannot be used here: {' '.join(problems)} Nothing "
-            f"was changed; session {report.session_id!r} stays on profile "
-            f"{report.previous!r}, and its documents stay searchable."
+            f"{what} cannot be used here: {' '.join(problems)}"
+            + (f" {rerank}" if rerank else "")
+            + f" Nothing was changed; session {report.session_id!r} stays on profile "
+            f"{report.previous!r}." + (f" {state}" if state else "")
         )
+    if rerank:
+        logger.warning(rerank)
+        report.warnings.append(rerank)
 
 
 def _switch_without_reindex(
-    manager: Any, profile: str, session_id: str, *, user_id: str, force: bool, config
+    manager: Any,
+    profile: str,
+    session_id: str,
+    *,
+    user_id: str,
+    force: bool,
+    config,
+    reset: bool = False,
 ) -> SwitchReport:
-    report, _, chosen = _report(manager, profile, session_id, user_id, config)
+    report, _, chosen = _report(manager, profile, session_id, user_id, config, reset)
     if force:
-        _refuse_unloadable(report, chosen)
+        _refuse_unloadable(
+            report, chosen, manager.get_resolved_config(session_id), settings=bool(config)
+        )
+    else:
+        rerank = reranker_warning(chosen)
+        if rerank:
+            logger.warning(rerank)
+            report.warnings.append(rerank)
     manager.set_active_profile(
-        profile, config=config, session_id=session_id, user_id=user_id, force=force
+        profile, config=config, session_id=session_id, user_id=user_id, force=force, reset=reset
     )
     return report
 
@@ -227,14 +314,23 @@ def _store():
 
 
 def _switch_with_reindex(
-    manager: Any, profile: str, session_id: str, *, user_id: str, config, backend: Any
+    manager: Any,
+    profile: str,
+    session_id: str,
+    *,
+    user_id: str,
+    config,
+    backend: Any,
+    reset: bool = False,
 ) -> SwitchReport:
     """Under the session's lock: reindex every document, then switch (see the module docstring)."""
     from lasagna.api._profile_guard import forget_documents_elsewhere
     from lasagna.core.config import get_rag_config
 
-    report, _, chosen = _report(manager, profile, session_id, user_id, config)
-    _refuse_unloadable(report, chosen)
+    report, _, chosen = _report(manager, profile, session_id, user_id, config, reset)
+    _refuse_unloadable(
+        report, chosen, manager.get_resolved_config(session_id), settings=bool(config)
+    )
 
     # Oldest first, so a rerun after a failure meets the documents in the same order.
     rows = sorted(
@@ -247,6 +343,14 @@ def _switch_with_reindex(
 
         backend = get_rag_backend()
     target = get_rag_config().with_session_settings(session_id, chosen)
+    if target.collection_name != get_rag_config().with_session(session_id).collection_name:
+        from lasagna.api._profile_guard import DocumentsLeftBehind, archived_left_behind
+
+        archived = archived_left_behind(
+            session_id, target.collection_name, f"Profile {profile!r}", report.previous
+        )
+        if archived:
+            raise DocumentsLeftBehind(archived)
     # A switch that stopped before it ended (its process died) left documents
     # in its own target's collection: this switch moves them too, and back if
     # it fails.
@@ -268,6 +372,7 @@ def _switch_with_reindex(
                 "config": config or None,
                 "user_id": user_id,
                 "target_collection": target.collection_name,
+                "reset": reset,
             },
         )
     settled = False
@@ -280,28 +385,40 @@ def _switch_with_reindex(
             except Exception as exc:  # noqa: BLE001 - reported per document
                 logger.warning(f"Reindex of {document_id} with profile {profile!r} failed: {exc}")
                 report.failed.append((document_id, _plain_reason(exc, document_id, session_id)))
+                if _chunks_lost(exc):
+                    report.unrecorded.append(document_id)
                 break
         if report.failed:
             _restore(backend, session_id, report, left_behind)
             settled = True
             raise ReindexFailed(_failure_message(report), report)
         manager.set_active_profile(
-            profile, config=config, session_id=session_id, user_id=user_id, force=True
+            profile, config=config, session_id=session_id, user_id=user_id, force=True, reset=reset
         )
         settled = True
-    except BaseException:
-        # Interrupted (Ctrl-C, SystemExit), or the switch itself failed: the
-        # documents already moved go back first. Interrupted again while they
-        # do, the row stays, for doctor and the next switch.
+    except BaseException as exc:
+        # Interrupted (Ctrl-C, SystemExit), or the switch itself failed (its
+        # settings were not saved): the documents already moved go back
+        # first. Interrupted again while they do, the row stays, for doctor
+        # and the next switch.
         if not settled:
             _restore(backend, session_id, report, left_behind)
             settled = True
+            if isinstance(exc, SettingsNotSaved):
+                raise SettingsNotSaved(f"{exc} {_undone(report)}") from exc
         raise
     finally:
         forget_documents_elsewhere(session_id)
         end = getattr(_store(), "end_profile_switch", None)
         if settled and end is not None:
-            end(session_id)
+            try:
+                end(session_id)
+            except Exception as exc:  # noqa: BLE001 - never hides why the switch stopped
+                logger.warning(
+                    f"The record of the switch of session {session_id!r} could not be "
+                    f"removed ({type(exc).__name__}), so its writes are refused until it is: "
+                    f"lasagna configure --resume-switch -s {session_id} ends it."
+                )
     return report
 
 
@@ -323,6 +440,7 @@ def resume_switch(manager: Any, session_id: str, *, backend: Any = None) -> Swit
         reindex=True,
         config=record.get("config") or None,
         backend=backend,
+        reset=bool(record.get("reset")),
     )
 
 
@@ -344,10 +462,13 @@ def _restore(
 
     ``left_behind``: those an interrupted switch had moved, which go back too.
     """
-    moved = list(report.reindexed) + [d for d in left_behind if d not in report.reindexed]
+    moved = list(report.reindexed) + [
+        d for d in [*left_behind, *report.unrecorded] if d not in report.reindexed
+    ]
     # A document whose reindex failed is where it was, unless that was where
-    # the interrupted switch had left it.
-    failed = {d for d, _ in report.failed} - set(left_behind)
+    # the interrupted switch had left it, or its old chunks went with the
+    # failure (they were removed before the new copy failed to be recorded).
+    failed = {d for d, _ in report.failed} - set(left_behind) - set(report.unrecorded)
     for document_id in moved:
         if document_id in failed:
             continue
@@ -360,19 +481,14 @@ def _restore(
     report.reindexed = []
 
 
-def _failure_message(report: SwitchReport) -> str:
-    document_id, error = report.failed[0]
-    lines = [
-        f"Profile {report.profile!r} was not applied; session {report.session_id!r} stays "
-        f"on profile {report.previous!r}. Reindexing its "
-        f"{_plural(report.total, 'document')} with {report.embedding_model} failed for "
-        f"{document_id}: {error}"
-    ]
+def _undone(report: SwitchReport) -> str:
+    """What a switch stopped by a failed write left: the documents moved back, or not."""
+    lines = [f"The switch to profile {report.profile!r} was undone."]
     if report.restored:
         lines.append(
             f"The {_plural(len(report.restored), 'document')} already reindexed "
-            f"{'was' if len(report.restored) == 1 else 'were'} moved back, so every document "
-            f"is searchable as before."
+            f"{'was' if len(report.restored) == 1 else 'were'} moved back"
+            + (", so every document is searchable as before." if not report.stranded else ".")
         )
     for stranded, why in report.stranded:
         lines.append(
@@ -380,17 +496,83 @@ def _failure_message(report: SwitchReport) -> str:
             f"{report.embedding_model}: run lasagna configure --profile {report.previous} "
             f"-s {report.session_id} --reindex to reindex it."
         )
+    return " ".join(lines)
+
+
+def _chunks_lost(exc: BaseException) -> bool:
+    """Whether a reindex failed after removing the document's old chunks."""
+    from lasagna.api._document_pipeline import ReplacementNotRecorded
+
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, ReplacementNotRecorded):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+def _failure_message(report: SwitchReport) -> str:
+    """Why the switch was not applied, and what is true of each document now.
+
+    It said "every document is searchable as before" whenever one had been
+    moved back, also when another could not be, or had lost its chunks.
+    """
+    document_id, error = report.failed[0]
+    lines = [
+        f"Profile {report.profile!r} was not applied; session {report.session_id!r} stays "
+        f"on profile {report.previous!r}. Reindexing its "
+        f"{_plural(report.total, 'document')} with {report.embedding_model} failed for "
+        f"{document_id}: {error}"
+    ]
+    back = [d for d in report.restored if d not in report.unrecorded]
+    if back:
+        lines.append(
+            f"The {_plural(len(back), 'document')} already reindexed "
+            f"{'was' if len(back) == 1 else 'were'} moved back"
+            + (", so every document is searchable as before." if not report.stranded else ".")
+        )
+    for lost in report.unrecorded:
+        if lost in report.restored:
+            lines.append(
+                f"{lost} lost its chunks when its new copy could not be recorded, and was "
+                f"reindexed back with profile {report.previous!r}."
+            )
+    for stranded, why in report.stranded:
+        where = (
+            "has no chunks, so no search finds it"
+            if stranded in report.unrecorded
+            else f"is searched only with {report.embedding_model}"
+        )
+        lines.append(
+            f"{stranded} could not be moved back ({why}) and {where}: run lasagna configure "
+            f"--profile {report.previous} -s {report.session_id} --reindex to reindex it."
+        )
     lines.append("Fix the cause above and run the switch again.")
     return " ".join(lines)
 
 
 def summary(report: SwitchReport) -> Optional[str]:
-    """``Reindexed 3 of 3 documents in session r1 with BAAI/bge-m3.``; None without a reindex."""
+    """``Reindexed 3 of 3 documents in session r1 with BAAI/bge-m3.``, and any warning.
+
+    None without a reindex or a warning.
+    """
+    warned = " ".join(report.warnings)
     if not report.reindex:
-        return None
+        return warned or None
+    done = _reindexed(report)
+    return f"{done} {warned}" if warned else done
+
+
+def _reindexed(report: SwitchReport) -> str:
     if not report.total:
         return f"Session {report.session_id} has no documents to reindex."
+    own = (
+        f" (embedding_model from this session's settings, over profile {report.profile}'s)"
+        if "embedding_model" in report.own_settings
+        else ""
+    )
     return (
         f"Reindexed {len(report.reindexed)} of {_plural(report.total, 'document')} in "
-        f"session {report.session_id} with {report.embedding_model}."
+        f"session {report.session_id} with {report.embedding_model}{own}."
     )

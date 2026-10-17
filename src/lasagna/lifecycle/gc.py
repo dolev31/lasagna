@@ -328,11 +328,15 @@ class GarbageCollector:
         return result
 
     def _phase5_cleanup_idle_sessions(self) -> GCPhaseResult:
-        """Remove sessions idle for longer than session_idle_days."""
+        """Remove sessions idle for longer than session_idle_days (0: never)."""
         phase = "phase5_cleanup_idle_sessions"
         started = datetime.now(timezone.utc)
         result = GCPhaseResult(phase=phase, started_at=started)
 
+        if not self._policy.session_idle_days:  # 0 keeps them, as document_ttl_days = 0
+            result.details["skipped"] = "session_idle_days is 0 (disabled)"
+            result.completed_at = datetime.now(timezone.utc)
+            return result
         max_age_seconds = self._policy.session_idle_days * 86400
         try:
             cleaned = self._db.cleanup_expired_sessions(max_age_seconds=max_age_seconds)

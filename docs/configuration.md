@@ -202,6 +202,16 @@ each model writes to a collection of its own, named
   documents stay where they were, and a session on the old model still finds
   them. Uploading a file again also indexes it for the new model: an upload
   is a duplicate only of a copy in the collection the session searches now.
+- A session's own settings (written by an SDK client, a patch or an import)
+  stay in force across a switch. `lasagna configure --reset -s <session>`
+  drops them, so the profile's settings apply as they are; with `--profile`
+  it switches as well, and `--force` and `--reindex` work as above
+  (`reset=true` on `PUT /api/config/knowledge/active`). In Python these
+  refusals are `KnowledgeError`s you can import:
+  `from lasagna.sdk import DocumentsLeftBehind, ProfileCannotLoad, ReindexFailed`
+  (with `EmbeddingSizeConflict`, `ProfileSwitchInProgress`,
+  `UnknownProfileError`, and `SettingsNotSaved` when the metadata store did not
+  record a change: then nothing changed, and REST answers 503).
 - A `collection_name` you set yourself (in the settings file or as
   `RAG_COLLECTION_NAME`) is used as given. The evaluation
   harness names one per sweep arm this way, so sweeps are unaffected.

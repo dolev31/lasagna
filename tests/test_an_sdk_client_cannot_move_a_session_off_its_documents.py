@@ -201,7 +201,7 @@ def test_the_offered_reindex_reindexes_with_the_sessions_own_model():
     assert command in _check_session_documents(sid).advice  # doctor offers the same
     # A switch back to speed alone keeps the override, so it is not what is offered.
     assert f"(lasagna configure --profile speed -s {sid})" not in warning
-    assert "reset the session's overrides" in warning
+    assert f"lasagna configure --profile speed --reset -s {sid}" in warning
 
     backend = _Backend()
     _profile_switch.switch_profile(
@@ -269,7 +269,7 @@ def test_a_refusal_names_the_profiles_model_and_the_override_apart():
     assert f"the profile embeds with {BGE_M3}" in message
     assert f"override embedding_model={SMALL}" in message
     assert f"embedded with {SMALL} at 384 dimensions" in message
-    assert "reset the session's overrides first" in message
+    assert "switch with --reset (lasagna configure --reset" in message
 
 
 def test_get_active_profile_names_the_profiles_model_and_the_override():

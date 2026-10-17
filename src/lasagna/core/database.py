@@ -428,17 +428,19 @@ class RAGDatabase:
                 conn.close()
 
     @contextmanager
-    def exclusive(self, name: str):
+    def exclusive(self, name: str, timeout: Optional[float] = None):
         """Hold the lock ``name`` against every thread and process using this database.
 
-        A file lock in ``<database>.locks/`` (see `lasagna.core.store_locks`):
+        A file lock in ``<database>.locks/<kind>/`` (see `lasagna.core.store_locks`):
         the processes that share a SQLite file are on one host. Replacing,
-        retrying and deleting a document, and the duplicate check of an upload,
-        take it.
+        retrying and deleting a document, the duplicate check of an upload,
+        and every change to a session's settings take it. Waited for at most
+        ``timeout`` (``RAG_STORE_LOCK_TIMEOUT``, 300 s) seconds, then
+        ``StoreLockTimeout``, as on PostgreSQL.
         """
         from .store_locks import file_lock
 
-        with file_lock(f"{self.db_path}.locks", name):
+        with file_lock(f"{self.db_path}.locks", name, timeout=timeout):
             yield
 
     def _run_migrations(self, cursor: sqlite3.Cursor, from_version: int):
@@ -1412,6 +1414,26 @@ class RAGDatabase:
                             d[field] = {} if field == "session_overrides" else []
                 rows.append(d)
             return rows
+
+    def list_sessions_on_profile(self, profile_name: str) -> List[Dict[str, Any]]:
+        """``session_id``, ``user_id`` and ``session_overrides`` of each session on ``profile_name``."""
+        import json as _json
+
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT session_id, user_id, session_overrides FROM rag_sessions "
+                "WHERE active_profile = ?",
+                (profile_name,),
+            ).fetchall()
+        found = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["session_overrides"] = _json.loads(d.get("session_overrides") or "{}")
+            except (ValueError, TypeError):
+                d["session_overrides"] = {}
+            found.append(d)
+        return found
 
     def delete_session(self, session_id: str) -> bool:
         """Delete a single session by ID."""

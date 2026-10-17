@@ -33,6 +33,7 @@ from ._data_models import (
     _check_profile_size,
     _deep_merge,
     _resolve,
+    kept_in_process,
     session_idle_seconds,
 )
 
@@ -108,10 +109,16 @@ class ProfileMixin:
         with self._lock:
             self._global_custom_profiles = profiles
             self._global_profile_names = {p.name for p in profiles}
-            saved = {p.name: p for p in profiles if not self._is_protected_profile_name(p.name)}
+            # By owner and name: by name alone, a session on the shared
+            # profile of a name took another owner's of that name.
+            saved = {
+                (p.user_id or ANONYMOUS, p.name): p
+                for p in profiles
+                if not self._is_protected_profile_name(p.name)
+            }
             for state in self._session_states.values():
                 for i, profile in enumerate(state.profiles):
-                    current = saved.get(profile.name)
+                    current = saved.get((profile.user_id or ANONYMOUS, profile.name))
                     if current is not None and (
                         current.config != profile.config
                         or current.description != profile.description
@@ -592,40 +599,96 @@ class ProfileMixin:
         state = self.get_session_state(session_id)
         return state.active_profile
 
-    def _is_visible_to(self, profile: RAGProfile, user_id: str) -> bool:
-        """Whether ``user_id`` may see and use a saved profile.
+    def _is_visible_to(self, profile: Any, user_id: str) -> bool:
+        """Whether ``user_id`` may see and use a saved profile (a ``RAGProfile`` or its dict).
 
         Anonymous is the single-user identity (auth off): it sees everything,
         as `list_profiles` always allowed.
         """
-        return user_id == ANONYMOUS or profile.user_id in (user_id, ANONYMOUS)
+        owner = profile.get("user_id") if isinstance(profile, dict) else profile.user_id
+        return user_id == ANONYMOUS or (owner or ANONYMOUS) in (user_id, ANONYMOUS)
 
-    def _foreign_profile_names(self, user_id: str) -> set:
-        """Names of saved profiles another owner holds, hidden from ``user_id``."""
-        return {p.name for p in self._global_custom_profiles if not self._is_visible_to(p, user_id)}
+    def _saved(self, name: str, owner: str) -> Optional[RAGProfile]:
+        """The saved profile ``name`` of ``owner``, exactly."""
+        return next(
+            (
+                p
+                for p in self._global_custom_profiles
+                if p.name == name and (p.user_id or ANONYMOUS) == owner
+            ),
+            None,
+        )
+
+    def _saved_for(self, name: str, user_id: str, *, besides: Any = None) -> Optional[RAGProfile]:
+        """The saved profile ``name`` that ``user_id`` gets (``besides`` one excluded).
+
+        Its own, else the shared one (saved without a login). Anonymous, the
+        single user, gets another owner's when it has none of its own (the
+        first by owner). Profiles were looked up by name alone, so a tenant on
+        the shared profile of a name was handed another tenant's of that name.
+        """
+        candidates = [
+            p for p in self._global_custom_profiles if p.name == name and p is not besides
+        ]
+        for owner in (user_id, ANONYMOUS):
+            mine = next((p for p in candidates if (p.user_id or ANONYMOUS) == owner), None)
+            if mine is not None:
+                return mine
+        if user_id == ANONYMOUS and candidates:
+            return min(candidates, key=lambda p: p.user_id or "")
+        return None
+
+    @staticmethod
+    def _put_profile(state: Any, profile: RAGProfile) -> None:
+        """Make ``profile`` the session's profile of its name (one per name)."""
+        state.profiles = [p for p in state.profiles if p.name != profile.name] + [profile]
+
+    def _not_yours(self, name: str, verb: str) -> ValueError:
+        """Why a caller may not ``verb`` the saved profile ``name`` someone else owns."""
+        shared = any(
+            p.name == name and (p.user_id or ANONYMOUS) == ANONYMOUS
+            for p in self._global_custom_profiles
+        )
+        whose = (
+            "shared (saved without a login, by the CLI or a local MCP server), so with auth "
+            "on only the server's own CLI changes it"
+            if shared
+            else "another user's"
+        )
+        return ValueError(
+            f"Profile {name!r} is not yours to {verb}: it is {whose}. Nothing was changed. "
+            f"Save a profile of your own, under that name or another."
+        )
 
     def _find_profile(self, state, profile_name: str, user_id: str) -> Optional[RAGProfile]:
-        """The session's profile of that name, else a saved one the caller may use.
+        """The profile ``profile_name`` the caller gets: built-in, saved, or the session's own.
 
         A profile saved from another session after this one was created is in
         the saved list and was listed by `list_profiles`, but activating it
         answered "Unknown profile", because only the session's copy was looked
         at.
         """
-        if profile_name not in self._global_profile_names and not any(
-            p.name == profile_name for p in state.profiles
-        ):
+        if self._is_protected_profile_name(profile_name):
+            return next((p for p in state.profiles if p.name == profile_name), None) or next(
+                (p for p in self._default_profiles if p.name == profile_name), None
+            )
+        if not any(p.name == profile_name for p in self._global_custom_profiles):
             # Perhaps saved by another process since this one read the list.
             self._refresh_saved_profiles(force=True)
-        if profile_name in self._foreign_profile_names(user_id):
-            return None
-        for profile in state.profiles:
-            if profile.name == profile_name:
-                return profile
-        for profile in self._global_custom_profiles:
-            if profile.name == profile_name and self._is_visible_to(profile, user_id):
-                return profile
-        return None
+        saved = self._saved_for(profile_name, user_id)
+        if saved is not None:
+            return saved
+        # One of this session's own, made by a switch with settings and not saved.
+        return next(
+            (
+                p
+                for p in state.profiles
+                if p.name == profile_name
+                and self._is_visible_to(p, user_id)
+                and not any(g.name == profile_name for g in self._global_custom_profiles)
+            ),
+            None,
+        )
 
     def set_active_profile(
         self,
@@ -635,11 +698,14 @@ class ProfileMixin:
         *,
         force: bool = False,
         user_id: str = ANONYMOUS,
+        reset: bool = False,
     ) -> Dict[str, Any]:
         """Set the active profile and optionally update its config.
 
         Refused, with nothing changed, when the switch would embed at another
-        size than the stored documents (``force`` skips that check).
+        size than the stored documents (``force`` skips that check). ``reset``
+        drops the session's own settings (its overrides), so the profile's
+        apply as they are.
         """
         if config:
             config = self._session_settings(config, document=True)
@@ -647,7 +713,7 @@ class ProfileMixin:
 
         with self._session_write(session_id) as state:
             profile, profile_config, overrides = self._switch_plan(
-                state, profile_name, config, user_id
+                state, profile_name, config, user_id, reset=reset
             )
             self._refuse_unsearchable(
                 state,
@@ -659,17 +725,19 @@ class ProfileMixin:
             )
 
             if profile is None:
-                state.profiles.append(
-                    RAGProfile(
-                        name=profile_name,
-                        description=f"Custom profile: {profile_name}",
-                        config=config,
-                    )
+                profile = RAGProfile(
+                    name=profile_name,
+                    description=f"Custom profile: {profile_name}",
+                    config=config,
                 )
+                self._put_profile(state, profile)
             elif profile not in state.profiles:
-                state.profiles.append(copy.deepcopy(profile))
+                self._put_profile(state, copy.deepcopy(profile))
             state.session_overrides = overrides
             state.active_profile = profile_name
+            # Whose profile of that name the session is on, so every process
+            # reads the same one back.
+            state.user_id = profile.user_id or ANONYMOUS
             self._persist_single_session(session_id or "default")
 
         # Without this the profile switch is recorded and never applied:
@@ -683,6 +751,8 @@ class ProfileMixin:
         profile_name: str,
         config: Optional[Dict[str, Any]],
         user_id: str,
+        *,
+        reset: bool = False,
     ) -> tuple:
         """``(profile, profile_config, overrides)`` a switch to ``profile_name`` would leave.
 
@@ -696,18 +766,19 @@ class ProfileMixin:
         if profile is None and not config:
             # Recording a name no profile has made `configure --profile
             # bogus` print "Applied profile: bogus" and change nothing.
-            foreign = self._foreign_profile_names(user_id)
             known = sorted(
-                {p.name for p in state.profiles if p.name not in foreign}
+                {p.name for p in state.profiles if self._is_visible_to(p, user_id)}
                 | {p.name for p in self._global_custom_profiles if self._is_visible_to(p, user_id)}
             )
             raise UnknownProfileError(
                 f"Unknown profile {profile_name!r}. Available: {', '.join(known)}"
             )
         if profile is None:
-            return profile, config, state.session_overrides
+            return profile, config, {} if reset else state.session_overrides
         if config:
             return profile, profile.config, config
+        if reset:
+            return profile, profile.config, {}
         if previous is not None and previous.name != profile_name:
             return (
                 profile,
@@ -723,6 +794,7 @@ class ProfileMixin:
         *,
         config: Optional[Dict[str, Any]] = None,
         user_id: str = ANONYMOUS,
+        reset: bool = False,
     ) -> tuple:
         """``(resolved, chosen)``: the session's settings after ``set_active_profile``.
 
@@ -738,7 +810,7 @@ class ProfileMixin:
         state = self.get_session_state(session_id)
         with self._lock:
             profile, profile_config, overrides = self._switch_plan(
-                state, profile_name, config, user_id
+                state, profile_name, config, user_id, reset=reset
             )
             resolved = _resolve(profile_config, overrides)
             chosen: Dict[str, Any] = {}
@@ -762,10 +834,13 @@ class ProfileMixin:
         *,
         force: bool = False,
     ) -> Dict[str, Any]:
-        """Save or update a named profile.
+        """Save or update the caller's profile ``profile_name``.
 
-        The ``user_id`` is stored on the profile for ownership tracking.
-        In multi-user mode, users can only update their own profiles.
+        Each owner (``user_id``) has profiles of its own, by name: saving
+        never changes another owner's, the shared ones included. Refused when
+        the new settings would move another session on this profile off its
+        documents' collection; ``force`` (the server's operator, in Python)
+        applies it anyway, as it skips the check for this session.
         """
         if profile_name == "default":
             raise ValueError("The default profile cannot be overwritten.")
@@ -781,35 +856,38 @@ class ProfileMixin:
         if config:
             self._validate_or_raise(config)
 
+        sid = session_id or "default"
         with self._session_write(session_id) as state:
             self._refresh_saved_profiles(force=True)
-            is_new = profile_name not in self._global_profile_names
+            mine = self._saved(profile_name, user_id)
             # Counted per owner. One shared count let a tenant fill it and lock
             # every other tenant out of saving any profile at all.
-            owned = sum(1 for p in self._global_custom_profiles if p.user_id == user_id)
-            if is_new and owned >= MAX_GLOBAL_PROFILES:
+            owned = sum(
+                1 for p in self._global_custom_profiles if (p.user_id or ANONYMOUS) == user_id
+            )
+            if mine is None and owned >= MAX_GLOBAL_PROFILES:
                 raise ValueError(
                     f"Maximum number of profiles ({MAX_GLOBAL_PROFILES}) reached. "
                     "Delete unused profiles before creating new ones."
                 )
-
-            # Ownership check: prevent overwriting profiles owned by other users.
-            # Profiles owned by "__anonymous__" are shared/legacy and editable by anyone.
-            if not is_new:
-                existing_global = next(
-                    (p for p in self._global_custom_profiles if p.name == profile_name),
-                    None,
+            if mine is not None:
+                self._refuse_moving_others(
+                    mine,
+                    config,
+                    change=f"Saving profile {profile_name!r}",
+                    exclude=sid,
+                    force=force,
                 )
-                if (
-                    existing_global
-                    and existing_global.user_id != "__anonymous__"
-                    and existing_global.user_id != user_id
-                ):
-                    raise ValueError(f"Profile '{profile_name}' is owned by another user.")
 
             # Saving as (or over) the active profile changes what this session
             # embeds with, exactly as switching to it would.
-            if set_active or state.active_profile == profile_name:
+            active = state.get_active_profile()
+            on_it = (
+                active is not None
+                and active.name == profile_name
+                and (active.user_id or ANONYMOUS) == user_id
+            )
+            if set_active or on_it:
                 overrides = {} if set_active else state.session_overrides
                 self._refuse_unsearchable(
                     state,
@@ -825,24 +903,11 @@ class ProfileMixin:
                 config=config,
                 user_id=user_id,
             )
-
-            existing = None
-            for profile in state.profiles:
-                if profile.name == profile_name:
-                    existing = profile
-                    break
-
-            if existing:
-                existing.config = config
-                existing.description = new_profile.description
-            else:
-                state.profiles.append(copy.deepcopy(new_profile))
-
-            if profile_name in self._global_profile_names:
-                for i, gp in enumerate(self._global_custom_profiles):
-                    if gp.name == profile_name:
-                        self._global_custom_profiles[i] = copy.deepcopy(new_profile)
-                        break
+            if set_active or on_it:
+                self._put_profile(state, copy.deepcopy(new_profile))
+            if mine is not None:
+                at = self._global_custom_profiles.index(mine)
+                self._global_custom_profiles[at] = copy.deepcopy(new_profile)
             else:
                 self._global_custom_profiles.append(copy.deepcopy(new_profile))
                 self._global_profile_names.add(profile_name)
@@ -850,13 +915,14 @@ class ProfileMixin:
             if set_active:
                 state.active_profile = profile_name
                 state.session_overrides = {}
+                state.user_id = user_id
 
             state.profiles = self._ensure_default_profile(state.profiles)
 
             self._save_global_profile(new_profile)
             self._saved_profiles_changed()
             if set_active:
-                self._persist_single_session(session_id or "default")
+                self._persist_single_session(sid)
 
             logger.info(
                 f"Saved profile '{profile_name}' globally "
@@ -866,9 +932,82 @@ class ProfileMixin:
         # Saving as the active profile (the configurator's "Save As") must
         # change what search runs, exactly as set_active_profile does; it used
         # to report "Saved!" and leave retrieval as it was.
-        if set_active or state.active_profile == profile_name:
+        if set_active or on_it:
             self._publish_to_search(session_id)
         return state.to_dict()
+
+    def _refuse_moving_others(
+        self,
+        profile: RAGProfile,
+        config: Optional[Dict[str, Any]],
+        *,
+        change: str,
+        exclude: str,
+        force: bool,
+    ) -> None:
+        """Raise when ``change`` to ``profile`` would leave another session's documents unsearched.
+
+        ``config`` is the profile's new settings; None when it goes (a delete
+        or a rename), and each session falls back to what its active profile's
+        name then finds, else ``default``. Only the caller's session was
+        checked: re-saved settings reached every session on the profile, and
+        a delete put them on default, both searching a collection their
+        documents were not in. ``force`` skips this (the server's operator).
+        """
+        if force:
+            return
+        lister = getattr(self, "_sessions_on_profile", None)
+        rows = lister(profile.name) if lister is not None else None
+        if rows is None:
+            return  # a stand-in store
+        from lasagna.api._profile_guard import DocumentsLeftBehind, _plural, _searched_counts
+        from lasagna.core.config import collection_name_for_settings
+
+        default = next((p for p in self._default_profiles if p.name == "default"), None)
+        stranded = []
+        for row in rows:
+            sid = row.get("session_id")
+            if not sid or sid == exclude or kept_in_process(sid):
+                continue
+            owner = row.get("user_id") or ANONYMOUS
+            if self._saved_for(profile.name, owner) is not profile:
+                continue  # its name finds another owner's profile
+            overrides = row.get("session_overrides") or {}
+            if config is not None:
+                after = config
+            else:
+                instead = self._saved_for(profile.name, owner, besides=profile)
+                after = (
+                    instead.config if instead is not None else (default.config if default else {})
+                )
+            before = collection_name_for_settings(_resolve(profile.config, overrides))
+            if collection_name_for_settings(_resolve(after, overrides)) == before:
+                continue
+            counts = _searched_counts(sid)
+            held = counts.get(before, 0) + counts.get(None, 0) + counts.get("", 0)
+            if held:
+                stranded.append((sid, held))
+        if not stranded:
+            return
+        named = ", ".join(f"{sid} ({_plural(n, 'document')})" for sid, n in stranded)
+        moves = "; ".join(
+            f"lasagna configure --profile <another> -s {sid} --reindex" for sid, _ in stranded
+        )
+        one = len(stranded) == 1
+        instead = (
+            "Save it under a new name instead, or first move "
+            if config is not None
+            else "Do it after moving "
+        )
+        raise DocumentsLeftBehind(
+            f"{change} would move {_plural(len(stranded), 'other session')} on it off the "
+            f"collection holding {'its' if one else 'their'} documents: {named}. "
+            f"{'It' if one else 'They'} would then search another model's collection and "
+            f"find none of them. Nothing was changed. {instead}"
+            f"{'that session' if one else 'those sessions'} to another profile with "
+            f"{'its' if one else 'their'} documents ({moves}). The server's operator can "
+            f"apply it anyway from Python, with force=True."
+        )
 
     def rename_profile(
         self,
@@ -876,61 +1015,63 @@ class ProfileMixin:
         new_name: str,
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        *,
+        force: bool = False,
     ) -> Dict[str, Any]:
-        """Rename an existing profile.
+        """Rename the caller's profile ``old_name``.
 
-        ``user_id`` is checked against the global profile's owner, as
-        `save_profile` and `delete_profile` both do. This method did not, while
-        mutating the same global store they guard -- so one caller could rename
-        another's profile out from under them, and the REST route did not even
-        resolve a ``user_id`` to pass.
+        ``user_id`` owns it, as in `save_profile` and `delete_profile`: no one
+        renames another owner's profile. Refused when a session on it holds
+        documents it would no longer find (``force`` skips that).
         """
         if self._is_protected_profile_name(old_name) or self._is_protected_profile_name(new_name):
             raise ValueError("Built-in profiles cannot be renamed.")
         if not new_name or len(new_name) > 100:
             raise ValueError("New profile name must be 1-100 characters.")
+        owner = user_id or ANONYMOUS
+        sid = session_id or "default"
 
         with self._session_write(session_id) as state:
             self._refresh_saved_profiles(force=True)
-            if new_name in self._global_profile_names or any(
+            if self._saved(new_name, owner) is not None or any(
                 p.name == new_name for p in state.profiles
             ):
                 raise ValueError(f"Profile '{new_name}' already exists.")
-
-            profile = next((p for p in state.profiles if p.name == old_name), None)
-            if not profile:
+            mine = self._saved(old_name, owner)
+            local = next((p for p in state.profiles if p.name == old_name), None)
+            if mine is None and any(p.name == old_name for p in self._global_custom_profiles):
+                raise self._not_yours(old_name, "rename")
+            if mine is None and local is None:
                 raise ValueError(f"Profile '{old_name}' not found.")
-
-            profile.name = new_name
-            if profile.description:
-                profile.description = profile.description.replace(old_name, new_name)
-
-            if state.active_profile == old_name:
-                state.active_profile = new_name
+            if mine is not None:
+                self._refuse_moving_others(
+                    mine, None, change=f"Renaming profile {old_name!r}", exclude=sid, force=force
+                )
 
             renamed = None
-            for gp in self._global_custom_profiles:
-                if gp.name == old_name:
-                    # Same ownership rule as save_profile and delete_profile.
-                    if user_id and gp.user_id != "__anonymous__" and gp.user_id != user_id:
-                        raise ValueError(f"Profile '{old_name}' is owned by another user.")
-                    gp.name = new_name
-                    if gp.description:
-                        gp.description = gp.description.replace(old_name, new_name)
-                    self._global_profile_names.discard(old_name)
-                    self._global_profile_names.add(new_name)
-                    renamed = gp
-                    break
+            if mine is not None:
+                renamed = copy.deepcopy(mine)
+                renamed.name = new_name
+                if renamed.description:
+                    renamed.description = renamed.description.replace(old_name, new_name)
+                self._global_custom_profiles[self._global_custom_profiles.index(mine)] = renamed
+                self._global_profile_names = {p.name for p in self._global_custom_profiles}
+            if local is not None and (local.user_id or ANONYMOUS) == owner:
+                moved = copy.deepcopy(renamed) if renamed is not None else copy.deepcopy(local)
+                moved.name = new_name
+                state.profiles = [p for p in state.profiles if p is not local] + [moved]
+                if state.active_profile == old_name:
+                    state.active_profile = new_name
 
             state.profiles = self._ensure_default_profile(state.profiles)
             if renamed is not None:
                 # The new row first: stopped in between, both names are kept.
                 self._save_global_profile(renamed)
                 self._delete_global_profile(
-                    RAGProfile(name=old_name, description="", config={}, user_id=renamed.user_id)
+                    RAGProfile(name=old_name, description="", config={}, user_id=owner)
                 )
                 self._saved_profiles_changed()
-            self._persist_single_session(session_id or "default")
+            self._persist_single_session(sid)
 
             logger.info(f"Renamed profile '{old_name}' to '{new_name}' globally")
 
@@ -941,49 +1082,70 @@ class ProfileMixin:
         profile_name: str,
         session_id: Optional[str] = None,
         user_id: str = "__anonymous__",
+        *,
+        force: bool = False,
     ) -> Dict[str, Any]:
-        """Delete a named profile (default is protected).
+        """Delete the caller's profile ``profile_name`` (built-in profiles are protected).
 
-        In multi-user mode, verifies ownership before deleting.
+        No one deletes another owner's profile, the shared ones included under
+        auth. Refused when a session on it holds documents its fallback would
+        not search (``force``: the server's operator, in Python, deletes it
+        anyway).
         """
         if self._is_protected_profile_name(profile_name):
             raise ValueError("Built-in profiles cannot be deleted.")
 
+        sid = session_id or "default"
         with self._session_write(session_id) as state:
             self._refresh_saved_profiles(force=True)
-            # Ownership check: prevent deleting profiles owned by other users.
-            # Profiles owned by "__anonymous__" are shared/legacy and deletable by anyone.
-            existing = next(
-                (p for p in self._global_custom_profiles if p.name == profile_name),
-                None,
+            mine = self._saved(profile_name, user_id)
+            if mine is None and any(p.name == profile_name for p in self._global_custom_profiles):
+                raise self._not_yours(profile_name, "delete")
+            if mine is not None:
+                self._refuse_moving_others(
+                    mine,
+                    None,
+                    change=f"Deleting profile {profile_name!r}",
+                    exclude=sid,
+                    force=force,
+                )
+            active = state.get_active_profile()
+            on_it = (
+                state.active_profile == profile_name
+                and active is not None
+                and (active.user_id or ANONYMOUS) == user_id
             )
-            if existing and existing.user_id != "__anonymous__" and existing.user_id != user_id:
-                raise ValueError(f"Profile '{profile_name}' is owned by another user.")
-            if state.active_profile == profile_name:
+            if on_it:
                 # The session falls back to default, which may embed at another size.
                 fallback = next((p for p in state.profiles if p.name == "default"), None)
                 self._refuse_unsearchable(
                     state,
                     _resolve(fallback.config if fallback else {}, {}),
                     change=f"Deleting the active profile {profile_name!r} falls back to 'default', which",
-                    force=False,
+                    force=force,
                     session_id=session_id,
                 )
-            state.profiles = [p for p in state.profiles if p.name != profile_name]
-            if state.active_profile == profile_name:
+            state.profiles = [
+                p
+                for p in state.profiles
+                if not (p.name == profile_name and (p.user_id or ANONYMOUS) == user_id)
+            ]
+            if on_it:
                 state.active_profile = "default"
                 state.session_overrides = {}
+                state.user_id = ANONYMOUS
 
-            self._global_custom_profiles = [
-                p for p in self._global_custom_profiles if p.name != profile_name
-            ]
-            self._global_profile_names.discard(profile_name)
+            if mine is not None:
+                self._global_custom_profiles = [
+                    p for p in self._global_custom_profiles if p is not mine
+                ]
+                self._global_profile_names = {p.name for p in self._global_custom_profiles}
 
             state.profiles = self._ensure_default_profile(state.profiles)
-            if existing is not None:
-                self._delete_global_profile(existing)
+            if mine is not None:
+                self._delete_global_profile(mine)
                 self._saved_profiles_changed()
-            self._persist_single_session(session_id or "default")
+            self._persist_single_session(sid)
 
             logger.info(f"Deleted profile '{profile_name}' globally")
 
@@ -996,24 +1158,28 @@ class ProfileMixin:
         profile_name: str,
         description: str,
         session_id: Optional[str] = None,
+        user_id: str = ANONYMOUS,
     ) -> Dict[str, Any]:
-        """Update a profile description (default is protected)."""
+        """Update the description of the caller's profile (default is protected)."""
         if profile_name == "default":
             raise ValueError("The default profile description cannot be edited.")
 
         with self._session_write(session_id) as state:
+            mine = self._saved(profile_name, user_id)
+            if mine is None and any(p.name == profile_name for p in self._global_custom_profiles):
+                raise self._not_yours(profile_name, "change")
             profile = next((p for p in state.profiles if p.name == profile_name), None)
-            if not profile:
+            if mine is None and not profile:
                 raise ValueError(f"Profile '{profile_name}' not found.")
 
-            profile.description = description
-
-            for gp in self._global_custom_profiles:
-                if gp.name == profile_name:
-                    gp.description = description
-                    self._save_global_profile(gp)
-                    self._saved_profiles_changed()
-                    break
+            if profile is not None and (profile.user_id or ANONYMOUS) == user_id:
+                profile.description = description
+            if mine is not None:
+                gp = copy.deepcopy(mine)
+                gp.description = description
+                self._global_custom_profiles[self._global_custom_profiles.index(mine)] = gp
+                self._save_global_profile(gp)
+                self._saved_profiles_changed()
 
             state.profiles = self._ensure_default_profile(state.profiles)
             self._persist_single_session(session_id or "default")
@@ -1036,7 +1202,10 @@ class ProfileMixin:
                 "default_profiles_count": len(self._default_profiles),
                 "active_sessions_count": len(self._session_states),
                 "max_cached_sessions": MAX_CACHED_SESSIONS,
-                "session_ttl_hours": session_idle_seconds() / 3600,
+                # None: session_idle_days = 0 keeps idle sessions' settings.
+                "session_ttl_hours": (
+                    None if session_idle_seconds() is None else session_idle_seconds() / 3600
+                ),
             }
 
     def list_global_profiles(self, user_id: str = "__anonymous__") -> List[Dict[str, Any]]:

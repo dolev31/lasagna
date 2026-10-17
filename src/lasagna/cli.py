@@ -365,14 +365,23 @@ def main() -> None:
     """The `lasagna` command: the app, with a bad setting reported in one message.
 
     A ConfigError names the setting, its value and the fix. Raised from a
-    command that does not catch it, it arrived inside a 40-line traceback.
+    command that does not catch it, it arrived inside a 40-line traceback; so
+    did a store that did not save a change or stayed locked.
     """
     try:
         app()
     except Exception as exc:
         config_error = _in_cause_chain(exc, "ConfigError")
         if config_error is None:
-            raise
+            # The store did not take a change, or another process held it
+            # past the wait: the message says what to do.
+            store = _in_cause_chain(exc, "SettingsNotSaved") or _in_cause_chain(
+                exc, "StoreLockTimeout"
+            )
+            if store is None:
+                raise
+            console.print(f"[red]Error: {escape(str(store))}[/red]")
+            raise SystemExit(1) from None
         console.print(f"[red]Error: {escape(str(config_error))}[/red]")
         raise SystemExit(2) from None
 
@@ -1519,10 +1528,18 @@ def configure(
         help="Finish a profile switch with --reindex whose process stopped before it ended "
         "(doctor reports one): runs the same switch again",
     ),
+    reset: bool = typer.Option(
+        False,
+        "--reset",
+        help="Drop the session's own settings (set by an SDK client, a patch or an import), "
+        "so its profile's apply as they are; with --profile, switch as well. The same "
+        "documents check, --force and --reindex apply",
+    ),
 ):
     """Configure RAG settings.
 
-    With --profile, applies a preset. Without arguments, lists available profiles.
+    With --profile, applies a preset; with --reset, drops the session's own
+    settings. Without arguments, lists available profiles.
     """
     from lasagna.core.session_config import get_knowledge_config_manager
 
@@ -1547,13 +1564,15 @@ def configure(
             err=True,
         )
 
-    # Both flags qualify a switch: without --profile they listed the profiles
-    # and said nothing, and together the switch took --reindex and dropped --force.
-    if (force or reindex) and not profile:
+    # Both flags qualify a change of the session's profile or of its own
+    # settings: without --profile or --reset they listed the profiles and said
+    # nothing, and together the switch took --reindex and dropped --force.
+    if (force or reindex) and not (profile or reset):
         flag = "--reindex" if reindex else "--force"
         _error(
-            f"{flag} applies to a profile switch, and no --profile was given. Name the "
-            f"profile: lasagna configure --profile <name> -s {session_id} {flag}"
+            f"{flag} applies to a profile switch or --reset, and neither was given. Name "
+            f"the profile (lasagna configure --profile <name> -s {session_id} {flag}), or "
+            f"drop the session's own settings (lasagna configure --reset -s {session_id} {flag})."
         )
     if force and reindex:
         _error(
@@ -1561,6 +1580,11 @@ def configure(
             "reindexing (the session's documents stay unsearched until reindexed), and "
             "--reindex reindexes them before it switches. Pass one of them."
         )
+    if reset and resume_switch:
+        _error("--resume-switch repeats the interrupted switch; leave out --reset.")
+    if reset and not profile:
+        # The session's own profile, without the settings it set itself.
+        profile = mgr.get_active_profile(session_id=session_id) or "default"
 
     if profile:
         if not resume_switch:
@@ -1577,7 +1601,13 @@ def configure(
                     f"lasagna serve at {url} holds the local store; going through it.", err=True
                 )
                 _configure_through_server(
-                    url, profile, session_id, force=force, reindex=reindex, config=switch_config
+                    url,
+                    profile,
+                    session_id,
+                    force=force,
+                    reindex=reindex,
+                    config=switch_config,
+                    reset=reset,
                 )
                 return
             if reindex:
@@ -1598,14 +1628,15 @@ def configure(
                 force=force,
                 reindex=reindex,
                 config=switch_config,
+                reset=reset,
             )
         except ProfileSwitchInProgress as exc:
             _error(str(exc))
         except EmbeddingSizeConflict as exc:
+            again = f"lasagna configure --profile {profile}{' --reset' if reset else ''}"
             _error(
-                f"{exc} To switch and reindex them now: lasagna configure --profile "
-                f"{profile} -s {session_id} --reindex. To switch anyway: lasagna "
-                f"configure --profile {profile} -s {session_id} --force."
+                f"{exc} To switch and reindex them now: {again} -s {session_id} --reindex. "
+                f"To switch anyway: {again} -s {session_id} --force."
             )
         except (ProfileCannotLoad, ReindexFailed, ValueError) as exc:
             _error(str(exc))
@@ -1614,7 +1645,7 @@ def configure(
                 from lasagna.api.rag_backend import close_backend
 
                 close_backend()
-        console.print(f"[green]Applied profile: {profile}[/green]")
+        console.print(f"[green]{escape(report.applied())}[/green]")
         done = summary(report)
         if done:
             console.print(done)
@@ -1650,6 +1681,7 @@ def _configure_through_server(
     force: bool,
     reindex: bool,
     config: Optional[dict] = None,
+    reset: bool = False,
 ) -> None:
     """Switch ``session_id`` to ``profile`` through the running ``lasagna serve`` at ``url``.
 
@@ -1663,6 +1695,8 @@ def _configure_through_server(
     from lasagna.api.rest.auth_mode import configured_secret
 
     body = {"active_profile": profile, "force": force, "reindex": reindex}
+    if reset:
+        body["reset"] = True
     if config:
         body["config"] = config
     headers = {"X-Session-ID": session_id}
@@ -1707,30 +1741,30 @@ def _configure_through_server(
         detail = data.get("detail") if isinstance(data, dict) else None
         message = detail if isinstance(detail, str) else resp.text
         if resp.status_code == 409 and not (force or reindex) and "--reindex" not in message:
+            again = f"lasagna configure --profile {profile}{' --reset' if reset else ''}"
             message += (
-                f" To switch and reindex them now: lasagna configure --profile {profile} "
-                f"-s {session_id} --reindex. To switch anyway: lasagna configure --profile "
-                f"{profile} -s {session_id} --force."
+                f" To switch and reindex them now: {again} -s {session_id} --reindex. To "
+                f"switch anyway: {again} -s {session_id} --force."
             )
         _error(message)
-    console.print(f"[green]Applied profile: {profile}[/green]")
     report = data.get("reindex") if isinstance(data, dict) else None
-    if report:
-        from lasagna.api._profile_switch import SwitchReport, summary
+    from lasagna.api._profile_switch import SwitchReport, summary
 
-        done = summary(
-            SwitchReport(
-                profile=profile,
-                previous=report.get("previous_profile", ""),
-                session_id=session_id,
-                embedding_model=report.get("embedding_model", ""),
-                reindexed=list(report.get("reindexed") or []),
-                total=int(report.get("documents") or 0),
-                reindex=True,
-            )
-        )
-        if done:
-            console.print(done)
+    switched = SwitchReport(
+        profile=profile,
+        previous=(report or {}).get("previous_profile", ""),
+        session_id=session_id,
+        embedding_model=(report or {}).get("embedding_model", ""),
+        reindexed=list((report or {}).get("reindexed") or []),
+        total=int((report or {}).get("documents") or 0),
+        reindex=bool(report),
+        own_settings=dict((report or {}).get("own_settings") or {}),
+        warnings=list((report or {}).get("warnings") or []),
+    )
+    console.print(f"[green]{escape(switched.applied())}[/green]")
+    done = summary(switched)
+    if done:
+        console.print(done)
 
 
 @app.command(name="export")

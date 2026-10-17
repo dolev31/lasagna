@@ -123,8 +123,9 @@ def test_a_switch_flag_without_a_profile_says_the_profile_is_missing(flag):
     out = _configure(flag)
     words = " ".join(out.output.split())
     assert out.exit_code == 1, words
-    assert f"{flag} applies to a profile switch, and no --profile was given" in words
+    assert f"{flag} applies to a profile switch or --reset, and neither was given" in words
     assert f"lasagna configure --profile <name> -s default {flag}" in words
+    assert f"lasagna configure --reset -s default {flag}" in words
     assert "Available Profiles" not in words
 
 
