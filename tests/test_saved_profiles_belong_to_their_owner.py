@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from lasagna.api.rest import session_token
+from tests._tokens import minted_token
 from tests._isolated_config import isolated_manager, rest_client
 
 
@@ -25,8 +26,8 @@ def tenants(monkeypatch):
     monkeypatch.setenv("RAG_REQUIRE_AUTH", "true")
     monkeypatch.setenv("RAG_JWT_SECRET", "k" * 64)
     monkeypatch.setattr(session_token, "_fallback_secret", None)
-    a, _ = session_token.create_session_token("session-a", "tenant-a")
-    b, _ = session_token.create_session_token("session-b", "tenant-b")
+    a = minted_token("session-a", "tenant-a")
+    b = minted_token("session-b", "tenant-b")
     return {"X-Session-Token": a}, {"X-Session-Token": b}
 
 

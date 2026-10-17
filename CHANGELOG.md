@@ -1467,6 +1467,9 @@ Servers and deployment:
   with the key that minted it, its usage counts toward that key's quota, and
   `RAG_MAX_SESSIONS_PER_KEY` (default 100 per token lifetime) caps the sessions
   a key mints. Auth off: unchanged.
+- A session token minted while auth was off kept working after auth was
+  switched on with only `RAG_ADMIN_TOKEN` set (no `RAG_API_KEYS`). With auth on,
+  a token must name its API key or the admin token.
 
 ### Known issues
 

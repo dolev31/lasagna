@@ -30,12 +30,27 @@ def test_an_asserted_session_id_is_counted_against_the_caller_not_the_victim(mon
     assert _rate_limit_key(_request({"X-Session-ID": "victim"})) == "ip:203.0.113.7"
 
 
-def test_a_verified_token_is_counted_against_its_session(monkeypatch):
+def test_a_verified_token_is_counted_against_its_key(monkeypatch):
+    from lasagna.api.rest import auth_mode
+
+    monkeypatch.setenv("RAG_REQUIRE_AUTH", "true")
+    monkeypatch.setenv("RAG_JWT_SECRET", "k" * 64)
+    monkeypatch.setenv(auth_mode.API_KEYS_ENV, "a" * 40)
+    monkeypatch.setattr(session_token, "_fallback_secret", None)
+    principal = auth_mode.principal_for_api_key("a" * 40)
+    token, _expires = session_token.create_session_token(
+        "alice-session", "alice", principal=principal
+    )
+    assert _rate_limit_key(_request({"X-Session-Token": token})) == f"prn:{principal}"
+
+
+def test_a_token_naming_no_key_is_counted_against_the_address(monkeypatch):
+    """Minted while auth was off: with auth on it verifies nothing."""
     monkeypatch.setenv("RAG_REQUIRE_AUTH", "true")
     monkeypatch.setenv("RAG_JWT_SECRET", "k" * 64)
     monkeypatch.setattr(session_token, "_fallback_secret", None)
     token, _expires = session_token.create_session_token("alice-session", "alice")
-    assert _rate_limit_key(_request({"X-Session-Token": token})) == "sid:alice-session"
+    assert _rate_limit_key(_request({"X-Session-Token": token})) == "ip:203.0.113.7"
 
 
 def test_without_auth_the_asserted_id_is_used(monkeypatch):

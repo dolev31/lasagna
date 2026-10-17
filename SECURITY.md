@@ -64,8 +64,8 @@ inputs on an instance you control.
   on REST and MCP. Tokens minted with `RAG_ADMIN_TOKEN` name no key (their
   principal is `admin`); changing `RAG_JWT_SECRET` ends those, and every other
   token. A token minted while auth was off names no principal at all, and is
-  refused once auth is on with keys configured, so switching auth on ends
-  those sessions without a new secret.
+  refused once auth is on, so switching auth on ends those sessions without a
+  new secret.
 
   `RAG_ADMIN_TOKEN` is a **narrower** thing and is not a password for the API.
   It guards the operations whose blast radius is the whole instance rather than
