@@ -19,6 +19,7 @@ from ._data_models import (
     _check_profile_size,
     _deep_merge,
     _resolve,
+    kept_in_process,
 )
 
 
@@ -34,6 +35,10 @@ _use_recorded_at: Dict[str, float] = {}
 #: How many changes this process has saved to each session, over all of its
 #: managers. A manager whose count differs reads the session again at once.
 _writes_here: Dict[str, int] = {}
+
+#: The settings of sessions kept in this process (``keep_in_process``), shared
+#: by every manager of it.
+_in_process_states: Dict[str, KnowledgeConfigState] = {}
 
 #: Keys each session last published to an in-memory session provider, so a
 #: key the session no longer chooses (a profile switched away from) is
@@ -144,6 +149,13 @@ class SessionStateMixin:
         session_id = session_id or "default"
 
         with self._lock:
+            if kept_in_process(session_id):
+                # The harness's: this process's only, and every manager's.
+                state = _in_process_states.get(session_id)
+                if state is None:
+                    state = _in_process_states.setdefault(session_id, self._new_session_state())
+                return state
+
             self._reload_if_changed()
             self._cleanup_old_sessions()
             if hasattr(self, "_refresh_saved_profiles"):
@@ -152,34 +164,35 @@ class SessionStateMixin:
             self._record_use(session_id)
 
             if session_id not in self._session_states:
-                all_profiles = [copy.deepcopy(p) for p in self._default_profiles]
-
-                # Only the shared ones: a profile with an owner is found when its
-                # owner asks for it, and copying every tenant's into every new
-                # session showed them (configs included) to all of them.
-                default_names = {p.name for p in all_profiles}
-                for custom_profile in self._global_custom_profiles:
-                    if (
-                        custom_profile.name not in default_names
-                        and custom_profile.user_id == ANONYMOUS
-                    ):
-                        all_profiles.append(copy.deepcopy(custom_profile))
-
-                state = KnowledgeConfigState(
-                    profiles=all_profiles,
-                    active_profile="default",
-                    session_overrides={},
-                    defaults_source="settings.lasagna.toml",
-                    rag_enabled=True,
-                    focused_document_ids=[],
-                    last_accessed=time.time(),
-                )
-                state.profiles = self._ensure_default_profile(state.profiles)
-                self._session_states[session_id] = state
+                self._session_states[session_id] = self._new_session_state()
             else:
                 self._session_states[session_id].last_accessed = time.time()
 
             return self._session_states[session_id]
+
+    def _new_session_state(self) -> KnowledgeConfigState:
+        """A session with no settings of its own: the default profile."""
+        all_profiles = [copy.deepcopy(p) for p in self._default_profiles]
+
+        # Only the shared ones: a profile with an owner is found when its
+        # owner asks for it, and copying every tenant's into every new
+        # session showed them (configs included) to all of them.
+        default_names = {p.name for p in all_profiles}
+        for custom_profile in self._global_custom_profiles:
+            if custom_profile.name not in default_names and custom_profile.user_id == ANONYMOUS:
+                all_profiles.append(copy.deepcopy(custom_profile))
+
+        state = KnowledgeConfigState(
+            profiles=all_profiles,
+            active_profile="default",
+            session_overrides={},
+            defaults_source="settings.lasagna.toml",
+            rag_enabled=True,
+            focused_document_ids=[],
+            last_accessed=time.time(),
+        )
+        state.profiles = self._ensure_default_profile(state.profiles)
+        return state
 
     def _record_use(self, session_id: str) -> None:
         """Record in the store that the session is in use, at most once an hour per process.
@@ -256,6 +269,11 @@ class SessionStateMixin:
         from lasagna.api._profile_guard import refuse_during_switch
 
         sid = session_id or "default"
+        if kept_in_process(sid):
+            # The harness's: no other process sees it, and it never switches.
+            with self._lock:
+                yield self.get_session_state(sid)
+            return
         refuse_during_switch(sid, "This change")  # before waiting behind a switch's lock
         with session_lock(sid):
             refuse_during_switch(sid, "This change")
@@ -622,6 +640,8 @@ class SessionStateMixin:
         deleted = False
 
         with self._lock:
+            if _in_process_states.pop(session_id, None) is not None:
+                deleted = True
             if session_id in self._session_states:
                 del self._session_states[session_id]
                 deleted = True

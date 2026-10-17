@@ -16,6 +16,7 @@ from ._data_models import (
     SESSION_TTL_SECONDS,
     MAX_CACHED_SESSIONS,
     RAGProfile,
+    kept_in_process,
     session_idle_seconds,
 )
 
@@ -299,6 +300,8 @@ class PersistenceMixin:
         Writing every cached session on each change put this process's stale
         copies of sessions another process had changed back over them.
         """
+        if kept_in_process(session_id):
+            return  # the evaluation harness's: this process's only
         state = self._session_states.get(session_id)
         if state is None:
             return

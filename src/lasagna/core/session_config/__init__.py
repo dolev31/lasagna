@@ -43,6 +43,8 @@ from ._data_models import (
     KnowledgeConfigState,
     UnknownProfileError,
     _deep_merge,
+    keep_in_process,
+    kept_in_process,
 )
 from ._profiles import ProfileMixin
 from ._session_state import SessionStateMixin
@@ -211,6 +213,8 @@ __all__ = [
     "RAGProfile",
     "UnknownProfileError",
     "get_knowledge_config_manager",
+    "keep_in_process",
+    "kept_in_process",
     # Constants (for consumers that import them directly)
     "SCHEMA_VERSION",
     "SESSION_TTL_SECONDS",

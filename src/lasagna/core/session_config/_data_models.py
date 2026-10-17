@@ -66,6 +66,29 @@ MAX_PROFILE_CONFIG_BYTES = 10_000
 ANONYMOUS = "__anonymous__"
 
 
+#: Sessions whose settings stay in the process that set them (``keep_in_process``).
+_kept_in_process: set = set()
+
+
+def keep_in_process(session_id: str) -> None:
+    """Keep ``session_id``'s settings in this process: never read from or written to the store.
+
+    For the evaluation harness. Its sessions are named after the corpus
+    (``bench_corpus_<hash>``) so that every run on a corpus reuses its vectors;
+    with the persistent store two experiment processes on one corpus then
+    shared one row of settings, and each read the other's arm settings in the
+    agentic loop and at ingestion. Every manager of the process shares these
+    sessions' settings, and they are exempt from the check that a change keeps
+    the session's documents searchable: the harness names a collection per arm.
+    """
+    _kept_in_process.add(session_id)
+
+
+def kept_in_process(session_id: Optional[str]) -> bool:
+    """Whether ``session_id``'s settings stay in this process (see ``keep_in_process``)."""
+    return bool(session_id) and session_id in _kept_in_process
+
+
 class UnknownProfileError(ValueError):
     """No profile of that name exists for the caller."""
 
