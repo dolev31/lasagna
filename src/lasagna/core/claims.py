@@ -11,13 +11,70 @@ claim names its benchmark::
     claims={"benchmark": "beir/scifact", "ndcg@10": 0.456}   # the flat form
 
 and a results table shows it only on a run of that benchmark.
+
+Its metric names are checked at registration: ``"ndgc@10"`` registered and its
+Claimed column never appeared. A metric the harness does not record is an
+error; a benchmark no registry has is a warning, since a plugin may add it.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping, Optional
+import re
+from typing import Any, Dict, List, Mapping, Optional
 
 _EXAMPLE = 'claims={"beir/scifact": {"ndcg@10": 0.456}}'
+
+#: Ranked-list metrics the harness records at a cut-off; a claim names one
+#: with its k, as ``ndcg@10`` (``ir_metrics.corpus_metrics``).
+RANKED_METRICS = (
+    "ndcg",
+    "precision",
+    "recall",
+    "f1",
+    "mrr",
+    "map",
+    "hit_rate",
+    "r_precision",
+    "complete_recall",
+)
+
+#: Answer metrics the harness records with no cut-off: the judge-free ones and
+#: the judged ones (``ragas_evaluator.METRIC_MAP``).
+ANSWER_METRICS = (
+    "exact_match",
+    "token_f1",
+    "rouge_l",
+    "contains_answer",
+    "answer_similarity",
+    "abstention_rate",
+    "citation_recall",
+    "citation_precision",
+    "faithfulness",
+    "answer_relevancy",
+    "context_precision",
+    "context_recall",
+    "factual_correctness",
+    "noise_sensitivity",
+    "context_relevance",
+)
+
+
+def _metric_problem(benchmark: str, name: str) -> Optional[str]:
+    """Why ``name`` is not a metric a run records, or None when it is one."""
+    from ._text import did_you_mean
+
+    lower = name.lower()
+    ranked = re.fullmatch(r"([a-z][a-z0-9_]*)@([1-9][0-9]*)", lower)
+    if lower in ANSWER_METRICS or (ranked and ranked.group(1) in RANKED_METRICS):
+        return None
+    k = ranked.group(2) if ranked else "10"
+    known = [f"{m}@{k}" for m in RANKED_METRICS] + list(ANSWER_METRICS)
+    return (
+        f"claims for {benchmark!r}: no metric named {name!r}{did_you_mean(lower, known)}, so "
+        f"its Claimed column would never appear. A claim names a metric runs record: "
+        f"{', '.join(f'{m}@k' for m in RANKED_METRICS)} (as in ndcg@10), or "
+        f"{', '.join(ANSWER_METRICS)}."
+    )
 
 
 def _is_number(value: Any) -> bool:
@@ -36,6 +93,10 @@ def _metrics(benchmark: str, values: Mapping[str, Any]) -> Dict[str, Any]:
                 f"claims for {benchmark!r}: {key!r} must be a number, got {value!r}. "
                 f"For example {_EXAMPLE}."
             )
+        else:
+            problem = _metric_problem(benchmark, str(key))
+            if problem:
+                raise ValueError(problem)
         out[str(key)] = value
     if not any(key != "split" for key in out):
         raise ValueError(f"claims for {benchmark!r} name no metric. For example {_EXAMPLE}.")
@@ -74,6 +135,33 @@ def normalize_claims(claims: Optional[Mapping[str, Any]]) -> Optional[Dict[str, 
         f'benchmark. Name it: claims={{"beir/scifact": {{"{metric}": {value}}}}}, or add '
         f'"benchmark": "beir/scifact" to the dict, with the benchmark the paper used.'
     )
+
+
+def unregistered_benchmarks(claims: Optional[Mapping[str, Any]]) -> List[str]:
+    """A warning for each benchmark ``claims`` names that no benchmark registry has.
+
+    A warning, not an error: a plugin may register the benchmark later. Not
+    checked while the benchmark registry is still loading its plugins (a
+    plugin that registers a component as it loads), which would wait on itself.
+    """
+    if not claims:
+        return []
+    try:
+        from lasagna.knowledge_evaluation_sdk.benchmarks import benchmark_registry as reg
+    except Exception:  # noqa: BLE001 - the evaluation package is optional here
+        return []
+    if not reg._builtins_registered and reg._lock.locked():
+        return []
+    known = reg.names()
+    from ._text import did_you_mean
+
+    return [
+        f"claims name the benchmark {name!r}, which no registry has"
+        f"{did_you_mean(name, known)}: the claim shows only beside a run of a benchmark by "
+        f"that name. `lasagna benchmark list` lists them; ignore this if a plugin registers it."
+        for name in claims
+        if name not in known
+    ]
 
 
 def claimed_value(

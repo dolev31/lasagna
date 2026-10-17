@@ -419,7 +419,7 @@ All search endpoints accept the same `SearchRequest` body.
 
 #### `POST /api/v1/search`
 
-Search with the session's retrieval pipeline. Each stage runs as the session config sets it: hybrid dense and BM25 search, cross-encoder reranking, MMR diversity, HyDE query expansion, adaptive-k retrieval, hierarchical auto-merge. A stage that failed and fell back is named in `degraded_stages`, so an empty list means every configured stage ran. `documents_elsewhere` means some of the session's documents are in another embedding model's collection, so this search could not find them: reindex them with the session's model (`PUT /api/config/knowledge/active` with `reindex: true`), or switch back to the profile that indexed them.
+Search with the session's retrieval pipeline. Each stage runs as the session config sets it: hybrid dense and BM25 search, cross-encoder reranking, MMR diversity, HyDE query expansion, adaptive-k retrieval, hierarchical auto-merge. A stage that failed and fell back is named in `degraded_stages`, so an empty list means every configured stage ran. `documents_elsewhere` means some of the session's documents are in another embedding model's collection, so this search could not find them: reindex them with the session's model (`PUT /api/config/knowledge/active` with `reindex: true`), or switch back to the profile that indexed them. A session with no documents (a misspelled `X-Session-ID`, for one) is not searched: the answer is `200` with no results and a `note` naming the sessions that have documents, or how to add one.
 
 `score` is absolute, so it can be compared across queries: with reranking on
 (every profile but `speed`) it is the cross-encoder's probability that the chunk
@@ -796,7 +796,7 @@ List all registered agentic pipelines. With `RAG_REQUIRE_AUTH=true`, this needs 
 
 These endpoints serve the configurator frontend UI. They provide full profile CRUD, session-scoped configuration, and import/export. All return `KnowledgeConfigFullResponse`.
 
-**Deprecated for other callers:** they are unversioned because the configurator calls them by these paths, and they will move under `/api/v1` in 0.2.0. A program should read and change a session's settings with `GET` and `PATCH /api/v1/config`.
+**Deprecated for other callers:** they are unversioned because the configurator calls them by these paths, and they will move under `/api/v1` in 0.2.0. A program should read and change a session's settings with `GET` and `PATCH /api/v1/config`. One has no `/api/v1` counterpart in 0.1.0: clearing a session's overrides is `POST /api/config/knowledge/reset`, which is why the fixes in error messages name it. Being unversioned, it is outside the API stability promise in [GOVERNANCE.md](https://github.com/dolev31/lasagna/blob/main/GOVERNANCE.md).
 
 With `RAG_CONFIGURATOR=true`, the UI's own routes are mounted too: `GET /configurator/api/schema` and `POST /configurator/api/validate`. With `RAG_REQUIRE_AUTH=true`, they need a session token like the routes below (401 without one).
 
@@ -1063,9 +1063,9 @@ Request validation failures (422) use FastAPI's own shape, where `detail` is a l
 | `DeleteResponse` | `success`, `document_id`, `message` |
 | `DocumentStatusResponse` | `document_id`, `status`, `chunks_count`, `error_message` |
 | `ChunkResponse` | `chunk_id`, `content`, `document_id`, `chunk_index`, `page_number`, `metadata` |
-| `SearchResponse` | `results: [SearchResultResponse]`, `query`, `total_results`, `routing?`, `degraded_stages` |
+| `SearchResponse` | `results: [SearchResultResponse]`, `query`, `total_results`, `routing?`, `degraded_stages`, `note?` |
 | `SearchResultResponse` | `chunk: ChunkResponse`, `score`, `rank`, `document_id`, `filename` |
-| `SearchWithCitationsResponse` | `results`, `citations: [CitationResponse]`, `context`, `query`, `total_results`, `routing?`, `degraded_stages` |
+| `SearchWithCitationsResponse` | `results`, `citations: [CitationResponse]`, `context`, `query`, `total_results`, `routing?`, `degraded_stages`, `note?` |
 | `CitationResponse` | `citation_id`, `document_id`, `document_name`, `chunk_id`, `chunk_index`, `page_number`, `score`, `content`, `highlight`, `highlights`, `highlight_ranges` |
 | `CitationListResponse` | `citations: [CitationResponse]`, `session_id`, `total` |
 | `ConfigResponse` | 60 fields: the 57 keys `PATCH /api/v1/config` accepts, plus `embedding_model`, `embedding_dim`, `warnings` |

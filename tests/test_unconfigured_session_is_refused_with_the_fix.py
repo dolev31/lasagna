@@ -85,14 +85,16 @@ def _client(backend):
 
 
 def test_search_answers_503_naming_the_fix(monkeypatch):
-    monkeypatch.setattr(md, "sessions_with_documents", lambda: {"my-corpus": 3})
+    # A session with documents whose model is not downloaded. One with none
+    # is answered 200 with a note before any model loads
+    # (tests/test_an_empty_session_a_security_link_and_configure_flags_say_what_is_wrong.py).
+    monkeypatch.setattr(md, "sessions_with_documents", lambda: {"default": 2, "my-corpus": 3})
     backend = _Backend(md.ModelNotDownloaded("BAAI/bge-m3", offline=True))
     with _client(backend) as client:
         r = client.post("/api/v1/search", json={"query": "q", "top_k": 5})
     assert r.status_code == 503
     detail = r.json()["detail"]
     assert "not downloaded" in detail
-    assert "Sessions with documents: my-corpus (3)" in detail
     assert "lasagna configure --profile speed -s default" in detail
 
 

@@ -77,8 +77,18 @@ _DEGRADED_STAGES = Field(
     default_factory=list,
     description=(
         "Pipeline stages that failed and fell back to a lesser result during this "
-        "search (hyde, graphrag, hybrid, query_expansion, agentic, routing). Empty "
+        "search (hyde, graphrag, hybrid, reranker, query_expansion, agentic, routing). Empty "
         "when every configured stage ran."
+    ),
+)
+
+
+#: Documented on every search response.
+_NOTE = Field(
+    default=None,
+    description=(
+        "Why nothing was searched, when the session has no documents: the sessions "
+        "that have some, or how to add one. Absent when the search ran."
     ),
 )
 
@@ -89,6 +99,7 @@ class SearchResponse(BaseModel):
     total_results: int
     routing: Optional[RoutingInfo] = None
     degraded_stages: List[str] = _DEGRADED_STAGES
+    note: Optional[str] = _NOTE
 
 
 class CitationResponse(BaseModel):
@@ -113,6 +124,7 @@ class SearchWithCitationsResponse(BaseModel):
     total_results: int
     routing: Optional[RoutingInfo] = None
     degraded_stages: List[str] = _DEGRADED_STAGES
+    note: Optional[str] = _NOTE
 
 
 # ---------------------------------------------------------------------------

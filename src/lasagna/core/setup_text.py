@@ -100,6 +100,33 @@ def download_command(model: str) -> str:
     return f"hf download {repo} {includes}" + (f" ({human_size(size)})" if size else "")
 
 
+def downloads_for(models: List[str]) -> str:
+    """The ``hf download`` commands that fetch every one of ``models``, with the total.
+
+    ``hf download BAAI/bge-m3 ... (2.3 GB); hf download mixedbread-ai/... (881 MB);
+    3.2 GB in all``. One model gets its command alone.
+    """
+    commands = "; ".join(download_command(m) for m in models)
+    sizes = [MODEL_DOWNLOAD_BYTES.get(m) for m in models]
+    if len(models) > 1 and all(sizes):
+        commands += f"; {human_size(sum(sizes))} in all"
+    return commands
+
+
+def session_models(session_id: str) -> List[str]:
+    """The models ``session_id``'s searches load: its embedder, and its reranker when on.
+
+    What ``doctor`` checks and every download hint covers.
+    """
+    from lasagna.core.config import rag_config
+
+    config = rag_config.with_session(session_id)
+    models = [config.embedding_model]
+    if config.enable_reranking:
+        models.append(config.reranker_model)
+    return [m for m in dict.fromkeys(models) if m]
+
+
 #: What FlagEmbedding adds for BAAI/bge-m3 (the ``flag-embedding`` extra, which
 #: ``all`` includes): it downloads the model's whole repository, so on top of
 #: the files above it fetches the ONNX export (``onnx/model.onnx_data``, 2.27 GB,

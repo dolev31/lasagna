@@ -167,15 +167,10 @@ def _check_model_cache(session_id: str = "default") -> Check:
     reranking is on): it counted the cache's folders and said "ok, 4 model(s)
     cached" while the profile's models were not among them.
     """
-    from .config import rag_config
     from .model_downloads import fix_for_model, is_cached, offline
-    from .setup_text import model_cache_hint
+    from .setup_text import model_cache_hint, session_models
 
-    config = rag_config.with_session(session_id)
-    models = [config.embedding_model]
-    if config.enable_reranking:
-        models.append(config.reranker_model)
-    models = [m for m in dict.fromkeys(models) if m]
+    models = session_models(session_id)
     missing = [m for m in models if not is_cached(m)]
     if not missing:
         return Check("model_cache", _OK, f"cached for session {session_id!r}: {', '.join(models)}")

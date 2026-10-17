@@ -230,7 +230,10 @@ Registration is one decorator. The `paper` and `claims` arguments are optional
 but worth filling in: they are carried through to the listing API and recorded
 by every run, and on a run of the benchmark a claim names, the leaderboards and
 `results view` show the claimed number next to the one you reproduced. Claims
-are keyed by benchmark (with `"split"` inside if the paper names one).
+are keyed by benchmark (with `"split"` inside if the paper names one). A metric
+name runs do not record (`ndgc@10`) is refused when the component registers,
+and a benchmark no registry has (`beir/scifcat`) is a warning naming the
+closest one.
 
 ```python
 from lasagna.core.base_components import BaseReranker
@@ -454,7 +457,10 @@ print(config.mode, "->", len(config.benchmarks), "benchmark(s)")
 ```
 
 This one is keyless: `speed` embeds with a 92 MB model and the cross-encoder
-control is 92 MB. The same file in YAML runs with
+control is 92 MB. Name `base_profile` in every sweep: one without it starts each
+arm from `standard` (a 3.2 GB download), while `lasagna benchmark run` starts
+from `speed`. `--dry-run` and the run header print the profile each arm starts
+from. The same file in YAML runs with
 `lasagna benchmark experiment sweep.yaml`, which is what the
 [README](../README.md#compare-a-component) and
 [Contributing components](contributing-components.md#4-check-it-helps) show.
@@ -763,6 +769,13 @@ lasagna results leaderboard bundles/ --format latex
 one table held the same configuration fixed; rows in different tables are
 never ranked together), or writes one `.tex` file per benchmark with `-o`.
 Arm names are escaped for LaTeX.
+
+Every `results` command that reads a bundle checks it as `results validate`
+does. A bundle that fails (a number edited after it was made, missing
+provenance) is refused with its problems listed, or left out of a folder's
+leaderboard with its name printed. `--allow-invalid` on `leaderboard` and
+`view` shows it anyway, every number marked INVALID. A `results.json` is not a
+bundle, and is shown as not validated.
 
 **Publish a number someone else can check:**
 

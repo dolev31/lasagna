@@ -69,3 +69,15 @@ def test_the_bm25_sentence_states_the_like_for_like_gap():
         assert f"{gap:.3f}" in section, f"{dataset}: like-for-like gap {gap:.3f} not stated"
     assert "like for like" in section
     assert not re.search(r"within 0\.008 for BM25", section)
+
+
+def test_the_bm25_sentence_says_whose_bm25_it_is():
+    """It called the gap "a difference in the BM25 implementation rather than
+    the harness", as if the BM25 were someone else's: it is Lasagna's own,
+    rank_bm25 over one field, and the reproduction notes say how it differs."""
+    section = " ".join(_readme_section().split())
+    assert "Lasagna's BM25 is its own, rank_bm25's Okapi BM25 over one field" in section
+    assert "rather than the harness" not in section
+    assert "examples/reproduction/README.md#notes-on-the-differences)" in section
+    notes = (REPO / "examples" / "reproduction" / "README.md").read_text()
+    assert "## Notes on the differences" in notes and "rank_bm25" in notes

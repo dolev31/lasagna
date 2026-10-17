@@ -664,7 +664,11 @@ class TestDegradedPathsAreVisible:
 
         assert asyncio.run(run()) == ["hybrid"]
 
-    def test_the_rest_response_names_them(self, auth_off):
+    def test_the_rest_response_names_them(self, auth_off, monkeypatch):
+        from lasagna.core import model_downloads
+
+        monkeypatch.setattr(model_downloads, "sessions_with_documents", lambda: {"default": 1})
+
         async def async_search(**kwargs):
             _degraded.record("hyde", "no LLM")
             return []
@@ -726,7 +730,11 @@ class TestDegradedPathsAreVisible:
         with pytest.raises(orch_mod.SearchScopeUnavailable, match="focused documents"):
             orchestrator.search("q", "s1", top_k=1, query_config_overrides=PLAIN)
 
-    def test_and_rest_answers_503_for_the_search(self, auth_off):
+    def test_and_rest_answers_503_for_the_search(self, auth_off, monkeypatch):
+        from lasagna.core import model_downloads
+
+        monkeypatch.setattr(model_downloads, "sessions_with_documents", lambda: {"default": 1})
+
         async def async_search(**kwargs):
             raise orch_mod.SearchScopeUnavailable("focused documents could not be read")
 

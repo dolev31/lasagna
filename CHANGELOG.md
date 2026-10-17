@@ -111,7 +111,8 @@ Results:
   to decide whether two numbers may be compared, with one comparability key per
   benchmark and configuration; `results leaderboard` groups by it, as markdown
   pages or LaTeX tables (`--format latex`), and `results compare` prints it
-  for each side, refusing a bundle that `results validate` rejects.
+  for each side. Every results command refuses a bundle that `results
+  validate` rejects; `--allow-invalid` shows one marked INVALID.
 - **Stage isolation.** Every run records a manifest of each stage's settings;
   arms that differ outside the stages they name block the bundle, and an arm
   whose named change never moved a ranking (on at least ten queries) is
@@ -130,11 +131,12 @@ Serving:
   serves no deletion tools (`--tools all` does). `search` names the stages that
   fell back and why, with the fix, also when it finds nothing (for example,
   when the session's documents are in another model's collection). An
-  argument of the wrong type is refused in one sentence naming it and the
-  type it takes.
+  argument of the wrong type, or one the tool does not take (`session` for
+  `session_id`), is refused in one sentence naming the one it takes.
 - **REST API** (`lasagna serve`, or the Compose stack) under `/api/v1`,
   covered by the deprecation policy in [GOVERNANCE.md](GOVERNANCE.md); search
-  responses name the stages that fell back in `degraded_stages`.
+  responses name the stages that fell back in `degraded_stages` (a reranker
+  that is not downloaded: results in retrieval order, with the download).
 - **`lasagna upload`** takes files, globs and folders (a folder's readable
   files, subfolders included, saying what it skipped).
 - **Profiles** `speed` (92 MB, no LLM), `standard`, `balanced` and

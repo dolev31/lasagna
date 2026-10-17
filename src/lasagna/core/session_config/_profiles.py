@@ -54,8 +54,14 @@ _cached_default_profiles: Optional[List[RAGProfile]] = None
 #: which used marketing words and named embedding models the profiles do not use.
 BUILTIN_PROFILE_DESCRIPTIONS: Dict[str, str] = {
     "default": "Default configuration from settings.lasagna.toml",
-    "speed": "Vector search only, with all-MiniLM-L6-v2: no reranking, MMR or HyDE",
-    "standard": "Hybrid search, reranking and agentic retrieval with BGE-M3 (recommended start)",
+    "speed": (
+        "Vector search only, with all-MiniLM-L6-v2: no reranking, MMR or HyDE "
+        "(start here: a 92 MB download, no LLM)"
+    ),
+    "standard": (
+        "Hybrid search, reranking and agentic retrieval with BGE-M3 (for quality: "
+        "a 3.2 GB download, and an LLM for complex queries)"
+    ),
     "balanced": "Standard plus hierarchical chunking and the structured agentic graph, with BGE-M3",
     "max_quality": "Every retrieval feature on: HyDE, query expansion, RAG fusion and CRAG",
 }

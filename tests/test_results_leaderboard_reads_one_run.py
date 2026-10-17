@@ -49,6 +49,7 @@ def results_json(tmp_path):
         "n_runs": 1,
         "tracks": ["retrieval"],
         "metrics_version": METRICS_VERSION,
+        "environment": {"lasagna_version": "0.1.0", "python": "3.12.0", "platform": "test"},
     }
     tasks = [_task("control", 0.50), _task("mine", 0.60)]
     path.write_text(

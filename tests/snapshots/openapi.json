@@ -2100,12 +2100,24 @@
       "SearchResponse": {
         "properties": {
           "degraded_stages": {
-            "description": "Pipeline stages that failed and fell back to a lesser result during this search (hyde, graphrag, hybrid, query_expansion, agentic, routing). Empty when every configured stage ran.",
+            "description": "Pipeline stages that failed and fell back to a lesser result during this search (hyde, graphrag, hybrid, reranker, query_expansion, agentic, routing). Empty when every configured stage ran.",
             "items": {
               "type": "string"
             },
             "title": "Degraded Stages",
             "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why nothing was searched, when the session has no documents: the sessions that have some, or how to add one. Absent when the search ran.",
+            "title": "Note"
           },
           "query": {
             "title": "Query",
@@ -2189,12 +2201,24 @@
             "type": "string"
           },
           "degraded_stages": {
-            "description": "Pipeline stages that failed and fell back to a lesser result during this search (hyde, graphrag, hybrid, query_expansion, agentic, routing). Empty when every configured stage ran.",
+            "description": "Pipeline stages that failed and fell back to a lesser result during this search (hyde, graphrag, hybrid, reranker, query_expansion, agentic, routing). Empty when every configured stage ran.",
             "items": {
               "type": "string"
             },
             "title": "Degraded Stages",
             "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why nothing was searched, when the session has no documents: the sessions that have some, or how to add one. Absent when the search ran.",
+            "title": "Note"
           },
           "query": {
             "title": "Query",
@@ -7112,7 +7136,7 @@
     },
     "/api/v1/search": {
       "post": {
-        "description": "Search with the session's retrieval pipeline.\n\nStages, each as the session config sets them: hybrid dense and BM25\nsearch, cross-encoder reranking, MMR diversity, HyDE, adaptive-k\nretrieval, hierarchical auto-merge. A stage that failed and fell back is\nnamed in ``degraded_stages``.",
+        "description": "Search with the session's retrieval pipeline.\n\nStages, each as the session config sets them: hybrid dense and BM25\nsearch, cross-encoder reranking, MMR diversity, HyDE, adaptive-k\nretrieval, hierarchical auto-merge. A stage that failed and fell back is\nnamed in ``degraded_stages``. A session with no documents answers with no\nresults and a ``note`` saying so.",
         "operationId": "search_api_v1_search_post",
         "parameters": [
           {
@@ -7468,7 +7492,7 @@
     },
     "/api/v1/search/citations": {
       "post": {
-        "description": "Search with citation tracking and formatted LLM context.\n\nReturns search results, stable citations, and a pre-formatted\ncontext string ready for injection into LLM prompts.",
+        "description": "Search with citation tracking and formatted LLM context.\n\nReturns search results, stable citations, and a pre-formatted\ncontext string ready for injection into LLM prompts. A session with no\ndocuments answers with no results and a ``note`` saying so.",
         "operationId": "search_with_citations_api_v1_search_citations_post",
         "parameters": [
           {

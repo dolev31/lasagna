@@ -353,7 +353,7 @@ def dry_run_lines(exp: "Experiment", probe: bool = True) -> List[str]:
     dry run refuses exactly what the run would.
     """
     from .benchmarks import benchmark_registry
-    from .experiment import _parse_tracks, resolve_mode
+    from .experiment import _parse_tracks, base_profiles_line, resolve_mode
 
     cfg = exp.config
     tasks = exp.generate_tasks()  # names local-file benchmarks, so read them after
@@ -363,6 +363,7 @@ def dry_run_lines(exp: "Experiment", probe: bool = True) -> List[str]:
     lines = [
         f'Dry run of "{cfg.name}": an estimate; nothing is written under the results folder.',
         f"Arms ({len(arms)}): {', '.join(arms)}",
+        base_profiles_line(tasks),
         f"Tasks ({len(tasks)}): {_count(len(benches), 'benchmark')} x "
         f"{_count(len(arms), 'arm')} x {_count(cfg.n_runs, 'run')}",
     ]
@@ -401,12 +402,22 @@ def dry_run_lines(exp: "Experiment", probe: bool = True) -> List[str]:
         sim = similarity_model_name()
         if str(sim).lower() not in ("none", "off", "false", "0"):
             entries.append(("answer similarity", sim, _hf_cached(sim)))
+    from lasagna.core.model_downloads import offline
+    from lasagna.core.setup_text import download_command
+
     for role, name, cached in entries:
         if (role, name) in seen:
             continue
         seen.add((role, name))
         # "cached": "downloaded" read as something this command had just done.
-        state = {True: "cached", False: "not cached: downloads on first use"}.get(cached, "")
+        # Offline, "downloads on first use" was not true: nothing can.
+        missing = (
+            f"not cached, and HF_HUB_OFFLINE is set, so it cannot download: run "
+            f"{download_command(name)} with network access, or unset HF_HUB_OFFLINE"
+            if offline()
+            else "not cached: downloads on first use"
+        )
+        state = {True: "cached", False: missing}.get(cached, "")
         lines.append(f"  {role:18s} {name}  {state}".rstrip())
     gen_model = generator_model_name() if generation else None
     from .experiment import DEFAULT_JUDGE_MODEL

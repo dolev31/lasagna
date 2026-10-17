@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
@@ -115,6 +116,20 @@ def _result_to_response(r, rank: int = 0) -> SearchResultResponse:
     )
 
 
+def _nothing_to_search(session_id: str) -> Optional[str]:
+    """The note for a session with no documents, before any model loads; None otherwise.
+
+    A typo in X-Session-ID answered 503 "BAAI/bge-m3 is not downloaded",
+    while the CLI said the session has no documents. Where sessions belong to
+    their callers (RAG_REQUIRE_AUTH), other sessions are not named.
+    """
+    from lasagna.core.model_downloads import no_documents_note
+
+    from ..auth_mode import require_auth
+
+    return no_documents_note(session_id, surface="rest", list_others=not require_auth())
+
+
 _SEARCH_ERRORS = {
     400: {"model": ErrorResponse, "description": "The request was invalid for this session"},
     503: {
@@ -136,8 +151,12 @@ async def search(
     Stages, each as the session config sets them: hybrid dense and BM25
     search, cross-encoder reranking, MMR diversity, HyDE, adaptive-k
     retrieval, hierarchical auto-merge. A stage that failed and fell back is
-    named in ``degraded_stages``.
+    named in ``degraded_stages``. A session with no documents answers with no
+    results and a ``note`` saying so.
     """
+    note = _nothing_to_search(session_id)
+    if note:
+        return SearchResponse(results=[], query=body.query, total_results=0, note=note)
     try:
         with _degraded.collecting() as degraded:
             results = await _within_deadline(
@@ -214,8 +233,14 @@ async def search_with_citations(
     """Search with citation tracking and formatted LLM context.
 
     Returns search results, stable citations, and a pre-formatted
-    context string ready for injection into LLM prompts.
+    context string ready for injection into LLM prompts. A session with no
+    documents answers with no results and a ``note`` saying so.
     """
+    note = _nothing_to_search(session_id)
+    if note:
+        return SearchWithCitationsResponse(
+            results=[], citations=[], context="", query=body.query, total_results=0, note=note
+        )
     try:
         with _degraded.collecting() as degraded:
             results, citations, context = await _within_deadline(
@@ -298,6 +323,9 @@ async def multi_query_search(
     """
     if body.routing_tier:
         logger.debug("routing_tier ignored for multi-query endpoint")
+    note = _nothing_to_search(session_id)
+    if note:
+        return SearchResponse(results=[], query=body.query, total_results=0, note=note)
     try:
         with _degraded.collecting() as degraded:
             results = await _within_deadline(

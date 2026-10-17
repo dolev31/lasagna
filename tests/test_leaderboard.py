@@ -24,6 +24,7 @@ from lasagna.knowledge_evaluation_sdk.leaderboard import (
     mark_verified,
     render_markdown,
 )
+from tests._bundles import sealed
 
 
 def _bundle(submitter, key, config="baseline", values=(0.5,), varied=(), benchmark="smoke"):
@@ -217,10 +218,10 @@ class TestEndToEnd:
     def test_builds_from_a_directory(self, tmp_path):
         (tmp_path / "2026" / "lab-a").mkdir(parents=True)
         (tmp_path / "2026" / "lab-a" / "run.json").write_text(
-            json.dumps(_bundle("lab-a", "k", values=(0.4, 0.5, 0.6)))
+            json.dumps(sealed(_bundle("lab-a", "k", values=(0.4, 0.5, 0.6))))
         )
         (tmp_path / "2026" / "lab-b.json").write_text(
-            json.dumps(_bundle("lab-b", "k", config="c2", values=(0.49, 0.5, 0.51)))
+            json.dumps(sealed(_bundle("lab-b", "k", config="c2", values=(0.49, 0.5, 0.51))))
         )
 
         out = tmp_path / "leaderboards"
@@ -233,12 +234,14 @@ class TestEndToEnd:
         assert json.loads((out / "index.json").read_text())["metric"] == "ndcg@10"
 
     def test_a_malformed_bundle_does_not_stop_the_rest(self, tmp_path):
-        (tmp_path / "good.json").write_text(json.dumps(_bundle("a", "k")))
+        (tmp_path / "good.json").write_text(json.dumps(sealed(_bundle("a", "k"))))
         (tmp_path / "broken.json").write_text("{not json")
         assert len(load_bundles(tmp_path)) == 1
 
     def test_benchmark_names_with_slashes_become_one_file(self, tmp_path):
-        (tmp_path / "r.json").write_text(json.dumps(_bundle("a", "k", benchmark="beir/scifact")))
+        (tmp_path / "r.json").write_text(
+            json.dumps(sealed(_bundle("a", "k", benchmark="beir/scifact")))
+        )
         out = tmp_path / "lb"
         build(tmp_path, output=out)
         assert (out / "beir_scifact.md").is_file()
@@ -255,7 +258,7 @@ class TestGeneratedPagesArePublishable:
     def test_no_absolute_path_reaches_the_page(self, tmp_path):
         runs = tmp_path / "runs" / "2026" / "lab-a"
         runs.mkdir(parents=True)
-        (runs / "run.json").write_text(json.dumps(_bundle("lab-a", "k")))
+        (runs / "run.json").write_text(json.dumps(sealed(_bundle("lab-a", "k"))))
 
         out = tmp_path / "leaderboards"
         build(tmp_path / "runs", output=out)
@@ -268,7 +271,7 @@ class TestGeneratedPagesArePublishable:
         """`leaderboards/smoke.md` -> `../runs/...`, or every link 404s."""
         runs = tmp_path / "runs" / "2026" / "lab-a"
         runs.mkdir(parents=True)
-        (runs / "run.json").write_text(json.dumps(_bundle("lab-a", "k")))
+        (runs / "run.json").write_text(json.dumps(sealed(_bundle("lab-a", "k"))))
 
         out = tmp_path / "leaderboards"
         build(tmp_path / "runs", output=out)

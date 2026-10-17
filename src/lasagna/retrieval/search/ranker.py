@@ -307,6 +307,12 @@ class CrossEncoderReranker:
                 ):
                     model = CrossEncoder(name, device=device, **extra)
             except Exception as e:
+                # Offline with the model not on disk, the refusal with its fix
+                # rather than transformers' "We couldn't connect to
+                # 'https://huggingface.co'" (an OSError); not cached as a
+                # failure either.
+                if isinstance(e, OSError):
+                    model_downloads.refuse_offline(name, kind="reranker model")
                 self._failed[key] = f"Cannot load reranker model {name!r}: {e}"
                 raise RuntimeError(self._failed[key]) from e
             self._models[key] = model

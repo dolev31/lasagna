@@ -33,8 +33,11 @@ class _Backend:
         return [], [_CITATION], "context"
 
 
-def test_the_citations_list_shows_a_rest_searchs_citations():
+def test_the_citations_list_shows_a_rest_searchs_citations(monkeypatch):
     from lasagna.api.rest.routes import citations, search
+    from lasagna.core import model_downloads
+
+    monkeypatch.setattr(model_downloads, "sessions_with_documents", lambda: {"rest-citations": 1})
 
     app = FastAPI()
     app.include_router(search.router, prefix="/api/v1")

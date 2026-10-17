@@ -97,7 +97,7 @@ five: `default`, which is the settings file as it stands, and four presets.
 
 | Profile | What it runs | Downloads on first use | Calls an LLM during search |
 |---|---|---|---|
-| `default` | the settings file: BGE-M3, hybrid search, reranking with mxbai-rerank-large-v1, MMR, query routing with agentic retrieval | 3.2 GB | for queries routed to agentic retrieval |
+| `default` | the settings file: BGE-M3, hierarchical chunking, hybrid search, reranking with mxbai-rerank-large-v1, MMR, query routing with agentic retrieval | 3.2 GB | for queries routed to agentic retrieval |
 | `speed` | dense vector search only, all-MiniLM-L6-v2; no reranking, hybrid, MMR, HyDE or agentic loop | 92 MB | never |
 | `standard` | hybrid search, reranking with mxbai-rerank-large-v1, MMR, query routing with agentic retrieval, BGE-M3 | 3.2 GB | for queries routed to agentic retrieval |
 | `balanced` | `standard` plus hierarchical chunking, the structured agentic graph with a hallucination check, and adaptive routing | 3.2 GB | for queries routed to agentic retrieval |
@@ -114,7 +114,8 @@ profile that never calls an LLM and downloads no large model. A benchmark run
 picks its profile with
 `lasagna benchmark run --profile`, or `base_profile:` in a sweep file.
 `lasagna benchmark run` starts from `speed` unless told otherwise, and a sweep
-file without `base_profile:` starts from `standard`.
+file without `base_profile:` starts from `standard`; `--dry-run` and the run
+header print the profile each arm starts from.
 
 ## Where data lives
 
