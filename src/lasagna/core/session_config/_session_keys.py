@@ -12,6 +12,8 @@ that say where data lives or how the server reaches it.
 
 from __future__ import annotations
 
+import json
+import math
 import os
 import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
@@ -180,6 +182,13 @@ _LIST_KEYS_WITHOUT_DEFAULT = ("ensemble_reranker_models", "ensemble_reranker_wei
 #: The longest list a session may give a list setting ``SESSION_MAXIMUMS`` does not name.
 LIST_MAXIMUM = 20
 
+#: The most entries a dict setting may hold for a session, when ``SESSION_MAXIMUMS``
+#: does not name it, and the most bytes it may take as JSON (``agentic_prompts``,
+#: ``agentic_models``, ``search_params``, ...). A dict had no limit: 5,000 prompts of
+#: 1 KB each were stored, and every patch merged more into the stored row.
+DICT_MAXIMUM = 50
+DICT_MAXIMUM_BYTES = 16_384
+
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -215,8 +224,37 @@ def list_session_keys() -> List[str]:
     return sorted(set(names))
 
 
+def _not_a_count_or_number(name: str, value: Any) -> Optional[str]:
+    """Why ``value`` is not a number a session may give ``name``: NaN, infinite, a negative count."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return f"sets {name} to {value}; a session's numbers are finite"
+    if isinstance(value, int) and not isinstance(value, bool) and value < 0:
+        return f"sets {name} to {value}; a count is not negative"
+    return None
+
+
 def _past_maximum(key: str, value: Any) -> Optional[str]:
-    """Why ``value`` is too large for a session's ``key``, or None."""
+    """Why ``value`` is too large (or not a usable number) for a session's ``key``, or None.
+
+    Every comparison with NaN is false, so a maximum alone let it through:
+    ``hybrid_alpha`` and ``similarity_threshold`` stored NaN, and PostgreSQL
+    then refused the row (JSONB has no NaN).
+    """
+    if isinstance(value, dict):
+        for child, item in value.items():
+            problem = _not_a_count_or_number(f"{key}.{child}", item)
+            if problem is not None:
+                return problem
+        cap = int(SESSION_MAXIMUMS.get(key, DICT_MAXIMUM))
+        if len(value) > cap:
+            return f"has at most {cap} entries for a session ({len(value)} given)"
+        size = len(json.dumps(value, default=str))
+        if size > DICT_MAXIMUM_BYTES:
+            return f"is at most {DICT_MAXIMUM_BYTES} bytes as JSON for a session ({size} given)"
+    elif _is_number(value):
+        problem = _not_a_count_or_number(key, value)
+        if problem is not None:
+            return problem
     if isinstance(value, (list, tuple)):
         cap = int(SESSION_MAXIMUMS.get(key, LIST_MAXIMUM))
         if len(value) > cap:

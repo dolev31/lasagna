@@ -455,6 +455,13 @@ class SessionStateMixin:
                 documents=not kept_in_process(session_id or "default"),
                 remedy=remedy,
             )
+            if not trusted:
+                # What the patch leaves: one patch at a time stayed in its
+                # limits while the merged dict grew without one.
+                merged = _resolve(state.session_overrides, patch)
+                from ._session_keys import check_session_settings
+
+                check_session_settings({k: merged[k] for k in patch if isinstance(merged[k], dict)})
             _deep_merge(state.session_overrides, patch)
             self._persist_single_session(session_id or "default")
 
