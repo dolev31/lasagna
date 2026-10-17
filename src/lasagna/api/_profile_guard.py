@@ -42,6 +42,21 @@ def _plural(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
+def session_has_documents(session_id: str) -> bool:
+    """Whether the metadata database holds documents of ``session_id`` with vectors.
+
+    Read without the vector store. A database that cannot be read counts as
+    holding some, so a check that relies on this is never skipped by mistake.
+    """
+    from lasagna.core.database import get_rag_database
+
+    try:
+        rows = get_rag_database().get_documents(session_id)
+    except Exception:  # noqa: BLE001 - unknown is "may hold some"
+        return True
+    return any(str(row.get("status") or "").lower() in _SEARCHED_STATUSES for row in rows)
+
+
 def refuse_leaving_documents(
     *,
     session_id: str,

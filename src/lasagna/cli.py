@@ -1365,6 +1365,21 @@ def configure(
 
     if profile:
         _require_profile(profile, session_id)
+        from lasagna.core import local_server
+
+        if local_server.local_store_held():
+            # `lasagna serve` holds the store: it applies the switch, as it
+            # serves status and search. Its readiness check tells the user to
+            # run this command, which used to fail here.
+            url = local_server.running_server()
+            if url is not None:
+                typer.echo(
+                    f"lasagna serve at {url} holds the local store; going through it.", err=True
+                )
+                _configure_through_server(url, profile, session_id, force=force, reindex=reindex)
+                return
+            if reindex:
+                _error(local_server.held_store_message("configure --reindex"))
         from lasagna.api._profile_guard import EmbeddingSizeConflict
         from lasagna.api._profile_switch import (
             ProfileCannotLoad,
@@ -1416,6 +1431,57 @@ def configure(
 # ---------------------------------------------------------------------------
 # export / import
 # ---------------------------------------------------------------------------
+
+
+def _configure_through_server(
+    url: str, profile: str, session_id: str, *, force: bool, reindex: bool
+) -> None:
+    """Switch ``session_id`` to ``profile`` through the running ``lasagna serve`` at ``url``."""
+    import httpx
+
+    body = {"active_profile": profile, "force": force, "reindex": reindex}
+    try:
+        # A reindex runs inside the request, document by document.
+        resp = httpx.put(
+            f"{url}/api/config/knowledge/active",
+            json=body,
+            headers={"X-Session-ID": session_id},
+            timeout=None if reindex else 60,
+        )
+    except httpx.HTTPError as exc:
+        _error(f"lasagna serve at {url} did not answer: {exc}")
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+    if resp.status_code >= 400:
+        detail = data.get("detail") if isinstance(data, dict) else None
+        message = detail if isinstance(detail, str) else resp.text
+        if resp.status_code == 409 and not (force or reindex) and "--reindex" not in message:
+            message += (
+                f" To switch and reindex them now: lasagna configure --profile {profile} "
+                f"-s {session_id} --reindex. To switch anyway: lasagna configure --profile "
+                f"{profile} -s {session_id} --force."
+            )
+        _error(message)
+    console.print(f"[green]Applied profile: {profile}[/green]")
+    report = data.get("reindex") if isinstance(data, dict) else None
+    if report:
+        from lasagna.api._profile_switch import SwitchReport, summary
+
+        done = summary(
+            SwitchReport(
+                profile=profile,
+                previous=report.get("previous_profile", ""),
+                session_id=session_id,
+                embedding_model=report.get("embedding_model", ""),
+                reindexed=list(report.get("reindexed") or []),
+                total=int(report.get("documents") or 0),
+                reindex=True,
+            )
+        )
+        if done:
+            console.print(done)
 
 
 @app.command(name="export")
