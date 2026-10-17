@@ -727,6 +727,11 @@ Results tooling:
 
 First run:
 
+- `lasagna init` asked "LLM provider?" and threw the answer away: it wrote
+  only `vector_backend`, yet the summary said "LLM: OpenAI, gpt-6-luna". The
+  question is gone, since the provider follows the API key exported in the
+  shell; the summary names the provider and model that key selects, or says
+  none is set and which variable to export.
 - The README said its component comparison "runs as is, with no model,
   corpus or key"; with an empty Hugging Face cache the sweep failed
   ("all-MiniLM-L6-v2 is not downloaded"). It says `python my_ideas.py`

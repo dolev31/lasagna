@@ -476,11 +476,12 @@ def _require_metric(results, metric: str, benchmark: str = "", where: str = "the
 def init():
     """Interactive setup wizard for RAG knowledge base.
 
-    Asks for a vector backend, an LLM provider and a quality profile, writes
-    the backend to ./settings.lasagna.toml and applies the profile to the
-    default session. The profile decides the embedding model. API keys are not
-    asked for or written anywhere: Lasagna reads them from the environment
-    only, so init says which one to export.
+    Asks for a vector backend and a quality profile, writes the backend to
+    ./settings.lasagna.toml and applies the profile to the default session.
+    The profile decides the embedding model. The LLM provider is not asked
+    for: Lasagna picks it from the API key exported in the shell, so init
+    names the provider that key selects, or which variable to export. API
+    keys are not asked for or written anywhere.
     """
     try:
         import questionary
@@ -490,8 +491,10 @@ def init():
         raise typer.Exit(1)
 
     from lasagna.core.session_config._profiles import ProfileMixin
-    from lasagna.core.setup_text import profile_download_text
+    from lasagna.core.setup_text import needs_llm_key, profile_download_text
+    from lasagna.providers import detected_llm_key
     from lasagna.providers.llm_provider import SimpleLLMProvider
+    from lasagna.utils.model_utils import get_default_model_name
 
     console.print()
     # The subtitle sat on the border, wider than the title: the box cut it off.
@@ -514,28 +517,11 @@ def init():
     if vector_backend is None:
         raise typer.Exit(0)
 
-    # 2. LLM provider, each named with the model Lasagna calls by default.
-    providers = {
-        "openai": ("OpenAI", "OPENAI_API_KEY"),
-        "anthropic": ("Anthropic", "ANTHROPIC_API_KEY"),
-        "groq": ("Groq", "GROQ_API_KEY"),
-        "watsonx": ("IBM watsonx", "WATSONX_APIKEY"),
-    }
-    default_models = SimpleLLMProvider.SUPPORTED_PLATFORMS
-    llm_provider = questionary.select(
-        "LLM provider (for HyDE, query expansion, answer generation)?",
-        choices=[
-            *(
-                questionary.Choice(f"{label} ({default_models[name]})", value=name)
-                for name, (label, _key) in providers.items()
-            ),
-            questionary.Choice("None, search only (no LLM features)", value="none"),
-        ],
-    ).ask()
-    if llm_provider is None:
-        raise typer.Exit(0)
+    # There was an "LLM provider?" question here too. Nothing read its answer:
+    # the provider follows the API key exported in the shell, and the summary
+    # named one nothing would call. The summary now says which key does.
 
-    # 3. Quality profile
+    # 2. Quality profile
     profile = questionary.select(
         "Quality profile?",
         choices=[
@@ -595,18 +581,27 @@ def init():
 
     # What `lasagna status` will show: the profile's model.
     embedding = ProfileMixin._PROFILE_SPECS[profile]["embedding_model"]
-    if llm_provider in providers:
-        label, key_name = providers[llm_provider]
-        llm = f"{label}, {default_models[llm_provider]}"
+    # What will answer an LLM call: the provider the exported key selects.
+    found = detected_llm_key()
+    if found is not None:
+        key_name, platform = found
+        model = get_default_model_name(SimpleLLMProvider.SUPPORTED_PLATFORMS.get(platform, ""))
+        llm = f"{platform}, {model}" if model else platform
+        key_line = f"({key_name} is set in this shell)"
+    else:
+        llm = "none"
+        uses = (
+            f"The {profile} profile sends complex queries to an LLM; without a key they "
+            f"run its standard pipeline."
+            if needs_llm_key(profile)
+            else f"The {profile} profile searches without one."
+        )
         key_line = (
-            f"{key_name} is set in this shell."
-            if os.environ.get(key_name, "").strip()
-            else f"Before using LLM features, export {key_name} in your shell:\n"
-            f"  export {key_name}=<your key>\n"
+            f"(no API key is set; the provider follows the key you export)\n{uses} "
+            f"For LLM features (answer generation, HyDE, query expansion):\n"
+            f"  export OPENAI_API_KEY=<your key>   (or ANTHROPIC_API_KEY, GROQ_API_KEY, ...)\n"
             f"and add that line to your shell profile (~/.zshrc or ~/.bashrc) to keep it."
         )
-    else:
-        llm, key_line = "none (search only)", "No API key is needed."
 
     console.print()
     console.print(
@@ -615,8 +610,7 @@ def init():
             f"Profile: [cyan]{profile}[/cyan]\n"
             f"Vector DB: [cyan]{vector_backend}[/cyan]\n"
             f"Embeddings: [cyan]{embedding}[/cyan] (the {profile} profile's model)\n"
-            f"LLM: [cyan]{escape(llm)}[/cyan]\n"
-            f"{escape(key_line)}\n\n"
+            f"LLM: [cyan]{escape(llm)}[/cyan] {escape(key_line)}\n\n"
             f"[dim]Quick start (from this directory):[/dim]\n"
             f"  lasagna upload ./document.pdf\n"
             f'  lasagna search "your query"\n'

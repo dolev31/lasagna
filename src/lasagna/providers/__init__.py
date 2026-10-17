@@ -27,7 +27,7 @@ Quick Start::
 import os
 from pathlib import Path
 from threading import Lock
-from typing import Optional
+from typing import Optional, Tuple
 
 from loguru import logger
 
@@ -81,17 +81,29 @@ _API_KEY_TO_PLATFORM = [
 ]
 
 
+def detected_llm_key() -> Optional[Tuple[str, str]]:
+    """``(variable, platform)`` for the exported key that picks the LLM, or None.
+
+    The order :func:`_detect_llm_platform` follows; configures nothing.
+    """
+    for env_var, platform in _API_KEY_TO_PLATFORM:
+        if os.environ.get(env_var):
+            return env_var, platform
+    return None
+
+
 def _detect_llm_platform() -> Optional[str]:
     """Detect LLM platform from environment API keys.
 
     Returns:
         Platform name (e.g. 'openai') or None if no key found
     """
-    for env_var, platform in _API_KEY_TO_PLATFORM:
-        if os.environ.get(env_var):
-            logger.info(f"Auto-detected LLM platform: {platform} (from {env_var})")
-            return platform
-    return None
+    found = detected_llm_key()
+    if found is None:
+        return None
+    env_var, platform = found
+    logger.info(f"Auto-detected LLM platform: {platform} (from {env_var})")
+    return platform
 
 
 def _auto_configure_from_env() -> None:
