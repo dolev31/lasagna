@@ -500,6 +500,11 @@ class SetActiveProfileRequest(BaseModel):
         description="Reindex the session's documents with the new profile first, and switch "
         "only when every one is reindexed; if one fails, the session keeps its profile.",
     )
+    reset: bool = Field(
+        default=False,
+        description="Drop the session's own settings (its overrides), so the profile's apply "
+        "as they are.",
+    )
 
 
 class SaveProfileRequest(BaseModel):

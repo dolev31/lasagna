@@ -66,6 +66,20 @@ class SwitchReport:
     total: int = 0
     #: Whether the switch was asked to reindex.
     reindex: bool = False
+    #: The session's own embedding settings that stay in force over the profile's.
+    own_settings: Dict[str, Any] = field(default_factory=dict)
+
+    def applied(self) -> str:
+        """``Applied profile: speed``, naming the session's own model settings that stay."""
+        line = f"Applied profile: {self.profile}"
+        if not self.own_settings:
+            return line
+        named = ", ".join(f"{k}={v}" for k, v in self.own_settings.items())
+        return (
+            f"{line} with {named} from this session's settings (for the profile's own "
+            f"model: lasagna configure --profile {self.profile} --reset -s {self.session_id} "
+            f"--reindex)"
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -78,6 +92,7 @@ class SwitchReport:
             "failed": [{"document_id": d, "error": e} for d, e in self.failed],
             "restored": list(self.restored),
             "stranded": [{"document_id": d, "error": e} for d, e in self.stranded],
+            "own_settings": dict(self.own_settings),
         }
 
 
@@ -146,15 +161,17 @@ def switch_profile(
     reindex: bool = False,
     config: Optional[Dict[str, Any]] = None,
     backend: Any = None,
+    reset: bool = False,
 ) -> SwitchReport:
     """Switch ``session_id`` to ``profile``; with ``reindex``, move its documents first.
 
-    ``config`` is what ``set_active_profile`` takes with a profile. Without
-    ``reindex`` this is ``manager.set_active_profile`` (``force``
-    skips the check that the session's documents stay searchable), plus, when
-    forced, the check that the new profile's models load. With ``reindex``,
-    see the module docstring. ``backend`` is the ``RAGBackend`` that
-    reindexes (default: this process's).
+    ``config`` and ``reset`` are what ``set_active_profile`` takes (``reset``
+    drops the session's own settings). Without ``reindex`` this is
+    ``manager.set_active_profile`` (``force`` skips the check that the
+    session's documents stay searchable), plus, when forced, the check that
+    the new profile's models load. With ``reindex``, see the module
+    docstring. ``backend`` is the ``RAGBackend`` that reindexes (default:
+    this process's).
 
     Raises:
         UnknownProfileError: no such profile.
@@ -167,7 +184,7 @@ def switch_profile(
     """
     if not reindex:
         return _switch_without_reindex(
-            manager, profile, session_id, user_id=user_id, force=force, config=config
+            manager, profile, session_id, user_id=user_id, force=force, config=config, reset=reset
         )
     from lasagna.api._profile_guard import switching
     from lasagna.core.session_config._session_state import session_lock
@@ -176,15 +193,23 @@ def switch_profile(
     # this one, and an upload's row is saved before it starts or after it ends.
     with session_lock(session_id), switching(session_id):
         return _switch_with_reindex(
-            manager, profile, session_id, user_id=user_id, config=config, backend=backend
+            manager,
+            profile,
+            session_id,
+            user_id=user_id,
+            config=config,
+            backend=backend,
+            reset=reset,
         )
 
 
-def _report(manager: Any, profile: str, session_id: str, user_id: str, config) -> tuple:
+def _report(
+    manager: Any, profile: str, session_id: str, user_id: str, config, reset: bool = False
+) -> tuple:
     state = manager.get_session_state(session_id)
     previous = state.active_profile
     resolved, chosen = manager.preview_active_profile(
-        profile, session_id, config=config, user_id=user_id
+        profile, session_id, config=config, user_id=user_id, reset=reset
     )
     # What search will run with: the session's choice over the process's own
     # settings. The profile's whole configuration carries the packaged
@@ -196,27 +221,58 @@ def _report(manager: Any, profile: str, session_id: str, user_id: str, config) -
         session_id=session_id,
         embedding_model=str(_setting(chosen, "embedding_model") or ""),
     )
+    profile_config = manager.preview_active_profile(
+        profile, session_id, config=config, user_id=user_id, reset=True
+    )[0]
+    from lasagna.api._profile_guard import _EMBEDDING_KEYS
+
+    report.own_settings = {
+        k: resolved[k]
+        for k in _EMBEDDING_KEYS
+        if k in resolved and profile_config.get(k) != resolved[k] and not config
+    }
     return report, resolved, chosen
 
 
-def _refuse_unloadable(report: SwitchReport, resolved: Dict[str, Any]) -> None:
+def _refuse_unloadable(
+    report: SwitchReport, resolved: Dict[str, Any], now: Dict[str, Any], *, settings: bool = False
+) -> None:
+    """Raise ``ProfileCannotLoad`` when a model ``resolved`` needs cannot load here.
+
+    ``now`` is the session's resolved config, to say what is true of its
+    documents (see ``documents_now``); ``settings``: the switch brings
+    settings of its own (an SDK client's).
+    """
     problems = unloadable_models(resolved)
     if problems:
+        from lasagna.api._profile_guard import documents_now
+
+        state = documents_now(report.session_id, now)
+        what = f"Profile {report.profile!r}" + (" with these settings" if settings else "")
         raise ProfileCannotLoad(
-            f"Profile {report.profile!r} cannot be used here: {' '.join(problems)} Nothing "
+            f"{what} cannot be used here: {' '.join(problems)} Nothing "
             f"was changed; session {report.session_id!r} stays on profile "
-            f"{report.previous!r}, and its documents stay searchable."
+            f"{report.previous!r}." + (f" {state}" if state else "")
         )
 
 
 def _switch_without_reindex(
-    manager: Any, profile: str, session_id: str, *, user_id: str, force: bool, config
+    manager: Any,
+    profile: str,
+    session_id: str,
+    *,
+    user_id: str,
+    force: bool,
+    config,
+    reset: bool = False,
 ) -> SwitchReport:
-    report, _, chosen = _report(manager, profile, session_id, user_id, config)
+    report, _, chosen = _report(manager, profile, session_id, user_id, config, reset)
     if force:
-        _refuse_unloadable(report, chosen)
+        _refuse_unloadable(
+            report, chosen, manager.get_resolved_config(session_id), settings=bool(config)
+        )
     manager.set_active_profile(
-        profile, config=config, session_id=session_id, user_id=user_id, force=force
+        profile, config=config, session_id=session_id, user_id=user_id, force=force, reset=reset
     )
     return report
 
@@ -228,14 +284,23 @@ def _store():
 
 
 def _switch_with_reindex(
-    manager: Any, profile: str, session_id: str, *, user_id: str, config, backend: Any
+    manager: Any,
+    profile: str,
+    session_id: str,
+    *,
+    user_id: str,
+    config,
+    backend: Any,
+    reset: bool = False,
 ) -> SwitchReport:
     """Under the session's lock: reindex every document, then switch (see the module docstring)."""
     from lasagna.api._profile_guard import forget_documents_elsewhere
     from lasagna.core.config import get_rag_config
 
-    report, _, chosen = _report(manager, profile, session_id, user_id, config)
-    _refuse_unloadable(report, chosen)
+    report, _, chosen = _report(manager, profile, session_id, user_id, config, reset)
+    _refuse_unloadable(
+        report, chosen, manager.get_resolved_config(session_id), settings=bool(config)
+    )
 
     # Oldest first, so a rerun after a failure meets the documents in the same order.
     rows = sorted(
@@ -269,6 +334,7 @@ def _switch_with_reindex(
                 "config": config or None,
                 "user_id": user_id,
                 "target_collection": target.collection_name,
+                "reset": reset,
             },
         )
     settled = False
@@ -287,7 +353,7 @@ def _switch_with_reindex(
             settled = True
             raise ReindexFailed(_failure_message(report), report)
         manager.set_active_profile(
-            profile, config=config, session_id=session_id, user_id=user_id, force=True
+            profile, config=config, session_id=session_id, user_id=user_id, force=True, reset=reset
         )
         settled = True
     except BaseException:
@@ -324,6 +390,7 @@ def resume_switch(manager: Any, session_id: str, *, backend: Any = None) -> Swit
         reindex=True,
         config=record.get("config") or None,
         backend=backend,
+        reset=bool(record.get("reset")),
     )
 
 
@@ -391,7 +458,12 @@ def summary(report: SwitchReport) -> Optional[str]:
         return None
     if not report.total:
         return f"Session {report.session_id} has no documents to reindex."
+    own = (
+        f" (embedding_model from this session's settings, over profile {report.profile}'s)"
+        if "embedding_model" in report.own_settings
+        else ""
+    )
     return (
         f"Reindexed {len(report.reindexed)} of {_plural(report.total, 'document')} in "
-        f"session {report.session_id} with {report.embedding_model}."
+        f"session {report.session_id} with {report.embedding_model}{own}."
     )

@@ -99,6 +99,7 @@ async def set_active_profile(
             user_id=user_id,
             force=body.force,
             reindex=body.reindex,
+            reset=body.reset,
         )
         response = _to_response(mgr.get_config(session_id, user_id=user_id))
         if body.reindex:

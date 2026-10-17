@@ -629,11 +629,14 @@ class ProfileMixin:
         *,
         force: bool = False,
         user_id: str = ANONYMOUS,
+        reset: bool = False,
     ) -> Dict[str, Any]:
         """Set the active profile and optionally update its config.
 
         Refused, with nothing changed, when the switch would embed at another
-        size than the stored documents (``force`` skips that check).
+        size than the stored documents (``force`` skips that check). ``reset``
+        drops the session's own settings (its overrides), so the profile's
+        apply as they are.
         """
         if config:
             config = self._session_settings(config, document=True)
@@ -641,7 +644,7 @@ class ProfileMixin:
 
         with self._session_write(session_id) as state:
             profile, profile_config, overrides = self._switch_plan(
-                state, profile_name, config, user_id
+                state, profile_name, config, user_id, reset=reset
             )
             self._refuse_unsearchable(
                 state,
@@ -677,6 +680,8 @@ class ProfileMixin:
         profile_name: str,
         config: Optional[Dict[str, Any]],
         user_id: str,
+        *,
+        reset: bool = False,
     ) -> tuple:
         """``(profile, profile_config, overrides)`` a switch to ``profile_name`` would leave.
 
@@ -699,9 +704,11 @@ class ProfileMixin:
                 f"Unknown profile {profile_name!r}. Available: {', '.join(known)}"
             )
         if profile is None:
-            return profile, config, state.session_overrides
+            return profile, config, {} if reset else state.session_overrides
         if config:
             return profile, profile.config, config
+        if reset:
+            return profile, profile.config, {}
         if previous is not None and previous.name != profile_name:
             return (
                 profile,
@@ -717,6 +724,7 @@ class ProfileMixin:
         *,
         config: Optional[Dict[str, Any]] = None,
         user_id: str = ANONYMOUS,
+        reset: bool = False,
     ) -> tuple:
         """``(resolved, chosen)``: the session's settings after ``set_active_profile``.
 
@@ -732,7 +740,7 @@ class ProfileMixin:
         state = self.get_session_state(session_id)
         with self._lock:
             profile, profile_config, overrides = self._switch_plan(
-                state, profile_name, config, user_id
+                state, profile_name, config, user_id, reset=reset
             )
             resolved = _resolve(profile_config, overrides)
             chosen: Dict[str, Any] = {}

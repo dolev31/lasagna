@@ -2318,6 +2318,12 @@
             "description": "Reindex the session's documents with the new profile first, and switch only when every one is reindexed; if one fails, the session keeps its profile.",
             "title": "Reindex",
             "type": "boolean"
+          },
+          "reset": {
+            "default": false,
+            "description": "Drop the session's own settings (its overrides), so the profile's apply as they are.",
+            "title": "Reset",
+            "type": "boolean"
           }
         },
         "required": [

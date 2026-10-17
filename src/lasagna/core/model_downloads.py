@@ -246,11 +246,18 @@ def fix_for_model(session_id: str, model: str = "") -> str:
     Offline, the way to keep the model is to download it while online; a
     server that refuses downloads can also be told to allow them.
     """
-    configured = (
-        f"Session {session_id!r} is configured with this model."
-        if session_configured(session_id)
-        else f"Session {session_id!r} has no profile, so it uses the default model."
-    )
+    from lasagna.api._profile_guard import own_model_settings
+
+    own = own_model_settings(session_id)
+    reset = " --reset" if own else ""
+    if own:
+        # Its own settings stay in force over any profile it switches to.
+        named = ", ".join(f"{k}={v}" for k, v in own.items())
+        configured = f"Session {session_id!r} sets {named} in its own settings."
+    elif session_configured(session_id):
+        configured = f"Session {session_id!r} is configured with this model."
+    else:
+        configured = f"Session {session_id!r} has no profile, so it uses the default model."
     from lasagna.core.setup_text import download_command
 
     download = download_command(model) if model else "hf download <model>"
@@ -267,6 +274,6 @@ def fix_for_model(session_id: str, model: str = "") -> str:
 
     return (
         f"{configured} For the {profile_download_size('speed')} keyless model, run: "
-        f"lasagna configure --profile speed -s {session_id} "
+        f"lasagna configure --profile speed{reset} -s {session_id} "
         f"(in Python: KnowledgeClient(config=config_for_speed())). {keep}"
     )

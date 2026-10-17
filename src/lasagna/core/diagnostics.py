@@ -235,6 +235,7 @@ def _check_session_documents(session_id: str = "default") -> Optional[Check]:
     from lasagna.api._profile_guard import (
         _described,
         fixes_for_documents_elsewhere,
+        model_in_force,
         model_of_collection,
     )
 
@@ -257,7 +258,8 @@ def _check_session_documents(session_id: str = "default") -> Optional[Check]:
         f"{where}, but the session searches with {model}"
         + (f" in collection {searched!r}" if any(m == model for m, _ in named) else "")
         + ", so no search finds them",
-        f"Reindex them with {model}: {reindex} (it changes nothing if one fails). "
+        f"Reindex them with {model_in_force(session_id, model)}: {reindex} (it changes "
+        f"nothing if one fails). "
         f"{switch_back}".strip(),
     )
 
