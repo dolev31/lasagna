@@ -418,8 +418,12 @@ Servers and deployment:
 - Run metadata records a local benchmark's `path`, relative to the sweep file.
 - MCP `get_system_status` names the chunking strategy that runs, and its
   `sota_features` block is now `features`.
-- Nothing Lasagna prints, writes or describes uses an em dash; empty table
-  cells print `-`.
+- Nothing Lasagna prints, writes or describes uses an em dash: command output
+  and help, MCP tool descriptions, the REST API document, reports and generated
+  pages, the docs (the guide also had " -- " for a dash), NOTICE and the issue
+  forms. Tests check those and every string literal in the package; other
+  docstrings, comments and the agentic prompts (model input) are not checked.
+  Empty table cells print `-`.
 
 Documentation:
 
@@ -432,9 +436,9 @@ Documentation:
   lists of `GET /api/v1/config/profiles` and the SDK's `list_profiles` (which
   said "SOTA features" and named models the profiles do not use) share the
   profiles' own descriptions, and the configurator, settings files, compose,
-  Makefile, Dockerfile and Kubernetes comments, docstrings and help lose
-  "SOTA", "production-ready", "seamless", "powerful" and their em dashes. A
-  test covers those files and every string in the package.
+  Makefile, Dockerfile and Kubernetes files and every string in the package
+  lose "SOTA", "production-ready", "seamless" and "powerful", which a test
+  checks; those files lose their em dashes too.
 
 ### Deprecated
 

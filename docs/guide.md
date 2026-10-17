@@ -194,7 +194,7 @@ class LengthReranker(BaseReranker):
     def rerank(self, query, documents, top_k=5, **kwargs):
         import copy
 
-        # Copy first. A stage must not mutate what it was handed -- the
+        # Copy first. A stage must not mutate what it was handed: the
         # caller may still be holding those objects, and a component that
         # edits them in place makes results depend on execution order.
         out = [copy.deepcopy(d) for d in documents]
@@ -325,7 +325,7 @@ class Identity(BaseReranker):
     """Returns candidates untouched, in retrieval order.
 
     The control. Without it you cannot tell "my component reordered things"
-    from "the pipeline never called my component at all" -- the two look
+    from "the pipeline never called my component at all": the two look
     identical from the outside.
     """
 
@@ -348,7 +348,7 @@ print("baseline order:", baseline)
 print("mine:          ", mine)
 print("changed:       ", baseline != mine)
 
-# The inputs were not mutated -- verify, do not assume.
+# The inputs were not mutated: verify, do not assume.
 assert [d.score for d in candidates] == [0.9, 0.5, 0.7]
 print("inputs intact:  True")
 ```

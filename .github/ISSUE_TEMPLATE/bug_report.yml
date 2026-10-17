@@ -8,7 +8,7 @@ body:
         If a **benchmark number** looks wrong, please attach the results bundle
         (`lasagna results bundle <results.json> -o run.json`). It carries the
         versions, hardware and configuration that decide whether the number is
-        explainable — without it, most of the debugging is guesswork about your
+        explainable. Without it, most of the debugging is guesswork about your
         environment.
   - type: textarea
     id: what-happened

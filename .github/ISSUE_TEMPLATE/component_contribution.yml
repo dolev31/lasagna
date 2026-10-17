@@ -7,8 +7,8 @@ body:
       value: |
         You may not need this. Publishing your own package with a
         `lasagna_components` entry point makes your component available to
-        anyone who installs it, without going through review — see
-        [the plugin template](../../examples/lasagna-plugin-template/).
+        anyone who installs it, without going through review (see
+        [the plugin template](../../examples/lasagna-plugin-template/)).
         Open this issue if you think the component belongs in Lasagna itself.
   - type: input
     id: stage
