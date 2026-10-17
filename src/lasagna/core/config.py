@@ -914,8 +914,14 @@ class RAGConfig:
                 if os.environ.get("LASAGNA_SETTINGS_FILE")
                 else "RAG_SETTINGS_FILE"
             )
+            # The path once; a relative one also says where it was looked for.
+            where = (
+                ""
+                if Path(settings_file_env).is_absolute()
+                else f" (a relative path is read from the package folder: {override_path})"
+            )
             raise ConfigError(
-                f"{name} is {settings_file_env}, and no file is there ({override_path}). "
+                f"{name} is {settings_file_env}, and no file is there{where}. "
                 f"Point {name} at an existing settings file, or unset it to use the "
                 f"packaged settings.lasagna.toml."
             )
@@ -2384,7 +2390,7 @@ class RAGConfig:
 
     @property
     def enable_query_routing(self) -> bool:
-        """Enable intelligent query routing to FAST/STANDARD/COMPREHENSIVE tiers."""
+        """Route each query to the fast, standard or comprehensive tier by its estimated complexity."""
         return self._get_knowledge_setting(
             "rag", "enable_query_routing", default=self._config["enable_query_routing"]
         )

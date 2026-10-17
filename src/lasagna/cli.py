@@ -3905,8 +3905,7 @@ def results_leaderboard(
         "when no --output is given",
     ),
 ):
-    """Render bundles, or one run's results.json, as leaderboards grouped by
-    comparability key.
+    """Leaderboards of bundles or a run's results.json, by comparability key.
 
     Rows inside a group held the same configuration fixed, so they are
     comparable by construction. Rows in different groups are not, and are never

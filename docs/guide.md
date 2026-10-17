@@ -804,7 +804,7 @@ runs, or by equalling its mean when nothing in the run samples.
 | Understand the retrieval internals | [Architecture](../src/lasagna/core/docs/architecture.md) |
 | Deploy it | [Deployment](../src/lasagna/deploy/README.md) |
 
-### Two honest warnings
+### Two warnings
 
 **Check the model license before publishing.** Several strong rerankers are
 non-commercial. `lasagna.core.model_licenses` warns once at load, and

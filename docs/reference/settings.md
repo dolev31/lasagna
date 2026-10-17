@@ -191,7 +191,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 
 | Setting | Type | Default | Environment variables | Description |
 |---|---|---|---|---|
-| `enable_query_routing` | bool | `true` | `LASAGNA_ENABLE_QUERY_ROUTING`, `RAG_ENABLE_QUERY_ROUTING` | Enable intelligent query routing to FAST/STANDARD/COMPREHENSIVE tiers. |
+| `enable_query_routing` | bool | `true` | `LASAGNA_ENABLE_QUERY_ROUTING`, `RAG_ENABLE_QUERY_ROUTING` | Route each query to the fast, standard or comprehensive tier by its estimated complexity. |
 | `routing_strategy` | str: `rule_based`, `adaptive` | `"rule_based"` | `LASAGNA_ROUTING_STRATEGY`, `RAG_ROUTING_STRATEGY` | Routing strategy: 'rule_based' (deterministic) or 'adaptive' (confidence-aware). |
 | `routing_default_tier` | str: `fast`, `standard`, `comprehensive` | `"standard"` | `LASAGNA_ROUTING_DEFAULT_TIER`, `RAG_ROUTING_DEFAULT_TIER` | Default routing tier when routing is disabled. |
 | `routing_confidence_threshold` | float, 0.0 to 1.0 | `0.5` | `LASAGNA_ROUTING_CONFIDENCE_THRESHOLD`, `RAG_ROUTING_CONFIDENCE_THRESHOLD` | Confidence threshold below which the adaptive strategy escalates the tier. |

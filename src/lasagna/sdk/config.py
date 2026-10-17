@@ -327,7 +327,7 @@ class KnowledgeConfig:
     # Query Routing (Adaptive-RAG)
     # =========================================================================
     enable_query_routing: bool = True
-    """Enable intelligent query routing to FAST/STANDARD/COMPREHENSIVE tiers. Default: True"""
+    """Route each query to the fast, standard or comprehensive tier by its estimated complexity. Default: True"""
 
     routing_strategy: str = "rule_based"
     """Routing strategy: 'rule_based' (deterministic) or 'adaptive' (confidence-aware). Default: rule_based"""

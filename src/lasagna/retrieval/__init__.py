@@ -3,7 +3,7 @@
 This layer provides retrieval and ranking capabilities:
 - Search: Hybrid search (dense + sparse) with reranking
 - Enhancement: Query enhancement, classification, coverage
-- Routing: Intelligent query routing to optimal retrieval tiers
+- Routing: send each query to a retrieval tier by its estimated complexity
 
 This layer depends on Infrastructure for embedding and storage.
 """

@@ -54,9 +54,12 @@ of the process (tests, or a notebook that should leave saved sessions alone).
 
 **From Python**, a `KnowledgeConfig` passed to `KnowledgeClient` splits the
 same way: the fields that choose what the process connects to (vector backend,
-database, cache, embedding model) are written where environment variables go,
-before the backend starts, and apply to the whole process; the search and
-chunking fields become session overrides for the client's session. The
+database, cache) are written where environment variables go, before the
+backend starts, and apply to the whole process; the search and chunking fields
+become session overrides for the client's session. The embedding model is
+both: the process's default, and the client's session setting, which wins, so
+each session indexes and searches with its own model and two clients in one
+process on different sessions can use different models. The
 [SDK configuration page](../src/lasagna/sdk/docs/configuration.md) lists which
 is which.
 

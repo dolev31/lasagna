@@ -1,4 +1,4 @@
-"""Intelligent query routing for adaptive retrieval.
+"""Query routing: each query goes to a retrieval tier by its estimated complexity.
 
 Routes each query to the optimal retrieval tier (FAST, STANDARD, or
 COMPREHENSIVE) based on query complexity signals, informed by
