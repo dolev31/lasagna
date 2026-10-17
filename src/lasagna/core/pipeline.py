@@ -582,7 +582,7 @@ class KnowledgePipeline:
         per_sample_latencies: List[float] = []
         all_retrieved_ids: List[List[str]] = []
 
-        for case in dataset:
+        for number, case in enumerate(dataset, 1):
             question = case.get("question") or case.get("user_input", "")
             ground_truth = case.get("ground_truth")
             if ground_truth is None:
@@ -597,7 +597,7 @@ class KnowledgePipeline:
                     session_id=session_id,
                 )
             except Exception as e:
-                logger.warning(f"Retrieval failed for query '{question[:50]}...': {e}")
+                logger.warning(f"Retrieval failed for question {number}: {e}")
                 search_results = []
             q_latency = (time.time() - q_start) * 1000
 

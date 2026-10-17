@@ -817,9 +817,7 @@ def _check_suspicious_citations(
 
     # Emit warnings
     for warning in warnings:
-        logger.warning(
-            f"CITATION_CHECK | session={session_id} | query='{query[:30]}...' | {warning}"
-        )
+        logger.warning(f"CITATION_CHECK | session={session_id} | {warning}")
 
     return warnings
 

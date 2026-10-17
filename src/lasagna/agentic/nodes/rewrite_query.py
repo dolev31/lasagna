@@ -143,7 +143,7 @@ async def rewrite_query_node(state: RAGGraphState) -> Dict[str, Any]:
             new_query = current_query
         else:
             new_query = raw
-            logger.info(
+            logger.debug(
                 "[RewriteQuery] Rewritten query (attempt {n}): '{q}'",
                 n=rewrite_count + 1,
                 q=new_query[:80],

@@ -518,6 +518,12 @@ Server and deployment:
   (9100 in compose and k8s, whose worker pods now carry the
   `prometheus.io/scrape` annotations) the worker serves its own, for every
   pool process.
+- **No query text in logs at INFO or above.** The agentic loop logged each
+  hop's query, each rewritten query and each sub-query at INFO, and several
+  warnings quoted the query or benchmark question they were about. Query text
+  is logged at DEBUG only; warnings name the sample by its id or number. A
+  test reads every log call in the package for a query variable at INFO or
+  above.
 - **A session can no longer point the server at another vector store.**
   Session settings (REST `/api/v1/config`, `/api/config/knowledge/profile` and
   `/import`, the MCP config tools, the config manager) accepted any key, and

@@ -4371,8 +4371,8 @@ async def _eval_live(
                             )
                     except asyncio.TimeoutError:
                         logger.warning(
-                            f"Query timed out after 5 min for "
-                            f"'{gen_sample.question[:50]}': skipping sample."
+                            f"Query timed out after 5 min for sample "
+                            f"{gen_sample.query_id}: skipping it."
                         )
                         search_results = []
                 query_latency_ms = (time.monotonic() - query_start) * 1000
@@ -4527,21 +4527,21 @@ async def _eval_live(
                             ):
                                 logger.warning(
                                     f"Answer generation blocked by content filter "
-                                    f"for '{gen_sample.question[:50]}': skipping."
+                                    f"for sample {gen_sample.query_id}: skipping."
                                 )
                                 break
                             if _attempt < 4:
                                 _backoff = _backoffs[_attempt]
                                 logger.warning(
                                     f"Answer generation attempt {_attempt + 1}/5 failed "
-                                    f"('{gen_sample.question[:40]}'): {exc}. "
+                                    f"(sample {gen_sample.query_id}): {exc}. "
                                     f"Retrying in {_backoff}s..."
                                 )
                                 await asyncio.sleep(_backoff)
                             else:
                                 logger.warning(
                                     f"Answer generation failed after 5 attempts for "
-                                    f"'{gen_sample.question[:50]}': {exc}"
+                                    f"sample {gen_sample.query_id}: {exc}"
                                 )
 
                 _n_generations += 1

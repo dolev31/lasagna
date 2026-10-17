@@ -1030,7 +1030,7 @@ async def search_knowledge_base(query: str, config: RunnableConfig) -> str:
     # Check for repeated or semantically similar query (stopping condition)
     # First check exact match
     if query in configurable["previous_queries"]:
-        logger.info(f"Query stabilized (exact repeat): '{query[:50]}...'")
+        logger.debug(f"Query stabilized (exact repeat): '{query[:50]}...'")
         configurable["stop_reason"] = "query_stabilized"
         return "You've already searched with this exact query. Please synthesize the results you have or try a different search approach."
 
@@ -1042,7 +1042,7 @@ async def search_knowledge_base(query: str, config: RunnableConfig) -> str:
         similarity_threshold=0.92,  # High threshold to avoid false positives
     )
     if similar_query:
-        logger.info(f"Query stabilized (semantically similar to: '{similar_query[:50]}...')")
+        logger.debug(f"Query stabilized (semantically similar to: '{similar_query[:50]}...')")
         configurable["stop_reason"] = "query_stabilized"
         return "Your query is very similar to a previous search. Please synthesize the results you have or try a significantly different search approach."
 
@@ -1063,7 +1063,9 @@ async def search_knowledge_base(query: str, config: RunnableConfig) -> str:
             configurable["previous_query_embeddings"] = []
         configurable["previous_query_embeddings"].append(None)
 
-    logger.info(f"Agentic RAG hop {hop_index}: query='{query[:50]}...', session={session_id}")
+    # The query's text at DEBUG only: server logs are kept and read by others.
+    logger.info(f"Agentic RAG hop {hop_index}: session={session_id}")
+    logger.debug(f"Agentic RAG hop {hop_index}: query='{query[:50]}...'")
 
     try:
         backend = RAGBackend()
