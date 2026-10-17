@@ -346,7 +346,8 @@ class DatabasePersistenceMixin:
 
         try:
             db = _get_pg_db()
-            count = db.cleanup_expired_sessions(max_age_seconds=session_idle_seconds())
+            idle = session_idle_seconds()  # None: session_idle_days = 0 keeps them
+            count = db.cleanup_expired_sessions(max_age_seconds=idle) if idle is not None else 0
 
             # Also clean up in-memory cache, and keep at most
             # MAX_CACHED_SESSIONS of it (the least recently used go), as SQLite does.

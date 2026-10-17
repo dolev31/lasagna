@@ -372,7 +372,9 @@ class PersistenceMixin:
         db_count = 0
         try:
             db = _get_db()
-            db_count = db.cleanup_expired_sessions(max_age_seconds=session_idle_seconds())
+            idle = session_idle_seconds()  # None: session_idle_days = 0 keeps them
+            if idle is not None:
+                db_count = db.cleanup_expired_sessions(max_age_seconds=idle)
         except Exception as exc:
             logger.warning(f"SQLite session cleanup failed: {exc}")
 

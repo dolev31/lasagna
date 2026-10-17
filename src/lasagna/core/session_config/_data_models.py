@@ -29,7 +29,7 @@ SESSION_TTL_SECONDS = 24 * 60 * 60
 DEFAULT_SESSION_IDLE_DAYS = 30
 
 
-def session_idle_seconds() -> float:
+def session_idle_seconds() -> Optional[float]:
     """How long the store keeps the settings of an unused session without documents.
 
     The GC policy's ``session_idle_days`` (``RAG_GC_SESSION_IDLE_DAYS``, else
@@ -38,6 +38,8 @@ def session_idle_seconds() -> float:
     package, which loads the vector store's client. Every process used to
     delete settings unused for 24 hours, while reads never recorded a use: a
     session configured one day searched with the default model the next.
+    None for 0, which keeps them, as ``document_ttl_days = 0`` disables expiry:
+    0 deleted every idle session's settings within a minute, in use or not.
     """
     raw = os.environ.get("RAG_GC_SESSION_IDLE_DAYS")
     if raw is None:
@@ -50,9 +52,10 @@ def session_idle_seconds() -> float:
         except Exception:
             raw = DEFAULT_SESSION_IDLE_DAYS
     try:
-        return int(raw) * 86400
+        days = int(raw)
     except (TypeError, ValueError):
-        return DEFAULT_SESSION_IDLE_DAYS * 86400
+        days = DEFAULT_SESSION_IDLE_DAYS
+    return days * 86400 if days > 0 else None
 
 
 # Maximum number of sessions to keep in memory

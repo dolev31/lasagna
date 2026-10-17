@@ -1196,7 +1196,10 @@ class ProfileMixin:
                 "default_profiles_count": len(self._default_profiles),
                 "active_sessions_count": len(self._session_states),
                 "max_cached_sessions": MAX_CACHED_SESSIONS,
-                "session_ttl_hours": session_idle_seconds() / 3600,
+                # None: session_idle_days = 0 keeps idle sessions' settings.
+                "session_ttl_hours": (
+                    None if session_idle_seconds() is None else session_idle_seconds() / 3600
+                ),
             }
 
     def list_global_profiles(self, user_id: str = "__anonymous__") -> List[Dict[str, Any]]:

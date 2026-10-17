@@ -34,8 +34,9 @@ class LifecyclePolicy:
             GC Phase 3 soft-deletes ``status=error`` documents older than this.
             Set to 0 to disable.  Default: 7 days.
         session_idle_days:
-            GC Phase 5 removes sessions not accessed within this window.
-            Default: 30 days.
+            GC Phase 5, and every process's session store, remove the settings
+            of sessions without documents not used within this window. ``0``
+            disables it, as for ``document_ttl_days``. Default: 30 days.
         gc_cycle_hours:
             How often the full 7-phase GC cycle runs.  Default: 24 h (daily).
         orphan_scan_hours:
