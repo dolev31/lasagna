@@ -679,7 +679,7 @@
     ]
   },
   "patch_rag_config": {
-    "description": "Apply configuration overrides to the current session.\n\nMerges the provided settings with the active profile's config. These overrides persist for the session duration. Only retrieval and generation settings: the vector store, collection, paths, URLs and credentials are the server's, and a patch naming one is refused.\n\nReturns: JSON object with updated configuration.",
+    "description": "Apply configuration overrides to the current session.\n\nMerges the provided settings with the active profile's config. These overrides persist for the session duration. Only retrieval and generation settings: the vector store, collection, paths, URLs and credentials are the server's, and a patch naming one is refused.\n\nReturns: JSON object naming each setting the patch changed, with its value before and after (get_rag_config shows the whole configuration).",
     "input_schema": {
       "properties": {
         "config_patch": {
@@ -1040,6 +1040,12 @@
           "description": "Name of the profile to activate: a preset (speed, standard, balanced, max_quality, default) or one saved with save_rag_profile.",
           "title": "Profile Name",
           "type": "string"
+        },
+        "reindex": {
+          "default": false,
+          "description": "Reindex the session's documents with the new profile first, and switch only when every one is reindexed; if one fails, the session keeps its profile.",
+          "title": "Reindex",
+          "type": "boolean"
         },
         "session_id": {
           "default": "",

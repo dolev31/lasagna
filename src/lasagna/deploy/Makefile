@@ -8,7 +8,7 @@
 #                                   while .env sets VECTOR_BACKEND)
 #   make down                       Stop all services (keep volumes)
 #   make down-v                     Stop all services + delete volumes
-#   make logs                       Follow API logs
+#   make logs                       Follow every service's logs
 #   make logs SVC=celery-worker     Follow specific service
 #   make build                      Rebuild Docker image
 #   make ps                         Show running containers

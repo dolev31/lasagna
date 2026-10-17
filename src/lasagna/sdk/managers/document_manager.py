@@ -877,6 +877,15 @@ class DocumentManager:
                 f"Reindex of {document_id} failed, and the document is unchanged: {e}"
             ) from e
 
+        try:
+            self._client._record_reindexed_model()
+        except Exception as e:  # noqa: BLE001 - the reindex itself succeeded
+            logger.warning(
+                f"Document {document_id} was reindexed, but session {session_id!r} could not "
+                f"be set to the model it was reindexed with: {e}. Run: lasagna configure "
+                f"--profile <name> -s {session_id}"
+            )
+
         processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
         return UploadResult(
             document_id=doc.document_id,

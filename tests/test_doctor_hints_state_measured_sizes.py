@@ -3,10 +3,11 @@
 With no Hugging Face cache it said the first search downloads "~5 GB on the
 default profile" and that the speed profile is "an 80 MB model"; the
 downloads measured in ``core/setup_text.py`` are 3.2 GB (bge-m3 and the mxbai
-reranker) and 92 MB. With no API key it said "Retrieval works without one", but the
-default configuration sends complex queries through agentic retrieval, which
-calls an LLM; only the speed profile retrieves without a key. Both hints are
-now computed from the profiles and the measured sizes.
+reranker) and 92 MB. With no API key it said "Retrieval works without one" with
+no word of what changes, then "only on the speed profile", which contradicted
+init and the README: every profile retrieves without a key, and the ones that
+send complex queries to an LLM loop answer those with their standard pipeline
+instead. Both hints are computed from the profiles and the measured sizes.
 """
 
 from __future__ import annotations
@@ -59,11 +60,21 @@ def test_only_profiles_without_an_llm_step_are_called_keyless():
 def test_the_key_hint_names_which_profiles_need_one():
     check = diagnostics._check_llm_credentials({"llm_credentials_present": False})
 
-    assert check.advice.startswith("Retrieval works without one only on the speed profile")
-    assert "The default configuration and the standard, balanced and max_quality profiles" in (
+    assert check.advice.startswith("Retrieval works without one on every profile.")
+    assert "The speed profile never calls an LLM (`lasagna configure --profile speed`)" in (
         check.advice
     )
-    assert "Retrieval works without one." not in check.advice
+    assert (
+        "The default configuration and the standard, balanced and max_quality profiles "
+        "send queries they judge complex to an LLM loop"
+    ) in check.advice
+    assert "degraded_stages names agentic" in check.advice
+    assert "only on the speed profile" not in check.advice
+
+
+def test_the_key_hint_names_the_session_it_was_asked_about():
+    check = diagnostics._check_llm_credentials({"llm_credentials_present": False}, "my-corpus")
+    assert "`lasagna configure --profile speed -s my-corpus`" in check.advice
 
 
 @pytest.mark.parametrize(

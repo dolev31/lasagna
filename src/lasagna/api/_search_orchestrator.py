@@ -48,6 +48,24 @@ from lasagna.core.quota import get_quota_manager
 _routing_local = threading.local()
 
 
+def _note_documents_elsewhere(session_id: str, config: Any) -> None:
+    """Report, as the ``documents_elsewhere`` stage, session documents this search cannot see.
+
+    They sit in another model's collection (an SDK reindex into another model,
+    a switch with ``force``), and the search returned an empty list with no
+    word of why. Never raises.
+    """
+    try:
+        from ._profile_guard import documents_elsewhere
+
+        missed = documents_elsewhere(session_id, config.collection_name, config.embedding_model)
+    except Exception as exc:  # noqa: BLE001 - a check must never break a search
+        logger.debug(f"Could not check where session {session_id}'s documents are: {exc}")
+        return
+    if missed:
+        _degraded.record("documents_elsewhere", missed)
+
+
 class SearchScopeUnavailable(RuntimeError):
     """The documents a search is confined to could not be determined.
 
@@ -321,6 +339,8 @@ class SearchOrchestrator:
         # These take highest priority and are never written to the session store.
         if query_config_overrides:
             config = config.with_query_overrides(query_config_overrides)
+        if not (_from_routing or _from_fusion):
+            _note_documents_elsewhere(session_id, config)
 
         # === QUERY ROUTING ===
         # Route the query BEFORE RAG Fusion and cache to select the optimal

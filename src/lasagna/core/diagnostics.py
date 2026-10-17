@@ -122,13 +122,13 @@ def _check_optional_extras() -> List[Check]:
     return checks
 
 
-def _check_llm_credentials(env: Dict[str, Any]) -> Check:
+def _check_llm_credentials(env: Dict[str, Any], session_id: str = "default") -> Check:
     """Presence only. The names of the variables are fine to print; values never are."""
     if env.get("llm_credentials_present"):
         return Check("llm_credentials", _OK, "an LLM API key is configured")
     from .setup_text import llm_key_hint
 
-    return Check("llm_credentials", _WARN, "no LLM API key detected", llm_key_hint())
+    return Check("llm_credentials", _WARN, "no LLM API key detected", llm_key_hint(session_id))
 
 
 def _check_llm_sampling() -> Optional[Check]:
@@ -184,6 +184,74 @@ def _check_model_cache(session_id: str = "default") -> Check:
         f"not downloaded for session {session_id!r}: {', '.join(missing)}",
         model_cache_hint(missing, session_id),
     )
+
+
+def _check_session_documents(session_id: str = "default") -> Optional[Check]:
+    """Whether the session's documents are in the collection its model searches.
+
+    A failed `configure --reindex`, or a switch with --force, left a session
+    whose documents sat in the old model's collection while it searched the
+    new one's: every search came back empty, or failed on a model that was not
+    downloaded, and doctor said "0 blocking". Read from the metadata database
+    only. None when the session has no documents.
+    """
+    from lasagna.api._profile_guard import _SEARCHED_STATUSES
+    from lasagna.core.database import get_rag_database
+
+    from .config import rag_config
+
+    try:
+        rows = [
+            row
+            for row in get_rag_database().get_documents(session_id)
+            if str(row.get("status") or "").lower() in _SEARCHED_STATUSES
+        ]
+        config = rag_config.with_session(session_id)
+        searched, model = config.collection_name, config.embedding_model
+    except Exception as exc:  # noqa: BLE001 - reported, not raised
+        return Check("session_documents", _WARN, f"could not read session {session_id!r}: {exc}")
+    if not rows:
+        return None
+    elsewhere = [r for r in rows if (r.get("collection_name") or searched) != searched]
+    if not elsewhere:
+        return Check(
+            "session_documents",
+            _OK,
+            f"{len(rows)} in session {session_id!r}, all in {model}'s collection",
+        )
+    collections = sorted({str(r.get("collection_name")) for r in elsewhere})
+    from lasagna.api._profile_guard import model_of_collection
+
+    named = [model_of_collection(c) for c in collections]
+    models = [m for m, _ in named]
+    back = [p for _, p in named if p]
+    profile = _active_profile(session_id)
+    switch_back = (
+        f"Or switch back to {back[0]}, whose model indexed them: lasagna configure "
+        f"--profile {back[0]} -s {session_id}."
+        if back
+        else f"Or switch back to the profile that indexed them: lasagna configure "
+        f"--profile <name> -s {session_id}."
+    )
+    return Check(
+        "session_documents",
+        _FAIL,
+        f"{len(elsewhere)} of {len(rows)} documents in session {session_id!r} are in "
+        f"{', '.join(models)}'s collection, but the session searches with {model}, so no "
+        f"search finds them",
+        f"Reindex them with {model}: lasagna configure --profile {profile} -s {session_id} "
+        f"--reindex (it changes nothing if one fails). {switch_back}",
+    )
+
+
+def _active_profile(session_id: str) -> str:
+    try:
+        from .session_config import get_knowledge_config_manager
+
+        mgr = get_knowledge_config_manager(session_id=session_id)
+        return mgr.get_active_profile(session_id=session_id) or "default"
+    except Exception:  # noqa: BLE001
+        return "default"
 
 
 #: The vector stores Lasagna ships an adapter for (``vector_backends/``).
@@ -379,9 +447,10 @@ def diagnose(*, check_gh: bool = True, session_id: str = "default") -> Diagnosis
     checks: List[Check] = [
         _check_vector_backend(),
         _check_writable_dirs(),
-        _check_llm_credentials(env),
+        _check_llm_credentials(env, session_id),
         *filter(None, [_check_llm_sampling()]),
         _check_model_cache(session_id),
+        *filter(None, [_check_session_documents(session_id)]),
         _check_accelerator(env),
         *_check_optional_extras(),
         *_check_plugins(),

@@ -192,12 +192,12 @@ def _row(name, reranker, moved):
 
 def test_a_pass_through_arm_is_flagged_without_a_control_arm():
     rows = [
-        _row("reranker=cross_encoder", "cross_encoder", [True, False, True]),
-        _row("reranker=mine", "mine", [False, False, False]),
+        _row("reranker=cross_encoder", "cross_encoder", [True, False, True] * 4),
+        _row("reranker=mine", "mine", [False] * 12),
     ]
     inert = isolation_report(rows)["inert"]
     assert len(inert) == 1
-    assert "'reranker=mine'" in inert[0] and "on all 3 queries" in inert[0]
+    assert "'reranker=mine'" in inert[0] and "on all 12 queries" in inert[0]
 
 
 def test_a_sweep_arm_names_the_ensembles_members_and_the_run_records_them():

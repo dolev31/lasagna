@@ -23,11 +23,12 @@ from tests._paths import PACKAGE_DIR
 
 class TestRegistryContents:
     def test_known_restricted_models_are_flagged(self):
-        """The three non-commercial models must be marked as such."""
+        """The models whose terms do not allow commercial use must be marked as such."""
         expected = {
             "naver/splade-cocondenser-ensembledistil",
             "jinaai/jina-reranker-v2-base-multilingual",
             "BAAI/bge-reranker-v2-gemma",
+            "castorini/monot5-base-msmarco-10k",
         }
         assert expected <= set(restricted_models())
 
@@ -111,6 +112,62 @@ class TestRegistryCoversWhatWeOffer:
         }
         missing = sorted(m for m in candidates if describe(m) is None)
         assert not missing, f"Uncatalogued models in settings.lasagna.toml: {missing}"
+
+
+class TestEveryDefaultModelIsCatalogued:
+    """The model every built-in component loads by default, and every profile's.
+
+    monoT5's default (castorini/monot5-base-msmarco-10k) was "not in Lasagna's
+    license table" at DEBUG, as were FlashRank's and the speed profile's
+    embedder named without its organization, while CONTRIBUTING said this test
+    fails for a selectable model with no entry.
+    """
+
+    def _defaults(self):
+        from lasagna.core.config import get_rag_config
+        from lasagna.core.session_config._profiles import ProfileMixin
+        from lasagna.core.setup_text import COMPONENT_MODEL_SETTINGS
+        from lasagna.knowledge_evaluation_sdk.answer_metrics import DEFAULT_SIMILARITY_MODEL
+
+        config = get_rag_config()
+        settings = set(COMPONENT_MODEL_SETTINGS.values()) | {"embedding_model_fallback"}
+        models = {}
+        for setting in sorted(settings):
+            models[config._config[setting]] = f"default {setting}"
+            for profile, spec in ProfileMixin._PROFILE_SPECS.items():
+                if spec.get(setting):
+                    models[spec[setting]] = f"{profile} {setting}"
+        models["BAAI/bge-m3"] = "the bge_m3 embedder"
+        models[DEFAULT_SIMILARITY_MODEL] = "answer_similarity"
+        return models
+
+    def test_every_default_model_has_a_license_entry(self):
+        missing = {m: where for m, where in self._defaults().items() if describe(m) is None}
+        assert not missing, f"Default models with no entry in core/model_licenses.py: {missing}"
+
+    def test_every_model_setting_names_its_component(self):
+        """A new ``*_model`` setting is a new default to catalogue."""
+        from lasagna.core.config import get_rag_config
+        from lasagna.core.setup_text import COMPONENT_MODEL_SETTINGS
+
+        model_settings = {
+            key
+            for key, value in get_rag_config()._config.items()
+            if key.endswith("_model") and isinstance(value, str) and value
+        }
+        covered = set(COMPONENT_MODEL_SETTINGS.values())
+        # No weights Lasagna downloads for a component: the fallback embedder
+        # (catalogued above), LLMs, and Cohere's hosted reranker.
+        known_elsewhere = {
+            "embedding_model_fallback",
+            "graph_extraction_model",
+            "hyde_model",
+            "cohere_rerank_model",
+        }
+        assert model_settings - covered - known_elsewhere == set()
+
+    def test_a_bare_sentence_transformers_name_is_found(self):
+        assert describe("all-MiniLM-L6-v2") is describe("sentence-transformers/all-MiniLM-L6-v2")
 
 
 class TestAlerting:

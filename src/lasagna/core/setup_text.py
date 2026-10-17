@@ -25,6 +25,81 @@ MODEL_DOWNLOAD_BYTES = {
     "mixedbread-ai/mxbai-rerank-large-v1": 881_291_471,
 }
 
+#: The files each model's first load reads (sentence-transformers for an
+#: embedder, a cross-encoder for a reranker); ``MODEL_DOWNLOAD_BYTES`` is their
+#: total. ``hf download <model>`` alone fetches the whole repository: for
+#: BAAI/bge-m3 that is 4.6 GB, the ONNX export included, which nothing reads.
+_SENTENCE_TRANSFORMERS_FILES = (
+    "modules.json",
+    "config_sentence_transformers.json",
+    "sentence_bert_config.json",
+    "README.md",
+    "1_Pooling/config.json",
+    "config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "special_tokens_map.json",
+)
+_MINILM_FILES = (*_SENTENCE_TRANSFORMERS_FILES, "model.safetensors", "vocab.txt")
+MODEL_FILES = {
+    "all-MiniLM-L6-v2": _MINILM_FILES,
+    "sentence-transformers/all-MiniLM-L6-v2": _MINILM_FILES,
+    "cross-encoder/ms-marco-MiniLM-L-6-v2": (
+        "README.md",
+        "config.json",
+        "model.safetensors",
+        "special_tokens_map.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.txt",
+    ),
+    "BAAI/bge-large-en-v1.5": (*_SENTENCE_TRANSFORMERS_FILES, "model.safetensors", "vocab.txt"),
+    "BAAI/bge-m3": (*_SENTENCE_TRANSFORMERS_FILES, "pytorch_model.bin", "sentencepiece.bpe.model"),
+    "mixedbread-ai/mxbai-rerank-large-v1": (
+        "added_tokens.json",
+        "config.json",
+        "model.safetensors",
+        "special_tokens_map.json",
+        "spm.model",
+        "tokenizer.json",
+        "tokenizer_config.json",
+    ),
+}
+
+
+#: The setting that names the model each built-in component loads, by
+#: ``(stage, name)``. Components with no model of their own (BM25, MMR, the
+#: chunkers) and those that call an API are absent.
+COMPONENT_MODEL_SETTINGS = {
+    ("reranker", "cross_encoder"): "reranker_model",
+    ("reranker", "combined"): "reranker_model",
+    # Its members default to the one reranker_model (ensemble_reranker_models).
+    ("reranker", "ensemble"): "reranker_model",
+    ("reranker", "colbert"): "colbert_model",
+    ("reranker", "monot5"): "monot5_model",
+    ("reranker", "flashrank"): "flashrank_model",
+    ("retriever", "splade"): "splade_model",
+    ("retriever", "dense"): "embedding_model",
+    ("embedder", "default"): "embedding_model",
+    ("embedder", "sentence_transformers"): "embedding_model",
+}
+
+
+def download_command(model: str) -> str:
+    """The ``hf download`` command that fetches what loading ``model`` reads, and its size.
+
+    ``hf download BAAI/bge-m3 --include modules.json ... (2.3 GB)``. A model
+    with no recorded file list gets the whole-repository command.
+    """
+    repo = model if "/" in model else f"sentence-transformers/{model}"
+    files = MODEL_FILES.get(model) or MODEL_FILES.get(repo)
+    if not files:
+        return f"hf download {repo}"
+    includes = " ".join(f"--include {name}" for name in files)
+    size = MODEL_DOWNLOAD_BYTES.get(model) or MODEL_DOWNLOAD_BYTES.get(repo)
+    return f"hf download {repo} {includes}" + (f" ({human_size(size)})" if size else "")
+
+
 #: What FlagEmbedding adds for BAAI/bge-m3 (the ``flag-embedding`` extra, which
 #: ``all`` includes): it downloads the model's whole repository, so on top of
 #: the files above it fetches the ONNX export (``onnx/model.onnx_data``, 2.27 GB,
@@ -109,32 +184,40 @@ def _profiles_phrase(names: List[str]) -> str:
     return f"the {_join(names)} profile{'s' if len(names) > 1 else ''}" if names else ""
 
 
-def llm_key_hint() -> str:
-    """What ``doctor`` says when no LLM API key is set: where retrieval still works."""
+def llm_key_hint(session_id: str = "default") -> str:
+    """What ``doctor`` says when no LLM API key is set: what still works, and what does not.
+
+    The same as the README and ``init``: every profile retrieves without a
+    key. It said retrieval worked "only on the speed profile", while the other
+    profiles answer the queries they would send to an LLM loop with their
+    standard pipeline (``degraded_stages`` names ``agentic``).
+    """
     from lasagna.core.session_config._profiles import ProfileMixin
 
     keyless = keyless_profiles()
     needing = [n for n in ProfileMixin._PROFILE_SPECS if n not in keyless]
     default_needs = needs_llm_key(None)
-    works = [
-        x for x in (not default_needs and DEFAULT_CONFIGURATION, _profiles_phrase(keyless)) if x
-    ]
-    need = [x for x in (default_needs and DEFAULT_CONFIGURATION, _profiles_phrase(needing)) if x]
-    commands = ", ".join(f"`lasagna configure --profile {n}`" for n in keyless)
-    first = (
-        f"Retrieval works without one only on {' and '.join(works)}"
-        + (f" ({commands})." if commands else ".")
-        if works
-        else "No profile retrieves without one."
-    )
-    need_text = " and ".join(need)
+    calls = [x for x in (default_needs and DEFAULT_CONFIGURATION, _profiles_phrase(needing)) if x]
+    where = f" -s {session_id}" if session_id != "default" else ""
+    commands = ", ".join(f"`lasagna configure --profile {n}{where}`" for n in keyless)
+    first = "Retrieval works without one on every profile."
+    if keyless:
+        first += f" {_profiles_phrase(keyless)[:1].upper()}{_profiles_phrase(keyless)[1:]} "
+        first += "never calls an LLM" + (f" ({commands})." if commands else ".")
+    calls_text = " and ".join(calls)
     second = (
-        f" {need_text[:1].upper() + need_text[1:]} send complex queries through LLM steps, "
-        f"so they need one, as do generation, LLM reranking and benchmark judging."
-        if need
-        else " Generation, LLM reranking and benchmark judging need one."
+        f" {calls_text[:1].upper() + calls_text[1:]} send queries they judge complex to an "
+        f"LLM loop; without a key they answer those with their standard pipeline, and the "
+        f"result's degraded_stages names agentic."
+        if calls
+        else ""
     )
-    return first + second + " Set OPENAI_API_KEY (or your provider's variable)."
+    return (
+        first
+        + second
+        + " Generation, LLM reranking and benchmark judging need one. Set OPENAI_API_KEY "
+        "(or your provider's variable)."
+    )
 
 
 def model_cache_hint(models: Optional[List[str]] = None, session_id: str = "default") -> str:

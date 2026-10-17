@@ -16,6 +16,7 @@ import json
 import os
 import shlex
 from pathlib import Path
+from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Optional
 
 import typer
@@ -24,6 +25,8 @@ from rich.markup import escape
 from rich.measure import Measurement
 from rich.panel import Panel
 from rich.table import Table
+
+from .core._text import LOG_LEVELS
 
 # No emoji codes: user-supplied names reach the console, and
 # `component validate nope:x` printed "nope❌" (":x:" is an emoji code).
@@ -36,7 +39,7 @@ app = typer.Typer(
 
 #: Levels loguru accepts. An unknown value would raise from `logger.add`, which
 #: would turn a typo in an environment variable into a crash on every command.
-_LOG_LEVELS = frozenset({"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"})
+_LOG_LEVELS = frozenset(LOG_LEVELS)
 
 
 def _configure_cli_logging(
@@ -519,6 +522,7 @@ def init():
             questionary.Choice("Pinecone (managed cloud)", value="pinecone"),
             questionary.Choice("Weaviate (self-hosted or cloud)", value="weaviate"),
             questionary.Choice("Qdrant (self-hosted or cloud)", value="qdrant"),
+            questionary.Choice("OpenSearch (self-hosted or AWS)", value="opensearch"),
         ],
     ).ask()
     if vector_backend is None:
@@ -534,13 +538,14 @@ def init():
         choices=[
             questionary.Choice(f"{label} ({profile_download_text(value)})", value=value)
             for label, value in (
-                ("Speed: vector search only, fastest", "speed"),
-                ("Standard: hybrid search and reranking, recommended", "standard"),
+                # As the README says: the first run downloads 92 MB and needs no key.
+                ("Speed: vector search only, no LLM, recommended to start", "speed"),
+                ("Standard: hybrid search, reranking, an LLM loop for complex queries", "standard"),
                 ("Balanced: standard plus hierarchical chunking", "balanced"),
                 ("Max quality: every retrieval feature on", "max_quality"),
             )
         ],
-        default="standard",
+        default="speed",
     ).ask()
     if profile is None:
         raise typer.Exit(0)
@@ -849,17 +854,26 @@ def search(
         finally:
             await client.close()
 
+    import warnings
+
+    from lasagna.api._profile_guard import DocumentsElsewhereWarning
+
     try:
-        result = _run(_search())
+        with warnings.catch_warnings(record=True) as warned:
+            warnings.simplefilter("always", DocumentsElsewhereWarning)
+            result = _run(_search())
     except Exception as exc:
         # The SDK's SearchError already says "Search failed: ...".
         cause = exc.__cause__ if type(exc).__name__ == "SearchError" and exc.__cause__ else exc
         _error(f"Search failed: {cause}", exc=exc)
+    elsewhere = any(issubclass(w.category, DocumentsElsewhereWarning) for w in warned)
 
     if context:
         # Chunk text is data, not markup: Rich deleted "[metrics](...)" and
         # "[copy.deepcopy(d) ...]" from what it printed.
         console.print(Panel(escape(str(result)), title="LLM Context", border_style="cyan"))
+        if elsewhere:
+            _warn_documents_elsewhere(session_id, warned)
         return
 
     table = Table(title=f'Search: "{escape(query)}"', show_lines=True)
@@ -880,6 +894,30 @@ def search(
 
     console.print(table)
     console.print(f"[dim]{_count(len(result), 'result')}[/dim]")
+    if elsewhere:
+        _warn_documents_elsewhere(session_id, warned)
+
+
+def _warn_documents_elsewhere(session_id: str, warned: List[Any]) -> None:
+    """Say why the search could not see some of the session's documents.
+
+    Read from this machine's metadata database, which a local server shares;
+    the SDK's own warning is the fallback.
+    """
+    from lasagna.api._profile_guard import DocumentsElsewhereWarning, documents_elsewhere
+
+    message = None
+    try:
+        from lasagna.core.config import rag_config
+
+        config = rag_config.with_session(session_id)
+        message = documents_elsewhere(session_id, config.collection_name, config.embedding_model)
+    except Exception:  # noqa: BLE001 - the SDK's warning says it too
+        message = None
+    if message is None:
+        first = next(w for w in warned if issubclass(w.category, DocumentsElsewhereWarning))
+        message = str(first.message)
+    console.print(f"[yellow]Warning: {escape(message)}[/yellow]")
 
 
 # ---------------------------------------------------------------------------
@@ -1343,13 +1381,13 @@ def configure(
         False,
         "--force",
         help="Apply even if the session's stored documents would no longer be searched "
-        "(they stay where they are until reindexed)",
+        "(they stay where they are until reindexed); the new models must load",
     ),
     reindex: bool = typer.Option(
         False,
         "--reindex",
-        help="Apply, then reindex the session's documents with the new model; each keeps "
-        "its old index until its new one is stored",
+        help="Reindex the session's documents with the new profile, then apply it; if one "
+        "fails, the session keeps its profile and every document stays searchable",
     ),
 ):
     """Configure RAG settings.
@@ -1365,21 +1403,50 @@ def configure(
 
     if profile:
         _require_profile(profile, session_id)
+        from lasagna.core import local_server
+
+        if local_server.local_store_held():
+            # `lasagna serve` holds the store: it applies the switch, as it
+            # serves status and search. Its readiness check tells the user to
+            # run this command, which used to fail here.
+            url = local_server.running_server()
+            if url is not None:
+                typer.echo(
+                    f"lasagna serve at {url} holds the local store; going through it.", err=True
+                )
+                _configure_through_server(url, profile, session_id, force=force, reindex=reindex)
+                return
+            if reindex:
+                _error(local_server.held_store_message("configure --reindex"))
         from lasagna.api._profile_guard import EmbeddingSizeConflict
+        from lasagna.api._profile_switch import (
+            ProfileCannotLoad,
+            ReindexFailed,
+            summary,
+            switch_profile,
+        )
 
         try:
-            mgr.set_active_profile(profile, session_id=session_id, force=force or reindex)
+            report = switch_profile(
+                mgr, profile, session_id=session_id, force=force, reindex=reindex
+            )
         except EmbeddingSizeConflict as exc:
             _error(
                 f"{exc} To switch and reindex them now: lasagna configure --profile "
                 f"{profile} -s {session_id} --reindex. To switch anyway: lasagna "
                 f"configure --profile {profile} -s {session_id} --force."
             )
-        except ValueError as exc:
+        except (ProfileCannotLoad, ReindexFailed, ValueError) as exc:
             _error(str(exc))
+        finally:
+            if reindex:
+                from lasagna.api.rag_backend import close_backend
+
+                close_backend()
         console.print(f"[green]Applied profile: {profile}[/green]")
-        if reindex:
-            _reindex_session(session_id)
+        done = summary(report)
+        if done:
+            console.print(done)
         return
 
     # List profiles
@@ -1404,34 +1471,55 @@ def configure(
 # ---------------------------------------------------------------------------
 
 
-def _reindex_session(session_id: str) -> None:
-    """Reindex every document of ``session_id`` with its current settings, one at a time."""
-    url = _serving_url()
+def _configure_through_server(
+    url: str, profile: str, session_id: str, *, force: bool, reindex: bool
+) -> None:
+    """Switch ``session_id`` to ``profile`` through the running ``lasagna serve`` at ``url``."""
+    import httpx
 
-    async def _reindex():
-        client = _client_for(session_id, url)
-        done, failed = 0, []
-        try:
-            docs = await client.documents.list()
-            for doc in docs:
-                try:
-                    await client.documents.reindex(doc.document_id)
-                    done += 1
-                except Exception as exc:  # noqa: BLE001 - reported per document below
-                    failed.append((doc.document_id, exc))
-        finally:
-            await client.close()
-        return len(docs), done, failed
-
+    body = {"active_profile": profile, "force": force, "reindex": reindex}
     try:
-        total, done, failed = _run(_reindex())
-    except Exception as exc:
-        _error(f"Reindex failed: {exc}", exc=exc)
-    console.print(f"Reindexed {done} of {_count(total, 'document')} in session {session_id}.")
-    for document_id, exc in failed:
-        console.print(f"  [red]{escape(document_id)}[/red]: {escape(str(exc))}")
-    if failed:
-        raise typer.Exit(1)
+        # A reindex runs inside the request, document by document.
+        resp = httpx.put(
+            f"{url}/api/config/knowledge/active",
+            json=body,
+            headers={"X-Session-ID": session_id},
+            timeout=None if reindex else 60,
+        )
+    except httpx.HTTPError as exc:
+        _error(f"lasagna serve at {url} did not answer: {exc}")
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+    if resp.status_code >= 400:
+        detail = data.get("detail") if isinstance(data, dict) else None
+        message = detail if isinstance(detail, str) else resp.text
+        if resp.status_code == 409 and not (force or reindex) and "--reindex" not in message:
+            message += (
+                f" To switch and reindex them now: lasagna configure --profile {profile} "
+                f"-s {session_id} --reindex. To switch anyway: lasagna configure --profile "
+                f"{profile} -s {session_id} --force."
+            )
+        _error(message)
+    console.print(f"[green]Applied profile: {profile}[/green]")
+    report = data.get("reindex") if isinstance(data, dict) else None
+    if report:
+        from lasagna.api._profile_switch import SwitchReport, summary
+
+        done = summary(
+            SwitchReport(
+                profile=profile,
+                previous=report.get("previous_profile", ""),
+                session_id=session_id,
+                embedding_model=report.get("embedding_model", ""),
+                reindexed=list(report.get("reindexed") or []),
+                total=int(report.get("documents") or 0),
+                reindex=True,
+            )
+        )
+        if done:
+            console.print(done)
 
 
 @app.command(name="export")
@@ -2043,9 +2131,8 @@ def benchmark_compare(
     if format_ != "latex":
         results_compare(results_a, results_b, metric=metric)
         return
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    runs = [BenchmarkResults.load(path) for path in (results_a, results_b)]
+    runs = [_load_results(path) for path in (results_a, results_b)]
     for path, run in zip((results_a, results_b), runs):
         _require_metric(run, metric, where=Path(path).name)
     console.print(runs[0].to_latex(metric))
@@ -2408,6 +2495,11 @@ def component_list(
 
 def _registered_component(name: str, stage: Optional[str]) -> Any:
     """The class registered as ``name``, in ``stage`` or the one stage that has it."""
+    return _registered_component_and_stage(name, stage)[0]
+
+
+def _registered_component_and_stage(name: str, stage: Optional[str]) -> tuple:
+    """``(class, stage)`` registered as ``name``, in ``stage`` or the one stage that has it."""
     from .core._text import did_you_mean
     from .core.registry import registry
 
@@ -2421,7 +2513,44 @@ def _registered_component(name: str, stage: Optional[str]) -> Any:
         )
     if len(found) > 1:
         _error(f"{name!r} is registered for {', '.join(found)}; pick one with --stage.")
-    return registry.get_class(found[0], name)
+    return registry.get_class(found[0], name), found[0]
+
+
+@contextmanager
+def _validated_with_profile(stage: str, name: str, profile: str):
+    """Build a registered component with ``profile``'s model, and say which before loading.
+
+    ``component validate cross_encoder`` built it with the settings file's
+    reranker, an 881 MB download, while the speed profile and the README's
+    sweeps use a 92 MB one.
+    """
+    from lasagna.core.config import rag_config
+    from lasagna.core.model_downloads import is_cached
+    from lasagna.core.session_config._profiles import ProfileMixin
+    from lasagna.core.setup_text import COMPONENT_MODEL_SETTINGS, MODEL_DOWNLOAD_BYTES, human_size
+
+    setting = COMPONENT_MODEL_SETTINGS.get((stage, name))
+    if setting is None:
+        yield
+        return
+    spec = ProfileMixin._PROFILE_SPECS.get(profile, {})
+    model = str(spec.get(setting) or getattr(rag_config, setting, "") or "")
+    size = MODEL_DOWNLOAD_BYTES.get(model)
+    where = "cached" if is_cached(model) else "downloaded on first use"
+    console.print(
+        f"Builds {escape(name)} with the {escape(profile)} profile's {setting}: "
+        f"{escape(model)}" + (f" ({human_size(size)}, {where})." if size else f" ({where}).")
+    )
+    overrides = rag_config._env_overrides
+    had, previous = setting in overrides, overrides.get(setting)
+    overrides[setting] = model
+    try:
+        yield
+    finally:
+        if had:
+            overrides[setting] = previous
+        else:
+            overrides.pop(setting, None)
 
 
 @component_app.command("validate")
@@ -2436,6 +2565,13 @@ def component_validate(
         None,
         "--stage",
         help="The stage a plain, undecorated function implements: " + ", ".join(_FUNCTION_STAGES),
+    ),
+    profile: str = typer.Option(
+        "speed",
+        "--profile",
+        "-p",
+        help="Profile whose model a registered component is built with (default speed: "
+        "the 92 MB cross-encoder, not the settings file's 881 MB one)",
     ),
 ):
     """Check a component satisfies its stage contract.
@@ -2456,13 +2592,14 @@ def component_validate(
     from lasagna.core.testing import ComponentTestHarness
 
     module_path, _, attr = target.rpartition(":")
+    found_stage = None  # the stage of a registered component
     if stage is not None and stage not in _FUNCTION_STAGES:
         _error(f"--stage must be one of {', '.join(_FUNCTION_STAGES)}, got {stage!r}")
     if not module_path or not attr:
         # A registered name, as a sweep's arm names one: `component validate
         # cross_encoder` was refused as not being module:function.
-        obj, attr = _registered_component(target, stage), target
-        name = target
+        obj, found_stage = _registered_component_and_stage(target, stage)
+        attr = name = target
     else:
         try:
             obj = components.import_reference(target)
@@ -2485,19 +2622,26 @@ def component_validate(
         except (TypeError, ValueError) as exc:
             _error(str(exc))
 
-    try:
-        instance = obj() if isinstance(obj, type) else obj
-    except Exception as exc:
-        _error(
-            f"Could not instantiate {attr} with no arguments: {type(exc).__name__}: {exc}. "
-            f"Components must be constructible without required arguments so the "
-            f"pipeline can build them from a config name."
-        )
+    from contextlib import nullcontext
 
-    try:
-        report = ComponentTestHarness().validate(instance)
-    except Exception as exc:  # a model that cannot load, a missing key: not a contract verdict
-        _error(f"The checks could not run: {type(exc).__name__}: {exc}")
+    _require_profile(profile)
+    built_with = (
+        _validated_with_profile(found_stage, target, profile) if found_stage else nullcontext()
+    )
+    with built_with:
+        try:
+            instance = obj() if isinstance(obj, type) else obj
+        except Exception as exc:
+            _error(
+                f"Could not instantiate {attr} with no arguments: {type(exc).__name__}: "
+                f"{exc}. Components must be constructible without required arguments so "
+                f"the pipeline can build them from a config name."
+            )
+
+        try:
+            report = ComponentTestHarness().validate(instance)
+        except Exception as exc:  # a model that cannot load, a missing key: no verdict
+            _error(f"The checks could not run: {type(exc).__name__}: {exc}")
 
     console.print(f"\n[bold]{escape(name)}[/bold] ({report.component_type or 'unknown'})")
     for check in report.checks:
@@ -2608,6 +2752,42 @@ results_app = typer.Typer(
 app.add_typer(results_app, name="results")
 
 
+def _results_file(path: str) -> Path:
+    """``path`` as a run's results.json: the file itself, or the run folder holding it.
+
+    Every results command takes either. A folder (what a run prints after
+    "Output:") ended in a 30-line IsADirectoryError traceback in all but view
+    and leaderboard.
+    """
+    given = Path(path).expanduser()
+    if given.is_dir():
+        inside = given / "results.json"
+        if inside.is_file():
+            return inside
+        _error(
+            f"{path or given.resolve()} is a folder with no results.json in it. Pass the "
+            f'folder a run printed after "Output:", or the results.json inside it.'
+        )
+    if not given.exists():
+        _error(f"No such file or folder: {path}")
+    return given
+
+
+def _load_results(path: str):
+    """The run at ``path`` (a results.json or its folder), or a one-line error."""
+    from .knowledge_evaluation_sdk.results import BenchmarkResults
+
+    file = _results_file(path)
+    try:
+        return BenchmarkResults.load(str(file))
+    except json.JSONDecodeError as exc:
+        _error(f"{file} is not valid JSON ({exc}). Pass a results.json from a run.")
+    except (OSError, UnicodeDecodeError) as exc:
+        _error(f"Cannot read {file}: {exc}")
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        _error(f"{file} is not a results.json from a run ({type(exc).__name__}: {exc}).")
+
+
 @results_app.command("bundle")
 def results_bundle(
     results_path: str = typer.Argument(..., help="results.json from a run"),
@@ -2617,9 +2797,8 @@ def results_bundle(
 ):
     """Package a run into a self-contained, publishable bundle."""
     from .knowledge_evaluation_sdk.bundle import MetricsVersionError
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    results = BenchmarkResults.load(results_path)
+    results = _load_results(results_path)
     submitter = {k: v for k, v in {"name": name, "affiliation": affiliation}.items() if v}
     try:
         bundle = results.to_bundle(submitter=submitter or None)
@@ -2632,8 +2811,12 @@ def results_bundle(
         _error(f"Cannot write {output}: {exc.strerror or exc}")
     console.print(f"[green]Wrote[/green] {escape(output)}")
     console.print(f"  run_id: {bundle['run_id']}")
+    benchmarks = {cfg.get("benchmark") for cfg in bundle["configs"]}
     for cfg in bundle["configs"]:
-        console.print(f"  {escape(str(cfg['name']))}: comparability key {cfg['comparability_key']}")
+        label = str(cfg["name"])
+        if len(benchmarks) > 1:
+            label = f"{cfg.get('benchmark')}/{label}"
+        console.print(f"  {escape(label)}: comparability key {cfg['comparability_key']}")
     warnings = bundle["integrity"]["warnings"]
     if warnings:
         console.print(f"[yellow]  integrity warnings: {', '.join(warnings)}[/yellow]")
@@ -2656,11 +2839,23 @@ def results_validate(
         _content_hash,
         aggregate_mismatches,
         comparability_key,
+        config_label,
         metrics_version_problems,
         ranked_list_mismatches,
     )
 
-    bundle = json.loads(Path(bundle_path).read_text())
+    given = Path(bundle_path).expanduser()
+    if given.is_dir():
+        _error(
+            f"{bundle_path} is a folder; results validate checks a bundle. Make one from "
+            f"the run with: lasagna results bundle {shlex.quote(bundle_path)} -o run.json"
+        )
+    if not given.exists():
+        _error(f"No such file: {bundle_path}")
+    try:
+        bundle = json.loads(given.read_text())
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        _error(f"{bundle_path} is not valid JSON ({exc}). Pass a bundle from results bundle.")
     problems: List[str] = []
 
     schema = str(bundle.get("schema_version", ""))
@@ -2678,8 +2873,15 @@ def results_validate(
         recomputed = comparability_key(cfg.get("held_fixed", {}))
         if recomputed != cfg.get("comparability_key"):
             problems.append(
-                f"config {cfg.get('name')!r}: comparability key does not match its "
+                f"config {config_label(cfg)}: comparability key does not match its "
                 f"held_fixed block ({cfg.get('comparability_key')} vs {recomputed})"
+            )
+        benchmark = cfg.get("benchmark")
+        held_benchmark = (cfg.get("held_fixed") or {}).get("benchmark")
+        if benchmark and held_benchmark != benchmark:
+            problems.append(
+                f"config {config_label(cfg)}: held_fixed.benchmark is {held_benchmark!r}, "
+                f"not the entry's benchmark"
             )
 
     problems.extend(metrics_version_problems(bundle))
@@ -2738,9 +2940,8 @@ def results_compare(
     metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to compare."),
 ):
     """Compare two runs, reporting whether they are comparable at all."""
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    first, second = BenchmarkResults.load(a), BenchmarkResults.load(b)
+    first, second = _load_results(a), _load_results(b)
     for path, results in ((a, first), (b, second)):
         _require_metric(results, metric, where=Path(path).name)
     console.print(first.compare(second, metric), markup=False, highlight=False)
@@ -2765,9 +2966,8 @@ def results_power(
     the smallest difference this run could have detected, and how many queries
     the observed difference would need.
     """
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    results = BenchmarkResults.load(results_path)
+    results = _load_results(results_path)
     benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
     if not benchmarks:
         _error(
@@ -2852,12 +3052,11 @@ def results_significance(
     whole set, so what comes out is a claim about the grid rather than about the
     pair that happened to look best. Each pair is a paired sign-flip test.
     """
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
     if correction not in ("holm", "none"):
         _error(f"Unknown correction {correction!r}. Use 'holm' or 'none'.")
 
-    results = BenchmarkResults.load(results_path)
+    results = _load_results(results_path)
     benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
     if not benchmarks:
         _error(
@@ -3033,9 +3232,8 @@ def results_per_query(
     The rank is authoritative: scores can tie, so sorting by score does not
     rebuild the ranking the metrics were computed on.
     """
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    rows = BenchmarkResults.load(results_path).per_query(benchmark)
+    rows = _load_results(results_path).per_query(benchmark)
     if config:
         rows = [r for r in rows if r["config"] == config]
     if not rows:
@@ -3177,9 +3375,8 @@ def results_interaction(
     alone cannot be recovered from the two, because the interaction is not a
     function of the main effects.
     """
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    results = BenchmarkResults.load(results_path)
+    results = _load_results(results_path)
 
     benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
     if not benchmark:

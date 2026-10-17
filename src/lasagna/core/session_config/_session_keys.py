@@ -305,7 +305,11 @@ def check_session_settings(
             continue  # what is already in force: nothing changes, nothing stored
         else:
             if problem.startswith("is not a retrieval"):
-                problem += did_you_mean(key, _known_keys())
+                # A setting of the process (use_gpu) is spelled right; only an
+                # unknown name has a closer one. It suggested the key itself.
+                known = _known_keys()
+                if key not in known:
+                    problem += did_you_mean(key, known)
             refused.append((key, problem))
     if refused:
         named = "; ".join(f"{key} {why}" for key, why in refused)

@@ -522,9 +522,12 @@ class FactorialSpec:
                     f"example `enable_reranking` rather than `reranker`."
                 )
             if name not in flags:
+                from lasagna.core._text import did_you_mean
+
                 suggestions = sorted(f for f in flags if f.startswith(("enable_", "use_")))
                 raise ValueError(
-                    f"{role}={name!r} is not a known boolean setting. "
+                    f"{role}={name!r} is not a known boolean setting"
+                    f"{did_you_mean(str(name), flags)}. "
                     f"Candidates: {', '.join(suggestions[:12])}, ... "
                     f"({len(suggestions)} in total)."
                 )
@@ -1074,24 +1077,62 @@ def _context_order(gen_config: Any) -> Dict[str, str]:
     }
 
 
-def _short_list_warning(short: int, exhausted: int, n_queries: int, k: int, overfetch: int) -> str:
+#: Retrievers that return only passages sharing a term with the query.
+_LEXICAL_RETRIEVERS = frozenset({"bm25", "splade", "sparse"})
+
+
+def _short_retrieval(config: Dict[str, Any], retriever: Optional[str] = None) -> str:
+    """What ran out of candidates in a short list, named for the arm that ran.
+
+    The warning blamed "BM25 and SPLADE" on a dense speed run, where neither
+    ran: there the corpus held fewer chunks than were requested.
+    """
+    if retriever:
+        if retriever.lower() in _LEXICAL_RETRIEVERS:
+            return (
+                f"the {retriever} retriever returns only passages that share a term with the query"
+            )
+        return f"the {retriever} retriever returned all it found"
+    if config.get("enable_hybrid_search"):
+        lexical = (
+            "SPLADE" if str(config.get("sparse_method", "bm25")).lower() == "splade" else "BM25"
+        )
+        return (
+            f"hybrid search returns the dense and {lexical} candidates it finds, and the "
+            f"corpus held fewer than were requested"
+        )
+    return (
+        "dense search returns at most the chunks the corpus holds, and it held fewer "
+        "than were requested (or similarity_threshold dropped some)"
+    )
+
+
+def _short_list_warning(
+    short: int,
+    exhausted: int,
+    n_queries: int,
+    k: int,
+    overfetch: int,
+    ran_short: str = "",
+) -> str:
     """Why ``short`` queries scored fewer than ``k`` documents, and what would help.
 
     The warning used to blame merged chunks and advise raising the over-fetch
     for every short list. A lexical retriever returns only passages that share
     a term with the query, so a one-word NFCorpus query can match three
     documents in the whole corpus; no over-fetch changes that, and the advice
-    made a correct BEIR number look deflated.
+    made a correct BEIR number look deflated. ``ran_short`` names the
+    retrieval that ran out (:func:`_short_retrieval`).
     """
     parts = [
         f"{short} of {n_queries} queries had fewer than {k} distinct documents, "
         f"which lowers @{k} metrics."
     ]
     if exhausted:
+        why = ran_short or "the retriever found no more candidates"
         parts.append(
             f"For {exhausted} of them the retriever returned fewer results than were "
-            f"requested: it ran out of candidates (BM25 and SPLADE return only "
-            f"passages that share a term with the query), and over-fetching does "
+            f"requested: it ran out of candidates ({why}), and over-fetching does "
             f"not change that."
         )
     if short - exhausted:
@@ -1372,9 +1413,15 @@ def _parse_tracks(value: Any) -> List[str]:
     if value is None:
         return list(_TRACKS)
     tracks = [value] if isinstance(value, str) else list(value)
-    unknown = sorted(set(tracks) - set(_TRACKS))
+    unknown = sorted(set(tracks) - set(_TRACKS), key=str)
     if unknown or not tracks:
-        raise ValueError(f"tracks must be a non-empty subset of {list(_TRACKS)}; got {value!r}")
+        from lasagna.core._text import did_you_mean
+
+        named = "; ".join(f"{t!r} is not a track{did_you_mean(str(t), _TRACKS)}" for t in unknown)
+        raise ValueError(
+            f"tracks must be a non-empty subset of {list(_TRACKS)}; got {value!r}"
+            + (f" ({named})" if named else "")
+        )
     return [t for t in _TRACKS if t in tracks]
 
 
@@ -4317,6 +4364,10 @@ async def _eval_live(
                     len(retrieved_lists),
                     _metric_k,
                     _chunk_overfetch,
+                    _short_retrieval(
+                        {**task_config, "enable_hybrid_search": _enable_hybrid},
+                        pipeline._component_names.get("retriever"),
+                    ),
                 )
             )
 

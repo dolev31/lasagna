@@ -92,6 +92,25 @@ class _HideLockedStoreTraceback(logging.Filter):
 logging.getLogger("milvus_lite.server_manager").addFilter(_HideLockedStoreTraceback())
 
 
+class _DropClientSideTimestampNote(logging.Filter):
+    """Drop pymilvus's "failed to get mvccTs" note from ``query_iterator``.
+
+    Milvus Lite returns no MVCC timestamp, so every iteration (a reindex, or
+    replacing a document under the same document_id, reads the old copy's
+    chunk ids this way) printed "failed to get mvccTs from milvus server, use
+    client-side ts instead". The client-side timestamp is what it then reads
+    with, correctly; there is nothing to act on.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not str(record.msg).startswith("failed to get mvccTs")
+
+
+logging.getLogger("pymilvus.client.iterator.query_iterator").addFilter(
+    _DropClientSideTimestampNote()
+)
+
+
 def _lite_store_locked(db_path: str) -> bool:
     """Whether another process holds the Milvus Lite store's lock (see core.local_server)."""
     from lasagna.core.local_server import lite_store_locked

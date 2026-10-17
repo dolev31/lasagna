@@ -91,6 +91,9 @@ def _orchestrator(monkeypatch):
     o.reranker = None
     o.query_enhancer = None
     o._get_session_config = lambda sid: RAGConfig()
+    # Where the session's documents are is read from the suite's database,
+    # which other tests fill for this session id; these tests name one stage.
+    monkeypatch.setattr(orch, "_note_documents_elsewhere", lambda session_id, config: None)
 
     def standard_pipeline_ran(enhancer):
         raise AssertionError("the standard pipeline ran: the agent's results were dropped")

@@ -165,6 +165,8 @@ _CHOICES: Dict[str, Tuple[str, ...]] = {
     "database_backend": ("sqlite", "postgresql"),
     "cache_backend": ("memory", "redis"),
     "tenant_isolation": ("none", "partition"),
+    # The same as core._text.LOG_LEVELS (a test checks): a literal, so
+    # scripts/gen_settings_doc.py can read it.
     "log_level": ("TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"),
     "routing_default_tier": ("fast", "standard", "comprehensive"),
     "routing_strategy": ("rule_based", "adaptive"),
@@ -631,19 +633,54 @@ def _check_file_value(key: str, value: Any, template: Any) -> None:
     _check_bounds(key, value)
 
 
+#: ``LASAGNA_*`` variables that are not settings and have no ``RAG_`` name:
+#: read by the CLI, the MCP server, the test suite and the live checks.
+_LASAGNA_ONLY_ENV = frozenset(
+    {
+        "LASAGNA_AGENTIC_COOLDOWN_S",
+        "LASAGNA_DATA_DIR",
+        "LASAGNA_DATASET_REVISIONS",
+        "LASAGNA_ENABLE_DOCS_API",
+        "LASAGNA_LEGACY_COLLECTION_MODEL",
+        "LASAGNA_LLM_CACHE",
+        "LASAGNA_LOG_FORMAT",
+        "LASAGNA_MCP_TOOLS",
+        "LASAGNA_MILVUS_DB_PATH",
+        "LASAGNA_MILVUS_URI",
+        "LASAGNA_SKIP_LOGGING",
+        "LASAGNA_STRICT_PLUGINS",
+        "LASAGNA_UUID_NAMESPACE",
+    }
+)
+
+
 def _warn_unknown_env(env_key: str, known: Dict[str, Any]) -> None:
-    """Warn once that ``env_key`` is not a setting, naming the closest one."""
+    """Warn once that ``env_key`` is not a setting, naming the closest one.
+
+    ``RAG_<name>`` always warns. ``LASAGNA_<name>`` warns only when ``<name>``
+    is close to a setting, since ``LASAGNA_`` also names variables that are
+    not settings: ``LASAGNA_CHUNK_SISE`` was ignored without a word while
+    ``RAG_CHUNK_SISE`` warned.
+    """
+    lasagna = env_key.startswith("LASAGNA_")
+    rest = env_key[len("LASAGNA_") :] if lasagna else env_key[len("RAG_") :]
     if (
-        env_key in NON_SETTING_ENV
-        or env_key.startswith(NON_SETTING_ENV_PREFIXES)
+        f"RAG_{rest}" in NON_SETTING_ENV
+        or f"RAG_{rest}".startswith(NON_SETTING_ENV_PREFIXES)
+        or env_key in NON_SETTING_ENV
+        or env_key in _LASAGNA_ONLY_ENV
+        or env_key.startswith(("LASAGNA_TEST", "LASAGNA_LIVE_", "LASAGNA_RUN_"))
         or env_key in _warned_unknown_env
     ):
         return
-    _warned_unknown_env.add(env_key)
     import difflib
 
-    match = difflib.get_close_matches(env_key[4:].lower(), list(known), n=1, cutoff=0.75)
-    hint = f" Did you mean RAG_{match[0].upper()}?" if match else ""
+    match = difflib.get_close_matches(rest.lower(), list(known), n=1, cutoff=0.75)
+    if lasagna and not match:
+        return
+    _warned_unknown_env.add(env_key)
+    prefix = "LASAGNA_" if lasagna else "RAG_"
+    hint = f" Did you mean {prefix}{match[0].upper()}?" if match else ""
     logger.warning(
         f"{env_key} is not a Lasagna setting and was ignored.{hint} "
         f"The settings are listed in docs/reference/settings.md."
@@ -710,6 +747,28 @@ class RAGConfig:
         config._query_overrides = {}
         return config
 
+    def with_session_settings(self, session_id: str, settings: Dict[str, Any]) -> "RAGConfig":
+        """This configuration for ``session_id`` as if the session had chosen ``settings``.
+
+        ``settings`` stand in for what the session store holds (its profile's
+        settings and its overrides, as ``get_chosen_config`` gives them). For
+        work done before a change is applied: a profile switch reindexes the
+        session's documents with the new profile's settings, and switches only
+        once every one of them is reindexed.
+        """
+        config = self.with_session(session_id)
+        config._pinned_session = copy.deepcopy(settings)
+        return config
+
+    def _session_resolved(self) -> Dict[str, Any]:
+        """The session's chosen settings: pinned ones, else the session store's."""
+        pinned = getattr(self, "_pinned_session", None)
+        if pinned is not None:
+            return pinned
+        from lasagna.providers import get_session_provider
+
+        return get_session_provider().get_resolved_config(self._session_id)
+
     def settings_fingerprint(self) -> str:
         """A short hash of everything that can differ between two searches.
 
@@ -724,9 +783,7 @@ class RAGConfig:
         parts: Dict[str, Any] = {"query": getattr(self, "_query_overrides", None) or {}}
         if self._session_id:
             try:
-                from lasagna.providers import get_session_provider
-
-                parts["session"] = get_session_provider().get_resolved_config(self._session_id)
+                parts["session"] = self._session_resolved()
             except Exception:
                 parts["session"] = {"_unresolved": self._session_id}
         blob = _json.dumps(parts, sort_keys=True, default=str)
@@ -757,6 +814,7 @@ class RAGConfig:
         config._knowledge_settings = self._knowledge_settings
         config._session_id = self._session_id
         config._query_overrides = dict(overrides)
+        config._pinned_session = getattr(self, "_pinned_session", None)
         return config
 
     def _get_session_override(self, *keys: str, default: Any = None) -> Any:
@@ -789,11 +847,9 @@ class RAGConfig:
             return value, True
 
         try:
-            from lasagna.providers import get_session_provider
-
             resolved = getattr(self, "_resolved_once", None)
             if resolved is None:
-                resolved = get_session_provider().get_resolved_config(self._session_id)
+                resolved = self._session_resolved()
 
             # Navigate nested keys
             value, ok = _lookup(resolved, keys)
@@ -1324,7 +1380,8 @@ class RAGConfig:
         not parse, or is outside its range or its set of choices, raises
         :class:`ConfigError` naming every bad variable; it used to be logged
         and ignored, so a typo ran the default without a visible sign. A
-        ``RAG_*`` name that is no setting warns once, with the closest one.
+        ``RAG_*`` name that is no setting warns once, with the closest one; a
+        ``LASAGNA_*`` one warns when it is close to a setting.
 
         Example:
             ``RAG_DATABASE_BACKEND=postgresql``  →  ``{'database_backend': 'postgresql'}``
@@ -1336,7 +1393,10 @@ class RAGConfig:
             if env_key.startswith("LASAGNA_"):
                 config_key = env_key[len("LASAGNA_") :].lower()
                 if config_key not in default_config:
-                    continue  # LASAGNA_* also names things that are not settings
+                    # LASAGNA_* also names things that are not settings: only
+                    # a near miss of one warns.
+                    _warn_unknown_env(env_key, default_config)
+                    continue
             elif env_key.startswith("RAG_"):
                 config_key = env_key[len("RAG_") :].lower()
                 if config_key not in default_config:
@@ -1468,9 +1528,7 @@ class RAGConfig:
         self._resolved_once = None
         if self._session_id:
             try:
-                from lasagna.providers import get_session_provider
-
-                self._resolved_once = get_session_provider().get_resolved_config(self._session_id)
+                self._resolved_once = self._session_resolved()
             except Exception:  # noqa: BLE001 - each lookup then resolves (and logs) itself
                 self._resolved_once = None
         try:
@@ -1526,11 +1584,13 @@ class RAGConfig:
         model = self.embedding_model
         if known_embedding_dim(model) is not None:
             return None
+        from lasagna.core.setup_text import download_command
+
         return (
             f"embedding_model is {model}, but embedding_dim was not set with it and the "
             f"model's size cannot be read (it is not downloaded). Set embedding_dim with the "
             f"model (RAG_EMBEDDING_DIM, or KnowledgeConfig(embedding_dim=...)), or download "
-            f"the model first (hf download {model})."
+            f"the model first ({download_command(model)})."
         )
 
     def _setting_rank(self, key: str) -> int:

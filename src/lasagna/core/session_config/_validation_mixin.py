@@ -131,7 +131,12 @@ class ValidationMixin:
         """
         if force:
             return
-        from lasagna.api._profile_guard import refuse_embedding_change, refuse_leaving_documents
+        from lasagna.api._profile_guard import (
+            EmbeddingSizeUnverified,
+            refuse_embedding_change,
+            refuse_leaving_documents,
+            session_has_documents,
+        )
 
         before = state.get_resolved_config()
         if documents:
@@ -142,9 +147,19 @@ class ValidationMixin:
                 change=change,
                 kept=state.active_profile,
             )
-        refuse_embedding_change(
-            before=before,
-            after=after,
-            change=change,
-            kept=state.active_profile,
-        )
+        try:
+            refuse_embedding_change(
+                before=before,
+                after=after,
+                change=change,
+                kept=state.active_profile,
+            )
+        except EmbeddingSizeUnverified:
+            # The store could not be read: another process holds it (a
+            # running `lasagna serve`, an MCP server). A session with no
+            # documents has nothing there to protect, and the metadata
+            # database says so without the store: `lasagna configure --profile
+            # speed -s default`, the fix the server's readiness check names,
+            # failed while the server ran.
+            if session_has_documents(session_id or "default"):
+                raise

@@ -106,7 +106,30 @@ MODEL_LICENSES: Dict[str, LicenseInfo] = {
         _PERMISSIVE_APACHE, True, _hf("mixedbread-ai/mxbai-rerank-large-v1")
     ),
     "colbert-ir/colbertv2.0": LicenseInfo(_PERMISSIVE_MIT, True, _hf("colbert-ir/colbertv2.0")),
+    # FlashRank (the flashrank_model setting) downloads its ONNX models from
+    # prithivida/flashrank, whose card is CC-BY-SA-4.0; this one is an export
+    # of cross-encoder/ms-marco-TinyBERT-L-2-v2 (Apache-2.0).
+    "ms-marco-TinyBERT-L-2-v2": LicenseInfo(
+        "CC-BY-SA-4.0",
+        True,
+        _hf("prithivida/flashrank"),
+        note=(
+            "FlashRank's copy, downloaded from prithivida/flashrank: commercial use "
+            "is allowed with attribution, and adaptations must be shared alike."
+        ),
+    ),
     # ---- Restricted: research and evaluation only -------------------------
+    "castorini/monot5-base-msmarco-10k": LicenseInfo(
+        "NOASSERTION",
+        False,
+        _hf("castorini/monot5-base-msmarco-10k"),
+        note=(
+            "The model card states no license. It is T5-base (Apache-2.0) fine-tuned "
+            "on MS MARCO, whose terms allow non-commercial research use; ask the "
+            "authors (castorini) before using it in a product. This is the default "
+            "monot5 reranker, which loads only when a sweep or setting names it."
+        ),
+    ),
     "naver/splade-cocondenser-ensembledistil": LicenseInfo(
         "CC-BY-NC-SA-4.0",
         False,
@@ -147,13 +170,19 @@ def describe(model_name: str) -> Optional[LicenseInfo]:
     """
     if not model_name:
         return None
-    info = MODEL_LICENSES.get(model_name)
-    if info is not None:
-        return info
+    # A bare name ("all-MiniLM-L6-v2", the speed profile's) is
+    # sentence-transformers' own, as the library resolves it.
+    names = (
+        [model_name] if "/" in model_name else [model_name, f"sentence-transformers/{model_name}"]
+    )
+    for name in names:
+        info = MODEL_LICENSES.get(name)
+        if info is not None:
+            return info
     # Identifiers are occasionally written with different casing.
-    lowered = model_name.lower()
+    lowered = {name.lower() for name in names}
     for key, value in MODEL_LICENSES.items():
-        if key.lower() == lowered:
+        if key.lower() in lowered:
             return value
     return None
 

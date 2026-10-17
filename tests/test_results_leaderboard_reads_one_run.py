@@ -90,8 +90,10 @@ def test_a_results_json_renders_as_latex_and_as_pages(results_json, tmp_path):
     assert markdown.exit_code == 0, markdown.output
     page = (out / "bench.md").read_text()
     assert page.index("mine") < page.index("control")
-    # Linked from the page's folder to the file, as a bundle in a folder is.
-    assert "](../results/results.json)" in page
+    # A run's own file is no published bundle: the page says it was not
+    # validated and links no path on this machine
+    # (tests/test_researcher_messages_say_what_ran.py).
+    assert "results.json)" not in page and "not validated" in page
 
 
 def test_a_file_that_is_neither_says_so(tmp_path):

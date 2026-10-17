@@ -60,7 +60,7 @@ LangChain Integration:
     docs = await retriever.ainvoke("query")
     ```
 
-Standalone Usage (standalone):
+Your own data folders:
     ```python
     from lasagna.sdk import (
         KnowledgeClient,
@@ -517,174 +517,49 @@ def __getattr__(name: str):
 # PUBLIC API
 # =============================================================================
 
+#: What a client of a knowledge base imports: the client, its configuration,
+#: what it returns and the errors it raises. It listed about 160 names, the
+#: evaluation SDK, base classes, IR metrics and storage internals among them,
+#: which made every one a public promise of the client package. Every name
+#: above still imports from ``lasagna.sdk``; the research API is ``lasagna``'s
+#: (``lasagna.registry``, ``lasagna.Experiment``, the stage decorators).
 __all__ = [
-    # Version
     "__version__",
-    "__version_info__",
-    # Primary
+    # The client
     "KnowledgeClient",
     "MCPKnowledgeClient",
-    # Config
+    # Configuration
     "KnowledgeConfig",
     "config_for_speed",
     "config_for_standard",
     "config_for_balanced",
     "config_for_max_quality",
-    "config_for_quality",  # backward compat alias
     "config_for_standalone",
     "config_for_production",
-    # Types - Enums
-    "ChunkingStrategy",
-    "EmbeddingProvider",
-    "OCREngine",
-    "HyDEStrategy",
-    "ChunkRetrievalStrategy",
-    "EnrichmentStrategy",
-    "CitationFormat",
-    "CitationScoreMethod",
-    "VectorBackend",
-    "DocumentStatus",
-    # Types - Dataclasses
+    # What the client returns
     "Document",
     "DocumentChunk",
     "SearchResult",
     "SearchResults",
     "Citation",
     "UploadResult",
-    "HopData",
     "AgenticSearchResults",
-    "ChunkCiteRetrieval",
-    "DocumentAwareness",
-    # Managers
-    "DocumentManager",
-    "SearchManager",
-    "ConfigManager",
-    "CitationManager",
-    # Backends
-    "get_backend",
-    "list_backends",
-    "get_available_backends",
-    "register_backend",
-    "VectorBackendBase",
-    "BackendCapabilities",
-    "MilvusBackend",
-    "PineconeBackend",
-    "QdrantBackend",
-    "WeaviateBackend",
-    "FilterExpression",
-    # Processing
-    "SemanticChunker",
-    "FixedChunker",
-    "DocumentExtractor",
-    "OCRProcessor",
-    "chunk_document",
-    # Retrieval
-    "EmbeddingModel",
-    "HybridSearcher",
-    "Reranker",
-    "QueryEnhancer",
-    "QueryClassifier",
-    "CoverageScorer",
-    # Agentic
-    "AgenticRAGWrapper",
-    "create_rag_tools",
-    "AgenticRAG",
-    # Evaluation
-    "KnowledgeEvaluator",
-    "EvalConfig",
-    "EvalResult",
-    # Exceptions
+    "DocumentStatus",
+    # Setting values
+    "ChunkingStrategy",
+    "ChunkRetrievalStrategy",
+    "HyDEStrategy",
+    "VectorBackend",
+    "EmbeddingProvider",
+    # Errors
     "KnowledgeError",
     "DocumentError",
     "DocumentNotFoundError",
     "UploadError",
     "DocumentProcessingError",
-    "ChunkingError",
-    "ExtractionError",
     "SearchError",
-    "QueryError",
-    "EmbeddingError",
-    "RetrievalError",
-    "CitationError",
-    "CitationNotFoundError",
     "ConfigurationError",
     "ProfileNotFoundError",
     "BackendError",
     "BackendConnectionError",
-    "BackendTimeoutError",
-    "AgenticError",
-    "MaxIterationsError",
-    "EvaluationError",
-    "JudgeError",
-    "IntegrationError",
-    # Component Registry (for researchers)
-    "ComponentRegistry",
-    "component_registry",
-    "get_component_registry",
-    # Base Components (for researchers to extend)
-    "BaseEmbedder",
-    "BaseChunker",
-    "BaseReranker",
-    "BaseRetriever",
-    "BaseDocumentProcessor",
-    "BaseQueryEnhancer",
-    "BaseAgenticPipeline",
-    "AgenticPipelineInput",
-    "ScoredDocument",
-    "ProcessedDocument",
-    # Pipeline (for researchers)
-    "KnowledgePipeline",
-    "PipelineResult",
-    "registry",
-    # RAGAS Evaluation
-    "RAGASEvaluator",
-    # Ablation Studies
-    "sweep",
-    "sweep_pipelines",
-    "sweep_nodes",
-    "AblationResults",
-    "grid_search",
-    # IR Metrics
-    "ndcg_at_k",
-    "precision_at_k",
-    "recall_at_k",
-    "f1_at_k",
-    "hit_rate_at_k",
-    "mrr",
-    "map_score",
-    "corpus_metrics",
-    # Benchmark Datasets
-    "load_benchmark",
-    "list_benchmarks",
-    # Benchmark Framework
-    "run_benchmark",
-    "Experiment",
-    "ExperimentConfig",
-    "BenchmarkResults",
-    "ReportGenerator",
-    "BaseBenchmarkAdapter",
-    "benchmark_registry",
-    "BenchmarkInfo",
-    "BenchmarkSample",
-    # Component Test Harness
-    "ComponentTestHarness",
-    "ValidationReport",
-    # Data types
-    "Chunk",
-    # Contextual Retrieval
-    "ContextualEnricher",
-    # Storage Backends
-    "get_storage_backend",
-    "register_storage_backend",
-    "get_available_storage_backends",
-    "StorageBackend",
-    "StorageCapabilities",
-    "StorageFileInfo",
-    "LocalStorageBackend",
-    # Utilities
-    "with_retry",
-    "with_retry_sync",
-    "RetryConfig",
-    "RETRY_BACKEND",
-    "RETRY_SEARCH",
 ]

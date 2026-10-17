@@ -60,7 +60,9 @@ def test_a_profile_that_would_break_search_is_refused_and_the_old_one_kept(tmp_p
     assert "--force" in result.stdout
     assert "speed" in _active(tmp_path)
 
-    forced = _cli(tmp_path, "configure", "--profile", "balanced", "--force", extra=stub)
+    # A forced switch still checks that the new profile's models load; here they do.
+    loads = "\nimport lasagna.core.model_downloads as m\nm.refusal = lambda *a, **k: None"
+    forced = _cli(tmp_path, "configure", "--profile", "balanced", "--force", extra=stub + loads)
     assert forced.returncode == 0, forced.stdout
     assert "balanced" in _active(tmp_path)
 
@@ -94,12 +96,16 @@ def test_a_profile_switch_applies_after_a_client_copied_the_old_one(tmp_path, mo
         assert resolved["rerank_top_k"] == 17
 
 
-def test_a_switch_is_refused_while_another_process_holds_the_store(tmp_path):
-    """The store being unreadable is not "nothing to protect".
+def test_an_empty_session_switches_while_another_process_holds_the_store(tmp_path):
+    """The store being unreadable is "nothing to protect" only for a session with no documents.
 
     With `lasagna serve` holding the Milvus Lite lock, the guard's own connect
     failed, the failure read as "no documents", and `configure --profile
-    standard` printed "Applied profile: standard" over a 384-dim store.
+    standard` printed "Applied profile: standard" over a 384-dim store. The
+    metadata database now says whether the session has documents, without the
+    store: one that has none switches (the server's readiness check tells the
+    user to run exactly this), and one that has some is refused
+    (tests/test_config_writes_are_checked_before_they_apply.py).
     """
     assert _cli(tmp_path, "configure", "--profile", "speed").returncode == 0
     holder = subprocess.Popen(
@@ -122,8 +128,6 @@ def test_a_switch_is_refused_while_another_process_holds_the_store(tmp_path):
     finally:
         holder.kill()
         holder.wait(timeout=30)
-    assert result.returncode != 0, result.stdout
-    said = " ".join(result.stdout.split())  # Rich wraps long lines
-    assert "could not be read" in said
-    assert "in use by another process" in said
-    assert "speed" in _active(tmp_path)
+    assert result.returncode == 0, result.stdout
+    assert "Applied profile: standard" in result.stdout
+    assert "standard" in _active(tmp_path)

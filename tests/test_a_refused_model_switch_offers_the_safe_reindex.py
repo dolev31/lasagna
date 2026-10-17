@@ -4,15 +4,15 @@ A session holding documents is refused a switch to another embedding model,
 since none of its documents would be found, and the refusal said to switch
 anyway and reindex. Only the CLI could switch anyway (``--force``), the CLI
 could not reindex, and the message named the SDK and MCP reindex but not
-REST's. Now REST and MCP take ``force`` too, ``configure --reindex`` switches
-and reindexes the session's documents (each keeps its old index until its new
-one is stored), and the message names the reindex in the SDK, REST and MCP.
+REST's. Now REST and MCP take ``force`` too, ``configure --reindex`` reindexes
+the session's documents and then switches (see
+``test_a_failed_switch_with_reindex_leaves_the_session_searchable.py``), and the
+message names the reindex in the SDK, REST and MCP.
 """
 
 from __future__ import annotations
 
 import uuid
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -52,6 +52,14 @@ def _active(sid):
     return get_knowledge_config_manager(session_id=sid).get_active_profile(session_id=sid)
 
 
+@pytest.fixture(autouse=True)
+def _models_load(monkeypatch):
+    """A forced switch checks that the new profile's models load; here they do."""
+    from lasagna.core import model_downloads
+
+    monkeypatch.setattr(model_downloads, "refusal", lambda *a, **k: None)
+
+
 def test_the_refusal_names_the_reindex_on_every_surface():
     sid = _session_with_a_document()
     with pytest.raises(EmbeddingSizeConflict) as refused:
@@ -63,7 +71,9 @@ def test_the_refusal_names_the_reindex_on_every_surface():
         "POST /api/knowledge/reindex",
         "reindex_document",
         "force=true over REST and MCP",
-        "leaves it as it was",
+        "lasagna configure --reindex",
+        "reindex=true over REST and MCP",
+        "keeps the session as it is if one fails",
     ):
         assert way in message, way
 
@@ -103,34 +113,10 @@ def test_mcp_switches_with_force():
     assert _active(sid) == "standard"
 
 
-def test_configure_offers_reindex_and_reindexes_each_document(monkeypatch):
+def test_configure_offers_the_reindex():
     sid = _session_with_a_document()
-    runner = CliRunner()
-    refused = runner.invoke(cli.app, ["configure", "--profile", "standard", "-s", sid])
+    refused = CliRunner().invoke(cli.app, ["configure", "--profile", "standard", "-s", sid])
     words = " ".join(refused.output.split())
     assert refused.exit_code == 1, refused.output
     assert f"lasagna configure --profile standard -s {sid} --reindex" in words
-
-    reindexed = []
-
-    async def listed():
-        return [SimpleNamespace(document_id="d1"), SimpleNamespace(document_id="d2")]
-
-    async def reindex(document_id):
-        if document_id == "d2":
-            raise RuntimeError("Reindex of d2 failed, and the document is unchanged: no model")
-        reindexed.append(document_id)
-
-    async def close():
-        pass
-
-    client = SimpleNamespace(documents=SimpleNamespace(list=listed, reindex=reindex), close=close)
-    monkeypatch.setattr(cli, "_serving_url", lambda: None)
-    monkeypatch.setattr(cli, "_client_for", lambda session_id, url: client)
-    moved = runner.invoke(cli.app, ["configure", "--profile", "standard", "-s", sid, "--reindex"])
-    out = " ".join(moved.output.split())
-    assert "Applied profile: standard" in out
-    assert reindexed == ["d1"]
-    assert f"Reindexed 1 of 2 documents in session {sid}." in out
-    assert "d2" in out and "unchanged" in out
-    assert moved.exit_code == 1
+    assert _active(sid) == "speed"

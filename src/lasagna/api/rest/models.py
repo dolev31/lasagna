@@ -269,6 +269,10 @@ class ConfigResponse(BaseModel):
     first_tokens_count: int = 150
     # Warnings (e.g. SPLADE experimental status)
     warnings: list[str] = Field(default_factory=list)
+    reindex: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="With reindex=true on a profile switch: the documents reindexed first.",
+    )
     # Processing / Chunking
     chunk_size: int = 800
     chunk_overlap: int = 0
@@ -446,6 +450,10 @@ class KnowledgeConfigFullResponse(BaseModel):
     active_profile: str
     session_overrides: Dict[str, Any] = Field(default_factory=dict)
     rag_enabled: bool
+    reindex: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="With reindex=true: the documents reindexed before the switch.",
+    )
 
 
 class SetActiveProfileRequest(BaseModel):
@@ -455,6 +463,11 @@ class SetActiveProfileRequest(BaseModel):
         default=False,
         description="Switch even when the session's documents would not be searched; "
         "reindex them afterwards (POST /api/knowledge/reindex).",
+    )
+    reindex: bool = Field(
+        default=False,
+        description="Reindex the session's documents with the new profile first, and switch "
+        "only when every one is reindexed; if one fails, the session keeps its profile.",
     )
 
 

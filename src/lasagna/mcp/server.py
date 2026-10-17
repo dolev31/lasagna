@@ -46,6 +46,7 @@ from lasagna.api.rest.auth_mode import (
     require_auth_or_refuse_to_start,
     warn_once_if_unauthenticated,
 )
+from lasagna.core._text import LOG_LEVELS
 from lasagna.core.local_server import StoreHeld as _StoreHeld
 from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_session
 from lasagna.mcp import transport_guard
@@ -1352,7 +1353,7 @@ CONTENT:
         return _RAG_DISABLED_MSG
     except ModelNotDownloaded as e:
         _log_tool_result("search", False, str(e), (time.time() - start_time) * 1000)
-        return f"Search failed: {e} {fix_for_session(session_id, e.model)}"
+        return f"Search failed: {e} {fix_for_session(session_id, e.model, surface='mcp')}"
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_failure("search failed", e)
@@ -2588,6 +2589,7 @@ def set_active_profile(
     session_id: str = "",
     session_token: Optional[str] = None,
     force: bool = False,
+    reindex: bool = False,
 ) -> str:
     """Set the active RAG profile for a session.
 
@@ -2601,6 +2603,9 @@ def set_active_profile(
     :param force: Switch even when the session's documents were embedded with
         another model and would not be searched; reindex them afterwards with
         reindex_document.
+    :param reindex: Reindex the session's documents with the new profile first,
+        and switch only when every one is reindexed; if one fails, the session
+        keeps its profile.
     :returns: Confirmation message or error.
     """
     session_id, user_id = _resolve_session(session_id, session_token)
@@ -2608,16 +2613,25 @@ def set_active_profile(
     _log_tool_call("set_active_profile", {"session_id": session_id, "profile_name": profile_name})
 
     try:
+        from lasagna.api._profile_switch import summary, switch_profile
         from lasagna.core.session_config import get_knowledge_config_manager
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        manager.set_active_profile(
-            profile_name, session_id=session_id, user_id=_profile_owner(user_id), force=force
+        report = switch_profile(
+            manager,
+            profile_name,
+            session_id=session_id,
+            user_id=_profile_owner(user_id),
+            force=force,
+            reindex=reindex,
         )
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("set_active_profile", True, f"activated={profile_name}", duration_ms)
-        return f"Profile '{profile_name}' activated for session '{session_id}'."
+        done = summary(report)
+        return f"Profile '{profile_name}' activated for session '{session_id}'." + (
+            f" {done}" if done else ""
+        )
 
     except ValueError as e:
         duration_ms = (time.time() - start_time) * 1000
@@ -2840,7 +2854,8 @@ def patch_rag_config(
     :param force: Apply a change of embedding model even when the session's
         documents would not be searched; reindex them afterwards with
         reindex_document.
-    :returns: JSON object with updated configuration.
+    :returns: JSON object naming each setting the patch changed, with its value
+        before and after (get_rag_config shows the whole configuration).
     """
     session_id, user_id = _resolve_session(session_id, session_token)
     start_time = time.time()
@@ -2875,12 +2890,36 @@ def patch_rag_config(
             )
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
+        if force:
+            # A forced change of model must still leave a model that loads,
+            # or every later search fails.
+            from lasagna.api._profile_switch import unloadable_models
+
+            problems = unloadable_models({**manager.get_resolved_config(session_id), **patch})
+            if problems:
+                raise ValueError(
+                    f"{' '.join(problems)} Nothing was changed for session {session_id!r}."
+                )
+        before = manager.get_resolved_config(session_id)
         manager.patch_config(patch, session_id, force=force)
-        result = manager.get_config(session_id, user_id=_profile_owner(user_id))
+        after = manager.get_resolved_config(session_id)
+        # What changed, not the whole configuration: the reply was every
+        # profile of the session, a few hundred lines for one setting.
+        changed = {
+            key: {"before": before.get(key), "after": after.get(key)}
+            for key in patch
+            if before.get(key) != after.get(key)
+        }
+        result = {
+            "session_id": session_id,
+            "active_profile": manager.get_active_profile(session_id=session_id),
+            "changed": changed,
+            "unchanged": sorted(key for key in patch if key not in changed),
+        }
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("patch_rag_config", True, f"keys={list(patch.keys())}", duration_ms)
-        return json.dumps(result, indent=2)
+        return json.dumps(result, indent=2, default=str)
 
     except json.JSONDecodeError as e:
         duration_ms = (time.time() - start_time) * 1000
@@ -4189,7 +4228,8 @@ def main():
     parser.add_argument(
         "--log-level",
         default=None,
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        type=str.upper,
+        choices=list(LOG_LEVELS),
         help="Log level on stderr (default: WARNING on stdio, INFO on sse; or LASAGNA_LOG_LEVEL "
         "or RAG_LOG_LEVEL)",
     )

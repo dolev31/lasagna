@@ -1228,6 +1228,19 @@
             "title": "Preserve Tables",
             "type": "boolean"
           },
+          "reindex": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With reindex=true on a profile switch: the documents reindexed first.",
+            "title": "Reindex"
+          },
           "rerank_top_k": {
             "title": "Rerank Top K",
             "type": "integer"
@@ -1671,6 +1684,19 @@
           "rag_enabled": {
             "title": "Rag Enabled",
             "type": "boolean"
+          },
+          "reindex": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With reindex=true: the documents reindexed before the switch.",
+            "title": "Reindex"
           },
           "schema_version": {
             "title": "Schema Version",
@@ -2286,6 +2312,12 @@
             "description": "Switch even when the session's documents would not be searched; reindex them afterwards (POST /api/knowledge/reindex).",
             "title": "Force",
             "type": "boolean"
+          },
+          "reindex": {
+            "default": false,
+            "description": "Reindex the session's documents with the new profile first, and switch only when every one is reindexed; if one fails, the session keeps its profile.",
+            "title": "Reindex",
+            "type": "boolean"
           }
         },
         "required": [
@@ -2569,7 +2601,7 @@
     },
     "/api/config/knowledge/active": {
       "put": {
-        "description": "Set the active profile and optionally apply config overrides.",
+        "description": "Set the active profile and optionally apply config overrides.\n\nWith ``reindex``, the session's documents are reindexed with the new\nprofile first, and the switch happens only once every one is.",
         "operationId": "set_active_profile_api_config_knowledge_active_put",
         "parameters": [
           {
@@ -5042,6 +5074,18 @@
               "default": false,
               "description": "Switch even when the session's documents would not be searched; reindex them afterwards (POST /api/knowledge/reindex).",
               "title": "Force",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Reindex the session's documents with the new profile first, and switch only when every one is reindexed; if one fails, the session keeps its profile.",
+            "in": "query",
+            "name": "reindex",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Reindex the session's documents with the new profile first, and switch only when every one is reindexed; if one fails, the session keeps its profile.",
+              "title": "Reindex",
               "type": "boolean"
             }
           },

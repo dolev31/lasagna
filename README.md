@@ -204,8 +204,9 @@ lasagna serve                      # REST API and configuration page on 127.0.0.
 > `lasagna init`, run `lasagna configure --profile speed`, or from Python pass
 > `config=config_for_speed()` (from `lasagna.sdk`) to `KnowledgeClient`; the
 > embedding model is process-wide, so two clients in one process share it. A
-> client saves its settings as its session's on the session's first upload, so
-> the CLI, REST API and MCP server search that corpus with the same model. The other
+> client's settings are saved as its session's, and a client without `config=`
+> reads the session's saved settings, so the CLI, REST API, MCP server and a
+> rerun of this script search that corpus with the same model. The other
 > profiles send queries they judge complex to an agentic loop, which calls an
 > LLM; without an API key those queries run the profile's standard pipeline,
 > and the result's `degraded_stages` names `agentic`.
@@ -287,7 +288,7 @@ The OpenAPI reference is at `/docs`, and every endpoint is listed in
 use the Compose stack.
 
 A local store opens in one process at a time. While `lasagna serve` runs,
-`lasagna status`, `search` and `upload` go through it, and `lasagna-mcp` cannot
+`lasagna status`, `search`, `upload` and `configure` go through it, and `lasagna-mcp` cannot
 open the store. To give an agent the same store, start the server with the MCP
 endpoint and register it by URL instead of the command:
 
@@ -422,7 +423,8 @@ queries and ends by confirming that the configuration reaching each stage
 differed only at the reranker, and that the reranker arm's ranked lists moved:
 an arm whose lists never moved is flagged inert, and so is a reranker that hands
 back its candidates in retrieval order on every query, with no reranker-free arm
-needed to compare against. Every listed built-in implements its stage's
+needed to compare against (on fewer than ten queries it says there were too few
+to tell). Every listed built-in implements its stage's
 interface, so any of them is a like-for-like control:
 
 ```python
@@ -617,9 +619,11 @@ otherwise send (`RAGAS_DO_NOT_TRACK=true`, unless you set it yourself).
 ## Model licenses
 
 Lasagna ships **no model weights**. They download from their upstream host on
-first use, each under its own license. Three selectable models are
-**non-commercial**, including `naver/splade-cocondenser-ensembledistil`, the
-default SPLADE sparse encoder; selecting one logs a warning naming the license.
+first use, each under its own license. Four selectable models are **not
+licensed for commercial use** (or state no license), including
+`naver/splade-cocondenser-ensembledistil`, the default SPLADE sparse encoder,
+and `castorini/monot5-base-msmarco-10k`, the default monoT5 reranker; selecting
+one logs a warning naming the license.
 Before taking a configuration into a commercial product, read
 **[docs/model-licenses.md](https://github.com/dolev31/lasagna/blob/main/docs/model-licenses.md)**.
 

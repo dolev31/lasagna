@@ -86,6 +86,10 @@
           "held_fixed"
         ],
         "properties": {
+          "benchmark": {
+            "type": "string",
+            "description": "The benchmark this entry's key covers: one entry per (benchmark, config). Absent in bundles that kept one entry per config."
+          },
           "comparability_key": {
             "type": "string",
             "description": "Hash of held_fixed. Recomputed on validation."

@@ -43,14 +43,14 @@ and keys that are no setting, with an error naming each one; a value equal to
 the one already in force is dropped instead, so an exported configuration
 imports again. A model named by a path or URL is refused the same way.
 
-**Where session overrides are kept.** The `lasagna` command and `lasagna-mcp`
-store them in the metadata database (SQLite under the data directory, or
-PostgreSQL when `database_backend` is `postgresql`), so a profile set by one
-command applies in the next one and in `lasagna serve`. Python code keeps them
-in memory for the life of the process unless `RAG_SESSION_BACKEND=persistent`
-is set. The compose stack and the Kubernetes ConfigMap set it, so the api's
-workers, the Celery worker and the MCP server read one session's settings
-alike.
+**Where session overrides are kept.** In the metadata database (SQLite under
+the data directory, or PostgreSQL when `database_backend` is `postgresql`), for
+every surface: the `lasagna` command, `lasagna-mcp`, `lasagna serve` and Python
+code. A profile set by one command applies in the next one, in a running
+server and in a `KnowledgeClient` for that session; the compose stack's api
+workers, Celery worker and MCP server read one session's settings alike.
+`RAG_SESSION_BACKEND=memory` keeps a process's sessions in memory, for the life
+of the process (tests, or a notebook that should leave saved sessions alone).
 
 **From Python**, a `KnowledgeConfig` passed to `KnowledgeClient` splits the
 same way: the fields that choose what the process connects to (vector backend,
@@ -160,9 +160,21 @@ each model writes to a collection of its own, named
 - Switching a session to a profile with another model makes it search that
   model's collection, so a session that holds documents is refused the switch,
   even at the same embedding size: none of its documents would be found.
-  Use a new session for the new model, or switch with
+  Use a new session for the new model, or switch and reindex in one step:
+  `lasagna configure --profile <name> -s <session> --reindex`
+  (`reindex=true` on `PUT /api/v1/config/profiles/{name}` and
+  `PUT /api/config/knowledge/active`, and on the MCP tool
+  `set_active_profile`). It first checks that the new profile's models load
+  (downloaded, or downloadable here), then reindexes every document with the
+  new profile while the session stays on the old one, and switches only once
+  all of them are reindexed. If one fails, the documents already moved are
+  moved back, the session keeps its profile, and the error names the document
+  and why. `lasagna doctor -s <session>` reports documents that sit in another
+  model's collection as blocking.
+  To switch without moving them, use
   `lasagna configure --profile <name> -s <session> --force` (`force=true`
-  over REST and MCP) and reindex the documents with the new model:
+  over REST and MCP), which also checks that the new models load, and reindex
+  the documents with the new model afterwards:
   `client.documents.reindex(document_id)` in the SDK,
   `POST /api/v1/documents/{id}/reindex` (or `POST /api/knowledge/reindex` for
   all of a session's documents) over REST, or the MCP tool

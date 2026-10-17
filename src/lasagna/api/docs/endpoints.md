@@ -419,7 +419,7 @@ All search endpoints accept the same `SearchRequest` body.
 
 #### `POST /api/v1/search`
 
-Search with the session's retrieval pipeline. Each stage runs as the session config sets it: hybrid dense and BM25 search, cross-encoder reranking, MMR diversity, HyDE query expansion, adaptive-k retrieval, hierarchical auto-merge. A stage that failed and fell back is named in `degraded_stages`, so an empty list means every configured stage ran.
+Search with the session's retrieval pipeline. Each stage runs as the session config sets it: hybrid dense and BM25 search, cross-encoder reranking, MMR diversity, HyDE query expansion, adaptive-k retrieval, hierarchical auto-merge. A stage that failed and fell back is named in `degraded_stages`, so an empty list means every configured stage ran. `documents_elsewhere` means some of the session's documents are in another embedding model's collection, so this search could not find them: reindex them with the session's model (`PUT /api/config/knowledge/active` with `reindex: true`), or switch back to the profile that indexed them.
 
 `score` is absolute, so it can be compared across queries: with reranking on
 (every profile but `speed`) it is the cross-encoder's probability that the chunk

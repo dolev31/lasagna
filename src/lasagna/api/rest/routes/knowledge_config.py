@@ -11,6 +11,7 @@ full profile CRUD, session-scoped config, and import/export.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -80,18 +81,30 @@ async def set_active_profile(
     session_id: str = Depends(get_session_id),
     user_id: str = Depends(get_profile_owner),
 ):
-    """Set the active profile and optionally apply config overrides."""
+    """Set the active profile and optionally apply config overrides.
+
+    With ``reindex``, the session's documents are reindexed with the new
+    profile first, and the switch happens only once every one is.
+    """
+    from lasagna.api._profile_switch import ProfileCannotLoad, ReindexFailed, switch_profile
+
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
-        mgr.set_active_profile(
+        report = await asyncio.to_thread(
+            switch_profile,
+            mgr,
             body.active_profile,
             config=body.config or None,
             session_id=session_id,
             user_id=user_id,
             force=body.force,
+            reindex=body.reindex,
         )
-        return _to_response(mgr.get_config(session_id, user_id=user_id))
-    except EmbeddingSizeConflict as conflict:
+        response = _to_response(mgr.get_config(session_id, user_id=user_id))
+        if body.reindex:
+            response.reindex = report.to_dict()
+        return response
+    except (EmbeddingSizeConflict, ProfileCannotLoad, ReindexFailed) as conflict:
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))

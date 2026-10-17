@@ -719,14 +719,19 @@ class RAGBackend:
         """Delete a document and its chunks."""
         return self._document_pipeline.delete_document(document_id, session_id, keep_file=keep_file)
 
-    def reindex_document(self, document_id: str, session_id: str) -> Document:
+    def reindex_document(
+        self, document_id: str, session_id: str, *, config: Optional[Any] = None
+    ) -> Document:
         """Process a stored document again with the session's current settings.
 
         The document keeps its old chunks, and answers searches from them, until
-        the new ones are stored; any failure leaves it as it was. See
+        the new ones are stored; any failure leaves it as it was. ``config``
+        replaces the session's settings for this reindex. See
         ``DocumentPipeline.reindex_document`` for what it raises.
         """
-        return self._document_pipeline.reindex_document(document_id, session_id)
+        if config is None:
+            return self._document_pipeline.reindex_document(document_id, session_id)
+        return self._document_pipeline.reindex_document(document_id, session_id, config=config)
 
     def clear_session_state(self, session_id: str) -> Dict[str, Any]:
         """Clear all session-level state (cache, BM25, config).

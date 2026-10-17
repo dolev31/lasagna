@@ -505,17 +505,25 @@ class KnowledgeClient:
             # would run its searches on the session's other model instead.
             raise
         except Exception as e:
-            logger.debug(f"Runtime config bridge skipped: {e}")
+            # The session store is the metadata database by default, which can
+            # fail to write; then this client searches with the session's
+            # stored settings, not its own.
+            logger.warning(
+                f"This client's settings could not be applied to session "
+                f"{self._session_id!r}, so it searches with the session's stored settings: {e}"
+            )
 
     def _remember_session_config(self) -> None:
         """Save this client's settings as its session's, on the session's first write.
 
-        ``lasagna configure`` saves a session's profile to disk. A client's
-        configuration lived in its process only (the in-memory session store,
-        and the process-wide embedder), so after an SDK upload with
-        ``config_for_speed()``, ``lasagna status`` showed BGE-M3 and the CLI,
-        REST and MCP searched that corpus with a model that had not built it.
-        A session that already has settings of its own keeps them.
+        ``lasagna configure`` saves a session's profile to disk. With
+        ``RAG_SESSION_BACKEND=memory`` a client's configuration lives in its
+        process only (the in-memory session store, and the process-wide
+        embedder), so after an SDK upload with ``config_for_speed()``,
+        ``lasagna status`` showed BGE-M3 and the CLI, REST and MCP searched that
+        corpus with a model that had not built it. A session that already has
+        settings of its own keeps them. With the default store, applying the
+        client's settings (``_apply_runtime_config``) has saved them already.
         """
         if self._session_config_saved or self._is_remote:
             return
@@ -542,6 +550,31 @@ class KnowledgeClient:
                 f"so the CLI, REST API and MCP server will search it with their defaults: {e}. "
                 f"Run: lasagna configure --profile <name> -s {self._session_id}"
             )
+
+    def _record_reindexed_model(self) -> None:
+        """After a reindex, make the stored session name the model it was reindexed with.
+
+        A client configured with another model than its session's moved the
+        document to that model's collection, and the session kept the old
+        model: ``lasagna search`` then printed "0 results" and ``status``
+        named the old model. With the default store the client's settings are
+        the session's already; this matters with ``RAG_SESSION_BACKEND=memory``.
+        """
+        if self._is_remote:
+            return
+        from ..core.config import rag_config
+        from ..core.session_config import get_knowledge_config_manager
+
+        mgr = get_knowledge_config_manager(session_id=self._session_id)
+        here = rag_config.with_session(self._session_id)
+        chosen = mgr.get_chosen_config(self._session_id)
+        if chosen.get("embedding_model", rag_config.embedding_model) == here.embedding_model:
+            return
+        model = {"embedding_model": here.embedding_model, "embedding_dim": here.embedding_dim}
+        if here.embedding_truncate_dim:
+            model["embedding_truncate_dim"] = here.embedding_truncate_dim
+        # The documents moved there: what the session searches with now.
+        mgr.patch_config(model, session_id=self._session_id, force=True, trusted=True)
 
     # =========================================================================
     # Core Operations (Convenience Methods)
