@@ -566,9 +566,42 @@
     ]
   },
   "get_system_status": {
-    "description": "Get RAG system health and statistics.\n\nReturns system status including Milvus connection, embedding model info, collection statistics, and configuration summary.\n\nReturns: System status in JSON format.",
+    "description": "Get RAG system health and statistics.\n\nReturns system status including the vector store connection, embedding model info, collection statistics, and configuration summary. On a networked transport with auth on it needs a session token like the other tools, and the database and upload paths and the row count of the collection, which every session on the model shares, need the admin token.\n\nReturns: System status in JSON format.",
     "input_schema": {
-      "properties": {},
+      "properties": {
+        "admin_token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With auth on, adds the paths and the shared row count.",
+          "title": "Admin Token"
+        },
+        "session_id": {
+          "default": "",
+          "description": "Session whose configuration is reported; the server's session (RAG_SESSION_ID) when omitted. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "session_token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Required on a networked transport with RAG_REQUIRE_AUTH.",
+          "title": "Session Token"
+        }
+      },
       "title": "get_system_statusArguments",
       "type": "object"
     },

@@ -1479,6 +1479,10 @@ Servers and deployment:
   `SESSION_MAXIMUMS` gives each one a bound above every shipped profile,
   preset and sweep; it applies to session writes (REST, MCP, imports), never
   to the evaluation harness or the server's own settings.
+- The MCP `get_system_status` tool took no credential with auth on and named
+  the database and upload paths and the row count of the collection all
+  sessions share. It now needs a session token like the other tools; the
+  paths and the count need `admin_token`.
 
 ### Known issues
 
