@@ -131,8 +131,8 @@ Serving:
   serves no deletion tools (`--tools all` does). `search` names the stages that
   fell back and why, with the fix, also when it finds nothing (for example,
   when the session's documents are in another model's collection). An
-  argument of the wrong type is refused in one sentence naming it and the
-  type it takes.
+  argument of the wrong type, or one the tool does not take (`session` for
+  `session_id`), is refused in one sentence naming the one it takes.
 - **REST API** (`lasagna serve`, or the Compose stack) under `/api/v1`,
   covered by the deprecation policy in [GOVERNANCE.md](GOVERNANCE.md); search
   responses name the stages that fell back in `degraded_stages`.
