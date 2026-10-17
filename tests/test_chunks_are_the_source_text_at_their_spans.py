@@ -112,10 +112,18 @@ _SPLIT_TEXT = (
     "**Is it free?** Yes, it is. Delta opens part two. Epsilon ends it.\n"
 ) * 4
 
-#: What the chunkers produced before the change: the fixed chunks exactly, the
-#: semantic and structure-aware chunks with whitespace removed (the change
-#: restores the source's whitespace and nothing else).
-_BEFORE = {"fixed": "56a28313f3bfe509", "semantic": "282dd8a52821d42f"}  # pragma: allowlist secret
+#: What the chunkers produced before the change (e498b34^): the fixed chunks
+#: exactly, the semantic and structure-aware chunks with whitespace removed (the
+#: change restores the source's whitespace and nothing else). Sentences split
+#: differently with nltk's punkt_tab and with the regex fallback, so each
+#: splitter has its own digest; both were recorded from the code before the change.
+_BEFORE = {
+    "fixed": "56a28313f3bfe509",  # pragma: allowlist secret
+    "semantic": {
+        "nltk": "282dd8a52821d42f",  # pragma: allowlist secret
+        "regex": "c67ba52a13c5b596",  # pragma: allowlist secret
+    },
+}
 
 
 def _digest(contents, keep_whitespace=False):
@@ -126,8 +134,19 @@ def _digest(contents, keep_whitespace=False):
     return hashlib.sha256(json.dumps(shown).encode()).hexdigest()[:16]
 
 
-def test_the_chunk_boundaries_are_the_ones_from_before():
-    """Same chunks as before, split at the same places: only whitespace returned."""
+@pytest.mark.parametrize("splitter", ["nltk", "regex"])
+def test_the_chunk_boundaries_are_the_ones_from_before(splitter, monkeypatch):
+    """Same chunks as before, split at the same places: only whitespace returned.
+
+    The regex splitter is forced, so it runs on every machine (CI has no
+    punkt_tab); nltk's runs wherever its data is installed.
+    """
+    from lasagna.processing.chunker import semantic as semantic_module
+
+    if splitter == "regex":
+        monkeypatch.setattr(semantic_module, "punkt_available", lambda: False)
+    elif not semantic_module.punkt_available():
+        pytest.skip(f"nltk's punkt_tab is not installed ({semantic_module.PUNKT_DOWNLOAD_COMMAND})")
     config = rag_config.with_query_overrides(
         {"min_chunk_size": 20, "max_chunk_size": 120, "preserve_tables": True}
     )
@@ -135,7 +154,7 @@ def test_the_chunk_boundaries_are_the_ones_from_before():
     fixed = semantic.chunk_fixed(_SPLIT_TEXT, chunk_size=90, overlap=15)
     assert _digest([c.content for c in fixed], keep_whitespace=True) == _BEFORE["fixed"]
     chunks = semantic.chunk_semantic(_SPLIT_TEXT)
-    assert _digest([c.content for c in chunks]) == _BEFORE["semantic"]
+    assert _digest([c.content for c in chunks]) == _BEFORE["semantic"][splitter]
     structured = StructureAwareChunker(semantic).chunk_with_structure("# Head\n\n" + _SPLIT_TEXT)
-    assert _digest([c.content for c in structured]) == _BEFORE["semantic"]
+    assert _digest([c.content for c in structured]) == _BEFORE["semantic"][splitter]
     _assert_spans(chunks, _SPLIT_TEXT)
