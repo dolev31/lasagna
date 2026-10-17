@@ -228,7 +228,9 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   MCP server, `lasagna serve` and the SDK read and write the metadata
   database, so a profile set with `lasagna configure` applies to a
   `KnowledgeClient` for that session in another process.
-  `RAG_SESSION_BACKEND=memory` keeps a process's sessions to itself.
+  `RAG_SESSION_BACKEND=memory` keeps a process's sessions to itself. A
+  session's settings stay while it holds documents; those of a session without
+  documents are deleted after `session_idle_days` (30) without a read or write.
 - **One vector collection per embedding model**
   (`rag_documents_v2__<model>__<dim>`). An existing `rag_documents_v2` is kept
   under its name by the first model that opens it at its size. A switch that

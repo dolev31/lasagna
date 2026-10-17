@@ -214,8 +214,12 @@ class DatabaseBackend(Protocol):
         """Delete a single session by ID.  Returns True if deleted."""
         ...
 
+    def touch_session(self, session_id: str) -> bool:
+        """Set the session's ``last_accessed`` to now.  Returns False if it is not stored."""
+        ...
+
     def cleanup_expired_sessions(self, max_age_seconds: int = 86400) -> int:
-        """Delete sessions older than *max_age_seconds*.  Returns count deleted."""
+        """Delete sessions unused for *max_age_seconds* that hold no documents.  Returns count."""
         ...
 
     # ------------------------------------------------------------------

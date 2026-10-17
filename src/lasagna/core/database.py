@@ -1384,13 +1384,28 @@ class RAGDatabase:
             )
             return cursor.rowcount > 0
 
+    def touch_session(self, session_id: str) -> bool:
+        """Record that the session is in use now; False when it is not stored."""
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE rag_sessions SET last_accessed = ? WHERE session_id = ?",
+                (time.time(), session_id),
+            )
+            return cursor.rowcount > 0
+
     def cleanup_expired_sessions(self, max_age_seconds: int = 86400) -> int:
-        """Delete sessions older than max_age_seconds."""
+        """Delete the settings of sessions unused for ``max_age_seconds`` that hold no documents.
+
+        A session with documents keeps its settings: without them it searches
+        with the default model, which did not build its collection.
+        """
         cutoff = time.time() - max_age_seconds
         with self.transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "DELETE FROM rag_sessions WHERE last_accessed < ?",
+                "DELETE FROM rag_sessions WHERE last_accessed < ? AND NOT EXISTS "
+                "(SELECT 1 FROM rag_documents d WHERE d.session_id = rag_sessions.session_id)",
                 (cutoff,),
             )
             count = cursor.rowcount

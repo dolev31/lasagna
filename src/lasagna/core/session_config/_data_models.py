@@ -5,6 +5,7 @@ and the _deep_merge utility function.
 """
 
 import copy
+import os
 import time
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
@@ -18,8 +19,39 @@ KNOWLEDGE_MODULE_DIR = Path(__file__).parent.parent.parent
 # =============================================================================
 SCHEMA_VERSION = 2
 
-# Session TTL: sessions older than this are candidates for cleanup (24 hours)
+# How long a process keeps an unused session in its memory (24 hours). The
+# store keeps a session's settings for ``session_idle_seconds()``.
 SESSION_TTL_SECONDS = 24 * 60 * 60
+
+#: The GC policy's default ``session_idle_days``.
+DEFAULT_SESSION_IDLE_DAYS = 30
+
+
+def session_idle_seconds() -> float:
+    """How long the store keeps the settings of an unused session without documents.
+
+    The GC policy's ``session_idle_days`` (``RAG_GC_SESSION_IDLE_DAYS``, else
+    ``[rag.lifecycle]`` in the settings file, else 30), read as
+    ``LifecyclePolicy.load()`` reads it without importing the lifecycle
+    package, which loads the vector store's client. Every process used to
+    delete settings unused for 24 hours, while reads never recorded a use: a
+    session configured one day searched with the default model the next.
+    """
+    raw = os.environ.get("RAG_GC_SESSION_IDLE_DAYS")
+    if raw is None:
+        try:
+            from lasagna.core.config import rag_config
+
+            raw = rag_config._get_knowledge_setting(
+                "rag", "lifecycle", "session_idle_days", default=DEFAULT_SESSION_IDLE_DAYS
+            )
+        except Exception:
+            raw = DEFAULT_SESSION_IDLE_DAYS
+    try:
+        return int(raw) * 86400
+    except (TypeError, ValueError):
+        return DEFAULT_SESSION_IDLE_DAYS * 86400
+
 
 # Maximum number of sessions to keep in memory
 MAX_CACHED_SESSIONS = 100

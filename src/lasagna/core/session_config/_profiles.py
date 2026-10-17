@@ -26,13 +26,13 @@ from ._data_models import (
     ANONYMOUS,
     KNOWLEDGE_MODULE_DIR,
     MAX_GLOBAL_PROFILES,
-    SESSION_TTL_SECONDS,
     MAX_CACHED_SESSIONS,
     RAGProfile,
     UnknownProfileError,
     _check_profile_size,
     _deep_merge,
     _resolve,
+    session_idle_seconds,
 )
 
 
@@ -962,7 +962,7 @@ class ProfileMixin:
                 "default_profiles_count": len(self._default_profiles),
                 "active_sessions_count": len(self._session_states),
                 "max_cached_sessions": MAX_CACHED_SESSIONS,
-                "session_ttl_hours": SESSION_TTL_SECONDS / 3600,
+                "session_ttl_hours": session_idle_seconds() / 3600,
             }
 
     def list_global_profiles(self, user_id: str = "__anonymous__") -> List[Dict[str, Any]]:

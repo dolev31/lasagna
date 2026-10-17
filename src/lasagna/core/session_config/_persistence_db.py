@@ -18,6 +18,7 @@ from ._data_models import (
     SESSION_TTL_SECONDS,
     RAGProfile,
     KnowledgeConfigState,
+    session_idle_seconds,
 )
 
 
@@ -276,6 +277,13 @@ class DatabasePersistenceMixin:
             return None
         return self._row_to_state_data(row) if row else None
 
+    def _touch_persisted_session(self, session_id: str) -> None:
+        """Record in PostgreSQL that the session is in use."""
+        try:
+            _get_pg_db().touch_session(session_id)
+        except Exception as exc:
+            logger.debug(f"Could not record the use of session {session_id}: {exc}")
+
     def _persist_single_session(self, session_id: str) -> None:
         """Persist a single session (more efficient than persisting all)."""
         state = self._session_states.get(session_id)
@@ -300,7 +308,9 @@ class DatabasePersistenceMixin:
 
         Uses a module-level timestamp so that request-scoped instances
         (PostgreSQL mode) share the throttle across all requests within
-        a worker, preventing a DELETE query on every request.
+        a worker, preventing a DELETE query on every request. The store keeps
+        a session's settings while it holds documents, and otherwise for the
+        GC policy's ``session_idle_days`` after its last use.
         """
         global _cleanup_last_run
         now = time.time()
@@ -317,7 +327,7 @@ class DatabasePersistenceMixin:
 
         try:
             db = _get_pg_db()
-            count = db.cleanup_expired_sessions(max_age_seconds=SESSION_TTL_SECONDS)
+            count = db.cleanup_expired_sessions(max_age_seconds=session_idle_seconds())
 
             # Also clean up in-memory cache
             expired = []

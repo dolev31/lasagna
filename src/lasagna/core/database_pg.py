@@ -1244,14 +1244,30 @@ class PostgresRAGDatabase:
             conn.commit()
         return deleted
 
+    def touch_session(self, session_id: str) -> bool:
+        """Record that the session is in use now; False when it is not stored."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE rag_sessions SET last_accessed = NOW() WHERE session_id = %s",
+                    (session_id,),
+                )
+                touched = cur.rowcount > 0
+            conn.commit()
+        return touched
+
     def cleanup_expired_sessions(self, max_age_seconds: int = 86400) -> int:
-        """Delete sessions older than *max_age_seconds*."""
+        """Delete the settings of sessions unused for *max_age_seconds* that hold no documents."""
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     DELETE FROM rag_sessions
                     WHERE last_accessed < NOW() - make_interval(secs => %s)
+                      AND NOT EXISTS (
+                          SELECT 1 FROM rag_documents d
+                          WHERE d.session_id = rag_sessions.session_id
+                      )
                     """,
                     (max_age_seconds,),
                 )

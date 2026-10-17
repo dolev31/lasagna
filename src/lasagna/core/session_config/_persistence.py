@@ -15,6 +15,7 @@ from ._data_models import (
     SESSION_TTL_SECONDS,
     MAX_CACHED_SESSIONS,
     RAGProfile,
+    session_idle_seconds,
 )
 
 
@@ -274,6 +275,13 @@ class PersistenceMixin:
             "user_id": row.get("user_id", "__anonymous__"),
         }
 
+    def _touch_persisted_session(self, session_id: str) -> None:
+        """Record in SQLite that the session is in use."""
+        try:
+            _get_db().touch_session(session_id)
+        except Exception as exc:
+            logger.debug(f"Could not record the use of session {session_id}: {exc}")
+
     def _persist_single_session(self, session_id: str) -> None:
         """Persist one session.
 
@@ -324,6 +332,8 @@ class PersistenceMixin:
         """Remove expired sessions from SQLite and in-memory cache.
 
         Called periodically (not on every request) to balance performance.
+        The store keeps a session's settings while it holds documents, and
+        otherwise for the GC policy's ``session_idle_days`` after its last use.
         """
         now = time.time()
 
@@ -337,7 +347,7 @@ class PersistenceMixin:
         db_count = 0
         try:
             db = _get_db()
-            db_count = db.cleanup_expired_sessions(max_age_seconds=SESSION_TTL_SECONDS)
+            db_count = db.cleanup_expired_sessions(max_age_seconds=session_idle_seconds())
         except Exception as exc:
             logger.warning(f"SQLite session cleanup failed: {exc}")
 

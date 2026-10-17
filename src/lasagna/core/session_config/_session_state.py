@@ -24,6 +24,12 @@ from ._data_models import (
 #: How stale a cached session may be before it is compared with the store.
 _RECHECK_SECONDS = 1.0
 
+#: How often a process records in the store that it still uses a session.
+_USE_RECORD_SECONDS = 3600.0
+
+#: When this process last recorded each session's use (``time.monotonic``).
+_use_recorded_at: Dict[str, float] = {}
+
 #: Keys each session last published to an in-memory session provider, so a
 #: key the session no longer chooses (a profile switched away from) is
 #: removed rather than left behind. Per process, like that provider.
@@ -118,6 +124,7 @@ class SessionStateMixin:
             self._reload_if_changed()
             self._cleanup_old_sessions()
             self._adopt_persisted_session(session_id)
+            self._record_use(session_id)
 
             if session_id not in self._session_states:
                 all_profiles = [copy.deepcopy(p) for p in self._default_profiles]
@@ -148,6 +155,23 @@ class SessionStateMixin:
                 self._session_states[session_id].last_accessed = time.time()
 
             return self._session_states[session_id]
+
+    def _record_use(self, session_id: str) -> None:
+        """Record in the store that the session is in use, at most once an hour per process.
+
+        Only writes recorded a use, and the store deletes the settings of a
+        session unused for ``session_idle_days``: a session that was only
+        searched lost its profile while it was in use.
+        """
+        now = time.monotonic()
+        if now - _use_recorded_at.get(session_id, float("-inf")) < _USE_RECORD_SECONDS:
+            return
+        if len(_use_recorded_at) > 100_000:
+            _use_recorded_at.clear()
+        _use_recorded_at[session_id] = now
+        touch = getattr(self, "_touch_persisted_session", None)
+        if touch is not None:
+            touch(session_id)
 
     def _adopt_persisted_session(self, session_id: str) -> None:
         """Take the stored session when another process changed it since we looked.
