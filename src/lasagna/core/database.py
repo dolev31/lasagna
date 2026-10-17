@@ -428,17 +428,19 @@ class RAGDatabase:
                 conn.close()
 
     @contextmanager
-    def exclusive(self, name: str):
+    def exclusive(self, name: str, timeout: Optional[float] = None):
         """Hold the lock ``name`` against every thread and process using this database.
 
-        A file lock in ``<database>.locks/`` (see `lasagna.core.store_locks`):
+        A file lock in ``<database>.locks/<kind>/`` (see `lasagna.core.store_locks`):
         the processes that share a SQLite file are on one host. Replacing,
-        retrying and deleting a document, and the duplicate check of an upload,
-        take it.
+        retrying and deleting a document, the duplicate check of an upload,
+        and every change to a session's settings take it. Waited for at most
+        ``timeout`` (``RAG_STORE_LOCK_TIMEOUT``, 300 s) seconds, then
+        ``StoreLockTimeout``, as on PostgreSQL.
         """
         from .store_locks import file_lock
 
-        with file_lock(f"{self.db_path}.locks", name):
+        with file_lock(f"{self.db_path}.locks", name, timeout=timeout):
             yield
 
     def _run_migrations(self, cursor: sqlite3.Cursor, from_version: int):

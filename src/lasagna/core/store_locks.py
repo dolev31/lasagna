@@ -12,14 +12,17 @@ advisory lock (``pg_advisory_lock``) on a connection of its own, so a process
 that dies releases it with its connection. On SQLite, which only processes of
 one host share, it is an ``flock`` on a lock file beside the database, one of
 :data:`STRIPES` files chosen by the lock's name. Windows has no ``flock``;
-there it serializes the threads of one process only.
+there it serializes the threads of one process only. Either waits at most
+``RAG_STORE_LOCK_TIMEOUT`` seconds, then raises ``StoreLockTimeout``.
 
 A thread may take a lock it already holds (a delete inside a replace).
 
-A session's lock (``session:<id>``) is taken before any document's, never
-after, and on SQLite session locks have stripe files of their own: two lock
-classes that nest never share a stripe, so a stripe both name cannot leave two
-threads each waiting for the other.
+A lock's name says its kind (``schema``, ``session:<id>``, ``document:<id>``,
+``corpus:<session>:<collection>``, ...), and on SQLite each kind has stripe
+files of its own. Kinds shared one set of files: the ``schema`` lock every
+starting process takes waited behind a reindex holding a document of its
+stripe. A session's lock is taken before any document's, never after, so a
+stripe two kinds name cannot leave two threads each waiting for the other.
 """
 
 from __future__ import annotations
@@ -28,8 +31,9 @@ import hashlib
 import os
 import sys
 import threading
+import time
 from contextlib import contextmanager
-from typing import Dict, Iterator, List
+from typing import Dict, Iterator, List, Optional
 
 #: Lock files per SQLite database. Two names in one stripe wait for each other,
 #: which is correct, only slower.
@@ -100,29 +104,30 @@ def _stripes_for(directory: str) -> List[_Stripe]:
         return stripes
 
 
-#: Lock name prefixes with stripe files of their own (see the module docstring).
-_OWN_STRIPES = ("session:",)
+def lock_kind(name: str) -> str:
+    """``session`` for ``session:r1``; a name without a colon is its own kind (``schema``)."""
+    return name.partition(":")[0] or "lock"
 
 
 @contextmanager
-def file_lock(directory: str, name: str) -> Iterator[None]:
-    """Hold ``name`` against every thread and process that locks it in ``directory``."""
-    prefix = next((p for p in _OWN_STRIPES if name.startswith(p)), None)
-    if prefix is not None:
-        directory = os.path.join(directory, prefix.rstrip(":"))
-    stripe = _stripes_for(directory)[lock_key(name) % STRIPES]
-    with stripe.local:
-        if stripe.depth == 0 and sys.platform != "win32":
-            import fcntl
+def file_lock(directory: str, name: str, timeout: Optional[float] = None) -> Iterator[None]:
+    """Hold ``name`` against every thread and process that locks it in ``directory``.
 
-            os.makedirs(directory, exist_ok=True)
-            fd = os.open(stripe.path, os.O_RDWR | os.O_CREAT, 0o600)
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX)
-            except BaseException:
-                os.close(fd)
-                raise
-            stripe.fd = fd
+    Waited for at most ``timeout`` seconds (default ``RAG_STORE_LOCK_TIMEOUT``;
+    0 tries once), then ``StoreLockTimeout``: it waited for ever.
+    """
+    wait = lock_timeout() if timeout is None else max(0.0, float(timeout))
+    deadline = time.monotonic() + wait
+    directory = os.path.join(directory, lock_kind(name))
+    stripe = _stripes_for(directory)[lock_key(name) % STRIPES]
+    taken = (
+        stripe.local.acquire(blocking=False) if wait <= 0 else stripe.local.acquire(timeout=wait)
+    )
+    if not taken:
+        raise StoreLockTimeout(lock_timeout_message(name, wait))
+    try:
+        if stripe.depth == 0 and sys.platform != "win32":
+            stripe.fd = _flock(directory, stripe.path, name, wait, deadline)
         stripe.depth += 1
         try:
             yield
@@ -136,6 +141,31 @@ def file_lock(directory: str, name: str) -> Iterator[None]:
                     fcntl.flock(fd, fcntl.LOCK_UN)
                 finally:
                     os.close(fd)
+    finally:
+        stripe.local.release()
+
+
+def _flock(directory: str, path: str, name: str, wait: float, deadline: float) -> int:
+    """An open ``path`` holding its ``flock``, polled until ``deadline``."""
+    import fcntl
+
+    os.makedirs(directory, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    pause = 0.005
+    try:
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return fd
+            except BlockingIOError:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    raise StoreLockTimeout(lock_timeout_message(name, wait)) from None
+                time.sleep(min(pause, left))
+                pause = min(pause * 2, 0.1)
+    except BaseException:
+        os.close(fd)
+        raise
 
 
 class HeldLocks(threading.local):
@@ -148,15 +178,28 @@ class HeldLocks(threading.local):
 _local_locks = [threading.RLock() for _ in range(STRIPES)]
 
 
-def store_lock(name: str):
+def store_lock(name: str, timeout: Optional[float] = None):
     """The metadata store's lock ``name``, held across every process that shares the store.
 
     The store's own ``exclusive``; a stand-in store without one (in a test)
-    gets a lock that serializes this process's threads.
+    gets a lock that serializes this process's threads. ``timeout``: see
+    ``file_lock`` (0 tries once).
     """
     from lasagna.core.database import get_rag_database
 
     exclusive = getattr(get_rag_database(), "exclusive", None)
     if callable(exclusive):
-        return exclusive(name)
-    return _local_locks[lock_key(name) % STRIPES]
+        return exclusive(name) if timeout is None else exclusive(name, timeout=timeout)
+    return _local_lock(name, timeout)
+
+
+@contextmanager
+def _local_lock(name: str, timeout: Optional[float]) -> Iterator[None]:
+    lock = _local_locks[lock_key(name) % STRIPES]
+    wait = lock_timeout() if timeout is None else max(0.0, float(timeout))
+    if not (lock.acquire(blocking=False) if wait <= 0 else lock.acquire(timeout=wait)):
+        raise StoreLockTimeout(lock_timeout_message(name, wait))
+    try:
+        yield
+    finally:
+        lock.release()

@@ -435,7 +435,7 @@ class PostgresRAGDatabase:
             conn.close()
 
     @contextmanager
-    def exclusive(self, name: str):
+    def exclusive(self, name: str, timeout: Optional[float] = None):
         """Hold the lock ``name`` against every process using this database.
 
         A session-level advisory lock (``pg_advisory_lock``) on a connection
@@ -445,7 +445,7 @@ class PostgresRAGDatabase:
         check of an upload, and every change to a session's settings take it.
         A thread may take a lock it already holds. Waited for at most
         ``RAG_STORE_LOCK_TIMEOUT`` seconds (300), then ``StoreLockTimeout``:
-        it waited for ever.
+        it waited for ever. ``timeout`` replaces that wait (0 tries once).
         """
         from .store_locks import HeldLocks, StoreLockTimeout, lock_key, lock_timeout_message
 
@@ -462,17 +462,24 @@ class PostgresRAGDatabase:
             finally:
                 held[key] -= 1
             return
-        timeout = lock_timeout_seconds()
+        timeout = lock_timeout_seconds() if timeout is None else max(0.0, float(timeout))
         with self._lock_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(f"SET lock_timeout = {int(timeout * 1000)}")
-                try:
-                    cur.execute("SELECT pg_advisory_lock(%s)", (key,))
-                except Exception as exc:
-                    if _sqlstate(exc) == "55P03":  # lock_not_available
-                        raise StoreLockTimeout(lock_timeout_message(name, timeout)) from exc
-                    raise
-                cur.execute("SET lock_timeout = 0")
+                if timeout <= 0:
+                    # lock_timeout = 0 waits for ever: try once instead.
+                    cur.execute("SELECT pg_try_advisory_lock(%s)", (key,))
+                    row = cur.fetchone()
+                    if not (row and row[0]):
+                        raise StoreLockTimeout(lock_timeout_message(name, timeout))
+                else:
+                    cur.execute(f"SET lock_timeout = {max(1, int(timeout * 1000))}")
+                    try:
+                        cur.execute("SELECT pg_advisory_lock(%s)", (key,))
+                    except Exception as exc:
+                        if _sqlstate(exc) == "55P03":  # lock_not_available
+                            raise StoreLockTimeout(lock_timeout_message(name, timeout)) from exc
+                        raise
+                    cur.execute("SET lock_timeout = 0")
             held[key] = 1
             try:
                 yield
