@@ -6234,7 +6234,7 @@
     },
     "/api/v1/documents/{document_id}/reindex": {
       "post": {
-        "description": "Re-index an existing document.\n\nDeletes existing chunks and vectors, then re-processes the source file\nwith current settings.  Useful after config changes (e.g. switching\nto a different embedding model or chunking strategy).",
+        "description": "Re-index an existing document with the session's current settings.\n\nUseful after config changes (e.g. switching to a different embedding\nmodel or chunking strategy). The document keeps answering searches from\nits old chunks until the new ones are stored, and a reindex that fails\nleaves it as it was.",
         "operationId": "reindex_document_api_v1_documents__document_id__reindex_post",
         "parameters": [
           {
@@ -6315,6 +6315,36 @@
               }
             },
             "description": "RAG_REQUIRE_AUTH is on and the credential is missing or invalid"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No such document in this session"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The document is processing or archived"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The document's source file is gone"
           },
           "413": {
             "content": {

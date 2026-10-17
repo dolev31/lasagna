@@ -37,6 +37,27 @@ SCHEMA_VERSION = 6
 #: was written by newer code, whose columns and meanings this code does not know.
 STORE_VERSION = SCHEMA_VERSION
 
+#: The ``rag_documents`` columns ``update_document_fields`` may set: what a new
+#: copy of a document changes. Never the id, the session or lifecycle state.
+DOCUMENT_FIELDS = frozenset(
+    {
+        "filename",
+        "file_path",
+        "file_size",
+        "file_type",
+        "status",
+        "chunks_count",
+        "upload_date",
+        "error_message",
+        "processing_time",
+        "text_length",
+        "preview_text",
+        "vector_backend_name",
+        "storage_backend_name",
+        "collection_name",
+    }
+)
+
 
 class StoreVersionError(RuntimeError):
     """The store was written by a newer Lasagna than the one opening it."""
@@ -645,6 +666,32 @@ class RAGDatabase:
             cursor = conn.cursor()
             cursor.execute(
                 f"UPDATE rag_documents SET {', '.join(updates)} WHERE document_id = ?", params
+            )
+            return cursor.rowcount > 0
+
+    def update_document_fields(self, document_id: str, fields: Dict[str, Any]) -> bool:
+        """Set the given columns of one document row, None included.
+
+        For a document whose new copy replaced the old one: the file, the
+        collection and the counts change in one statement, and a stale
+        ``error_message`` can be cleared, which ``update_document_status`` never
+        does. Only the columns in ``DOCUMENT_FIELDS`` may be set.
+
+        Returns:
+            True if updated, False if document not found
+        """
+        unknown = set(fields) - DOCUMENT_FIELDS
+        if unknown:
+            raise ValueError(f"Not document columns: {sorted(unknown)}")
+        if not fields:
+            return self.get_document(document_id) is not None
+        columns = sorted(fields)
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"UPDATE rag_documents SET {', '.join(f'{c} = ?' for c in columns)} "
+                "WHERE document_id = ?",
+                [fields[c] for c in columns] + [document_id],
             )
             return cursor.rowcount > 0
 

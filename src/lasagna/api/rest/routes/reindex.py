@@ -7,9 +7,6 @@ Triggers re-processing of all documents in a session with current config.
 from __future__ import annotations
 
 import asyncio
-import os
-import shutil
-import tempfile
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
@@ -22,7 +19,11 @@ router = APIRouter(prefix="/api/knowledge", tags=["configurator"])
 
 
 def _reindex_sync(backend: RAGBackend, session_id: str):
-    """Run blocking reindex in a thread-safe synchronous context."""
+    """Reindex every document of a session, one at a time.
+
+    A document whose reindex fails keeps its previous index and is named in
+    ``errors`` with the reason; the others are still reindexed.
+    """
     docs = backend.get_documents(session_id)
     if not docs:
         return {
@@ -35,50 +36,8 @@ def _reindex_sync(backend: RAGBackend, session_id: str):
     errors = []
     for doc in docs:
         try:
-            file_path = getattr(doc, "file_path", None) or getattr(doc, "original_path", None)
-            if not file_path:
-                errors.append(f"{doc.document_id}: source file path not available")
-                continue
-
-            # Resolve the storage backend that holds this document's file
-            from lasagna.storage import get_storage_backend
-
-            stored_backend_name = getattr(doc, "storage_backend_name", None) or "local"
-            try:
-                storage = get_storage_backend(stored_backend_name)
-            except Exception:
-                storage = get_storage_backend()
-
-            if not storage.exists(file_path):
-                errors.append(f"{doc.document_id}: source file no longer available in storage")
-                continue
-
-            # Copy to temp to avoid self-copy truncation (upload writes
-            # back to the same storage path when document_id is preserved).
-            local_path = storage.ensure_local(file_path)
-            tmp_dir = tempfile.mkdtemp(prefix="rag_reindex_")
-            try:
-                safe_name = os.path.basename(doc.filename) if doc.filename else "reindex"
-                tmp_path = os.path.join(tmp_dir, safe_name)
-                shutil.copy2(local_path, tmp_path)
-
-                backend.delete_document(doc.document_id, session_id, keep_file=True)
-                backend.upload_document(
-                    file_path=tmp_path,
-                    session_id=session_id,
-                    filename=doc.filename,
-                    document_id=doc.document_id,
-                )
-                reindexed += 1
-            finally:
-                # Clean up ensure_local temp file (cloud backends download
-                # to a temp file; local backends return the stored path).
-                try:
-                    if local_path != file_path and os.path.isfile(local_path):
-                        os.unlink(local_path)
-                except OSError:
-                    pass
-                shutil.rmtree(tmp_dir, ignore_errors=True)
+            backend.reindex_document(doc.document_id, session_id)
+            reindexed += 1
         except Exception as exc:
             logger.warning(f"Reindex failed for {doc.document_id}: {exc}")
             errors.append(f"{doc.document_id}: {exc}")
@@ -86,6 +45,12 @@ def _reindex_sync(backend: RAGBackend, session_id: str):
     return {
         "status": "completed" if not errors else "partial",
         "documents_reindexed": reindexed,
+        "message": (
+            f"{len(errors)} of {len(docs)} document(s) could not be reindexed and keep their "
+            "previous index."
+            if errors
+            else None
+        ),
         "errors": errors if errors else None,
     }
 

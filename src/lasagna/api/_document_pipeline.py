@@ -77,6 +77,28 @@ class ChunkStoreUnavailable(RuntimeError):
     """The vector store could not be read; REST answers 503."""
 
 
+class DocumentNotFound(LookupError):
+    """No document with this id in this session; REST answers 404."""
+
+
+class SourceFileMissing(FileNotFoundError):
+    """A document's stored file is gone, so it cannot be processed again; REST answers 410."""
+
+
+class DocumentBusy(RuntimeError):
+    """The document is being processed or is archived, so it is not replaced now; REST 409."""
+
+
+#: Replacing a document and deleting it take the lock of its stripe, so two
+#: reindexes of one document do not each retire the other's chunks, and a
+#: delete during a reindex is not undone by the reindex finishing.
+_DOCUMENT_LOCKS = [threading.RLock() for _ in range(64)]
+
+
+def _document_lock(document_id: str) -> threading.RLock:
+    return _DOCUMENT_LOCKS[hash(document_id) % len(_DOCUMENT_LOCKS)]
+
+
 #: Whether the Docling fallback has been logged in this process (once is enough).
 _docling_fallback_said = False
 
@@ -404,6 +426,277 @@ class DocumentPipeline:
                 logger.debug(f"Could not read {row['document_id']} to compare: {exc}")
         return None
 
+    # =========================================================================
+    # Reindex and replacement
+    # =========================================================================
+
+    def reindex_document(self, document_id: str, session_id: str) -> Document:
+        """Process a stored document again with the session's current settings.
+
+        The document keeps answering searches from its old chunks until the new
+        ones are stored; then the old chunks go and its row points at the new
+        ones, in the collection of the session's current embedding model. Every
+        reindex path used to delete the document first, so a model that was not
+        downloaded, a quota, a file type the settings no longer accept or an
+        extraction error lost it.
+
+        Raises:
+            DocumentNotFound: no such document in this session.
+            SourceFileMissing: its stored file is gone.
+            DocumentBusy: it is still being processed, or is archived.
+            ModelNotDownloaded, QuotaExceededError, ValueError: the new copy
+                cannot be made; the document is unchanged.
+        """
+        row = self._owned_row(document_id, session_id)
+        stored = row.get("file_path") or ""
+        storage = self._storage_of(row)
+        if not stored or not storage.exists(stored):
+            raise SourceFileMissing(
+                f"The source file of document {document_id} is no longer in storage, so it "
+                "cannot be reindexed. Upload the file again to index it (with "
+                f"document_id={document_id} to keep the id)."
+            )
+        if storage.backend_name == self.storage.backend_name:
+            return self._replace_document(row)
+        # Stored on another storage backend than the current one: the new copy
+        # is stored on the current one, as an upload would be.
+        local = storage.ensure_local(stored)
+        try:
+            return self._replace_document(row, source_path=local, filename=row.get("filename"))
+        finally:
+            if local != stored and os.path.isfile(local):
+                os.unlink(local)
+
+    def _owned_row(self, document_id: str, session_id: str) -> Dict[str, Any]:
+        from lasagna.core.database import get_rag_database
+
+        row = None
+        if is_safe_document_id(document_id) and is_valid_session_id(session_id):
+            row = get_rag_database().get_document(document_id)
+        if not row or row.get("session_id") != session_id:
+            raise DocumentNotFound(f"Document {document_id} not found in session {session_id}")
+        return row
+
+    def _storage_of(self, row: Dict[str, Any]) -> "StorageBackend":
+        """The storage backend that holds ``row``'s file."""
+        name = row.get("storage_backend_name") or "local"
+        if self._storage is not None and self._storage.backend_name == name:
+            return self._storage
+        from lasagna.storage import get_storage_backend
+
+        try:
+            return get_storage_backend(name)
+        except Exception:
+            return self.storage
+
+    def _replace_document(
+        self,
+        row: Dict[str, Any],
+        *,
+        source_path: Optional[str] = None,
+        filename: Optional[str] = None,
+        counts_as_upload: bool = False,
+        _chunker_override: Any = None,
+        _document_processor_override: Any = None,
+    ) -> Document:
+        """Index a new copy of the document in ``row``, then retire the old copy.
+
+        ``source_path`` is a local file stored as the new copy (an upload under
+        the document's id); without it the stored file is processed again.
+        Every check that can refuse runs before anything is written, and the old
+        copy (row, chunks, file, quota) changes only once the new chunks are in.
+        Processed in the calling thread, never queued: the old copy has to stay
+        in place until this copy is known to be complete.
+        """
+        document_id, session_id = row["document_id"], row["session_id"]
+        status = row.get("status")
+        if status in (
+            DocumentStatus.PROCESSING.value,
+            DocumentStatus.UPLOADING.value,
+            DocumentStatus.INDEXING.value,
+        ):
+            raise DocumentBusy(
+                f"Document {document_id} is still being processed. Wait until its status "
+                f"(GET /api/v1/documents/{document_id}/status) is ready or error, then retry."
+            )
+        if status == DocumentStatus.SOFT_DELETED.value:
+            raise DocumentBusy(
+                f"Document {document_id} is archived. Restore it first "
+                f"(POST /api/v1/documents/{document_id}/restore)."
+            )
+
+        config = self._get_session_config(session_id)
+        unknown = getattr(config, "embedding_size_unknown", None)
+        problem = unknown() if callable(unknown) else None
+        if isinstance(problem, str) and problem:
+            raise ValueError(problem)
+        # The model is loadable and its collection open before anything changes.
+        self.use_embedder_for(config)
+
+        if source_path is not None:
+            if not os.path.exists(source_path):
+                raise ValueError(f"File not found: {source_path}")
+            filename = filename or os.path.basename(source_path)
+            file_size = os.path.getsize(source_path)
+            file_type = self.document_processor.detect_file_type(source_path)
+        else:
+            filename = row.get("filename")
+            file_size = int(row.get("file_size") or 0)
+            file_type = row.get("file_type")
+        if file_size > config.max_file_size:
+            raise ValueError(f"File too large: {file_size} bytes (max: {config.max_file_size})")
+        if file_type not in config.supported_extensions:
+            raise ValueError(f"Unsupported file type: {file_type}")
+
+        old_size = int(row.get("file_size") or 0)
+        quota_mgr = get_quota_manager()
+        quota_mgr.check_replace(
+            session_id,
+            old_file_size=old_size,
+            new_file_size=file_size,
+            counts_as_upload=counts_as_upload,
+        )
+
+        with _document_lock(document_id):
+            new_file = None
+            if source_path is not None:
+                # Its own folder: storage.delete removes a file's whole folder,
+                # and the old copy's is removed once this one is in.
+                new_file = self._store_file(
+                    source_path, f"{document_id}__r{uuid.uuid4().hex[:8]}", filename
+                )
+            document = Document(
+                document_id=document_id,
+                session_id=session_id,
+                filename=filename,
+                file_type=file_type,
+                file_size=file_size,
+                status=DocumentStatus.PROCESSING,
+                chunks_count=0,
+                upload_date=(
+                    datetime.now(timezone.utc)
+                    if new_file
+                    else datetime.fromisoformat(row["upload_date"])
+                    if isinstance(row.get("upload_date"), str)
+                    else row.get("upload_date") or datetime.now(timezone.utc)
+                ),
+            )
+            try:
+                self.process_document(
+                    document,
+                    new_file or row["file_path"],
+                    config=config,
+                    _chunker_override=_chunker_override,
+                    _document_processor_override=_document_processor_override,
+                    replacing=row,
+                )
+            except Exception:
+                if new_file:
+                    try:
+                        self.storage.delete(new_file)
+                    except Exception as exc:
+                        logger.warning(f"Could not remove the unused new file {new_file}: {exc}")
+                raise
+
+            if new_file and row.get("file_path") and row["file_path"] != new_file:
+                try:
+                    self._storage_of(row).delete(row["file_path"])
+                except Exception as exc:
+                    logger.warning(
+                        f"Could not remove the replaced file of {document_id} "
+                        f"({row['file_path']}): {exc}"
+                    )
+
+        replaced = self._get_document_metadata(document_id)
+        quota_mgr.record_replace(
+            session_id,
+            old_file_size=old_size,
+            new_file_size=file_size,
+            old_chunks=int(row.get("chunks_count") or 0),
+            new_chunks=replaced.chunks_count if replaced else 0,
+            counts_as_upload=counts_as_upload,
+        )
+        self._invalidate_search_cache(session_id)
+        logger.info(
+            f"Document {document_id} replaced: {row.get('chunks_count') or 0} chunks in "
+            f"{row.get('collection_name')!r} became "
+            f"{replaced.chunks_count if replaced else 0} in {config.collection_name!r}"
+        )
+        return replaced
+
+    def _replaced_chunks(
+        self,
+        replaced: Dict[str, Any],
+        config: RAGConfig,
+        backend: Any,
+        partition_key: Optional[str],
+    ) -> tuple:
+        """Where the replaced copy's chunks are, and their ids.
+
+        Read before the new copy is inserted, so the ids are the old copy's
+        only; a failure here leaves everything as it was.
+        """
+        old_backend_name = replaced.get("vector_backend_name") or backend.backend_name
+        old_collection = replaced.get("collection_name") or config.collection_name
+        old_backend = (
+            backend if old_backend_name == backend.backend_name else get_backend(old_backend_name)
+        )
+        if not old_backend.is_connected():
+            old_backend.connect()
+        if not old_backend.has_collection(old_collection):
+            return old_backend, old_collection, []
+        rows = old_backend.iter_all(
+            collection_name=old_collection,
+            filter_expr=FilterExpression.eq("document_id", replaced["document_id"]),
+            output_fields=["chunk_id"],
+            partition_key=partition_key,
+        )
+        ids = [str(r.get("chunk_id") or r.get("id")) for r in rows]
+        return old_backend, old_collection, [i for i in ids if i and i != "None"]
+
+    @staticmethod
+    def _delete_chunk_ids(
+        backend: Any, collection: str, ids: List[str], partition_key: Optional[str]
+    ) -> None:
+        for start in range(0, len(ids), 1000):  # FilterExpression.in_list's limit
+            backend.delete(
+                collection_name=collection,
+                filter_expr=FilterExpression.in_list("chunk_id", ids[start : start + 1000]),
+                partition_key=partition_key,
+            )
+
+    def _retire_replaced_chunks(
+        self,
+        document: Document,
+        old: tuple,
+        config: RAGConfig,
+        backend: Any,
+        new_ids: List[str],
+        partition_key: Optional[str],
+    ) -> None:
+        """Remove the replaced copy's chunks, now that the new ones are stored.
+
+        The new chunks have ids of their own, so deleting the old ids never
+        touches them. If the old ones cannot be removed, the new ones are, and
+        the document stays the old copy.
+        """
+        old_backend, old_collection, old_ids = old
+        try:
+            self._delete_chunk_ids(old_backend, old_collection, old_ids, partition_key)
+        except Exception as exc:
+            try:
+                self._delete_chunk_ids(backend, config.collection_name, new_ids, partition_key)
+            except Exception as cleanup_exc:
+                logger.warning(
+                    f"Could not remove the new chunks of {document.document_id} either: "
+                    f"{cleanup_exc}"
+                )
+            raise RuntimeError(
+                f"The previous chunks of {document.document_id} in {old_collection!r} could "
+                f"not be removed ({type(exc).__name__}: {exc}), so the new copy was not kept "
+                "and the document is unchanged."
+            ) from exc
+
     def _store_file(self, source_path: str, document_id: str, filename: str) -> str:
         """Store uploaded file via the pluggable storage backend.
 
@@ -492,17 +785,30 @@ class DocumentPipeline:
         config: Optional[RAGConfig] = None,
         _chunker_override: Any = None,
         _document_processor_override: Any = None,
+        *,
+        replacing: Optional[Dict[str, Any]] = None,
     ):
         """Extract, chunk, embed and index an uploaded document.
 
         ``_chunker_override`` is a ``BaseChunker`` instance that replaces the
         built-in chunking strategies for this document, which is what makes a
         chunking experiment possible at all.
+
+        ``replacing`` is the stored row of the copy this one replaces (see
+        ``_replace_document``). The new chunks go in under ids of their own;
+        only then are the old ones removed and the row pointed at the new
+        copy, so a failure before that leaves the old copy as it was.
         """
         start_time = _time.monotonic()
         logger.info(f"Processing document: {document.document_id}")
         config = config or rag_config
         embedder = self.use_embedder_for(config)
+        # A new copy's chunk ids never collide with the old copy's: Milvus
+        # `insert` keeps both rows of one id, and a backend that upserts would
+        # keep any old chunk past the new count.
+        chunk_prefix = (
+            f"{document.document_id}_r{uuid.uuid4().hex[:8]}" if replacing else document.document_id
+        )
 
         # Ensure we have a local path for processors (Docling, OCR, etc.)
         # For local storage this is zero-copy; for cloud storage it downloads to temp.
@@ -658,7 +964,7 @@ class DocumentPipeline:
                 )
                 graph_store = get_or_create_session_graph(document.session_id)
                 for idx, extraction in enumerate(extractions):
-                    chunk_id = f"{document.document_id}_chunk_{idx}"
+                    chunk_id = f"{chunk_prefix}_chunk_{idx}"
                     for entity in extraction.get("entities", []):
                         entity_emb = embedder.encode_document(entity["name"])
                         graph_store.add_entity(
@@ -783,15 +1089,19 @@ class DocumentPipeline:
             )
             chunk_entries.append((content, metadata, embedding, sparse_tokens))
 
-        # Quota: check chunk limit before insert
+        # Quota: check chunk limit before insert (a new copy adds the difference)
         quota_mgr = get_quota_manager()
-        quota_mgr.check_chunks(document.session_id, len(chunk_entries))
+        replaced_chunks = int((replacing or {}).get("chunks_count") or 0)
+        quota_mgr.check_chunks(document.session_id, len(chunk_entries) - replaced_chunks)
+        old_copy = (
+            self._replaced_chunks(replacing, config, backend, partition_key) if replacing else None
+        )
 
         def _insert_all_chunks() -> tuple[int, list[dict]]:
             batch_data = []
             chunks_for_bm25 = []
             for idx, (content, metadata, embedding, sparse_tokens) in enumerate(chunk_entries):
-                chunk_id = f"{document.document_id}_chunk_{idx}"
+                chunk_id = f"{chunk_prefix}_chunk_{idx}"
                 insert_doc = {
                     "chunk_id": chunk_id,
                     "document_id": document.document_id,
@@ -904,15 +1214,29 @@ class DocumentPipeline:
                     with self._rebuild_lock:
                         self._rebuilding = False
 
+        if replacing:
+            self._retire_replaced_chunks(
+                document,
+                old_copy,
+                config,
+                backend,
+                [c["chunk_id"] for c in chunks_for_bm25],
+                partition_key,
+            )
+
         # Index for BM25 hybrid search
         if config.enable_hybrid_search:
+            if replacing:
+                self.hybrid_searcher.remove_document(document.document_id, document.session_id)
             self.hybrid_searcher.index_chunks(chunks_for_bm25, document.session_id, build_now=False)
         self._record_content_change(document.session_id, indexed_here=config.enable_hybrid_search)
 
+        from lasagna.core.database import get_rag_database
+
+        if replacing:
+            get_rag_database().delete_parent_chunks_by_document(document.document_id)
         # Store parent chunks in SQLite for auto-merge retrieval
         if parent_chunks_data:
-            from lasagna.core.database import get_rag_database
-
             rag_db = get_rag_database()
             parent_count = rag_db.save_parent_chunks(parent_chunks_data)
             logger.info(f"Stored {parent_count} parent chunks for document {document.document_id}")
@@ -932,14 +1256,36 @@ class DocumentPipeline:
             f"total={processing_time:.2f}s "
             f"chunks={chunk_count}"
         )
-        self._update_document_status(
-            document.document_id,
-            DocumentStatus.READY,
-            chunks_count=chunk_count,
-            processing_time=processing_time,
-            text_length=text_length,
-            preview_text=preview_text,
-        )
+        if replacing:
+            # One write: the row names the new file, collection and counts.
+            get_rag_database().update_document_fields(
+                document.document_id,
+                {
+                    "filename": document.filename,
+                    "file_path": file_path,
+                    "file_size": document.file_size,
+                    "file_type": document.file_type,
+                    "upload_date": document.upload_date.isoformat(),
+                    "status": DocumentStatus.READY.value,
+                    "error_message": None,
+                    "chunks_count": chunk_count,
+                    "processing_time": processing_time,
+                    "text_length": text_length,
+                    "preview_text": preview_text,
+                    "vector_backend_name": backend.backend_name,
+                    "storage_backend_name": self.storage.backend_name,
+                    "collection_name": config.collection_name,
+                },
+            )
+        else:
+            self._update_document_status(
+                document.document_id,
+                DocumentStatus.READY,
+                chunks_count=chunk_count,
+                processing_time=processing_time,
+                text_length=text_length,
+                preview_text=preview_text,
+            )
         METRICS.counter("lasagna_ingests", 1, tags={"outcome": "ready"})
 
         logger.info(
@@ -1174,6 +1520,10 @@ class DocumentPipeline:
                 backend.  Used by reindex flows that need the source file to
                 survive deletion of the old index data.
         """
+        with _document_lock(document_id):
+            return self._delete_document(document_id, session_id, keep_file=keep_file)
+
+    def _delete_document(self, document_id: str, session_id: str, *, keep_file: bool) -> bool:
         from lasagna.core.database import get_rag_database
 
         rag_db = get_rag_database()

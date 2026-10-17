@@ -343,15 +343,19 @@ Status values: `uploading`, `processing`, `indexing`, `ready`, `error`, `soft_de
 
 #### `POST /api/v1/documents/{document_id}/reindex`
 
-Re-index an existing document. Deletes existing chunks and vectors, then re-processes the source file with current settings. Useful after config changes (e.g. switching embedding model or chunking strategy).
+Re-index an existing document with the session's current settings. Useful after config changes (e.g. switching embedding model or chunking strategy). The stored file is processed in the request; the document keeps answering searches from its old chunks until the new ones are stored, then the old chunks are removed and the document is recorded in the current model's collection. A reindex that fails at any step leaves the document as it was, and the error says so.
 
 **Response:** `UploadResponse`
 
 | Status Code | Condition |
 |-------------|-----------|
 | 200 | Re-indexed |
+| 400 | The settings refuse the file (type, size) or the embedding size is unknown |
 | 404 | Document not found |
+| 409 | The document is still processing, or is archived |
 | 410 | Source file no longer available in storage |
+| 429 | The new chunks would exceed the session's chunk quota |
+| 503 | The session's embedding model is not downloaded |
 | 500 | Internal server error |
 
 ```bash
@@ -928,7 +932,7 @@ Import configuration from JSON. Validates nesting depth (max 5) and profile size
 
 #### `POST /api/knowledge/reindex`
 
-Re-index all documents in the current session with current settings. Iterates over every document, deletes old chunks/vectors (preserving source files), and re-processes each file. Returns partial results if some documents fail.
+Re-index all documents in the current session with current settings, one at a time, as the single-document reindex does. A document whose reindex fails keeps its previous index; the response is then `partial`, and `errors` names each such document with the reason.
 
 **Request:** `ReindexRequest`
 

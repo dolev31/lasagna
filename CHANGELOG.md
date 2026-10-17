@@ -450,6 +450,19 @@ Each of these still works in 0.1.x, says so when used, and is removed in 0.2.0.
 
 Server and deployment:
 
+- **A failed reindex no longer loses the document.** REST
+  `/api/v1/documents/{id}/reindex` and the bulk `/api/knowledge/reindex`
+  deleted the document (row and vectors) and then uploaded it again; the MCP
+  `reindex_document` deleted its chunks first and left it "ready" with no
+  vectors. A model that was not downloaded, an unknown embedding size, a
+  quota, a file type or size the settings no longer accept, or an extraction
+  or insert error lost it, and its file stayed on disk with nothing pointing
+  to it. Every path now checks first, stores the new chunks under new ids,
+  and only then removes the old ones and records the document in the current
+  model's collection (MCP did not record the collection at all). A failure
+  leaves the document searchable, and REST answers 400, 409, 410, 429 or 503
+  saying so. A reindex no longer counts toward the hourly upload limit.
+  `RAGBackend.reindex_document` is the shared implementation.
 - **A session can no longer point the server at another vector store.**
   Session settings (REST `/api/v1/config`, `/api/config/knowledge/profile` and
   `/import`, the MCP config tools, the config manager) accepted any key, and

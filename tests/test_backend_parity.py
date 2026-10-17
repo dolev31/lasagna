@@ -183,6 +183,30 @@ class TestDocumentCRUD:
         assert retrieved["status"] == "error"
         assert retrieved["error_message"] == "Test error"
 
+    def test_update_document_fields_sets_each_column_and_clears_an_error(self, backend):
+        """A reindexed copy rewrites the file, collection and counts in one update."""
+        doc = _make_document()
+        backend.save_document(doc, "/tmp/test.pdf", collection_name="old_collection")
+        backend.update_document_status(doc["document_id"], "error", error_message="was broken")
+
+        assert backend.update_document_fields(
+            doc["document_id"],
+            {
+                "status": "ready",
+                "error_message": None,
+                "chunks_count": 7,
+                "file_path": "/tmp/new.pdf",
+                "collection_name": "new_collection",
+            },
+        )
+        row = backend.get_document(doc["document_id"])
+        assert (row["status"], row["error_message"], row["chunks_count"]) == ("ready", None, 7)
+        assert (row["file_path"], row["collection_name"]) == ("/tmp/new.pdf", "new_collection")
+        assert row["session_id"] == doc["session_id"]
+        assert backend.update_document_fields("nonexistent_id", {"status": "ready"}) is False
+        with pytest.raises(ValueError, match="session_id"):
+            backend.update_document_fields(doc["document_id"], {"session_id": "other"})
+
     def test_delete_document_cascades(self, backend):
         """Verify document deletion cascades to citations and parent chunks."""
         doc = _make_document()

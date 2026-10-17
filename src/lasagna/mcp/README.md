@@ -132,7 +132,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | ---- | ----------- |
 | `get_system_status` | Health check: vector DB connection, embeddings, features, storage |
 | `rebuild_collection` | Drop and recreate vector collection (needed when embedding dim changes) *(all only)* |
-| `reindex_document` | Re-process a document with current chunking/embedding settings. `force_rebuild=true` recreates the collection at the configured embedding size only while it is empty; a collection holding documents is never dropped from here |
+| `reindex_document` | Re-process a document with current chunking/embedding settings; it keeps its old chunks until the new ones are stored, so a failed reindex changes nothing. `force_rebuild=true` recreates the collection at the configured embedding size only while it is empty; a collection holding documents is never dropped from here |
 
 ## Configuration
 

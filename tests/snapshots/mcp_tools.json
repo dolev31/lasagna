@@ -737,7 +737,7 @@
     ]
   },
   "reindex_document": {
-    "description": "Reindex an existing document.\n\nUseful when the document content has changed or when you want to regenerate embeddings with updated settings.\n\nReturns: Confirmation or error message.",
+    "description": "Reindex an existing document with the session's current settings.\n\nUse it after changing the embedding model or the chunking. The document keeps answering searches from its old chunks until the new ones are stored, and a reindex that fails leaves it as it was.\n\nReturns: Confirmation or error message.",
     "input_schema": {
       "properties": {
         "document_id": {

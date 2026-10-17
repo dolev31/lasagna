@@ -83,8 +83,8 @@ class _Backend:
     def embedder_for(self, config):
         pass
 
-    def process_document(self, doc, path, config=None):
-        pass
+    def reindex_document(self, document_id, session_id):
+        return SimpleNamespace(chunks_count=1, status=SimpleNamespace(value="ready"))
 
 
 @pytest.fixture

@@ -482,93 +482,69 @@ async def get_document_status(
     )
 
 
-@router.post("/{document_id}/reindex", response_model=UploadResponse)
+@router.post(
+    "/{document_id}/reindex",
+    response_model=UploadResponse,
+    responses={
+        404: {"model": ErrorResponse, "description": "No such document in this session"},
+        409: {"model": ErrorResponse, "description": "The document is processing or archived"},
+        410: {"model": ErrorResponse, "description": "The document's source file is gone"},
+    },
+)
 async def reindex_document(
     document_id: str,
     session_id: str = Depends(get_session_id),
     backend: RAGBackend = Depends(get_backend),
 ):
-    """Re-index an existing document.
+    """Re-index an existing document with the session's current settings.
 
-    Deletes existing chunks and vectors, then re-processes the source file
-    with current settings.  Useful after config changes (e.g. switching
-    to a different embedding model or chunking strategy).
+    Useful after config changes (e.g. switching to a different embedding
+    model or chunking strategy). The document keeps answering searches from
+    its old chunks until the new ones are stored, and a reindex that fails
+    leaves it as it was.
     """
-    # Find the document (O(1) primary-key lookup)
-    doc = await run_in_threadpool(backend.get_document_by_id, document_id, session_id)
-    if doc is None:
-        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
-
     try:
-        file_path = getattr(doc, "file_path", None) or getattr(doc, "original_path", None)
-        if not file_path:
-            raise HTTPException(
-                status_code=410,
-                detail=f"Source file for document {document_id} no longer available",
-            )
-
-        # Use the backend that originally stored the file (handles backend switches)
-        from lasagna.storage import get_storage_backend
-
-        stored_backend_name = getattr(doc, "storage_backend_name", None) or "local"
-        try:
-            storage = get_storage_backend(stored_backend_name)
-        except Exception:
-            storage = get_storage_backend()
-        if not storage.exists(file_path):
-            raise HTTPException(
-                status_code=410,
-                detail=f"Source file for document {document_id} no longer available in storage",
-            )
-
-        # Get a local copy of the source file.  ensure_local() returns
-        # the stored path itself for local backends, or a temp file for
-        # cloud backends.  Either way, upload_document() would write back
-        # to the same storage path (same document_id + filename), so we
-        # must copy to a temp dir to avoid self-copy truncation.
-        local_path = storage.ensure_local(file_path)
-        tmp_dir = tempfile.mkdtemp(prefix="rag_reindex_")
-        try:
-            safe_name = os.path.basename(doc.filename) if doc.filename else "reindex"
-            tmp_path = os.path.join(tmp_dir, safe_name)
-            shutil.copy2(local_path, tmp_path)
-
-            # Delete old chunks/vectors but keep the stored file as backup
-            await run_in_threadpool(
-                backend.delete_document,
-                document_id,
-                session_id,
-                keep_file=True,
-            )
-
-            new_doc = await run_in_threadpool(
-                backend.upload_document,
-                file_path=tmp_path,
-                session_id=session_id,
-                filename=doc.filename,
-                document_id=document_id,
-            )
-            return UploadResponse(
-                document_id=new_doc.document_id,
-                filename=new_doc.filename,
-                file_type=new_doc.file_type,
-                file_size=new_doc.file_size,
-                status=new_doc.status.value
-                if hasattr(new_doc.status, "value")
-                else str(new_doc.status),
-                chunks_count=new_doc.chunks_count,
-            )
-        finally:
-            # Clean up ensure_local temp file (cloud backends download to a
-            # temp file; local backends return the stored path itself).
-            try:
-                if local_path != file_path and os.path.isfile(local_path):
-                    os.unlink(local_path)
-            except OSError:
-                pass
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-    except HTTPException:
-        raise
+        new_doc = await run_in_threadpool(backend.reindex_document, document_id, session_id)
     except Exception as exc:
-        logger.error(f"Reindex failed for {document_id}: {exc}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise reindex_failure(exc, document_id, session_id) from exc
+    return UploadResponse(
+        document_id=new_doc.document_id,
+        filename=new_doc.filename,
+        file_type=new_doc.file_type,
+        file_size=new_doc.file_size,
+        status=new_doc.status.value if hasattr(new_doc.status, "value") else str(new_doc.status),
+        chunks_count=new_doc.chunks_count,
+    )
+
+
+def reindex_failure(exc: Exception, document_id: str, session_id: str) -> HTTPException:
+    """The HTTP answer for a reindex that did not happen; the document is unchanged."""
+    from lasagna.api._document_pipeline import DocumentBusy, DocumentNotFound, SourceFileMissing
+    from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_session
+
+    if isinstance(exc, HTTPException):
+        return exc
+    if isinstance(exc, DocumentNotFound):
+        return HTTPException(status_code=404, detail=f"Document {document_id} not found")
+    if isinstance(exc, SourceFileMissing):
+        return HTTPException(status_code=410, detail=str(exc))
+    if isinstance(exc, DocumentBusy):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, ModelNotDownloaded):
+        return HTTPException(
+            status_code=503,
+            detail=f"{exc} {fix_for_session(session_id, exc.model)} "
+            f"Document {document_id} is unchanged.",
+        )
+    if isinstance(exc, QuotaExceededError):
+        return HTTPException(status_code=429, detail=f"{exc} Document {document_id} is unchanged.")
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=f"{exc} Document {document_id} is unchanged.")
+    logger.error(f"Reindex failed for {document_id}: {exc}")
+    return HTTPException(
+        status_code=500,
+        detail=(
+            f"Reindex of {document_id} failed with an internal error; the document is "
+            "unchanged. The server log has the cause."
+        ),
+    )

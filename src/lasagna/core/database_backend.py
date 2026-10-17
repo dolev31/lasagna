@@ -76,6 +76,10 @@ class DatabaseBackend(Protocol):
         """Update a document's processing status and related fields."""
         ...
 
+    def update_document_fields(self, document_id: str, fields: Dict[str, Any]) -> bool:
+        """Set the given columns of one row (``database.DOCUMENT_FIELDS``), None included."""
+        ...
+
     def delete_document(self, document_id: str) -> bool:
         """Delete a document (cascades to citations)."""
         ...

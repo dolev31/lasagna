@@ -128,8 +128,9 @@ Errors are `StorageError` and its subclasses `StorageNotFoundError`,
 
 Each document row records `storage_backend_name`. Reindexing a document
 (`POST /api/v1/documents/{id}/reindex`) opens the backend named there, with
-that backend's default configuration; processing an upload and deleting a
-document use the configured backend.
+that backend's default configuration; when that is not the configured
+backend, the reindexed copy is stored on the configured one. Processing an
+upload and deleting a document use the configured backend.
 
 ## Add a backend
 
