@@ -43,7 +43,10 @@ def test_the_stage_table_matches_the_registry(readme):
 
 
 def test_the_component_total_matches_the_registry(readme):
-    match = re.search(r"\| Published methods \| (\d+) components \|", readme)
+    # "30 of 55 components cite the paper they implement": the total is the
+    # second number; tests/test_the_notebook_and_the_readme_say_what_a_run_shows.py
+    # checks the first.
+    match = re.search(r"\| Published methods \| \d+ of (\d+) components ", readme)
     assert match, "README no longer states the component total"
     assert int(match.group(1)) == sum(len(names) for names in _builtins().values())
 

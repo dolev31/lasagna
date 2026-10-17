@@ -293,7 +293,8 @@ class ComponentRegistry:
                 "cross_encoder",
                 _r + "CrossEncoderRerankerAdapter",
                 "Cross-encoder reranker (the configured reranker_model)",
-                None,
+                # Nogueira & Cho 2019, Passage Re-ranking with BERT (monoBERT).
+                "arxiv:1901.04085",
                 ["cross_encoder_adapted"],
             ),
             (
@@ -317,7 +318,9 @@ class ComponentRegistry:
                 "mmr",
                 _r + "MMRRerankerAdapter",
                 "MMR diversity reranking",
-                None,
+                # Carbonell & Goldstein 1998, The Use of MMR, Diversity-Based
+                # Reranking for Reordering Documents and Producing Summaries.
+                "doi:10.1145/290941.291025",
                 ["mmr_adapted"],
             ),
             (
@@ -709,6 +712,7 @@ class ComponentRegistry:
         )
         self._components["agentic_pipeline"]["legacy_react"] = _Registration(
             description="Legacy ReAct agent with monolithic search tool",
+            paper="arxiv:2210.03629",  # Yao et al. 2022, ReAct
             _factory="lasagna.agentic.agentic_rag:LegacyReActPipeline",
             implements_contract=True,
         )

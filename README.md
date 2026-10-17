@@ -108,7 +108,7 @@ in neither the docs nor a code search, not that it is proven absent.
 | Significance tests | Paired sign-flip test, Holm, power | Not found | Not found | Paired permutation, no correction | Not found | Yes, IR runs only |
 | Interaction between components | 2×2 test with CI | Not found | Not found | Not found | Greedy search assumes none | Not found |
 | Result provenance | Bundles with a validator | Saved configs and scores | Experiment folders | Not found | Trial folders | Not found |
-| Published methods | 55 components | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
+| Published methods | 30 of 55 components cite the paper they implement | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
 | Ready corpora and indexes | Benchmark loaders, no prebuilt index | Wikipedia + prebuilt index | KILT + prebuilt index | Not found | Not found | Via ir_datasets |
 | License | Apache-2.0 | MIT | CC BY-NC-SA 4.0 | Apache-2.0 | MIT (badge) | MPL-2.0 / MIT |
 

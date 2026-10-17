@@ -620,6 +620,14 @@ Numbers that were wrong:
 
 Results tooling:
 
+- The Colab notebook said its bundle's warnings include `SINGLE_RUN` and
+  `UNPINNED_DATASET`; a retrieval-only run raises neither, and `results
+  validate` prints only VALID. Its script expected "pairs survive correction",
+  which the verdict does not print when exactly one pair survives, so a correct
+  run failed the check. The README's "Published methods: 55 components" counted
+  20 that name no paper: `mmr` cites Carbonell & Goldstein (1998),
+  `cross_encoder` Nogueira & Cho (2019) and `legacy_react` Yao et al. (2022),
+  and the table says 30 of 55 components cite the paper they implement.
 - `results interaction` printed "composition efficiency: 77.0% (of the
   additive prediction actually delivered)" for expected and observed effects
   that were both negative, at p = 0.91. The ratio is reported only when the

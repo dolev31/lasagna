@@ -77,7 +77,10 @@ _EXPECT = {
     "validate": "Contract satisfied",
     "sweep": "Stage isolation: the configuration that reached each stage",
     "leaderboard": "coverage",
-    "significance": "pairs survive correction",
+    # The verdict box's own words, whether 0, 1 or several pairs survive
+    # ("No pair survives Holm correction at ...", "1 of 3 pairs survives
+    # correction at ..."); "pairs survive correction" missed the one-pair case.
+    "significance": "correction at family-wise alpha",
     "bundle": "run_id",
     "check bundle": "VALID",
     "factorial": "Stage isolation: the configuration that reached each stage",
