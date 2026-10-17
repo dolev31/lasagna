@@ -238,6 +238,7 @@ class DocumentPipeline:
         from lasagna.core.session_config._session_state import session_lock
 
         refuse_during_switch(session_id, "The upload")
+        retired: Optional[str] = None
         admission = contextlib.ExitStack()
         # First, before any document's lock: held until this upload's row is
         # saved, so a profile switch that moves the session's documents sees
@@ -303,8 +304,7 @@ class DocumentPipeline:
                 # Retried in place: the failed copy (row, file, any chunks it
                 # left) goes, and this upload takes its id.
                 admission.enter_context(_document_lock(failed))
-                self._delete_document(failed, session_id, keep_file=False)
-                document_id = failed
+                retired = document_id = failed
                 logger.info(
                     f"{filename or os.path.basename(file_path)} has the same content as "
                     f"{failed}, whose processing failed; processing it again under that id"
@@ -312,7 +312,9 @@ class DocumentPipeline:
 
         with admission:
             document, config, stored_file_path, reservation_id, file_size_for_quota = (
-                self._admit_upload(file_path, session_id, filename, document_id)
+                self._admit_upload(
+                    file_path, session_id, filename, document_id, retire_failed=retired
+                )
             )
         quota_mgr = get_quota_manager()
         document_id, filename = document.document_id, document.filename
@@ -419,12 +421,16 @@ class DocumentPipeline:
         session_id: str,
         filename: Optional[str],
         document_id: Optional[str],
+        *,
+        retire_failed: Optional[str] = None,
     ) -> tuple:
         """Check an upload, reserve its quota, store its file and save its row.
 
         Returns the document, the session's config, the stored file's URI,
         the quota reservation and the size it reserved. Anything that refuses
         the upload raises before a file or a row is left behind.
+        ``retire_failed``: the failed copy this upload retries under its id,
+        deleted once nothing can refuse the upload.
         """
         config = self._get_session_config(session_id)
         # Before anything is stored: a model set without its size, whose size
@@ -479,6 +485,18 @@ class DocumentPipeline:
         reservation_id = quota_mgr.check_and_reserve_upload(
             session_id, file_size_bytes=file_size_for_quota
         )
+
+        if retire_failed is not None:
+            # Only now that the upload is admitted: deleted before the checks,
+            # a retry the quota or the file type refused lost the failed copy
+            # too, and the session kept neither.
+            try:
+                self._delete_document(retire_failed, session_id, keep_file=False)
+            except Exception:
+                quota_mgr.release_upload_reservation(
+                    session_id, file_size_for_quota, reservation_id=reservation_id
+                )
+                raise
 
         try:
             stored_file_path = self._store_file(file_path, document_id, filename)
