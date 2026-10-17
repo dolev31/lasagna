@@ -500,12 +500,18 @@ def refuse_embedding_change(
     except Exception as exc:
         from loguru import logger
 
-        # The cause in the log; the answer names it by kind, not by its text.
+        # The cause in the log. The answer keeps a connection error's text (a
+        # store another process holds, or an address that does not answer, is
+        # what the user acts on) and names anything else by its kind.
         logger.warning(f"Could not read the embedding size of {collection!r}: {exc}")
+        why = (
+            str(exc)
+            if isinstance(exc, ConnectionError)
+            else f"{type(exc).__name__}; the log has the cause"
+        )
         raise EmbeddingSizeUnverified(
             f"{change} would embed at {wanted} dimensions, and the vector store could "
-            f"not be read to check that against the stored documents "
-            f"({type(exc).__name__}; the log has the cause). {remedy}"
+            f"not be read to check that against the stored documents ({why}). {remedy}"
         ) from exc
     if stored is not None and stored != wanted:
         raise EmbeddingSizeConflict(
