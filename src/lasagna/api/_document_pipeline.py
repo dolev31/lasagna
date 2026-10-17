@@ -91,6 +91,14 @@ class DocumentBusy(RuntimeError):
     """The document is being processed or is archived, so it is not replaced now; REST 409."""
 
 
+class ReplacementNotRecorded(RuntimeError):
+    """A reindex removed the old chunks and could not record the new copy, whose chunks it removed.
+
+    The document has no chunks until it is reindexed again; a profile switch
+    reindexes it back with the session's settings.
+    """
+
+
 class DocumentRemoved(DocumentNotFound):
     """The document was deleted while it was being processed; REST answers 404 with why.
 
@@ -1707,7 +1715,9 @@ class DocumentPipeline:
                 )
             except Exception as status_exc:
                 logger.warning(f"Could not mark {document.document_id} failed: {status_exc}")
-            raise RuntimeError(f"Reindex of {document.document_id} failed. {reason}") from exc
+            raise ReplacementNotRecorded(
+                f"Reindex of {document.document_id} failed. {reason}"
+            ) from exc
         if recorded is False:
             raise DocumentRemoved(
                 f"Document {document.document_id} was deleted while it was being processed, "

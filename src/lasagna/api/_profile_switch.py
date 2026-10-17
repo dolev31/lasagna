@@ -61,8 +61,10 @@ class SwitchReport:
     failed: List[Tuple[str, str]] = field(default_factory=list)
     #: Moved back to the old profile's settings after a failure.
     restored: List[str] = field(default_factory=list)
-    #: Could not be moved back: still in the new profile's collection.
+    #: Could not be moved back: still in the new profile's collection, or without chunks.
     stranded: List[Tuple[str, str]] = field(default_factory=list)
+    #: Failed after their old chunks were removed: they have none until reindexed back.
+    unrecorded: List[str] = field(default_factory=list)
     total: int = 0
     #: Whether the switch was asked to reindex.
     reindex: bool = False
@@ -355,6 +357,8 @@ def _switch_with_reindex(
             except Exception as exc:  # noqa: BLE001 - reported per document
                 logger.warning(f"Reindex of {document_id} with profile {profile!r} failed: {exc}")
                 report.failed.append((document_id, _plain_reason(exc, document_id, session_id)))
+                if _chunks_lost(exc):
+                    report.unrecorded.append(document_id)
                 break
         if report.failed:
             _restore(backend, session_id, report, left_behind)
@@ -430,10 +434,13 @@ def _restore(
 
     ``left_behind``: those an interrupted switch had moved, which go back too.
     """
-    moved = list(report.reindexed) + [d for d in left_behind if d not in report.reindexed]
+    moved = list(report.reindexed) + [
+        d for d in [*left_behind, *report.unrecorded] if d not in report.reindexed
+    ]
     # A document whose reindex failed is where it was, unless that was where
-    # the interrupted switch had left it.
-    failed = {d for d, _ in report.failed} - set(left_behind)
+    # the interrupted switch had left it, or its old chunks went with the
+    # failure (they were removed before the new copy failed to be recorded).
+    failed = {d for d, _ in report.failed} - set(left_behind) - set(report.unrecorded)
     for document_id in moved:
         if document_id in failed:
             continue
@@ -464,7 +471,25 @@ def _undone(report: SwitchReport) -> str:
     return " ".join(lines)
 
 
+def _chunks_lost(exc: BaseException) -> bool:
+    """Whether a reindex failed after removing the document's old chunks."""
+    from lasagna.api._document_pipeline import ReplacementNotRecorded
+
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, ReplacementNotRecorded):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
 def _failure_message(report: SwitchReport) -> str:
+    """Why the switch was not applied, and what is true of each document now.
+
+    It said "every document is searchable as before" whenever one had been
+    moved back, also when another could not be, or had lost its chunks.
+    """
     document_id, error = report.failed[0]
     lines = [
         f"Profile {report.profile!r} was not applied; session {report.session_id!r} stays "
@@ -472,17 +497,28 @@ def _failure_message(report: SwitchReport) -> str:
         f"{_plural(report.total, 'document')} with {report.embedding_model} failed for "
         f"{document_id}: {error}"
     ]
-    if report.restored:
+    back = [d for d in report.restored if d not in report.unrecorded]
+    if back:
         lines.append(
-            f"The {_plural(len(report.restored), 'document')} already reindexed "
-            f"{'was' if len(report.restored) == 1 else 'were'} moved back, so every document "
-            f"is searchable as before."
+            f"The {_plural(len(back), 'document')} already reindexed "
+            f"{'was' if len(back) == 1 else 'were'} moved back"
+            + (", so every document is searchable as before." if not report.stranded else ".")
         )
+    for lost in report.unrecorded:
+        if lost in report.restored:
+            lines.append(
+                f"{lost} lost its chunks when its new copy could not be recorded, and was "
+                f"reindexed back with profile {report.previous!r}."
+            )
     for stranded, why in report.stranded:
+        where = (
+            "has no chunks, so no search finds it"
+            if stranded in report.unrecorded
+            else f"is searched only with {report.embedding_model}"
+        )
         lines.append(
-            f"{stranded} could not be moved back ({why}) and is searched only with "
-            f"{report.embedding_model}: run lasagna configure --profile {report.previous} "
-            f"-s {report.session_id} --reindex to reindex it."
+            f"{stranded} could not be moved back ({why}) and {where}: run lasagna configure "
+            f"--profile {report.previous} -s {report.session_id} --reindex to reindex it."
         )
     lines.append("Fix the cause above and run the switch again.")
     return " ".join(lines)
