@@ -47,7 +47,11 @@ Arms with no published target, from the same sweep:
 | Hybrid RRF: BM25 + bge-small-en-v1.5 | 0.721 | 0.364 | 0.968 | 0.316 |
 
 [results.csv](results.csv) has every measured number to four decimals, with the
-query count, the run date and the package commit.
+query count and where the numbers come from: the run date, the package and
+metrics versions, and the commit they were produced at. These numbers were
+produced on 2026-10-17 at commit 6ec26ff, from that commit's source tree, under
+`METRICS_VERSION` 1.7. A run at 5b5d779 the same day and the first run, on
+2026-10-10, gave the same numbers to four decimals.
 
 ## Rerun it
 
@@ -59,11 +63,20 @@ python -m nltk.downloader punkt_tab
 lasagna benchmark experiment examples/reproduction/beir_tier1.yaml
 ```
 
+To compare your run with these numbers, write its own `results.csv` and diff
+the measured columns (the first seven); no output means they match:
+
+```bash
+python examples/reproduction/results_csv.py "<the Output folder the run printed>" > mine.csv
+diff <(cut -d, -f1-7 examples/reproduction/results.csv) <(cut -d, -f1-7 mine.csv)
+```
+
 It needs no LLM and no API key. The first run downloads the two datasets (about
 15 MB) and three models (about 300 MB). The sweep is 28 tasks, 14 arms on each
-dataset, and took 33 minutes on an Apple M1 Max (10 cores, 64 GB, embeddings and
-the cross-encoder on MPS), with a peak memory of 2.6 GB. Results land in
-`~/.lasagna/research/results/BEIR_Tier_1_reproduction_<timestamp>/`.
+dataset. On an Apple M1 Max (10 cores, 64 GB, embeddings and the cross-encoder
+on MPS) it took 31 minutes with the models and datasets already downloaded, and
+37 minutes on a first run, with a peak resident memory of 2.1 GB. Results land
+in `~/.lasagna/research/results/BEIR_Tier_1_reproduction_<timestamp>/`.
 
 Every arm is deterministic, so the sweep runs once (`n_runs: 1`). Three runs,
 each from an empty store, gave identical results: every metric and every ranked
@@ -180,7 +193,8 @@ documents; the warning names that cause instead.
 - Models: `sentence-transformers/all-MiniLM-L6-v2` at 1110a243 (MTEB scored
   8b3219a9), `BAAI/bge-small-en-v1.5` at 5c38ec7c (the revision MTEB scored),
   and `cross-encoder/ms-marco-MiniLM-L-6-v2` at 233902d2.
-- Run from a source checkout at the commit in `results.csv`, with Python
-  3.12.12, torch 2.14.1, sentence-transformers 6.1.0, transformers 5.19.0,
-  rank-bm25 0.2.2 and milvus-lite 3.2.1 (the versions in
-  `constraints/0.1.0.txt`), on macOS 26.5.
+- Run from the source tree of the commit in `results.csv`, with Python 3.12.9,
+  torch 2.14.1, sentence-transformers 6.1.0, transformers 5.19.0, rank-bm25
+  0.2.2 and milvus-lite 3.2.1 (the versions in `constraints/0.1.0.txt`), on
+  macOS 26.5.2. `results_csv.py --commit` names the commit for a run made
+  outside a git checkout; from a checkout, the run records it itself.

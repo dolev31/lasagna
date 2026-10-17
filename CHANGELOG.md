@@ -118,7 +118,10 @@ Results:
   flagged inert.
 - **A reproduction:** on the full SciFact and NFCorpus test sets the dense
   models land within 0.002 NDCG@10 of MTEB, and BM25 with a cross-encoder
-  within 0.004 of the BEIR paper (`examples/reproduction/`).
+  within 0.004 of the BEIR paper (`examples/reproduction/`). Its
+  `results.csv` records the commit, metrics version and date of the run that
+  produced the numbers, and `results_csv.py` writes the same file from a rerun
+  to compare.
 
 Serving:
 
