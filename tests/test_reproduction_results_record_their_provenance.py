@@ -78,7 +78,7 @@ def test_the_script_writes_one_row_per_method_and_dataset_from_a_run():
             "created_at": "2026-10-17T12:00:00+00:00",
             "package_version": "0.1.0",
             "metrics_version": METRICS_VERSION,
-            "environment": {"git_commit": "0123456789abcdef"},
+            "environment": {"git_commit": "0123456789abcdef"},  # pragma: allowlist secret
         },
         "results": results,
     }
@@ -97,7 +97,8 @@ def test_the_script_writes_one_row_per_method_and_dataset_from_a_run():
         "metrics_version": METRICS_VERSION,
         "commit": "0123456",
     }
-    assert script.rows(run, commit="fedcba9876543210")[0]["commit"] == "fedcba9"
+    named = "fedcba9876543210"  # pragma: allowlist secret
+    assert script.rows(run, commit=named)[0]["commit"] == named[:7]
 
 
 def test_the_readme_says_where_the_numbers_came_from_and_how_to_compare():

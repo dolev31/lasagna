@@ -41,9 +41,17 @@ def _hold(store) -> int:
 
 @pytest.fixture
 def data_dir(tmp_path, monkeypatch):
-    """A data directory of its own, with no store chosen explicitly."""
+    """A data directory of its own, with no store chosen explicitly.
+
+    The benchmark commands reset the configuration when they move to a store
+    of their own; the one found here is put back afterwards (the providers
+    are put back by conftest), so no later test reads this test's.
+    """
+    import lasagna.core.config as config_module
     from lasagna import providers
     from lasagna.core.config import reset_rag_config
+
+    found = config_module._rag_config
 
     for name in ("LASAGNA_DB_DIR", "RAG_DB_DIR"):
         monkeypatch.setenv(name, "unset")  # recorded, so teardown restores it
@@ -56,8 +64,8 @@ def data_dir(tmp_path, monkeypatch):
     providers.reset_providers()
     reset_rag_config()
     yield tmp_path / "data"
-    providers.reset_providers()
-    reset_rag_config()
+    with config_module._rag_config_lock:
+        config_module._rag_config = found
 
 
 @pytest.fixture
