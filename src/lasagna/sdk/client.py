@@ -689,7 +689,7 @@ class KnowledgeClient:
         Args:
             file_path: Path to the document file (must exist)
             filename: Optional display name (defaults to original filename)
-            metadata: Optional custom metadata
+            metadata: Not stored; a non-empty one raises ``ValueError``
             document_id: Optional explicit document ID for benchmark evaluation
             allow_duplicates: Index the file even when the session already
                 holds the same content. By default that document is returned

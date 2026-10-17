@@ -111,11 +111,11 @@ await client.documents.wait_for_processing(result.document_id)
 doc = (await client.list_documents())[0]
 print(f"Chunks: {doc.chunk_count}, Status: {doc.status}")
 
-# With custom filename and metadata
+# With a custom filename (a document keeps its file, filename and id;
+# metadata= is not stored and raises ValueError)
 result = await client.documents.upload(
     "./file.pdf",
     filename="Q3 2024 Report",
-    metadata={"department": "finance", "quarter": "Q3"},
 )
 
 # Batch upload with parallel processing (default: up to 5 concurrent)
@@ -664,7 +664,7 @@ rate limited. For other transient failures, use the retry helpers in
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `upload(path, filename?, metadata?)` | `UploadResult` | Upload document |
+| `upload(path, filename?)` | `UploadResult` | Upload document |
 | `search_documents(query, top_k?, min_score?, document_ids?, routing_tier?)` | `SearchResults` | Search |
 | `get_context(query, document_ids?, max_chunks?, routing_tier?)` | `str` | Get LLM context |
 | `list_documents(status?)` | `List[Document]` | List documents |
@@ -681,8 +681,8 @@ rate limited. For other transient failures, use the retry helpers in
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `upload(path, filename?, metadata?)` | `UploadResult` | Upload document |
-| `upload_batch(paths, metadata?, max_concurrent=5)` | `List[UploadResult]` | Batch upload with parallel processing |
+| `upload(path, filename?)` | `UploadResult` | Upload document |
+| `upload_batch(paths, max_concurrent=5)` | `List[UploadResult]` | Batch upload with parallel processing |
 | `list(status?)` | `List[Document]` | List documents |
 | `get(id)` | `Optional[Document]` | Get document |
 | `delete(id)` | `bool` | Delete document |

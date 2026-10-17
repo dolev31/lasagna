@@ -216,6 +216,8 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   `get_system_status` is `features`.
 - `lasagna evaluate` is removed: `lasagna benchmark run <file>` measures your
   own data.
+- The SDK's `upload(metadata=...)` and `upload_batch(metadata=...)` raise
+  `ValueError`: no surface stores per-document metadata, and it was dropped.
 - Every setting has a `LASAGNA_` variable, which wins over the `RAG_` one; the
   `RAG_` names keep working with no warning. `config_for_quality()` is an alias
   of `config_for_max_quality()`.
