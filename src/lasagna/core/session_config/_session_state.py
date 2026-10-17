@@ -31,6 +31,10 @@ _USE_RECORD_SECONDS = 3600.0
 #: When this process last recorded each session's use (``time.monotonic``).
 _use_recorded_at: Dict[str, float] = {}
 
+#: How many changes this process has saved to each session, over all of its
+#: managers. A manager whose count differs reads the session again at once.
+_writes_here: Dict[str, int] = {}
+
 #: Keys each session last published to an in-memory session provider, so a
 #: key the session no longer chooses (a profile switched away from) is
 #: removed rather than left behind. Per process, like that provider.
@@ -200,9 +204,23 @@ class SessionStateMixin:
         now = time.monotonic()
         cached = self._session_states.get(session_id)
         checked = self._session_checked_at.get(session_id, float("-inf"))
-        if not fresh and cached is not None and now - checked < _RECHECK_SECONDS:
+        # A change another manager of this process saved is read at once: with
+        # PostgreSQL each request has its own manager, and the session
+        # provider's (which search reads) kept its copy for up to a second
+        # after a REST patch had returned.
+        seen = getattr(self, "_session_writes_seen", None)
+        if seen is None:
+            seen = self._session_writes_seen = {}
+        writes = _writes_here.get(session_id, 0)
+        if (
+            not fresh
+            and cached is not None
+            and now - checked < _RECHECK_SECONDS
+            and seen.get(session_id, 0) == writes
+        ):
             return
         self._session_checked_at[session_id] = now
+        seen[session_id] = writes
         stored = self._read_persisted_session(session_id, fresh=fresh)
         if stored is None:
             return
@@ -229,7 +247,11 @@ class SessionStateMixin:
         with session_lock(sid):
             with self._lock:
                 self._adopt_persisted_session(sid, fresh=True)
-                yield self.get_session_state(sid)
+                try:
+                    yield self.get_session_state(sid)
+                finally:
+                    _writes_here[sid] = _writes_here.get(sid, 0) + 1
+                    self._session_writes_seen[sid] = _writes_here[sid]
 
     def get_config(
         self, session_id: Optional[str] = None, user_id: str = ANONYMOUS
