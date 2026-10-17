@@ -278,7 +278,11 @@ class CrossEncoderReranker:
                 warn_if_restricted(name, component="reranker")
                 _refuse_unscorable_reranker(name, trust_remote_code)
                 extra = {"trust_remote_code": True} if trust_remote_code else {}
-                with device_guard(device), loading_bar_hidden(name):
+                with (
+                    device_guard(device),
+                    loading_bar_hidden(name),
+                    model_downloads.one_weights_copy(),
+                ):
                     model = CrossEncoder(name, device=device, **extra)
             except Exception as e:
                 self._failed[key] = f"Cannot load reranker model {name!r}: {e}"
@@ -1169,7 +1173,8 @@ class ColBERTReranker:
 
                         warn_if_restricted(self._model_name, component="ColBERT reranker")
                         self._tokenizer = AutoTokenizer.from_pretrained(self._model_name)
-                        self._model = AutoModel.from_pretrained(self._model_name)
+                        with model_downloads.one_weights_copy():
+                            self._model = AutoModel.from_pretrained(self._model_name)
                         self._model.eval()
                         logger.info(f"ColBERT model loaded: {self._model_name}")
                     except Exception as exc:

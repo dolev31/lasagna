@@ -7,16 +7,25 @@ error`` while ``/health/ready`` reported the model as up. ``lasagna serve`` and
 the MCP server switch the refusal on for their lifetime;
 ``allow_model_download_in_requests`` (``RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS``)
 switches it off again.
+
+Every model load also runs under :func:`one_weights_copy`, so a first run
+downloads each model's weights once.
 """
 
 from __future__ import annotations
 
 import os
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterator, Optional
 
 _refusing = 0
+
+#: transformers' switch for the background copy :func:`one_weights_copy` stops.
+NO_CONVERSION_VAR = "DISABLE_SAFETENSORS_CONVERSION"
+_conversion_lock = threading.Lock()
+_conversion_loads = 0
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
@@ -44,6 +53,42 @@ def refuse_downloads_in_requests() -> Iterator[None]:
         yield
     finally:
         _refusing -= 1
+
+
+@contextmanager
+def one_weights_copy() -> Iterator[None]:
+    """Load a model without transformers downloading a second copy of its weights.
+
+    When a repository has only ``pytorch_model.bin`` (BAAI/bge-m3, and the
+    default SPLADE and monoT5 checkpoints), transformers loads it and then
+    starts a thread that downloads ``model.safetensors`` from the repository's
+    conversion pull request. No later load reads that file: they resolve the
+    main branch, where it does not exist, and load the ``.bin`` again. For
+    bge-m3 it was 2.3 GB more on the first run (4.6 GB of downloads for one
+    2.3 GB model), and the thread kept ``lasagna search`` from exiting until
+    it finished.
+
+    transformers has no argument for this, only the environment variable
+    ``DISABLE_SAFETENSORS_CONVERSION``, read while the load runs. It is set
+    for the duration of the load and removed afterwards; a value the
+    environment already has is left alone.
+    """
+    global _conversion_loads
+    with _conversion_lock:
+        # Counted only while Lasagna's own "1" is in place, so concurrent
+        # loads share it and the last one to finish removes it.
+        counted = _conversion_loads > 0 or NO_CONVERSION_VAR not in os.environ
+        if counted:
+            _conversion_loads += 1
+            os.environ[NO_CONVERSION_VAR] = "1"
+    try:
+        yield
+    finally:
+        if counted:
+            with _conversion_lock:
+                _conversion_loads -= 1
+                if _conversion_loads == 0:
+                    os.environ.pop(NO_CONVERSION_VAR, None)
 
 
 def offline() -> bool:

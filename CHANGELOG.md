@@ -1172,6 +1172,14 @@ Servers and deployment:
   "Known issues" entry that does not exist, and gives the guide's measured
   pip time. The SDK's getting-started page no longer makes an LLM key a
   prerequisite, and the RAG skill says a keyless complex query falls back.
+- The first run downloaded BGE-M3 twice. transformers loaded its
+  `pytorch_model.bin` and then, in a background thread, fetched a 2.3 GB
+  `model.safetensors` from the repository's conversion pull request, which no
+  load reads, and `lasagna search` did not exit until that copy finished. The
+  release gate measured 4.6 GB for the default configuration, half of it this
+  copy. Every model load now sets `DISABLE_SAFETENSORS_CONVERSION` while it
+  runs (the default SPLADE and monoT5 checkpoints had the same copy). The
+  weights loaded are unchanged.
 - Release hygiene: the MCP server no longer registers the deprecated
   `search_knowledge` and `search_with_context` aliases in a first release (29
   tools; `--tools safe` still serves 22), `lasagna.TYPE_CHECKING` is no longer
