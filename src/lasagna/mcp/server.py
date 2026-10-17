@@ -4136,6 +4136,14 @@ def main():
             '"env": {"RAG_SESSION_ID": "my-corpus"}).'
         ),
     )
+    from lasagna.sdk._version import __version__
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"lasagna-mcp {__version__}",
+        help="Print the installed version and exit.",
+    )
     # stdio by default: that is how Claude Code, Claude Desktop and Cursor
     # launch a server, and it needs no port, no bind decision and no auth.
     parser.add_argument(

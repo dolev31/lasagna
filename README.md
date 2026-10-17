@@ -196,8 +196,9 @@ lasagna serve                      # REST API and configuration page on 127.0.0.
 > included. On release-gate runs the first search result took 3–40 minutes on
 > a cold cache; the spread is the connection. After that, a warm
 > search on the `speed` profile takes tens of milliseconds (median 32 ms over
-> 18,442 chunks on Milvus Lite). Run `python -m e2e.run` to measure on your own
-> machine.
+> 18,442 chunks on Milvus Lite). From a source checkout, `python -m e2e.run`
+> measures this on your own machine (the `e2e` package is not in the wheel); with
+> pip, `lasagna doctor` checks what is installed and cached.
 >
 > The `speed` profile downloads 92 MB and never calls an LLM: choose it in
 > `lasagna init`, run `lasagna configure --profile speed`, or from Python pass

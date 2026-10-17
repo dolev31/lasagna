@@ -933,6 +933,14 @@ Requests to current models:
 
 Servers and deployment:
 
+- The MCP README said "All 31", headed "Search (4 tools)" over two, and said
+  the two deprecated search aliases still answer (they return "Unknown tool";
+  the server registers 29), and the SDK integration pages said 31 tools, "the
+  six" left out of `safe`, and that every tool requires `session_id`. A test
+  checks the tables and counts against the tool snapshot. `lasagna-mcp
+  --version` prints the version (it was a usage error), and the README says
+  `python -m e2e.run` needs a source checkout and points pip users at
+  `lasagna doctor`.
 - `lasagna doctor --issue` promised "no absolute paths" and printed the
   settings file's full path when the project was outside `$HOME`. Doctor now
   shows a path under the working directory as `./...` and any other absolute
