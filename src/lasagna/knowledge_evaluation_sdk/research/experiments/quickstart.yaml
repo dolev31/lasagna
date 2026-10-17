@@ -3,7 +3,7 @@
 # Usage:  lasagna benchmark experiment quickstart.yaml
 #
 # Uses the `smoke` benchmark: 24 documents and 12 queries held in the package
-# itself, on the `speed` profile (all-MiniLM-L6-v2, 91 MB on first use). No
+# itself, on the `speed` profile (all-MiniLM-L6-v2, 92 MB on first use). No
 # dataset download and no API key. It runs the real live pipeline (ingest,
 # embed, retrieve), so a green run here means the stack is wired up.
 #

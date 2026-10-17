@@ -61,7 +61,7 @@ and free text can hold spaces or a `?`, which the shell would split or expand
 (zsh stops with "no matches found").
 
 Without `--profile speed`, step 3 runs the `standard` profile, which downloads
-about 3.1 GB of models. `benchmark run` measures retrieval unless asked for
+about 3.2 GB of models. `benchmark run` measures retrieval unless asked for
 more; `--tracks retrieval,generation` adds answer generation, which needs an
 LLM API key and the `eval` extra.
 

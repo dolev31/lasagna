@@ -220,7 +220,7 @@ class CrossEncoderReranker:
         self.batch_size = _config.reranker_batch_size
         self._config_lock = threading.Lock()
         # Loaded on first use, not here: the reranker is built at backend start,
-        # so loading eagerly downloaded the default 870 MB model even for the
+        # so loading eagerly downloaded the default 881 MB model even for the
         # speed profile, which turns reranking off.
         self._models: "OrderedDict[str, Any]" = OrderedDict()
         self._failed: Dict[str, str] = {}

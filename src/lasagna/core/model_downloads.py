@@ -202,8 +202,10 @@ def fix_for_model(session_id: str, model: str = "") -> str:
         )
     else:
         keep = f"To keep this model, download it first ({download}), or {allow}."
+    from lasagna.core.setup_text import profile_download_size
+
     return (
-        f"{configured} For the 91 MB keyless model, run: lasagna configure --profile "
-        f"speed -s {session_id} (in Python: KnowledgeClient(config=config_for_speed())). "
-        f"{keep}"
+        f"{configured} For the {profile_download_size('speed')} keyless model, run: "
+        f"lasagna configure --profile speed -s {session_id} "
+        f"(in Python: KnowledgeClient(config=config_for_speed())). {keep}"
     )

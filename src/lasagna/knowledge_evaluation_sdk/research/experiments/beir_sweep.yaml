@@ -3,7 +3,7 @@
 # Usage:  lasagna benchmark experiment beir_sweep.yaml
 #
 # Runs the `standard` profile on both tracks, so it downloads BGE-M3 and a large
-# reranker (3.1 GB), and needs an LLM API key and the eval extra to write and
+# reranker (3.2 GB), and needs an LLM API key and the eval extra to write and
 # judge answers.
 #
 # A dimension list holds components, not "off": `null` in it leaves the profile
