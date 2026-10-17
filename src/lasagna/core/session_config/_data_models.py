@@ -104,14 +104,19 @@ class SettingsNotSaved(BackendError):
     """
 
 
-def not_saved(what: str, exc: BaseException) -> SettingsNotSaved:
-    """``SettingsNotSaved`` for ``what`` (``the settings of session 'r1'``), naming why."""
+def not_saved(
+    what: str, exc: BaseException, *, verb: str = "saved", why: str = ""
+) -> SettingsNotSaved:
+    """``SettingsNotSaved`` for ``what`` (``the settings of session 'r1'``), naming why.
+
+    ``verb``: what could not be done to it; ``why``: what that leaves unknown.
+    """
     from lasagna.core.provenance import redact_paths
 
     reason = (redact_paths(str(exc)).strip().splitlines() or [""])[0][:300]
     return SettingsNotSaved(
-        f"{what[0].upper()}{what[1:]} could not be saved ({type(exc).__name__}"
-        f"{': ' + reason if reason else ''}), so nothing was changed. Retry once the "
+        f"{what[0].upper()}{what[1:]} could not be {verb} ({type(exc).__name__}"
+        f"{': ' + reason if reason else ''}){why}, so nothing was changed. Retry once the "
         f"metadata store answers (lasagna doctor and GET /api/v1/health/ready name it)."
     )
 

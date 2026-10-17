@@ -67,16 +67,28 @@ def switching(session_id: str) -> Iterator[None]:
 
 
 def unfinished_switch(session_id: str) -> Optional[Dict[str, Any]]:
-    """The recorded switch of ``session_id`` that has not ended, or None."""
+    """The recorded switch of ``session_id`` that has not ended, or None.
+
+    Raises ``SettingsNotSaved`` when the record cannot be read: answering
+    "no switch" let a write through during a switch it could not see, the
+    race the record exists to stop. A store without the record (a stand-in)
+    has no switch.
+    """
     from lasagna.core.database import get_rag_database
+    from lasagna.core.session_config._data_models import not_saved
 
     read = getattr(get_rag_database(), "get_profile_switch", None)
     if read is None:
         return None
     try:
         record = read(session_id)
-    except Exception:  # noqa: BLE001 - a store without the table has no switch
-        return None
+    except Exception as exc:
+        raise not_saved(
+            f"the record of session {session_id!r}'s profile switches",
+            exc,
+            verb="read",
+            why=", so whether a switch is moving its documents is unknown",
+        ) from exc
     return record if isinstance(record, dict) else None
 
 

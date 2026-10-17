@@ -3299,15 +3299,6 @@ _corpus_cache_lock = asyncio.Lock()
 #                    "ref_count": int, "ready": asyncio.Event}}
 _corpus_sessions: Dict[str, Dict[str, Any]] = {}
 
-# Threading lock to serialize pipeline.query() calls.  The query() method
-# writes profile config to the session (write) and then immediately reads
-# it back during search (read).  Without serialization, concurrent tasks
-# sharing the same corpus session overwrite each other's config, producing
-# identical metrics regardless of profile.
-import threading as _threading  # noqa: E402
-
-_search_config_lock = _threading.Lock()
-
 
 def _similarity_model_for_record() -> Optional[str]:
     try:
