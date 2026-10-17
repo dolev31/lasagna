@@ -17,10 +17,14 @@ import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 #: Settings inside a stage that decide where vectors live or how the index is
-#: built. They are the server's, like the rest of its infrastructure.
+#: built, and the model the server falls back to when the session's cannot
+#: load (it is loaded from a local folder of that name too, and only a server
+#: decides what it may load besides what a session names). They are the
+#: server's, like the rest of its infrastructure.
 _SERVER_KEYS = frozenset(
     {
         "collection_name",
+        "embedding_model_fallback",
         "vector_backend",
         "vector_backend_config",
         "index_type",
