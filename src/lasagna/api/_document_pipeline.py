@@ -218,7 +218,10 @@ class DocumentPipeline:
         processing, is not uploaded again: the existing document comes back
         with ``duplicate_of`` set. Rerunning the README's quickstart uploaded
         its paper once per run, and search returned the same passage once per
-        copy. ``allow_duplicates`` indexes it again anyway. An explicit
+        copy. A file whose only copies in the session's collection failed is
+        uploaded again under the newest failed copy's id, which it replaces:
+        each rerun of a failing upload used to add another failed document.
+        ``allow_duplicates`` indexes it again anyway. An explicit
         ``document_id`` or a component override is never deduplicated: the
         caller then decides what the document is (a reindex, a benchmark
         corpus, a chunker under test).
@@ -283,6 +286,17 @@ class DocumentPipeline:
                     f"{existing.document_id} in session {session_id}; not uploaded again"
                 )
                 return existing.model_copy(update={"duplicate_of": existing.document_id})
+            failed = self._find_failed_copy(file_path, session_id, collection, digest)
+            if failed is not None:
+                # Retried in place: the failed copy (row, file, any chunks it
+                # left) goes, and this upload takes its id.
+                admission.enter_context(_document_lock(failed))
+                self._delete_document(failed, session_id, keep_file=False)
+                document_id = failed
+                logger.info(
+                    f"{filename or os.path.basename(file_path)} has the same content as "
+                    f"{failed}, whose processing failed; processing it again under that id"
+                )
 
         with admission:
             document, config, stored_file_path, reservation_id, file_size_for_quota = (
@@ -512,13 +526,8 @@ class DocumentPipeline:
         document, or one stuck processing past that time, does not count:
         uploading again is how it is retried.
         """
-        from lasagna.core.database import get_rag_database
         from lasagna.lifecycle.gc import longest_processing
 
-        try:
-            size = os.path.getsize(file_path)
-        except OSError:
-            return None
         unfinished = {
             DocumentStatus.UPLOADING.value,
             DocumentStatus.PROCESSING.value,
@@ -527,10 +536,6 @@ class DocumentPipeline:
         still_running_since = datetime.now(timezone.utc) - longest_processing()
 
         def counts(row: Dict[str, Any]) -> bool:
-            if row.get("file_size") != size or not row.get("file_path"):
-                return False
-            if collection_name and row.get("collection_name") not in (None, "", collection_name):
-                return False
             if row.get("status") == DocumentStatus.READY.value:
                 return True
             if row.get("status") not in unfinished:
@@ -543,19 +548,59 @@ class DocumentPipeline:
                 started = started.replace(tzinfo=timezone.utc)
             return started >= still_running_since
 
-        candidates = [row for row in get_rag_database().get_documents(session_id) if counts(row)]
-        if not candidates:
-            return None
+        for row in self._same_content(file_path, session_id, collection_name, digest, counts):
+            return self._get_document_metadata(row["document_id"])
+        return None
 
+    def _find_failed_copy(
+        self,
+        file_path: str,
+        session_id: str,
+        collection_name: Optional[str] = None,
+        digest: Optional[str] = None,
+    ) -> Optional[str]:
+        """The id of the newest failed document in the session with these bytes, if any.
+
+        In ``collection_name`` only: after a model switch the failed copy
+        belongs to the old model's collection.
+        """
+
+        def failed(row: Dict[str, Any]) -> bool:
+            return row.get("status") == DocumentStatus.ERROR.value
+
+        for row in self._same_content(file_path, session_id, collection_name, digest, failed):
+            return row["document_id"]  # rows come newest first
+        return None
+
+    def _same_content(self, file_path, session_id, collection_name, digest, counts):
+        """The session's rows that ``counts`` and whose stored file has ``file_path``'s bytes."""
+        from lasagna.core.database import get_rag_database
+
+        try:
+            size = os.path.getsize(file_path)
+        except OSError:
+            return
+
+        def candidate(row: Dict[str, Any]) -> bool:
+            if row.get("file_size") != size or not row.get("file_path"):
+                return False
+            if collection_name and row.get("collection_name") not in (None, "", collection_name):
+                return False
+            return counts(row)
+
+        candidates = [r for r in get_rag_database().get_documents(session_id) if candidate(r)]
+        if not candidates:
+            return
         wanted = digest or _file_digest(file_path)
         for row in candidates:
             try:
                 with self.storage.retrieve(row["file_path"]) as stored:
-                    if _digest(stored) == wanted:
-                        return self._get_document_metadata(row["document_id"])
+                    same = _digest(stored) == wanted
             except Exception as exc:  # noqa: BLE001 - a missing file is no duplicate
                 logger.debug(f"Could not read {row['document_id']} to compare: {exc}")
-        return None
+                continue
+            if same:
+                yield row
 
     # =========================================================================
     # Reindex and replacement
@@ -1956,9 +2001,12 @@ class DocumentPipeline:
             except Exception as e:
                 logger.warning(f"Failed to invalidate search cache after delete: {e}")
 
-        # Record deletion for quota tracking (frees quota)
-        quota_mgr = get_quota_manager()
-        quota_mgr.record_delete(session_id, file_size_bytes=file_size, chunks=chunks_count)
+        # Record deletion for quota tracking (frees quota). A failed document
+        # is not counted: its reservation was released when it failed, and
+        # GC phase 6 counts documents that did not fail.
+        if doc.get("status") != DocumentStatus.ERROR.value:
+            quota_mgr = get_quota_manager()
+            quota_mgr.record_delete(session_id, file_size_bytes=file_size, chunks=chunks_count)
 
         logger.info(f"Document deleted: {document_id}")
         return True

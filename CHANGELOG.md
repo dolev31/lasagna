@@ -1447,6 +1447,11 @@ Servers and deployment:
   both copies of each id), and search returns chunks of ready documents only.
   A replacement keeps its row, file and chunks in agreement at every failure
   point.
+- Uploading a file again whose only copies in the session's collection failed
+  retries the newest failed copy under its id instead of adding a document:
+  three offline reruns of the quickstart left "Documents: 3", all failed.
+  Deleting a failed document no longer lowers the quota counters of the
+  others.
 
 ### Known issues
 
