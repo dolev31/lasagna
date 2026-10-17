@@ -19,6 +19,7 @@ from lasagna.core.session_config._profiles import BUILTIN_PROFILE_DESCRIPTIONS
 from lasagna.api.rag_backend import RAGBackend
 from ..dependencies import get_backend, get_profile_owner, get_session_id, get_user_id
 from ..models import ConfigPatchRequest, ConfigResponse, ProfileInfo, ProfileListResponse
+from .knowledge_config import STORE_UNAVAILABLE
 
 
 router = APIRouter(prefix="/config", tags=["config"])
@@ -219,6 +220,8 @@ async def patch_config(
     except ValueError as ve:
         logger.warning(f"Validation error patching config: {ve}")
         raise HTTPException(status_code=422, detail=str(ve))
+    except STORE_UNAVAILABLE:
+        raise
     except Exception as exc:
         logger.error(f"Failed to patch config: {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -270,6 +273,8 @@ async def apply_profile(
     except ValueError as ve:
         logger.warning(f"Validation error applying profile {profile_name}: {ve}")
         raise HTTPException(status_code=422, detail=str(ve))
+    except STORE_UNAVAILABLE:
+        raise
     except Exception as exc:
         logger.error(f"Failed to apply profile {profile_name}: {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")

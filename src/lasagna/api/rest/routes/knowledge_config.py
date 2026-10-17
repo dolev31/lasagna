@@ -19,6 +19,7 @@ from loguru import logger
 
 from lasagna.api._profile_guard import EmbeddingSizeConflict
 from lasagna.core.session_config import get_knowledge_config_manager
+from lasagna.core.store_locks import StoreLockTimeout
 from ..dependencies import get_profile_owner, get_session_id
 from ..models import (
     DeleteProfileRequest,
@@ -32,6 +33,10 @@ from ..models import (
 )
 
 router = APIRouter(prefix="/api/config/knowledge", tags=["configurator"])
+
+#: Answered by the app with a 503 and the reason (see ``app._answer_switch_in_progress``):
+#: caught below as any other error, a store lock held past its wait was a 500.
+STORE_UNAVAILABLE = (StoreLockTimeout,)
 
 
 def _to_response(data: Dict[str, Any]) -> KnowledgeConfigFullResponse:
@@ -70,6 +75,8 @@ async def get_knowledge_config(
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
         return _to_response(mgr.get_config(session_id, user_id=user_id))
+    except STORE_UNAVAILABLE:
+        raise
     except Exception as exc:
         logger.error(f"Failed to get knowledge config for session={session_id}: {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -109,6 +116,8 @@ async def set_active_profile(
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except STORE_UNAVAILABLE:
+        raise
     except Exception as exc:
         logger.error(f"Failed to set active profile '{body.active_profile}': {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -135,6 +144,8 @@ async def save_profile(
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except STORE_UNAVAILABLE:
+        raise
     except Exception as exc:
         logger.error(f"Failed to save profile '{body.profile_name}': {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -159,6 +170,8 @@ async def delete_profile(
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except STORE_UNAVAILABLE:
+        raise
     except Exception as exc:
         logger.error(f"Failed to delete profile '{body.profile_name}': {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -184,6 +197,8 @@ async def rename_profile(
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except STORE_UNAVAILABLE:
+        raise
     except Exception as exc:
         logger.error(f"Failed to rename profile '{body.old_name}' -> '{body.new_name}': {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -208,6 +223,8 @@ async def reset_config(
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except STORE_UNAVAILABLE:
+        raise
     except Exception as exc:
         logger.error(f"Failed to reset config (scope={body.scope}): {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -222,6 +239,8 @@ async def export_config(
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
         return _to_response(mgr.export_config(session_id, user_id=user_id))
+    except STORE_UNAVAILABLE:
+        raise
     except Exception as exc:
         logger.error(f"Failed to export config: {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -242,6 +261,8 @@ async def import_config(
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except STORE_UNAVAILABLE:
+        raise
     except Exception as exc:
         logger.error(f"Failed to import config: {exc}")
         raise HTTPException(status_code=500, detail="Internal server error")
