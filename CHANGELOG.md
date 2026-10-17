@@ -587,6 +587,10 @@ Server and deployment:
 - CI pins detect-secrets 1.5.0, the version that wrote `.secrets.baseline`.
 - The release workflow pins `pypa/gh-action-pypi-publish` to the commit v1.14.2
   names; the pin was the tag object.
+- `constraints/0.1.0.txt` pinned typer 0.27.3, and docling-core requires
+  typer<0.27, so `[eval,docling]` and `[all]` with the constraints file could
+  not resolve. It pins typer 0.26.8; `[eval]`, `[eval,docling]` and every
+  extra resolve against it, and the CLI and suite pass with it.
 - Every CI job runs on `ubuntu-24.04` instead of `ubuntu-latest`, which GitHub
   moves to Ubuntu 26 on 2026-10-19. RELEASING.md says to start the Tests and
   Release workflows by hand and watch them after Actions billing is restored.

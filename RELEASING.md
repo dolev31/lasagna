@@ -97,7 +97,10 @@ uv pip compile pyproject.toml --extra eval --python-version 3.12 \
 
 Write the three header lines of the current file, with the new version, above
 `/tmp/closure.txt`, reinstall the venv with `-c constraints/<version>.txt`, and
-run the suite again. Update the version in `pyproject.toml`, `CITATION.cff`,
+run the suite again. The file pins the `[eval]` closure, but users combine it
+with other extras, so check that every extra still resolves against it:
+`uv pip compile pyproject.toml --all-extras --python-version 3.12 -c constraints/<version>.txt`.
+0.1.0 pins typer 0.26.8, not the newest, because docling-core requires typer<0.27. Update the version in `pyproject.toml`, `CITATION.cff`,
 the README install line and the two `ARG CONSTRAINTS=` lines of
 `src/lasagna/deploy/Dockerfile` (the image installs the same versions), add a
 `## [<version>] - YYYY-MM-DD` section to CHANGELOG.md, and remove the old

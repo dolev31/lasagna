@@ -214,7 +214,8 @@ jobs:
         if: matrix.python-version == '3.12'
         run: |
           pytest tests/test_opensearch_backend.py tests/test_pgvector_backend.py \
-            tests/test_docling_processor.py tests/test_mock_targets_resolve.py -q
+            tests/test_docling_processor.py tests/test_mock_targets_resolve.py \
+            tests/test_the_constraints_file_resolves_with_docling.py -q
 
   # The rest of the suite runs from inside the repo, with src/ on sys.path.
   # This job is the only thing that checks the package the way a user meets it:
