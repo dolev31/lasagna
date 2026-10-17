@@ -154,7 +154,10 @@ each model writes to a collection of its own, named
 - Switching a session to a profile with another model makes it search that
   model's collection. Documents uploaded before the switch stay where they
   were, and a session on the old model still finds them. To search them with
-  the new model, upload them again.
+  the new model, upload them again (an upload is a duplicate only of a copy
+  in the collection the session searches now), or reindex them
+  (`POST /api/v1/documents/{id}/reindex`), which moves each to the new
+  model's collection.
 - A `collection_name` you set yourself (in the settings file or as
   `RAG_COLLECTION_NAME`) is used as given. The evaluation
   harness names one per sweep arm this way, so sweeps are unaffected.

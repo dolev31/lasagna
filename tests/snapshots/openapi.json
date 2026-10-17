@@ -124,6 +124,11 @@
       },
       "Body_upload_documents_batch_api_v1_documents_batch_post": {
         "properties": {
+          "allow_duplicates": {
+            "default": false,
+            "title": "Allow Duplicates",
+            "type": "boolean"
+          },
           "files": {
             "items": {
               "contentMediaType": "application/octet-stream",
@@ -5493,7 +5498,7 @@
     },
     "/api/v1/documents/batch": {
       "post": {
-        "description": "Upload multiple documents in a single request.\n\nFiles are processed concurrently up to the configured\n``max_concurrent_uploads`` limit.  Each file goes through the same\npipeline as the single-upload endpoint (text extraction, chunking,\nembedding, vector indexing). Without Celery, a file that finds every\nprocessing thread busy waits for one to free up (at most\n``processing_timeout`` seconds), so a batch larger than the pool is\nprocessed in full; the response returns once every file is accepted.\n\nA batch may hold at most ``RAG_MAX_BATCH_FILES`` files (default 20) and\n``RAG_MAX_BATCH_BYTES`` in total (default 200 MiB, refused with 413 before\nthe body is read).",
+        "description": "Upload multiple documents in a single request.\n\nFiles are processed concurrently up to the configured\n``max_concurrent_uploads`` limit.  Each file goes through the same\npipeline as the single-upload endpoint (text extraction, chunking,\nembedding, vector indexing). Without Celery, a file that finds every\nprocessing thread busy waits for one to free up (at most\n``processing_timeout`` seconds), so a batch larger than the pool is\nprocessed in full; the response returns once every file is accepted.\n\nA batch may hold at most ``RAG_MAX_BATCH_FILES`` files (default 20) and\n``RAG_MAX_BATCH_BYTES`` in total (default 200 MiB, refused with 413 before\nthe body is read). A file whose content the session already holds, in\nthe batch or before it, is not uploaded again: its result names that\ndocument in ``duplicate_of``. ``allow_duplicates=true`` indexes it anyway.",
         "operationId": "upload_documents_batch_api_v1_documents_batch_post",
         "parameters": [
           {

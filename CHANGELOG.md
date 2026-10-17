@@ -472,6 +472,14 @@ Server and deployment:
   counts the difference; a replacement that fails leaves the old copy. An id
   held by another session is refused by the SDK and the pipeline too, not
   only by REST.
+- **Upload deduplication looks at the collection the session searches.**
+  After a model switch, uploading a file again, as docs/configuration.md
+  says to, returned `duplicate_of` the old model's copy and left the new
+  model's collection empty. A copy counts only in the current collection,
+  and only when ready or still within the time processing may take, so a
+  document stuck "processing" no longer blocks its retry until GC. Two
+  identical uploads at once (or in one batch) index one copy, and
+  `POST /api/v1/documents/batch` takes `allow_duplicates`.
 - **A session can no longer point the server at another vector store.**
   Session settings (REST `/api/v1/config`, `/api/config/knowledge/profile` and
   `/import`, the MCP config tools, the config manager) accepted any key, and

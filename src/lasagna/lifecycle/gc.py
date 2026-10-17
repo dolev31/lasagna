@@ -47,14 +47,13 @@ STALE_PROCESSING_FACTOR = 12
 _STALE_PROCESSING_FLOOR = timedelta(hours=1)
 
 
-def stale_processing_after() -> timedelta:
-    """How long a document may stay uploading, processing or indexing before it is failed.
+def longest_processing() -> timedelta:
+    """The longest a document may take to process on this deployment.
 
-    ``STALE_PROCESSING_FACTOR`` times the longest a document may take on this
-    deployment: ``processing_timeout``, or with Celery enabled a task's
-    attempts of up to ``task_time_limit`` each and the waits between them.
-    ``processing_timeout`` alone is the shutdown drain bound, which compose and
-    the Kubernetes manifests set to 20 s.
+    ``processing_timeout``, or with Celery enabled a task's attempts of up to
+    ``task_time_limit`` each and the waits between them. ``processing_timeout``
+    alone is the shutdown drain bound, which compose and the Kubernetes
+    manifests set to 20 s.
     """
     from ..core.config import rag_config
     from ..infrastructure.tasks import TASK_ATTEMPTS, TASK_RETRY_DELAY_S, TASK_TIME_LIMIT_S
@@ -66,7 +65,15 @@ def stale_processing_after() -> timedelta:
     if getattr(rag_config, "celery_enabled", False):
         celery = TASK_ATTEMPTS * TASK_TIME_LIMIT_S + (TASK_ATTEMPTS - 1) * TASK_RETRY_DELAY_S
         longest = max(longest, float(celery))
-    return max(timedelta(seconds=longest * STALE_PROCESSING_FACTOR), _STALE_PROCESSING_FLOOR)
+    return timedelta(seconds=longest)
+
+
+def stale_processing_after() -> timedelta:
+    """How long a document may stay uploading, processing or indexing before it is failed.
+
+    ``STALE_PROCESSING_FACTOR`` times :func:`longest_processing`.
+    """
+    return max(longest_processing() * STALE_PROCESSING_FACTOR, _STALE_PROCESSING_FLOOR)
 
 
 class GarbageCollector:

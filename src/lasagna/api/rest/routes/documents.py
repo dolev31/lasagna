@@ -201,6 +201,7 @@ async def upload_document(
 )
 async def upload_documents_batch(
     files: List[UploadFile] = File(...),
+    allow_duplicates: bool = Form(False),
     session_id: str = Depends(get_session_id),
     backend: RAGBackend = Depends(get_backend),
 ):
@@ -216,7 +217,9 @@ async def upload_documents_batch(
 
     A batch may hold at most ``RAG_MAX_BATCH_FILES`` files (default 20) and
     ``RAG_MAX_BATCH_BYTES`` in total (default 200 MiB, refused with 413 before
-    the body is read).
+    the body is read). A file whose content the session already holds, in
+    the batch or before it, is not uploaded again: its result names that
+    document in ``duplicate_of``. ``allow_duplicates=true`` indexes it anyway.
     """
     from lasagna.api.rest.limits import max_batch_files
     from lasagna.core.config import rag_config
@@ -263,6 +266,7 @@ async def upload_documents_batch(
                     filename=upload_file.filename,
                     refuse_when_busy=True,
                     wait_when_busy=wait_for_thread,
+                    allow_duplicates=allow_duplicates,
                 )
                 return BatchUploadItemResponse(
                     document_id=doc.document_id,

@@ -6,6 +6,8 @@ embedding generation, vector indexing, and document deletion.
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import os
 import uuid
 import threading
@@ -97,6 +99,31 @@ _DOCUMENT_LOCKS = [threading.RLock() for _ in range(64)]
 
 def _document_lock(document_id: str) -> threading.RLock:
     return _DOCUMENT_LOCKS[hash(document_id) % len(_DOCUMENT_LOCKS)]
+
+
+#: Identical uploads to one session's collection take the same lock from their
+#: dedupe check until the first one's row is saved.
+_CONTENT_LOCKS = [threading.Lock() for _ in range(64)]
+
+
+def _content_lock(session_id: str, collection: str, digest: str) -> threading.Lock:
+    return _CONTENT_LOCKS[hash((session_id, collection, digest)) % len(_CONTENT_LOCKS)]
+
+
+def _digest(stream) -> str:
+    h = hashlib.sha256()
+    for block in iter(lambda: stream.read(1 << 20), b""):
+        h.update(block)
+    return h.hexdigest()
+
+
+def _file_digest(path: str) -> Optional[str]:
+    """SHA-256 of a local file, or None when it cannot be read."""
+    try:
+        with open(path, "rb") as f:
+            return _digest(f)
+    except OSError:
+        return None
 
 
 #: Whether the Docling fallback has been logged in this process (once is enough).
@@ -207,99 +234,36 @@ class DocumentPipeline:
                     _document_processor_override=_document_processor_override,
                 )
 
+        admission = contextlib.ExitStack()
         if not (
             allow_duplicates
             or document_id is not None
             or _chunker_override is not None
             or _document_processor_override is not None
         ):
-            existing = self._find_same_content(file_path, session_id)
+            collection = getattr(self._get_session_config(session_id), "collection_name", "")
+            digest = _file_digest(file_path)
+            if digest is not None:
+                # Held until this upload's row is saved, where an identical
+                # upload waiting here then finds it. Both used to pass the
+                # check at once and both were indexed.
+                admission.enter_context(_content_lock(session_id, collection, digest))
+            existing = self._find_same_content(file_path, session_id, collection, digest)
             if existing is not None:
+                admission.close()
                 logger.info(
                     f"{filename or os.path.basename(file_path)} has the same content as "
                     f"{existing.document_id} in session {session_id}; not uploaded again"
                 )
                 return existing.model_copy(update={"duplicate_of": existing.document_id})
 
-        config = self._get_session_config(session_id)
-        # Before anything is stored: a model set without its size, whose size
-        # cannot be read, would make a collection of the wrong size.
-        unknown = getattr(config, "embedding_size_unknown", None)
-        problem = unknown() if callable(unknown) else None
-        if isinstance(problem, str) and problem:
-            raise ValueError(problem)
-
-        # Quota enforcement — fast-fail before expensive operations (embedding
-        # manager reload, file I/O).  The authoritative atomic reservation
-        # happens later via check_and_reserve_upload().
+        with admission:
+            document, config, stored_file_path, reservation_id, file_size_for_quota = (
+                self._admit_upload(file_path, session_id, filename, document_id)
+            )
         quota_mgr = get_quota_manager()
-        file_size_for_quota = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-        quota_mgr.check_upload(session_id, file_size_bytes=file_size_for_quota)
-
-        embedder = self.use_embedder_for(config)
-        logger.debug(
-            f"Document load using embedding model: {embedder.model_name} (dim={embedder.dimension})"
-        )
-
-        if not os.path.exists(file_path):
-            raise ValueError(f"File not found: {file_path}")
-
-        file_size = os.path.getsize(file_path)
-        if file_size > config.max_file_size:
-            raise ValueError(f"File too large: {file_size} bytes (max: {config.max_file_size})")
-
-        if filename is None:
-            filename = os.path.basename(file_path)
-
-        file_type = self.document_processor.detect_file_type(file_path)
-        if file_type not in config.supported_extensions:
-            raise ValueError(f"Unsupported file type: {file_type}")
-
-        document_id = document_id or f"doc_{uuid.uuid4().hex[:16]}"
-
-        document = Document(
-            document_id=document_id,
-            session_id=session_id,
-            filename=filename,
-            file_type=file_type,
-            file_size=file_size,
-            status=DocumentStatus.PROCESSING,
-            chunks_count=0,
-            upload_date=datetime.now(timezone.utc),
-        )
-
-        # --- Reserve quota BEFORE any I/O (file storage + metadata write) ---
-        # This prevents orphaned files/metadata when a concurrent upload
-        # exhausts the quota between validation and storage.
-        reservation_id = quota_mgr.check_and_reserve_upload(
-            session_id, file_size_bytes=file_size_for_quota
-        )
-
-        try:
-            stored_file_path = self._store_file(file_path, document_id, filename)
-        except Exception:
-            quota_mgr.release_upload_reservation(
-                session_id, file_size_for_quota, reservation_id=reservation_id
-            )
-            raise
-
-        try:
-            upload_backend = self._collection_manager.resolve_backend(session_id)
-            self._save_document_metadata(
-                document, stored_file_path, vector_backend_name=upload_backend.backend_name
-            )
-        except Exception:
-            # Best-effort cleanup of already-stored file
-            try:
-                self.storage.delete(stored_file_path)
-            except Exception as cleanup_exc:
-                logger.warning(
-                    f"Failed to clean up stored file after metadata error: {cleanup_exc}"
-                )
-            quota_mgr.release_upload_reservation(
-                session_id, file_size_for_quota, reservation_id=reservation_id
-            )
-            raise
+        document_id, filename = document.document_id, document.filename
+        file_type, file_size = document.file_type, document.file_size
 
         logger.info(f"Document uploaded: {document_id} ({filename})")
 
@@ -396,6 +360,101 @@ class DocumentPipeline:
 
         return document
 
+    def _admit_upload(
+        self,
+        file_path: str,
+        session_id: str,
+        filename: Optional[str],
+        document_id: Optional[str],
+    ) -> tuple:
+        """Check an upload, reserve its quota, store its file and save its row.
+
+        Returns the document, the session's config, the stored file's URI,
+        the quota reservation and the size it reserved. Anything that refuses
+        the upload raises before a file or a row is left behind.
+        """
+        config = self._get_session_config(session_id)
+        # Before anything is stored: a model set without its size, whose size
+        # cannot be read, would make a collection of the wrong size.
+        unknown = getattr(config, "embedding_size_unknown", None)
+        problem = unknown() if callable(unknown) else None
+        if isinstance(problem, str) and problem:
+            raise ValueError(problem)
+
+        # Quota enforcement — fast-fail before expensive operations (embedding
+        # manager reload, file I/O).  The authoritative atomic reservation
+        # happens later via check_and_reserve_upload().
+        quota_mgr = get_quota_manager()
+        file_size_for_quota = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        quota_mgr.check_upload(session_id, file_size_bytes=file_size_for_quota)
+
+        embedder = self.use_embedder_for(config)
+        logger.debug(
+            f"Document load using embedding model: {embedder.model_name} (dim={embedder.dimension})"
+        )
+
+        if not os.path.exists(file_path):
+            raise ValueError(f"File not found: {file_path}")
+
+        file_size = os.path.getsize(file_path)
+        if file_size > config.max_file_size:
+            raise ValueError(f"File too large: {file_size} bytes (max: {config.max_file_size})")
+
+        if filename is None:
+            filename = os.path.basename(file_path)
+
+        file_type = self.document_processor.detect_file_type(file_path)
+        if file_type not in config.supported_extensions:
+            raise ValueError(f"Unsupported file type: {file_type}")
+
+        document_id = document_id or f"doc_{uuid.uuid4().hex[:16]}"
+
+        document = Document(
+            document_id=document_id,
+            session_id=session_id,
+            filename=filename,
+            file_type=file_type,
+            file_size=file_size,
+            status=DocumentStatus.PROCESSING,
+            chunks_count=0,
+            upload_date=datetime.now(timezone.utc),
+        )
+
+        # --- Reserve quota BEFORE any I/O (file storage + metadata write) ---
+        # This prevents orphaned files/metadata when a concurrent upload
+        # exhausts the quota between validation and storage.
+        reservation_id = quota_mgr.check_and_reserve_upload(
+            session_id, file_size_bytes=file_size_for_quota
+        )
+
+        try:
+            stored_file_path = self._store_file(file_path, document_id, filename)
+        except Exception:
+            quota_mgr.release_upload_reservation(
+                session_id, file_size_for_quota, reservation_id=reservation_id
+            )
+            raise
+
+        try:
+            upload_backend = self._collection_manager.resolve_backend(session_id)
+            self._save_document_metadata(
+                document, stored_file_path, vector_backend_name=upload_backend.backend_name
+            )
+        except Exception:
+            # Best-effort cleanup of already-stored file
+            try:
+                self.storage.delete(stored_file_path)
+            except Exception as cleanup_exc:
+                logger.warning(
+                    f"Failed to clean up stored file after metadata error: {cleanup_exc}"
+                )
+            quota_mgr.release_upload_reservation(
+                session_id, file_size_for_quota, reservation_id=reservation_id
+            )
+            raise
+
+        return document, config, stored_file_path, reservation_id, file_size_for_quota
+
     def _forget_unprocessed_upload(self, document_id: str, stored_file_path: str) -> None:
         """Remove the metadata row and stored file of an upload that was refused."""
         from lasagna.core.database import get_rag_database
@@ -409,43 +468,63 @@ class DocumentPipeline:
         except Exception as exc:
             logger.warning(f"Could not remove the file of refused upload {document_id}: {exc}")
 
-    def _find_same_content(self, file_path: str, session_id: str) -> Optional[Document]:
+    def _find_same_content(
+        self,
+        file_path: str,
+        session_id: str,
+        collection_name: Optional[str] = None,
+        digest: Optional[str] = None,
+    ) -> Optional[Document]:
         """The session's document with the same bytes as ``file_path``, if any.
 
         Only documents of the same size are hashed, so an upload to a session
-        of other files reads nothing but its own file. A failed document does
-        not count: uploading again is how it is retried.
+        of other files reads nothing but its own file. A document counts when
+        it is in ``collection_name`` (the session's current collection: after a
+        model switch the old model's copy is not searchable with the new one)
+        and is ready, or still within the time processing may take. A failed
+        document, or one stuck processing past that time, does not count:
+        uploading again is how it is retried.
         """
-        import hashlib
-
         from lasagna.core.database import get_rag_database
+        from lasagna.lifecycle.gc import longest_processing
 
         try:
             size = os.path.getsize(file_path)
         except OSError:
             return None
-        candidates = [
-            row
-            for row in get_rag_database().get_documents(session_id)
-            if row.get("file_size") == size
-            and row.get("status") in (DocumentStatus.READY.value, DocumentStatus.PROCESSING.value)
-            and row.get("file_path")
-        ]
+        unfinished = {
+            DocumentStatus.UPLOADING.value,
+            DocumentStatus.PROCESSING.value,
+            DocumentStatus.INDEXING.value,
+        }
+        still_running_since = datetime.now(timezone.utc) - longest_processing()
+
+        def counts(row: Dict[str, Any]) -> bool:
+            if row.get("file_size") != size or not row.get("file_path"):
+                return False
+            if collection_name and row.get("collection_name") not in (None, "", collection_name):
+                return False
+            if row.get("status") == DocumentStatus.READY.value:
+                return True
+            if row.get("status") not in unfinished:
+                return False
+            try:
+                started = datetime.fromisoformat(str(row.get("upload_date")))
+            except ValueError:
+                return True
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            return started >= still_running_since
+
+        candidates = [row for row in get_rag_database().get_documents(session_id) if counts(row)]
         if not candidates:
             return None
 
-        def digest(stream) -> str:
-            h = hashlib.sha256()
-            for block in iter(lambda: stream.read(1 << 20), b""):
-                h.update(block)
-            return h.hexdigest()
-
-        with open(file_path, "rb") as f:
-            wanted = digest(f)
+        wanted = digest or _file_digest(file_path)
         for row in candidates:
             try:
                 with self.storage.retrieve(row["file_path"]) as stored:
-                    if digest(stored) == wanted:
+                    if _digest(stored) == wanted:
                         return self._get_document_metadata(row["document_id"])
             except Exception as exc:  # noqa: BLE001 - a missing file is no duplicate
                 logger.debug(f"Could not read {row['document_id']} to compare: {exc}")
