@@ -114,7 +114,8 @@ META = {"metrics_version": METRICS_VERSION, "judge_model": None, "similarity_mod
 
 def test_a_complete_corpus_keeps_its_comparability_key():
     # Computed with the code before corpus_ingest_gap existed.
-    assert comparability_key(held_fixed_from(_result(None), META)) == "1c54f5025cbc079d"
+    before = "1c54f5025cbc079d"  # pragma: allowlist secret
+    assert comparability_key(held_fixed_from(_result(None), META)) == before
 
 
 def test_a_partial_corpus_never_shares_a_key_with_the_complete_one(ingest):
