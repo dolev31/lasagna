@@ -162,7 +162,8 @@ Servers and deployment:
 - Every log line written during a request carries its request id, and
   `LASAGNA_LOG_FORMAT=json` writes one JSON object per line.
 - `GET /api/v1/health/ready` pings the vector store, the database and Redis,
-  each with a 2 s timeout, and lists what did not answer in `failing`.
+  each with a 2 s timeout, and lists what did not answer in `failing` (Redis,
+  which the cache, rate limits and uploads fall back from, in `degraded`).
 - `/api/v1` and the MCP tool schemas are under the deprecation policy in
   `GOVERNANCE.md`, recorded in `tests/snapshots/openapi.json` and
   `tests/snapshots/mcp_tools.json`. Errors are documented as `ErrorResponse`.
@@ -444,8 +445,6 @@ Each of these still works in 0.1.x, says so when used, and is removed in 0.2.0.
 - `lasagna benchmark compare` and `lasagna benchmark leaderboard`: use
   `lasagna results compare` and `lasagna results leaderboard`.
 - `lasagna results interaction --bootstrap`: use `--resamples`.
-- The MCP tools `search_knowledge` and `search_with_context`: use `search`.
-  They still answer, but are listed only under `--tools all`.
 
 ### Fixed
 
@@ -934,8 +933,8 @@ Servers and deployment:
   server (`lasagna serve`, `lasagna-mcp`) now answers `503` naming the model,
   the sessions that have documents and `lasagna configure --profile speed -s
   <session>`, and never downloads a model inside a request unless
-  `allow_model_download_in_requests` is set; readiness reports the default
-  model as down when it cannot load. MCP `get_system_status` reports the
+  `allow_model_download_in_requests` is set; readiness reports the served
+  session's model as down when it cannot load. MCP `get_system_status` reports the
   session's collection and model (it read the default one: `row_count 0` for a
   session with 76 chunks), and `lasagna search` on a session with no documents
   names the sessions that have some instead of loading a model.
