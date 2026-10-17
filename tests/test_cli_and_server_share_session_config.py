@@ -82,13 +82,16 @@ def test_a_saved_active_profile_survives_a_restart(tmp_path, sid):
     first.delete_profile(name, session_id=sid)
 
 
+# configure checks that the new profile's models load before it switches, so
+# the speed profile's embedder must be cached (or downloadable: CI's weights job).
+# The child inherits the suite's HF_HUB_OFFLINE, which is on unless a run opts in.
+@pytest.mark.needs_embedding_weights("all-MiniLM-L6-v2")
 def test_lasagna_configure_reaches_a_process_already_running(tmp_path, sid):
     server = _process(tmp_path)
     assert server.get_active_profile(sid) == "default"
     env = {
         **{k: v for k, v in os.environ.items() if not k.startswith("LASAGNA_")},
         "PYTHONPATH": str(REPO / "src"),
-        "HF_HUB_OFFLINE": "1",
     }
     result = subprocess.run(
         [sys.executable, "-m", "lasagna", "configure", "--profile", "speed", "-s", sid, "--force"],
