@@ -124,7 +124,9 @@ def test_bootstrap_still_works_for_one_release(monkeypatch, tmp_path):
             )
         ),
     )
-    CliRunner().invoke(cli.app, ["results", "interaction", "r.json", "--bootstrap", "77"])
+    run = tmp_path / "r.json"
+    run.write_text("{}")  # read by the stub above; the command checks that it exists
+    CliRunner().invoke(cli.app, ["results", "interaction", str(run), "--bootstrap", "77"])
     assert seen.get("n_bootstrap") == 77
 
 
