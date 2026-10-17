@@ -11,7 +11,7 @@ import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from loguru import logger
 
@@ -335,6 +335,23 @@ LOWER_IS_BETTER = frozenset(
 )
 
 
+def require_metric(metric: str, recorded: Iterable[str], where: str = "these results") -> None:
+    """Raise ``ValueError`` when ``metric`` is not one of ``recorded``.
+
+    The message names the closest recorded metric and lists them all. Every
+    `lasagna results` command checks this before computing anything: given
+    `-m ndgc@10`, `results significance` printed "No pair survives Holm
+    correction" and exited 0, a verdict on numbers that do not exist.
+    """
+    from ..core._text import did_you_mean
+
+    names = sorted(set(recorded))
+    if metric in names:
+        return
+    listing = f"They record: {', '.join(names)}." if names else "They record no metrics."
+    raise ValueError(f"No metric {metric!r} in {where}{did_you_mean(metric, names)}. {listing}")
+
+
 def lower_is_better(metric: str) -> bool:
     """Whether a smaller ``metric`` ranks first (``noise_sensitivity_regen`` too)."""
     for suffix in ("_regen", "_agentic"):
@@ -469,6 +486,22 @@ class BenchmarkResults:
         for r in self._results:
             names.update(r.metrics.keys())
         return sorted(names)
+
+    def require_metric(
+        self, metric: str, benchmark: str = "", where: str = "these results"
+    ) -> None:
+        """Raise ``ValueError`` unless some task (on ``benchmark``, if given)
+        recorded ``metric``, as an aggregate or per query; see :func:`require_metric`."""
+        tasks = self._by_benchmark.get(benchmark, []) if benchmark else self._results
+        recorded = {name for t in tasks for name in t.metrics}
+        recorded.update(
+            name
+            for t in tasks
+            for sample in t.per_sample_scores or []
+            for name, value in sample.items()
+            if not name.startswith("_") and isinstance(value, (int, float))
+        )
+        require_metric(metric, recorded, f"{where} on {benchmark}" if benchmark else where)
 
     # ------------------------------------------------------------------
     # Statistical testing

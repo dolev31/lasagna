@@ -620,6 +620,11 @@ Numbers that were wrong:
 
 Results tooling:
 
+- **A typo in `-m` got a verdict.** `results significance -m ndgc@10` (or a
+  metric no task recorded) printed "No pair survives Holm correction" and
+  exited 0, and `results leaderboard`, `compare`, `power` and `interaction`
+  also exited 0. Every results command now refuses a metric the run did not
+  record, names the closest one and lists the rest, as `results view` did.
 - **`--strict` and the hub refused single-run bundles while the docs
   recommend `n_runs: 1` for retrieval.** A run now records `nothing_samples`
   (only retrieval ran, no task called an LLM, repeats if any were identical);

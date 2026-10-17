@@ -455,6 +455,18 @@ def _require_component(stage: str, name: str) -> None:
     _require_known(stage.replace("_", " "), name, registry.list(stage)[stage], listing)
 
 
+def _require_metric(results, metric: str, benchmark: str = "", where: str = "these results"):
+    """Exit with the recorded metrics when ``results`` never recorded ``metric``.
+
+    Every results command checks this before it computes anything: a typo in
+    `-m` got a significance verdict and exit 0.
+    """
+    try:
+        results.require_metric(metric, benchmark, where)
+    except ValueError as exc:
+        _error(str(exc))
+
+
 # ---------------------------------------------------------------------------
 # init
 # ---------------------------------------------------------------------------
@@ -1968,9 +1980,12 @@ def benchmark_compare(
         return
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    console.print(BenchmarkResults.load(results_a).to_latex(metric))
+    runs = [BenchmarkResults.load(path) for path in (results_a, results_b)]
+    for path, run in zip((results_a, results_b), runs):
+        _require_metric(run, metric, where=Path(path).name)
+    console.print(runs[0].to_latex(metric))
     console.print()
-    console.print(BenchmarkResults.load(results_b).to_latex(metric))
+    console.print(runs[1].to_latex(metric))
 
 
 @benchmark_app.command("licenses")
@@ -2658,11 +2673,10 @@ def results_compare(
     """Compare two runs, reporting whether they are comparable at all."""
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    console.print(
-        BenchmarkResults.load(a).compare(BenchmarkResults.load(b), metric),
-        markup=False,
-        highlight=False,
-    )
+    first, second = BenchmarkResults.load(a), BenchmarkResults.load(b)
+    for path, results in ((a, first), (b, second)):
+        _require_metric(results, metric, where=Path(path).name)
+    console.print(first.compare(second, metric), markup=False, highlight=False)
 
 
 @results_app.command("power")
@@ -2701,6 +2715,7 @@ def results_power(
                 "them would describe none of them."
             )
         benchmark = benchmarks[0]
+    _require_metric(results, metric, benchmark)
 
     try:
         report = results.minimum_detectable_effect(
@@ -2790,6 +2805,7 @@ def results_significance(
                 "correcting for comparisons nobody made."
             )
         benchmark = benchmarks[0]
+    _require_metric(results, metric, benchmark)
 
     try:
         rows = results.pairwise_significance(metric, benchmark, correction=correction, alpha=alpha)
@@ -2960,7 +2976,13 @@ def results_per_query(
 
     if sort_by:
         if not any(sort_by in r for r in rows):
-            _error(f"No row carries {sort_by!r}. Available: {sorted(_metric_columns(rows))}")
+            from .core._text import did_you_mean
+
+            columns = sorted(_metric_columns(rows))
+            _error(
+                f"No row carries {sort_by!r}{did_you_mean(sort_by, columns)}. "
+                f"Available: {', '.join(columns)}."
+            )
         rows = sorted(rows, key=lambda r: r.get(sort_by, float("inf")))
 
     if output:
@@ -3101,6 +3123,7 @@ def results_interaction(
                 "pooling across them mixes different corpora into one number."
             )
         benchmark = benchmarks[0]
+    _require_metric(results, metric, benchmark)
 
     configs = sorted({r.config_name for r in results._results if not r.error})
     # A factorial run names its arms `neither`, `<a>`, `<b>`, `<a>+<b>`, so the
@@ -3464,7 +3487,9 @@ def results_leaderboard(
         if fmt == "markdown" and not output and not _is_bundle(data):
             from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-            console.print(BenchmarkResults.load(directory).leaderboard(metric), markup=False)
+            run = BenchmarkResults.load(directory)
+            _require_metric(run, metric)
+            console.print(run.leaderboard(metric), markup=False)
             return
     try:
         if fmt == "latex" and not output:

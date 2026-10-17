@@ -429,10 +429,30 @@ def render_latex(
 FORMATS = {"markdown": ".md", "latex": ".tex"}
 
 
+def _bundles_recording(directory: str | Path, metric: str) -> List[Dict[str, Any]]:
+    """The bundles under ``directory``, refusing a ``metric`` none of them records.
+
+    A typo used to list every row as "no ndgc@10 recorded" and succeed.
+    """
+    from .results import require_metric
+
+    bundles = load_bundles(directory)
+    if bundles:
+        recorded = {
+            name
+            for bundle in bundles
+            for result in bundle.get("results", [])
+            for name in (result.get("metrics") or {})
+        }
+        where = Path(directory).name if Path(directory).is_file() else "these bundles"
+        require_metric(metric, recorded, where)
+    return bundles
+
+
 def grouped_rows(directory: str | Path, metric: str = "ndcg@10") -> Dict[str, Any]:
     """Read the bundles under ``directory`` (or the one file it names) as
     ranked comparability groups."""
-    rows = collect_rows(load_bundles(directory), metric)
+    rows = collect_rows(_bundles_recording(directory, metric), metric)
     mark_verified(rows)
     return group(rows)
 
@@ -448,7 +468,7 @@ def build(
     ``"markdown"`` or ``"latex"``) plus an index."""
     if fmt not in FORMATS:
         raise ValueError(f"Unknown format {fmt!r}. Use 'markdown' or 'latex'.")
-    rows = collect_rows(load_bundles(directory), metric)
+    rows = collect_rows(_bundles_recording(directory, metric), metric)
     mark_verified(rows)
     grouped = group(rows)
 
