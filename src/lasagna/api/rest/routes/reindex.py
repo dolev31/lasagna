@@ -32,6 +32,8 @@ def _reindex_sync(backend: RAGBackend, session_id: str):
             "message": "No documents to reindex",
         }
 
+    from .documents import reindex_failure
+
     reindexed = 0
     errors = []
     for doc in docs:
@@ -40,7 +42,9 @@ def _reindex_sync(backend: RAGBackend, session_id: str):
             reindexed += 1
         except Exception as exc:
             logger.warning(f"Reindex failed for {doc.document_id}: {exc}")
-            errors.append(f"{doc.document_id}: {exc}")
+            # The single route's reason, not the raw exception text.
+            reason = reindex_failure(exc, doc.document_id, session_id).detail
+            errors.append(f"{doc.document_id}: {reason}")
 
     return {
         "status": "completed" if not errors else "partial",

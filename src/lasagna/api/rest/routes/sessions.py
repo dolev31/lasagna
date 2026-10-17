@@ -5,13 +5,15 @@
 With ``RAG_REQUIRE_AUTH`` on, minting a token needs an ``X-API-Key`` from
 ``RAG_API_KEYS`` (or the admin token). Without that, anyone who could reach the
 endpoint minted as many sessions as they liked, and since rate limits and
-tokens were counted per session, each new session was a fresh allowance.
+tokens were counted per session, each new session was a fresh allowance. A key
+mints at most ``RAG_MAX_SESSIONS_PER_KEY`` sessions per token lifetime, and each
+is recorded with its key, whose quota all of them share.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException
@@ -109,6 +111,48 @@ def _principal_or_refuse(x_api_key: Optional[str], x_admin_token: Optional[str])
     return principal
 
 
+def _record_the_key(session_id: str, principal: Optional[str]) -> None:
+    """Record which API key mints ``session_id``, refusing a key at its session limit.
+
+    Recorded in the metadata store, where every API worker and pod, the Celery
+    worker and garbage collection read it: quotas count per key over all its
+    sessions. The admin token is not limited, and with auth off nothing is
+    recorded.
+    """
+    from lasagna.api.rest.auth_mode import KEY_PRINCIPAL_PREFIX
+    from lasagna.api.rest.limits import max_sessions_per_key
+    from lasagna.api.rest.session_token import _DEFAULT_TTL
+    from lasagna.core.database import get_rag_database
+
+    if not principal or not principal.startswith(KEY_PRINCIPAL_PREFIX):
+        return
+    limit = max_sessions_per_key()
+    since = datetime.now(timezone.utc) - timedelta(seconds=_DEFAULT_TTL)
+    try:
+        recorded = get_rag_database().bind_session_principal(
+            session_id, principal, limit=limit, since=since
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"The session could not be recorded in the metadata store "
+                f"({type(exc).__name__}), so it was not issued. Retry; GET "
+                "/api/v1/health/ready names the store when it is down."
+            ),
+        ) from exc
+    if not recorded:
+        days = _DEFAULT_TTL / 86400
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"This API key has minted {limit} sessions in the last {days:g} days, the "
+                f"limit RAG_MAX_SESSIONS_PER_KEY sets. Reuse a session token you have, or "
+                "raise RAG_MAX_SESSIONS_PER_KEY on the server."
+            ),
+        )
+
+
 @router.post(
     "",
     response_model=SessionResponse,
@@ -121,6 +165,10 @@ def _principal_or_refuse(x_api_key: Optional[str], x_admin_token: Optional[str])
         403: {
             "model": ErrorResponse,
             "description": "Naming a session_id or user_id needs X-Admin-Token",
+        },
+        429: {
+            "model": ErrorResponse,
+            "description": "The API key has minted RAG_MAX_SESSIONS_PER_KEY sessions",
         },
         503: {
             "model": ErrorResponse,
@@ -169,6 +217,7 @@ async def create_session(
 
     session_id = body.session_id or f"sess_{uuid.uuid4().hex[:12]}"
     user_id = body.user_id or f"user_{uuid.uuid4().hex[:12]}"
+    _record_the_key(session_id, principal)
 
     from ..session_token import create_session_token
 

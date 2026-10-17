@@ -82,10 +82,9 @@ def _functions_calling_guard_admin():
 
 
 def _token(session_id="tenant-a"):
-    from lasagna.api.rest.session_token import create_session_token
+    from tests._tokens import minted_token
 
-    token, _expiry = create_session_token(session_id=session_id, user_id="u1")
-    return token
+    return minted_token(session_id)
 
 
 #: (callable, kwargs) for each tool that REST gates behind X-Admin-Token.

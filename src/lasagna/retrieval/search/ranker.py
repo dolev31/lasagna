@@ -1187,6 +1187,7 @@ class ColBERTReranker:
         if self._model is None:
             with self._lock:
                 if self._model is None:
+                    model_downloads.check(self._model_name, kind="ColBERT reranker model")
                     try:
                         from transformers import AutoModel, AutoTokenizer
 

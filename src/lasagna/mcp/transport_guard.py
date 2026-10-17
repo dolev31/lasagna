@@ -220,6 +220,19 @@ def guard_identity(
         )
 
 
+def admin_token_matches(admin_token: Optional[str]) -> bool:
+    """Whether ``admin_token`` is the configured ``RAG_ADMIN_TOKEN`` (constant time).
+
+    For a tool that shows the operator more without needing the operator
+    (``get_system_status``); an operation that needs the admin token calls
+    `guard_admin`.
+    """
+    from lasagna.api.rest.auth_mode import configured_secret, secret_matches
+
+    expected = configured_secret("RAG_ADMIN_TOKEN")
+    return bool(admin_token and expected and secret_matches(admin_token, expected))
+
+
 def guard_admin(admin_token: Optional[str], *, tool: str) -> None:
     """Require the same credential REST requires for the same operation.
 

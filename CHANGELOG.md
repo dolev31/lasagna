@@ -13,7 +13,7 @@ each one that implements a published method naming its paper; an evaluation
 harness with paired significance tests, interaction tests and checkable result
 bundles; and the same pipeline served over MCP, REST and a Docker Compose stack.
 
-Its metric definitions are `METRICS_VERSION` 1.6: NDCG with linear gain and
+Its metric definitions are `METRICS_VERSION` 1.7: NDCG with linear gain and
 zero gain for a negative grade (as `trec_eval`), cutoff metrics over `k`
 documents in ranked order, exact match and token F1 normalized in the official SQuAD order with
 `[n]` citation markers removed and abstention counted only when an answer opens
@@ -21,7 +21,7 @@ with one, and `factual_correctness` among the judged metrics
 ([metrics.md](src/lasagna/knowledge_evaluation_sdk/docs/metrics.md) defines
 each). The version is part of every comparability key, so results from the
 internal 0.1.0a1 pre-release (1.1) or from development builds since (1.2 to
-1.5) never share a leaderboard group with results from this release.
+1.6) never share a leaderboard group with results from this release.
 
 ### Added
 
@@ -266,7 +266,17 @@ Defaults and naming:
   `lasagna plugins list` load no model code, and `lasagna-mcp --help` takes
   under half a second (it took 8).
 
-Metric definitions and results (`METRICS_VERSION` 1.6):
+Metric definitions and results (`METRICS_VERSION` 1.7):
+
+- A chunk id that repeats in a search's candidate list takes one place before
+  the reranker and the cut to `top_k` (1.7). Numbers move only for a corpus
+  whose store held a chunk twice, one ingested on top of itself (builds before
+  2026-10-09 did that when a stale corpus could not be deleted, and the
+  harness did it when it could not read which documents were present; it now
+  removes them first), and only for dense-only arms: the speed profile,
+  `dense_minilm` and `dense_bge_small` in `beir_tier1.yaml`, the smoke and
+  demo sweeps. BM25, SPLADE, hybrid RRF and fused arms merge by chunk id and
+  cannot move.
 
 - The retrieval track scores the ranked list. Under a profile with context
   reordering on (standard, the default `base_profile`, balanced and
@@ -1428,16 +1438,73 @@ Servers and deployment:
   spiece.model"): its checkpoint ships only a SentencePiece tokenizer, and
   `sentencepiece` was not a dependency. It is now a core dependency, and CI's
   weights job runs monoT5 on its real checkpoint.
+- **Uploads, reindexes and deletes of one document wait for each other across
+  processes.** The duplicate check and the document lock were per process:
+  two identical uploads on two gunicorn workers were both indexed, and a
+  delete on one pod during a reindex on another left the new chunks with no
+  row and answered 500. They are now a PostgreSQL advisory lock, or a file
+  lock beside a SQLite store; a document deleted while it is processed has
+  its new chunks removed and answers 404 with the reason. Workers starting at
+  once on a new SQLite file no longer fail with "database is locked".
+- Two reindexes of one document at once left two copies after a model
+  switch: the second read the row before the lock and replaced a copy the
+  first had already retired. The row is now read under the lock.
+- **A document that fails to index leaves nothing for search to serve.** A
+  failure after the vector insert left the chunks in the store, and search
+  served chunks of failed documents and of documents still processing. Such a
+  failure now removes the inserted chunks, a retry or a Celery message
+  delivered again first removes what an earlier attempt stored (Milvus kept
+  both copies of each id), and search returns chunks of ready documents only.
+  A replacement keeps its row, file and chunks in agreement at every failure
+  point.
+- Uploading a file again whose only copies in the session's collection failed
+  retries the newest failed copy under its id instead of adding a document:
+  three offline reruns of the quickstart left "Documents: 3", all failed.
+  Deleting a failed document no longer lowers the quota counters of the
+  others.
+- An upload under a new `document_id` saves its row with a plain insert, under
+  the document's lock: two uploads under one new id both found it free, and
+  the second's row replaced the first's (on PostgreSQL its `session_id` too),
+  so another session could take the document over. A taken id answers 409, or
+  404 when another session holds it.
+- Chunks of archived documents (and of failed or processing ones) took places
+  in the top-k cut and were dropped after it, so such a query returned fewer
+  than `top_k` results. They are removed before the cut. Benchmark corpora are
+  all ready documents, so no benchmark number changes.
+- **With auth on, quotas count per API key, and a key mints a bounded number of
+  sessions.** Quotas were per session and a session cost nothing, so one key
+  could fill the uploads volume and the vector store. Each session is recorded
+  with the key that minted it, its usage counts toward that key's quota, and
+  `RAG_MAX_SESSIONS_PER_KEY` (default 100 per token lifetime) caps the sessions
+  a key mints. Auth off: unchanged.
+- A session token minted while auth was off kept working after auth was
+  switched on with only `RAG_ADMIN_TOKEN` set (no `RAG_API_KEYS`). With auth on,
+  a token must name its API key or the admin token.
+- `monot5_model`, `splade_model`, `colbert_model` and `flashrank_model`, all
+  session settings, loaded without the server's download policy: a session
+  naming any repository started a download inside a request. Every model
+  loader now checks it first, as the embedder and the cross-encoder did.
+- Numeric session settings had no maximum (`ircot_max_steps`,
+  `rag_fusion_n_queries`, `hybrid_fusion_depth` and the rest accepted 10^6).
+  `SESSION_MAXIMUMS` gives each one a bound above every shipped profile,
+  preset and sweep; it applies to session writes (REST, MCP, imports), never
+  to the evaluation harness or the server's own settings.
+- The MCP `get_system_status` tool took no credential with auth on and named
+  the database and upload paths and the row count of the collection all
+  sessions share. It now needs a session token like the other tools; the
+  paths and the count need `admin_token`.
+- The MCP `/docs` tester logged each call's arguments (a search's query
+  among them) and the first 100 characters of its result at INFO; it logs
+  the tool and argument names at DEBUG. The batch upload and the bulk reindex
+  returned raw exception text per file; they return the reason the single
+  routes give.
+- Compose no longer publishes Redis (the Celery broker, no password) on the
+  host, where any local process could queue tasks such as the orphan repair.
+  `-f expose-redis.yml` publishes it on loopback for debugging.
 
 ### Known issues
 
-- **Quotas are counted per session, not per API key.** With auth on, rate
-  limits are counted per key, but the document, storage and chunk quotas are
-  per session, and one key can mint any number of sessions. Counting them per
-  key needs a durable record of which key made each session, readable by the
-  Celery worker and by garbage collection, which rebuild the counters per
-  session; it is planned. `src/lasagna/deploy/README.md` (Request limits) says
-  what to do meanwhile.
+None.
 
 ### Planned for 0.2.0
 

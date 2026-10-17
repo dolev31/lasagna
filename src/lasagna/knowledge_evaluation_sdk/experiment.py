@@ -3577,7 +3577,24 @@ async def _ensure_corpus_ingested(
         except _StaleCorpusCleanupError:
             raise
         except Exception as exc:
-            logger.warning(f"Could not check existing vectors (will ingest fresh): {exc}")
+            # Ingested fresh on top of a corpus that was there, every chunk was
+            # stored twice (Milvus `insert` keeps both rows of an id) and the
+            # dense ranked lists held each one twice. What is there goes first.
+            logger.warning(
+                f"Could not check existing vectors ({exc}); removing session "
+                f"{shared_session_id}'s vectors, if any, and ingesting fresh."
+            )
+            try:
+                if _resolved.has_collection(_coll_name):
+                    _filt = _resolved.session_filter(_coll_name, shared_session_id)
+                    _resolved.delete(collection_name=_coll_name, filter_expr=_filt)
+            except Exception as _del_exc:
+                raise _StaleCorpusCleanupError(
+                    f"Could not check or delete the vectors of session {shared_session_id} "
+                    f"({_del_exc}), so the corpus was not ingested on top of them. Delete "
+                    f"that session or collection and rerun."
+                ) from _del_exc
+            _ingest_backend.hybrid_searcher.clear_session(shared_session_id)
             ready_ids = set()
 
         if not _skip_ingest:

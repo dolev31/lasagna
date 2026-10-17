@@ -1146,6 +1146,101 @@ class TestFullStack:
         assert deleted.status_code == 200, deleted.text
         assert not any(doc_id in search() for _ in range(8))
 
+    def test_identical_uploads_on_several_workers_keep_one_copy(self, own_session_headers):
+        """Each upload on a connection of its own, at once, so several workers race.
+
+        The duplicate check held a per-process lock: two workers each found no
+        copy and both indexed the file.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        body = f"The {uuid.uuid4().hex} lichen census of 2024 found 41 species.\n" * 400
+
+        def upload(_):
+            fresh = _make_session()
+            return fresh.post(
+                f"{BASE_URL}/documents",
+                files={"file": ("lichens.txt", body.encode(), "text/plain")},
+                headers={**own_session_headers, "Connection": "close"},
+                timeout=UPLOAD_TIMEOUT,
+            )
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            replies = list(pool.map(upload, range(6)))
+        assert all(r.status_code == 201 for r in replies), [r.text for r in replies]
+        ids = {r.json()["document_id"] for r in replies}
+        try:
+            assert len(ids) == 1, ids
+            (doc_id,) = ids
+            assert sum(r.json().get("duplicate_of") == doc_id for r in replies) == 5
+            _wait_for_document_ready(doc_id, own_session_headers)
+            listed = http.get(
+                f"{BASE_URL}/documents", headers=own_session_headers, timeout=DEFAULT_TIMEOUT
+            ).json()
+            assert [d["document_id"] for d in listed["documents"]] == [doc_id]
+        finally:
+            for doc_id in ids:
+                http.delete(
+                    f"{BASE_URL}/documents/{doc_id}",
+                    headers=own_session_headers,
+                    timeout=DEFAULT_TIMEOUT,
+                )
+
+    def test_a_delete_during_a_reindex_leaves_nothing_behind(self, own_session_headers):
+        """The delete reaches another worker while the reindex runs.
+
+        It used to remove the row at once; the reindex then stored its chunks
+        with no row pointing at them and answered 500.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        term = f"bryozoan{uuid.uuid4().hex[:6]}"
+        body = "".join(
+            f"Colony {i} of the {term} survey grew on kelp at {i % 17} metres. "
+            for i in range(3000)
+        )
+        resp = http.post(
+            f"{BASE_URL}/documents",
+            files={"file": ("bryozoans.txt", body.encode(), "text/plain")},
+            headers=own_session_headers,
+            timeout=UPLOAD_TIMEOUT,
+        )
+        assert resp.status_code == 201, resp.text
+        doc_id = resp.json()["document_id"]
+        _wait_for_document_ready(doc_id, own_session_headers)
+
+        def call(method, path):
+            fresh = _make_session()
+            return getattr(fresh, method)(
+                f"{BASE_URL}{path}",
+                headers={**own_session_headers, "Connection": "close"},
+                timeout=120,
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            reindex = pool.submit(call, "post", f"/documents/{doc_id}/reindex")
+            time.sleep(0.3)
+            delete = pool.submit(call, "delete", f"/documents/{doc_id}")
+            reindexed, deleted = reindex.result(), delete.result()
+
+        assert reindexed.status_code in (200, 404), reindexed.text
+        assert deleted.status_code in (200, 404), deleted.text
+        assert 200 in (reindexed.status_code, deleted.status_code)
+        if deleted.status_code == 404:  # the reindex won and the document is still there
+            http.delete(f"{BASE_URL}/documents/{doc_id}", headers=own_session_headers, timeout=60)
+        gone = http.get(
+            f"{BASE_URL}/documents/{doc_id}", headers=own_session_headers, timeout=DEFAULT_TIMEOUT
+        )
+        assert gone.status_code == 404
+        found = http.post(
+            f"{BASE_URL}/search",
+            json={"query": f"{term} survey colony", "top_k": 10, "use_hyde": False},
+            headers=own_session_headers,
+            timeout=SEARCH_TIMEOUT,
+        )
+        assert found.status_code == 200, found.text
+        assert all(r["document_id"] != doc_id for r in found.json()["results"])
+
     def test_the_mcp_server_is_alive(self):
         try:
             resp = http.get(f"{MCP_BASE_URL}/health", timeout=HEALTH_TIMEOUT)

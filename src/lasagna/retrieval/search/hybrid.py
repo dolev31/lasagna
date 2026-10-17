@@ -59,6 +59,7 @@ except ImportError:
     logger.info("Milvus hybrid search components not available.")
 
 from lasagna.core.model_licenses import warn_if_restricted
+from lasagna.core import model_downloads
 from lasagna.core.model_downloads import one_weights_copy
 from lasagna.core.config import rag_config
 
@@ -105,6 +106,8 @@ class SPLADESparseEncoder:
                 from transformers import AutoModelForMaskedLM, AutoTokenizer
             except ImportError as exc:
                 raise ImportError("SPLADE needs transformers: pip install transformers") from exc
+            # Not remembered as a failure: it loads once the model is on disk.
+            model_downloads.check(self._model_name, kind="SPLADE model")
             warn_if_restricted(self._model_name, component="SPLADE sparse encoder")
             try:
                 tokenizer = AutoTokenizer.from_pretrained(self._model_name)

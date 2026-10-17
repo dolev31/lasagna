@@ -11,6 +11,10 @@ f-string field, a positional argument or a loguru keyword argument whose value
 is a variable or attribute named like a query (``query``, ``new_query``,
 ``sample.question``, ``prompt``) fails it. ``len(query)`` and names ending in
 ``_count``, ``_id``, ``_idx``, ``_hash`` and the like say nothing of the text.
+
+A tool call's ``arguments`` (a search tool's query among them) and the text a
+tool returned (``result_text``) count as query text too: the MCP ``/docs``
+tester logged both at INFO.
 """
 
 from __future__ import annotations
@@ -22,7 +26,9 @@ from pathlib import Path
 PACKAGE = Path(__file__).resolve().parents[1] / "src" / "lasagna"
 
 LEVELS = {"info", "success", "warning", "error", "critical", "exception"}
-QUERY_WORD = re.compile(r"(^|_)(query|queries|question|questions|prompt)($|_)")
+QUERY_WORD = re.compile(
+    r"(^|_)(query|queries|question|questions|prompt|arguments|result_text)($|_)"
+)
 NOT_TEXT = ("_count", "_id", "_ids", "_idx", "_index", "_len", "_hash", "_type", "_tokens", "_ms")
 #: Calls whose result says nothing of the text passed in.
 OPAQUE_CALLS = {"len", "hash_text", "bool", "type", "id"}
@@ -90,6 +96,8 @@ logger.warning("failed for %s", sample.question)
 logger.bind(x=1).error(f"{prompt}")
 logger.info(f"{len(query)} characters, {query_hash}")
 logger.debug(f"{query}")
+logger.info(f"API call: args={_redact_credentials(arguments)}")
+logger.info(f"Extracted text: {result_text[:100]}...")
 """
     tree = ast.parse(source)
     calls = [n for n in ast.walk(tree) if _logger_call(n)]
@@ -105,4 +113,4 @@ logger.debug(f"{query}")
             elif not isinstance(value, ast.Constant):
                 names += _text_names(value)
         flagged.append(bool(names))
-    assert flagged == [True, True, True, True, False]
+    assert flagged == [True, True, True, True, False, True, True]

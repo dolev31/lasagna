@@ -390,7 +390,7 @@ environment only: not from the settings file, and not per session.
 | Variable | Default | Description |
 |---|---|---|
 | `RAG_REQUIRE_AUTH` | `false` | When true, only a verified X-Session-Token names a session, and POST /api/v1/sessions needs an X-API-Key. When false, binding beyond loopback is refused at startup unless RAG_BIND_IS_PROTECTED is set. |
-| `RAG_API_KEYS` | unset | Comma-separated keys, each at least 32 characters, that may mint session tokens when RAG_REQUIRE_AUTH is on. Rate limits are counted per key; storage quotas per session. |
+| `RAG_API_KEYS` | unset | Comma-separated keys, each at least 32 characters, that may mint session tokens when RAG_REQUIRE_AUTH is on. Rate limits and quotas are counted per key, over all the sessions it minted. |
 | `RAG_JWT_SECRET` | a random secret per process | Signs session tokens (HMAC-SHA256). Unset, tokens stop working when the process restarts; with RAG_REQUIRE_AUTH on, an unset, placeholder or shorter-than-32-character secret stops the server at startup. |
 | `RAG_SESSION_TOKEN_TTL_SECONDS` | `604800` | How long a session token is valid, in seconds (7 days). |
 | `RAG_ADMIN_TOKEN` | unset | The X-Admin-Token for /api/v1/admin/* and for naming a session in POST /api/v1/sessions. Unset, a placeholder or shorter than 32 characters: the admin routes answer 503. |
@@ -403,6 +403,7 @@ environment only: not from the settings file, and not per session.
 | `RAG_MAX_BATCH_FILES` | `20` | Files in one POST /api/v1/documents/batch; more is refused with 400. |
 | `RAG_MAX_BATCH_BYTES` | `209715200` | Total body of one batch upload (200 MiB); more is refused with 413 before the body is read. |
 | `RAG_SEARCH_TIMEOUT` | `120` | Seconds a REST search may run before it answers 504. |
+| `RAG_MAX_SESSIONS_PER_KEY` | `100` | With RAG_REQUIRE_AUTH on, how many sessions one API key may mint per token lifetime (RAG_SESSION_TOKEN_TTL_SECONDS); one more answers 429. Raise it for an application that makes a session per end user. |
 | `RAG_EMBED_MCP` | `false` | Mount the MCP server at /mcp inside the REST process, for single-process deployments such as Milvus Lite. |
 | `RAG_CONFIGURATOR` | `false` | Mount the configurator UI at /configurator, with its API routes. |
 | `LASAGNA_LOG_FORMAT` | `text` | json writes one JSON object per log line; text shows a request's id before the message. Any other value stops the server at startup. |

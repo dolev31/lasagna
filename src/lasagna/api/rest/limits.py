@@ -10,6 +10,8 @@ Variable                Default      Meaning
 ``RAG_MAX_BATCH_FILES`` 20           Files in one ``POST /documents/batch``
 ``RAG_MAX_BATCH_BYTES`` 209715200    Total body of one batch upload (200 MiB)
 ``RAG_SEARCH_TIMEOUT``  120          Seconds a REST search may run before 504
+``RAG_MAX_SESSIONS_PER  100          Sessions one API key may mint per token
+_KEY``                               lifetime (``RAG_SESSION_TOKEN_TTL_SECONDS``)
 ``LASAGNA_LOG_FORMAT``  ``text``     ``json`` writes one JSON object per line
 ======================  ===========  ==========================================
 
@@ -35,6 +37,7 @@ _SETTINGS = {
     "RAG_MAX_BATCH_FILES": (20, int, 1, 1000),
     "RAG_MAX_BATCH_BYTES": (200 * 1024 * 1024, int, 1, 1 << 40),
     "RAG_SEARCH_TIMEOUT": (120.0, float, 1.0, 3600.0),
+    "RAG_MAX_SESSIONS_PER_KEY": (100, int, 1, 1_000_000),
 }
 
 
@@ -68,6 +71,10 @@ def max_batch_bytes() -> int:
 
 def search_timeout() -> float:
     return _setting("RAG_SEARCH_TIMEOUT")
+
+
+def max_sessions_per_key() -> int:
+    return _setting("RAG_MAX_SESSIONS_PER_KEY")
 
 
 LOG_FORMAT_ENV = "LASAGNA_LOG_FORMAT"
