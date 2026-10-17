@@ -64,7 +64,10 @@ def normalize_claims(claims: Optional[Mapping[str, Any]]) -> Optional[Dict[str, 
         return {benchmark: _metrics(benchmark, rest)}
     if all(isinstance(value, Mapping) for value in claims.values()):
         return {str(bench): _metrics(str(bench), values) for bench, values in claims.items()}
-    metric, value = next((k, v) for k, v in claims.items() if not isinstance(v, Mapping))
+    metric, value = next(
+        ((k, v) for k, v in claims.items() if not isinstance(v, Mapping) and k != "split"),
+        next(iter(claims.items())),
+    )
     raise ValueError(
         f"claims={dict(claims)!r} does not name the benchmark the paper measured "
         f"{metric!r} on, so a results table would print it beside a run of any "
