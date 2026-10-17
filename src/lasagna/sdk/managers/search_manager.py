@@ -95,7 +95,7 @@ class SearchManager:
         - HyDE query expansion if enabled
         - Cross-encoder reranking if enabled
         - MMR diversity if enabled
-        - Intelligent query routing (Adaptive-RAG)
+        - Query routing by estimated complexity (Adaptive-RAG)
 
         Args:
             query: Natural language search query

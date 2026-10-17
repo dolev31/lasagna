@@ -957,6 +957,71 @@ def _check_override_keys(pipeline_configs: List[Dict[str, Any]]) -> None:
         )
 
 
+def _check_override_values(pipeline_configs: List[Dict[str, Any]]) -> None:
+    """Refuse an arm whose settings the pipeline would refuse, before any corpus is ingested.
+
+    An arm's settings are validated when its task applies them, so
+    ``chunk_size: -5`` and ``hybrid_alpha: 7`` passed the dry run, failed two
+    tasks of three mid-sweep, and the run still printed a "Next:" step. The
+    same validator now checks every arm first (``validate_config``: the ranges
+    and types in ``configurator/schema.py``, which the environment's ranges
+    match), over the profile's settings as the task merges them. It checks
+    validity only: the caps on what a session may store are not applied, so
+    an arm may go past them.
+    """
+    import copy
+
+    from lasagna.configurator.validation import validate_config
+    from lasagna.core.pipeline import KnowledgePipeline
+
+    profiles: Dict[str, Dict[str, Any]] = {}
+    problems: List[str] = []
+    for pc in pipeline_configs:
+        settings = {
+            k: v
+            for k, v in (pc.get("overrides") or {}).items()
+            if k not in _COMPONENT_KEYS and k not in HARNESS_KEYS
+        }
+        if not settings:
+            continue
+        profile = pc.get("profile") or "standard"
+        if profile not in profiles:
+            profiles[profile] = dict(KnowledgePipeline.from_profile(profile)._config)
+        merged = copy.deepcopy(profiles[profile])
+        merged.update(settings)
+        result = validate_config(merged)
+        problems.extend(
+            f"arm {pc.get('name')!r}: {e['key']}: {e['message']}" for e in result.errors
+        )
+    if problems:
+        raise ValueError(
+            "These arms have settings the pipeline refuses, so their tasks would fail: "
+            + "; ".join(problems)
+            + ". Fix them in the sweep file; docs/reference/settings.md gives each "
+            "setting's range."
+        )
+
+
+def _refuse_a_held_store() -> None:
+    """Raise before a run makes its folder when another process holds the local store.
+
+    With `lasagna serve` running, every task failed when it opened the store,
+    after the run had printed its output folder. The CLI's benchmark commands
+    move to a store of their own when the default one is held; a run started
+    from Python is told how to do the same.
+    """
+    from lasagna.core.local_server import local_store_held, local_store_path
+
+    if local_store_held():
+        raise RuntimeError(
+            f"Another process is using the local store at {local_store_path()} (a running "
+            f"`lasagna serve`, an MCP server or another benchmark), so this experiment "
+            f"cannot open it. Stop that process, or give the experiment a store of its "
+            f"own: set RAG_DB_DIR=<another directory> before Python starts. `lasagna "
+            f"benchmark experiment` does this itself when the default store is held."
+        )
+
+
 def _load_component_references(
     pipeline_configs: List[Dict[str, Any]], search_paths: List[str]
 ) -> None:
@@ -1301,9 +1366,63 @@ def _refuse_unknown(keys: Iterable[str], known: Iterable[str], where: str) -> No
     )
 
 
+#: Keys whose value has one type, with the least a number may be. Checked
+#: while the file is read: ``n_runs: lots`` failed later with "'str' object
+#: cannot be interpreted as an integer", naming neither the file nor the key.
+_TYPED_KEYS: Dict[str, tuple] = {
+    "name": (str, None),
+    "description": (str, None),
+    "mode": (str, None),
+    "n_runs": (int, 1),
+    "n_samples": (int, 1),
+    "seed": (int, None),
+    "max_concurrency": (int, 1),
+    "max_corpus_docs": (int, 0),
+    "output_dir": (str, None),
+    "checkpoint_dir": (str, None),
+    "judge_model": (str, None),
+    "ingestion_per_config": (bool, None),
+    "benchmarks": (list, None),
+    "output_formats": (list, None),
+    "split": (str, None),
+}
+
+_TYPE_WORDS = {int: "a whole number", str: "a string", bool: "true or false", list: "a list"}
+
+
+def _check_types(data: Dict[str, Any], where: str) -> None:
+    """Raise ``ValueError`` for a key in ``data`` whose value has the wrong type or size."""
+    for key, (kind, least) in _TYPED_KEYS.items():
+        value = data.get(key)
+        if value is None:
+            continue
+        wrong = isinstance(value, bool) and kind is not bool or not isinstance(value, kind)
+        if wrong:
+            raise ValueError(
+                f"`{key}:` {where} takes {_TYPE_WORDS[kind]}, got {value!r}"
+                + (f" (at least {least})" if least is not None else "")
+                + "."
+            )
+        if least is not None and value < least:
+            raise ValueError(f"`{key}:` {where} must be at least {least}, got {value}.")
+
+
 def _parse_config(data: Dict[str, Any]) -> ExperimentConfig:
     """Parse a raw config dict into :class:`ExperimentConfig`."""
+    if not isinstance(data, dict):
+        # An empty file failed with "'NoneType' object is not iterable".
+        what = (
+            "the file is empty"
+            if data is None
+            else f"its top level is a {type(data).__name__}, not a mapping of keys"
+        )
+        raise ValueError(
+            f"{what}. A sweep names at least `benchmarks:` and `pipeline:`; "
+            "https://github.com/dolev31/lasagna/blob/main/examples/lasagna-plugin-template/sweep.yaml "
+            "is a complete one."
+        )
     _refuse_unknown(data, _TOP_LEVEL_KEYS, "the top level")
+    _check_types(data, "at the top level")
     pipeline_raw = data.get("pipeline") or {}
     if not isinstance(pipeline_raw, dict):
         raise ValueError(f"`pipeline:` must be a mapping, got {type(pipeline_raw).__name__}")
@@ -1325,6 +1444,7 @@ def _parse_config(data: Dict[str, Any]) -> ExperimentConfig:
                 )
             if "path" in b and not (isinstance(b["path"], str) and b["path"].strip()):
                 raise ValueError(f"A benchmark `path` must be a file or folder; got {b!r}")
+            _check_types(b, f"in benchmark {b.get('name') or b.get('path')!r}")
             benchmarks.append(
                 BenchmarkSpec(
                     name=b.get("name", ""),
@@ -1691,6 +1811,7 @@ class Experiment:
             )
         _check_profiles(pipeline_configs)
         _check_override_keys(pipeline_configs)
+        _check_override_values(pipeline_configs)
         _load_component_references(pipeline_configs, [cfg.base_dir] if cfg.base_dir else [])
         _check_components_exist(pipeline_configs)
         _check_components_conform(pipeline_configs)
@@ -1736,6 +1857,7 @@ class Experiment:
             :class:`BenchmarkResults` with all task outcomes.
         """
         cfg = self.config
+        _refuse_a_held_store()
         output_dir = cfg.effective_output_dir()
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 

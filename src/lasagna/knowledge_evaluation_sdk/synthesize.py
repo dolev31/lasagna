@@ -174,11 +174,34 @@ class SynthesisPlan:
     items: List[_Item]
     seed: int
     chunk_words: int
+    #: The largest ``--n`` this mix fills using each passage at most once per
+    #: question type.
+    supported_n: int = 0
 
     @property
     def llm_calls(self) -> int:
         """One call to write each question and one to check it."""
         return 2 * len(self.items)
+
+    def reuse_warning(self) -> Optional[str]:
+        """Why the corpus is too small for this many questions, or None.
+
+        A question type that asks for more questions than there are passages
+        writes several from the same passage, which then repeat each other:
+        ``--n 200`` was planned from three passages without a word.
+        """
+        over = {t: k for t, k in self.counts.items() if k > len(self.passages)}
+        if not over:
+            return None
+        most = max(-(-k // len(self.passages)) for k in over.values())
+        return (
+            f"{len(self.items)} questions from {len(self.passages)} "
+            f"{'passage' if len(self.passages) == 1 else 'passages'}: "
+            + ", ".join(f"{k} {t}" for t, k in over.items())
+            + f" means up to {most} questions of one type from the same passage, which "
+            f"repeat each other. This mix uses each passage at most once per type with "
+            f"--n {self.supported_n} or fewer; add documents for more."
+        )
 
     def token_estimate(self) -> Tuple[int, int]:
         """``(input, output)`` tokens, estimated at four characters per token."""
@@ -339,6 +362,10 @@ def plan_synthesis(
             f"{len(with_passages)}. Leave multihop out of --mix."
         )
 
+    supported_n = 0
+    while supported_n < n and max(split_counts(supported_n + 1, weights).values()) <= len(passages):
+        supported_n += 1
+
     rng = random.Random(seed)
     items: List[_Item] = [_Item("factoid", (p,)) for p in _draw(passages, counts["factoid"], rng)]
     for first in _draw(passages, counts["multihop"], rng):
@@ -355,6 +382,7 @@ def plan_synthesis(
         items=items,
         seed=seed,
         chunk_words=chunk_words,
+        supported_n=supported_n,
     )
 
 

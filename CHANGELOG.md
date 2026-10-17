@@ -63,7 +63,10 @@ Experiments:
 - **Sweeps** (`lasagna benchmark experiment sweep.yaml`) over components and
   settings, factorial designs, repeated runs and baseline arms; chunker and
   embedder arms get corpora of their own. A key the harness does not read is
-  an error naming the likely intended one.
+  an error naming the likely intended one, and a value out of its setting's
+  range is an error naming the arm, before anything is ingested and in
+  `--dry-run` too. The ranges are the same for an arm, a session, a settings
+  file and the environment.
 - **Your own data as a benchmark.** A JSONL or CSV file, or a BEIR folder:
   `benchmarks: [{path: data/my.jsonl}]` or `lasagna benchmark run ./my.jsonl`.
   It registers as `local/<stem>@<12 hex digits of its sha256>`, so an edited
@@ -71,7 +74,12 @@ Experiments:
   bad row and field. See [docs/own-data.md](docs/own-data.md).
 - **`lasagna benchmark synthesize`** writes factoid, multi-hop and unanswerable
   questions from your documents with the configured LLM, for development
-  rather than for reported results.
+  rather than for reported results. The plan warns when the documents are too
+  few for the number of questions asked.
+- **Benchmarks run beside `lasagna serve`.** While another process holds the
+  local Milvus Lite store, `benchmark run` and `benchmark experiment` use one
+  of their own in `~/.lasagna/bench/dbs` and say so
+  ([configuration.md](docs/configuration.md#where-data-lives)).
 - **`--dry-run`** prints the arms, tasks, models and whether each is
   downloaded, with token, time and (from a price table, `prices:`) dollar
   estimates from a 3-sample probe.
@@ -90,32 +98,45 @@ Results:
 - **`lasagna results significance`** (paired sign-flip test, Holm correction)
   ends in a verdict naming each pair that survives and who won;
   `results power` gives the minimum detectable effect; `results interaction`
-  tests a 2x2 design.
+  tests a 2x2 design. A sweep ends with the command to run next on its
+  results: one line per benchmark, and `results interaction` after a factorial.
 - **`lasagna results view`** writes a run as one offline HTML page:
   leaderboard, significance, every metric, the isolation check and a per-query
   diff with what each arm retrieved.
 - Every `lasagna results` command takes a run's folder (the one a run prints
-  after "Output:") or the `results.json` in it.
+  after "Output:") or the `results.json` in it, and reads `--benchmark` as the
+  benchmark's id or the `name:` the sweep gave it, listing the run's
+  benchmarks when it matches none.
 - **Bundles** (`results bundle`, `results validate`) carry what a reader needs
   to decide whether two numbers may be compared, with one comparability key per
   benchmark and configuration; `results leaderboard` groups by it, as markdown
-  pages or LaTeX tables (`--format latex`).
+  pages or LaTeX tables (`--format latex`), and `results compare` prints it
+  for each side, refusing a bundle that `results validate` rejects.
 - **Stage isolation.** Every run records a manifest of each stage's settings;
   arms that differ outside the stages they name block the bundle, and an arm
   whose named change never moved a ranking (on at least ten queries) is
   flagged inert.
 - **A reproduction:** on the full SciFact and NFCorpus test sets the dense
   models land within 0.002 NDCG@10 of MTEB, and BM25 with a cross-encoder
-  within 0.004 of the BEIR paper (`examples/reproduction/`).
+  within 0.004 of the BEIR paper (`examples/reproduction/`). Its
+  `results.csv` records the commit, metrics version and date of the run that
+  produced the numbers, and `results_csv.py` writes the same file from a rerun
+  to compare.
 
 Serving:
 
 - **MCP server** (`lasagna-mcp`, stdio by default, or `lasagna serve --mcp`)
   for Claude Code, Claude Desktop and Cursor. The default tool set, `safe`,
-  serves no deletion tools (`--tools all` does).
+  serves no deletion tools (`--tools all` does). `search` names the stages that
+  fell back and why, with the fix, also when it finds nothing (for example,
+  when the session's documents are in another model's collection). An
+  argument of the wrong type is refused in one sentence naming it and the
+  type it takes.
 - **REST API** (`lasagna serve`, or the Compose stack) under `/api/v1`,
   covered by the deprecation policy in [GOVERNANCE.md](GOVERNANCE.md); search
   responses name the stages that fell back in `degraded_stages`.
+- **`lasagna upload`** takes files, globs and folders (a folder's readable
+  files, subfolders included, saying what it skipped).
 - **Profiles** `speed` (92 MB, no LLM), `standard`, `balanced` and
   `max_quality`, applied per session from any surface. A switch that moves a
   session's documents to another model (`lasagna configure --reindex`,

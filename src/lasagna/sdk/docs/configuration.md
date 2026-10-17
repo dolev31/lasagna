@@ -126,7 +126,9 @@ A setting is looked up in this order, and the first place that has it wins: per-
 
 `KnowledgeConfig` fields enter that order in one of two places (`sdk/_config_bridge.py`):
 
-**Init-time fields** (for example `vector_backend`, `database_backend`, `cache_backend`, `celery_enabled`, `storage_backend`, and the embedding fields `embedding_model`, `embedding_dim` and `embedding_provider`) are written where environment variables go, before the backend is created, so they apply to the whole process. Set them when you create the `KnowledgeClient`; changing them afterward logs a warning and has no effect until a new client creates the backend.
+**Init-time fields** (for example `vector_backend`, `database_backend`, `cache_backend`, `celery_enabled` and `storage_backend`) are written where environment variables go, before the backend is created, so they apply to the whole process. Set them when you create the `KnowledgeClient`; changing them afterward logs a warning and has no effect until a new client creates the backend.
+
+**The embedding fields** (`embedding_model`, `embedding_dim`, `embedding_provider`) are both. They are the process's default, written before the backend is created, and they are also saved as the client's session settings, which win: each session indexes and searches with its own model, in that model's collection. Two clients in one process on different sessions can use different models.
 
 **Runtime fields** (for example `enable_hyde`, `enable_reranking`, `chunk_size`) are written as session overrides for the client's session. `set_config()` and `use_preset()` change them, and the next operation uses the new values. If you call them before the backend exists, the overrides are written when it is created.
 

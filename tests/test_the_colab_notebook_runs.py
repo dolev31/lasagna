@@ -141,17 +141,17 @@ def test_the_sweep_parses_and_each_arm_is_one_change_from_the_last(tmp_path, wri
     assert config.pipeline.base_profile == "speed"
 
     arms = {c["name"]: c["overrides"] for c in _generate_pipeline_configs(config.pipeline)}
-    assert list(arms) == ["cross_encoder", "coverage", "coverage_bm25"]
+    assert list(arms) == ["cross_encoder", "keyword_overlap", "keyword_overlap_bm25"]
 
     def changed(arm, base):
         return {k for k in set(arm) | set(base) if arm.get(k) != base.get(k)}
 
     # What the notebook says: each arm is one change away from the one before.
     assert arms["cross_encoder"]["reranker"] == "cross_encoder"
-    assert changed(arms["coverage"], arms["cross_encoder"]) == {"reranker"}
-    assert arms["coverage"]["reranker"] == "my_ideas:coverage"
-    assert changed(arms["coverage_bm25"], arms["coverage"]) == {"retriever"}
-    assert arms["coverage_bm25"]["retriever"] == "bm25"
+    assert changed(arms["keyword_overlap"], arms["cross_encoder"]) == {"reranker"}
+    assert arms["keyword_overlap"]["reranker"] == "my_ideas:keyword_overlap"
+    assert changed(arms["keyword_overlap_bm25"], arms["keyword_overlap"]) == {"retriever"}
+    assert arms["keyword_overlap_bm25"]["retriever"] == "bm25"
 
 
 def test_the_factorial_parses_into_four_cells(tmp_path, written):
@@ -165,7 +165,7 @@ def test_the_factorial_parses_into_four_cells(tmp_path, written):
     # lets the factorial reuse the sweep's corpus.
     sweep_chunking = {"chunker": "fixed", "chunk_size": 2000}
     for cell in cells:
-        assert cell["overrides"]["reranker"] == "my_ideas:coverage"
+        assert cell["overrides"]["reranker"] == "my_ideas:keyword_overlap"
         assert {k: cell["overrides"][k] for k in sweep_chunking} == sweep_chunking
 
 
@@ -178,12 +178,12 @@ def test_the_technique_passes_the_reranker_contract(tmp_path, written):
     try:
         # By file path, as a private module: a bare `my_ideas` would stay in
         # sys.modules and collide with another test's module of that name.
-        fn = components.import_reference(f"{path}:coverage")
+        fn = components.import_reference(f"{path}:keyword_overlap")
         stage, _ = fn.__lasagna_component__
-        cls = components.as_component_class(stage, fn, "my_ideas:coverage")
+        cls = components.as_component_class(stage, fn, "my_ideas:keyword_overlap")
         report = ComponentTestHarness().validate(cls())
     finally:
-        registry.unregister_reranker("coverage")  # registered by its decorator
+        registry.unregister_reranker("keyword_overlap")  # registered by its decorator
     assert stage == "reranker"
     assert report.passed, report.failures
 

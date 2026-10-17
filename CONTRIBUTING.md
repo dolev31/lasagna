@@ -76,10 +76,15 @@ one but `agentic_pipeline` also takes a plain function with one decorator
 (`@lasagna.reranker` and so on); see
 [docs/contributing-components.md](docs/contributing-components.md).
 
-**Your component must not read state it did not declare.** Stage isolation is
-what makes an interaction estimate attributable rather than an artifact, so
-`tests/test_stage_isolation_behavioural.py` enforces it. A component that
-mutates its input will fail there, and that failure is the test working.
+**Your component must not change what another stage sees, and should read only
+what its stage hands it.** Stage isolation is what makes an interaction
+estimate attributable rather than an artifact. Part of it is enforced:
+`tests/test_stage_isolation_behavioural.py` fails when a registered reranker or
+chunker mutates its input or when chunks share a metadata dict (that failure is
+the test working), `lasagna component validate` checks your component does not
+mutate its input, and every sweep compares the configuration that reached each
+stage across its arms. Reading state the stage did not hand over (a global, the
+session store, a file) is not checked by anything, so keep to the arguments.
 (`tests/test_abc_conformance.py` is a different check: it verifies shape
 (subclassing and method signatures) and says nothing about runtime behavior.)
 

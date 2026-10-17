@@ -119,7 +119,8 @@ stress-test:  ## Run stress tests (VECTOR_BACKEND from .env, ~6 min)
 		python -m pytest tests/stress/ -m stress -v
 
 stress-test-all:  ## Run stress tests against ALL backends (~27 min)
-	# milvus (standalone) excluded: requires x86_64 architecture
+	# milvus (standalone) is not in this loop: milvus-lite stands in for it, as the
+	# stress suite chooses (tests/stress/conftest.py). Its image runs on x86_64 and ARM64.
 	# pinecone excluded: cloud-only, requires API key
 	@for backend in pgvector qdrant weaviate milvus-lite; do \
 		echo "\n========== Stress testing: $$backend ==========\n"; \

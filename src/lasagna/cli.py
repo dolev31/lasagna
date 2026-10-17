@@ -15,6 +15,7 @@ import asyncio
 import json
 import os
 import shlex
+from collections import defaultdict
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Optional
@@ -429,6 +430,60 @@ def _require_vector_backend() -> None:
         _error(f"Vector store: {what}. To fix it, {advice}.")
 
 
+def _benchmark_store() -> None:
+    """Give a benchmark a store of its own when another process holds the default one.
+
+    With `lasagna serve` running, `benchmark run smoke` printed "Output: ...",
+    then failed its task with "The Milvus Lite store ... is in use", and left
+    a results folder of failed tasks. A benchmark needs nothing from the
+    user's store (its corpora are its own), so it moves to
+    ``<data dir>/bench/dbs`` and says so; corpora ingested there are reused by
+    the next run that finds the store held, and a run that finds it free uses
+    the default store as before. A store chosen explicitly (``RAG_DB_DIR``, a
+    ``db_path``) is not moved: the run stops before it starts, with the choices.
+
+    Called first in each benchmark command, before anything reads the
+    configuration (a test checks), so the reset below leaves no module holding
+    the old one.
+    """
+    from . import providers
+    from .core import paths
+    from .core.config import rag_config, reset_rag_config
+    from .core.local_server import _served_here, lite_store_locked
+
+    def held(path: str) -> bool:
+        # This process's own Milvus Lite server holds its store too; that is
+        # this process using it, not another one holding it.
+        return lite_store_locked(path) and not _served_here(path)
+
+    if (rag_config.vector_backend or "milvus") != "milvus":
+        return
+    backend = rag_config.vector_backend_config or {}
+    if backend.get("uri") or os.environ.get("MILVUS_URI"):
+        return
+    store = str(backend.get("db_path") or paths.db_dir() / "rag_milvus.db")
+    if not held(store):
+        return
+    own = paths.data_dir() / "bench" / "dbs"
+    chosen = bool(backend.get("db_path") or paths.env_get("DB_DIR"))
+    if chosen or held(str(own / "rag_milvus.db")):
+        _error(
+            f"Another process is using the local store at {store} (a running `lasagna "
+            f"serve`, an MCP server or another benchmark), so this benchmark cannot open "
+            f"it. Stop that process and run this again, or give the benchmark a store "
+            f"of its own: RAG_DB_DIR=<another directory> before the command."
+        )
+    os.environ["LASAGNA_DB_DIR"] = os.environ["RAG_DB_DIR"] = str(own)
+    # Read with the old directory above; the next read uses the new one.
+    providers.reset_providers()
+    reset_rag_config()
+    console.print(
+        f"[dim]Another process is using the local store, so this benchmark uses its own "
+        f"at {escape(str(own))}.[/dim]",
+        soft_wrap=True,
+    )
+
+
 def _require_benchmark(name: str) -> None:
     from .knowledge_evaluation_sdk.benchmarks import benchmark_registry
 
@@ -641,35 +696,92 @@ def init():
 
 
 def _reported_document_failure(record: Dict[str, Any]) -> bool:
-    """The worker's log line for a document that failed.
+    """The worker's or the SDK's log line for a document that failed.
 
     `upload` waits for the document and prints the failure, with its fix, as
-    its error; the worker's ERROR line repeated it before that.
+    its error; the worker's ERROR line repeated it before that, and the SDK's
+    "Upload failed" line made a refused upload say so three times.
     """
-    return "document_failure" in record["extra"]
+    return "document_failure" in record["extra"] or (
+        record["name"] == "lasagna.sdk.managers.document_manager"
+        and str(record["message"]).startswith("Upload failed")
+    )
 
 
-def _upload_targets(patterns: List[str]) -> List[Path]:
-    """The files ``patterns`` name: paths, or globs the shell left unexpanded.
+def _readable_types(session_id: str) -> List[str]:
+    """The file types an upload to ``session_id`` accepts, as the pipeline checks them."""
+    from lasagna.core.config import rag_config
 
-    Exits naming the first one that matches no file.
+    return sorted(rag_config.with_session(session_id).supported_extensions)
+
+
+def _readable(path: Path, types: List[str]) -> bool:
+    from lasagna.processing.document_processor import DocumentProcessor
+
+    try:
+        return DocumentProcessor.detect_file_type(str(path)) in types
+    except ValueError:
+        return False
+
+
+def _upload_targets(patterns: List[str], session_id: str = "default") -> List[Path]:
+    """The files ``patterns`` name: paths, folders, or globs the shell left unexpanded.
+
+    A folder is the files in it and its subfolders that the session can read
+    (hidden ones left out), and the command says how many it skipped; a glob
+    skips unreadable files the same way. A file named on its own that cannot
+    be read is refused before anything is uploaded, once, with the types that
+    can be: `lasagna upload ./docs` said "File not found: ./docs", and an
+    unsupported file printed "Upload failed" three times. Exits naming the
+    first pattern that matches no file.
     """
     import glob
 
+    types = _readable_types(session_id)
+    listing = ", ".join(types)
     files: List[Path] = []
     for pattern in patterns:
         path = Path(pattern)
         if path.is_file():
+            if not _readable(path, types):
+                kind = f"a {path.suffix} file" if path.suffix else "a file with no extension"
+                _error(f"{pattern} is {kind}, which Lasagna cannot read. It reads {listing}.")
             files.append(path)
             continue
-        matched = sorted(Path(m) for m in glob.glob(pattern, recursive=True) if Path(m).is_file())
-        if not matched:
-            _error(
-                f"File not found: {pattern}"
-                if not glob.has_magic(pattern)
-                else f"No file matches {pattern}"
+        if path.is_dir():
+            found = sorted(
+                p
+                for p in path.rglob("*")
+                if p.is_file()
+                and not any(part.startswith(".") for part in p.relative_to(path).parts)
             )
-        files.extend(matched)
+            where = f"{pattern} is a folder"
+        else:
+            found = sorted(Path(m) for m in glob.glob(pattern, recursive=True) if Path(m).is_file())
+            where = f"{pattern} matches {_count(len(found), 'file')}"
+        if not found:
+            _error(
+                f"No file matches {pattern}"
+                if glob.has_magic(pattern)
+                else f"{pattern} is an empty folder"
+                if path.is_dir()
+                else f"File not found: {pattern}"
+            )
+        readable = [p for p in found if _readable(p, types)]
+        skipped = sorted({p.suffix or "no extension" for p in found if p not in readable})
+        if not readable:
+            _error(f"{where} with no file Lasagna can read. It reads {listing}.")
+        if path.is_dir() or skipped:
+            scope = ", subfolders included" if path.is_dir() else ""
+            note = (
+                f"; skipping {len(found) - len(readable)} ({', '.join(skipped)})" if skipped else ""
+            )
+            console.print(
+                f"{escape(where)}: uploading {_count(len(readable), 'readable file')}{scope}"
+                f"{escape(note)}.",
+                soft_wrap=True,
+            )
+        files.extend(readable)
     return list(dict.fromkeys(files))
 
 
@@ -677,7 +789,9 @@ def _upload_targets(patterns: List[str]) -> List[Path]:
 def upload(
     ctx: typer.Context,
     file_paths: List[str] = typer.Argument(
-        ..., help="Files to upload: one or more paths, or glob patterns such as 'docs/*.md'"
+        ...,
+        help="Files to upload: one or more paths, folders (their readable files, subfolders "
+        "included), or glob patterns such as 'docs/*.md'",
     ),
     session_id: str = typer.Option("default", "--session", "-s", help="Session ID"),
     force: bool = typer.Option(
@@ -688,14 +802,15 @@ def upload(
 ):
     """Upload and index documents.
 
-    Name several files, or a glob such as 'docs/*.md', in one command: they go
-    through one client, so the models load once instead of once per file.
+    Name several files, a folder, or a glob such as 'docs/*.md', in one
+    command: they go through one client, so the models load once instead of
+    once per file.
     """
     _configure_cli_logging(
         bool(ctx.find_root().params.get("verbose")),
         hide=lambda r: _server_only_warning(r) or _reported_document_failure(r),
     )
-    paths = _upload_targets(file_paths)
+    paths = _upload_targets(file_paths, session_id)
     _require_vector_backend()
 
     url = _serving_url()
@@ -756,7 +871,8 @@ def _report_one_upload(path: Path, result, doc, session_id: str) -> None:
     from lasagna.sdk.types import DocumentStatus
 
     if isinstance(result, Exception):
-        _error(f"Upload failed: {result}", exc=result)
+        message = str(result)
+        _error(message if message.startswith("Upload failed") else f"Upload failed: {message}")
     if doc is None:
         console.print(_already_uploaded(path, result, session_id))
         return
@@ -1246,8 +1362,9 @@ def serve(
 ):
     """Start the REST API server, with the configurator web page.
 
-    While it runs it holds the local store; `lasagna status`, `search` and
-    `upload` go through it.
+    While it runs it holds the local store; `lasagna status`, `search`,
+    `upload` and `configure` go through it, and `benchmark run` and
+    `benchmark experiment` use a store of their own.
     """
 
     def _hide(record) -> bool:
@@ -1754,6 +1871,7 @@ def benchmark_run(
         _parse_tracks,
     )
 
+    _benchmark_store()
     if tracks is None:
         # Naming a generator is asking for answers; it ran on nothing otherwise.
         tracks = "retrieval,generation" if generator else "retrieval"
@@ -1906,6 +2024,8 @@ def benchmark_experiment(
 
     if not Path(config_file).exists():
         _error(f"Config file not found: {config_file}")
+    if not (dry_run and no_probe):
+        _benchmark_store()
 
     try:
         exp = Experiment.from_file(config_file)
@@ -2010,13 +2130,18 @@ def benchmark_experiment(
             border_style="red" if all_failed else "none",
         )
     )
+    if results.failed_tasks and not all_failed:
+        console.print(
+            f"[red]{len(results.failed_tasks)} of {_count(results.total_tasks, 'task')} "
+            "failed[/red]: their numbers are left out above, and each is listed at the end."
+        )
     # Outside the panel, unwrapped, so the path and the command can be copied.
     results_file = shlex.quote(str(Path(output_dir) / "results.json"))
     console.print(f"Output: {escape(output_dir)}", soft_wrap=True)
     if not all_failed:
-        console.print(
-            f"Next:   lasagna results significance {escape(results_file)} --all", soft_wrap=True
-        )
+        steps = _next_steps(results, results_file, factorial=bool(exp.config.pipeline.factorial))
+        for i, step in enumerate(steps):
+            console.print(f"{'Next:' if i == 0 else '':<8}{escape(step)}", soft_wrap=True)
     if exp.config.n_runs > 1 and runs_were_identical(results._results):
         console.print(
             f"[dim]Note: all {exp.config.n_runs} runs of every arm were identical (nothing "
@@ -2026,6 +2151,33 @@ def benchmark_experiment(
         )
     _release_backend()
     _exit_if_tasks_failed(results)
+
+
+def _next_steps(results, results_file: str, *, factorial: bool) -> List[str]:
+    """The commands to run next, built from what the run produced.
+
+    Every run used to end with "Next: lasagna results significance <file>
+    --all". On a run of several benchmarks that command stops at "Pass
+    --benchmark"; after a factorial it is the wrong test (the design asks
+    whether two techniques compose, which `results interaction` answers); and
+    with fewer than two arms finished it has nothing to compare. Now: one line
+    per benchmark with two or more finished arms, `--benchmark` filled in when
+    there are several, `results interaction` where all four cells of a
+    factorial finished, and `results view` when nothing can be compared.
+    """
+    finished: Dict[str, set] = defaultdict(set)
+    for task in results._results:
+        if not task.error:
+            finished[task.benchmark_name].add(task.config_name)
+    steps = []
+    for benchmark in sorted(finished):
+        arms = finished[benchmark]
+        flag = f" --benchmark {shlex.quote(benchmark)}" if len(finished) > 1 else ""
+        if factorial and len(arms) == 4:
+            steps.append(f"lasagna results interaction {results_file}{flag}")
+        elif len(arms) >= 2:
+            steps.append(f"lasagna results significance {results_file} --all{flag}")
+    return steps or [f"lasagna results view {results_file}"]
 
 
 def _print_isolation(results) -> None:
@@ -2105,6 +2257,50 @@ def _exit_if_tasks_failed(results) -> None:
             f"metrics are above): {escape(task.system['generation_failed'])}"
         )
     raise typer.Exit(code=1)
+
+
+#: The sweep list that names each stage's arms.
+_SWEEP_LISTS = {
+    "reranker": "rerankers",
+    "embedder": "embedders",
+    "chunker": "chunkers",
+    "query_enhancer": "query_enhancers",
+    "generator": "generators",
+}
+
+#: Built-ins to compare a component with, first choice first.
+_CONTROLS = {
+    "reranker": ("cross_encoder", "flashrank"),
+    "embedder": ("sentence_transformers", "bge_m3"),
+    "chunker": ("fixed", "recursive"),
+    "query_enhancer": ("hyde", "rewrite"),
+    "generator": ("concise", "cited"),
+    "retriever": ("dense", "bm25"),
+}
+
+
+def _sweep_example(stage: Optional[str], name: str) -> str:
+    """The sweep lines that compare ``name`` with a built-in of its stage, or "".
+
+    `component validate cross_encoder` suggested `rerankers: [cross_encoder,
+    "cross_encoder"]`, an arm compared with itself. The control is another
+    built-in, and a plain name is left unquoted, as a sweep writes it. A
+    document processor has no sweep: benchmark corpora are loaded as text.
+    """
+    from .core.registry import registry
+
+    control = next(
+        (c for c in _CONTROLS.get(stage or "", ()) if c != name and registry.has(stage, c)), None
+    )
+    if control is None:
+        return ""
+    mine = f'"{name}"' if ":" in name else name
+    if stage in _SWEEP_LISTS:
+        return f"{_SWEEP_LISTS[stage]}: [{control}, {mine}]"
+    return (
+        f"config_overrides: [{{name: {control}, {stage}: {control}}}, "
+        f"{{name: {mine}, {stage}: {mine}}}]"
+    )
 
 
 def _deprecated_spelling(old: str, new: str) -> None:
@@ -2376,6 +2572,9 @@ def benchmark_synthesize(
         f"4 characters per token)",
         soft_wrap=True,
     )
+    reuse = plan.reuse_warning()
+    if reuse:
+        console.print(f"[yellow]Warning: {escape(reuse)}[/yellow]", soft_wrap=True)
     if dry_run:
         console.print("Dry run: no LLM was called and nothing was written.")
         return
@@ -2659,17 +2858,14 @@ def component_validate(
         console.print("\n[green]Contract satisfied.[/green] This component is interchangeable.")
         # The README's flow: a sweep names the function by its import path, with
         # no registration call. "Next: register it" said otherwise.
-        example = (
-            f'rerankers: [cross_encoder, "{name}"]'
-            if report.component_type == "reranker"
-            else f'"{name}" in the stage\'s list'
-        )
-        console.print(
-            f"Next: name it in a sweep to compare it against a control, as {escape(example)}: "
-            f"https://github.com/dolev31/lasagna/blob/main/docs/guide.md"
-            f"#6-compare-it-against-a-baseline",
-            soft_wrap=True,
-        )
+        example = _sweep_example(report.component_type, name)
+        if example:
+            console.print(
+                f"Next: name it in a sweep to compare it against a control, as "
+                f"{escape(example)}: https://github.com/dolev31/lasagna/blob/main/docs/guide.md"
+                f"#6-compare-it-against-a-baseline",
+                soft_wrap=True,
+            )
     else:
         console.print(
             f"\n[red]{_count(len(report.failures), 'contract failure')}.[/red] "
@@ -2835,14 +3031,7 @@ def results_validate(
     is a content hash, not a signature, and anyone who edits a number can
     recompute it.
     """
-    from .knowledge_evaluation_sdk.bundle import (
-        _content_hash,
-        aggregate_mismatches,
-        comparability_key,
-        config_label,
-        metrics_version_problems,
-        ranked_list_mismatches,
-    )
+    from .knowledge_evaluation_sdk.bundle import validation_problems
 
     given = Path(bundle_path).expanduser()
     if given.is_dir():
@@ -2856,53 +3045,8 @@ def results_validate(
         bundle = json.loads(given.read_text())
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         _error(f"{bundle_path} is not valid JSON ({exc}). Pass a bundle from results bundle.")
-    problems: List[str] = []
-
     schema = str(bundle.get("schema_version", ""))
-    if not schema.startswith("1."):
-        problems.append(f"unsupported schema_version {schema!r} (this build reads 1.x)")
-
-    for field in ("run_id", "experiment", "configs", "results", "integrity"):
-        if field not in bundle:
-            problems.append(f"missing required block: {field}")
-
-    if "run_id" in bundle and _content_hash(bundle) != bundle["run_id"]:
-        problems.append("run_id does not match the bundle contents: it was edited after generation")
-
-    for cfg in bundle.get("configs", []):
-        recomputed = comparability_key(cfg.get("held_fixed", {}))
-        if recomputed != cfg.get("comparability_key"):
-            problems.append(
-                f"config {config_label(cfg)}: comparability key does not match its "
-                f"held_fixed block ({cfg.get('comparability_key')} vs {recomputed})"
-            )
-        benchmark = cfg.get("benchmark")
-        held_benchmark = (cfg.get("held_fixed") or {}).get("benchmark")
-        if benchmark and held_benchmark != benchmark:
-            problems.append(
-                f"config {config_label(cfg)}: held_fixed.benchmark is {held_benchmark!r}, "
-                f"not the entry's benchmark"
-            )
-
-    problems.extend(metrics_version_problems(bundle))
-    problems.extend(
-        f"aggregate disagrees with per-query scores: {m}"
-        for m in aggregate_mismatches(bundle.get("results") or [])
-    )
-    problems.extend(
-        f"per-query score above what its ranked list supports: {m}"
-        for m in ranked_list_mismatches(bundle.get("results") or [])
-    )
-
-    env = (bundle.get("experiment") or {}).get("environment") or {}
-    for required in ("lasagna_version", "python", "platform"):
-        if not env.get(required):
-            problems.append(f"provenance incomplete: environment.{required} is missing")
-
-    blocking = (bundle.get("integrity") or {}).get("blocking") or []
-    problems.extend(f"integrity: {code}" for code in blocking)
-    for line in ((bundle.get("integrity") or {}).get("isolation") or {}).get("undeclared", []):
-        problems.append(f"  {line}")
+    problems = validation_problems(bundle, strict=strict)
 
     warnings = (bundle.get("integrity") or {}).get("warnings") or []
     # What each active fallback swapped in and what to install, so the
@@ -2912,8 +3056,6 @@ def results_validate(
         if "ACTIVE_FALLBACKS" in warnings
         else []
     )
-    if strict:
-        problems.extend(f"integrity (strict): {code}" for code in warnings)
 
     if problems:
         console.print(f"[red]INVALID[/red], {_count(len(problems), 'problem')}:")
@@ -2939,12 +3081,44 @@ def results_compare(
     b: str = typer.Argument(..., help="Second bundle or results.json"),
     metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to compare."),
 ):
-    """Compare two runs, reporting whether they are comparable at all."""
+    """Compare two runs, reporting whether they are comparable at all.
 
-    first, second = _load_results(a), _load_results(b)
+    Each side is a run's results.json (or its folder) or a bundle. A bundle is
+    checked first, as `results validate` checks it, and one that fails is
+    refused. Per benchmark, configs are comparable when their comparability
+    keys match: the keys `results bundle` prints and the leaderboard groups by.
+    """
+    first, second = _comparable_run(a), _comparable_run(b)
     for path, results in ((a, first), (b, second)):
         _require_metric(results, metric, where=Path(path).name)
-    console.print(first.compare(second, metric), markup=False, highlight=False)
+    console.print(
+        first.compare(second, metric, names=(a, b)), markup=False, highlight=False, soft_wrap=True
+    )
+
+
+def _comparable_run(path: str):
+    """The run at ``path``, refused when it is a bundle `results validate` calls INVALID.
+
+    An edited bundle was reported "Comparable: yes", beside numbers that no
+    longer matched their own per-query scores.
+    """
+    from .knowledge_evaluation_sdk.bundle import validation_problems
+    from .knowledge_evaluation_sdk.leaderboard import _is_bundle
+
+    file = _results_file(path)
+    try:
+        data = json.loads(file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        data = None  # _load_results says what is wrong with it
+    if _is_bundle(data):
+        problems = validation_problems(data)
+        if problems:
+            _error(
+                f"{path} is not a valid bundle, so its numbers cannot be compared "
+                f"({_count(len(problems), 'problem')}, the first: {problems[0].strip()}). "
+                f"`lasagna results validate {shlex.quote(path)}` lists them."
+            )
+    return _load_results(path)
 
 
 @results_app.command("power")
@@ -2968,20 +3142,12 @@ def results_power(
     """
 
     results = _load_results(results_path)
-    benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
-    if not benchmarks:
-        _error(
-            f"No successful results in {results_path}. Every task either errored "
-            f"or the file holds no results at all."
-        )
-    if not benchmark:
-        if len(benchmarks) > 1:
-            _error(
-                f"This run covers {len(benchmarks)} benchmarks ({', '.join(benchmarks)}). "
-                "Pass --benchmark: variance differs per benchmark, so one MDE across "
-                "them would describe none of them."
-            )
-        benchmark = benchmarks[0]
+    benchmark = _pick_benchmark(
+        results,
+        benchmark,
+        results_path,
+        "variance differs per benchmark, so one MDE across them would describe none of them.",
+    )
     _require_metric(results, metric, benchmark)
 
     try:
@@ -3015,6 +3181,36 @@ def results_power(
         )
     console.print()
     console.print(f"  {escape(report['interpretation'])}")
+
+
+def _resolve_benchmark(results, benchmark: str) -> str:
+    """``--benchmark`` as the run names it: its id, or the sweep's name for it."""
+    try:
+        return results.resolve_benchmark(benchmark)
+    except ValueError as exc:
+        _error(str(exc))
+
+
+def _pick_benchmark(results, benchmark: str, results_path: str, why_one: str) -> str:
+    """The benchmark a results command reports on: ``--benchmark`` resolved
+    against the run, or the run's only benchmark.
+
+    ``why_one`` finishes "Pass --benchmark: ..." for a run of several.
+    """
+    if benchmark:
+        return _resolve_benchmark(results, benchmark)
+    benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
+    if not benchmarks:
+        _error(
+            f"No successful results in {results_path}. Every task either errored "
+            f"or the file holds no results at all."
+        )
+    if len(benchmarks) > 1:
+        _error(
+            f"This run covers {len(benchmarks)} benchmarks ({', '.join(benchmarks)}). "
+            f"Pass --benchmark: {why_one}"
+        )
+    return benchmarks[0]
 
 
 def _format_effect_size(effect: Optional[float]) -> str:
@@ -3057,20 +3253,12 @@ def results_significance(
         _error(f"Unknown correction {correction!r}. Use 'holm' or 'none'.")
 
     results = _load_results(results_path)
-    benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
-    if not benchmarks:
-        _error(
-            f"No successful results in {results_path}. Every task either errored "
-            f"or the file holds no results at all."
-        )
-    if not benchmark:
-        if len(benchmarks) > 1:
-            _error(
-                f"This run covers {len(benchmarks)} benchmarks ({', '.join(benchmarks)}). "
-                "Pass --benchmark: a correction pooled across benchmarks would be "
-                "correcting for comparisons nobody made."
-            )
-        benchmark = benchmarks[0]
+    benchmark = _pick_benchmark(
+        results,
+        benchmark,
+        results_path,
+        "a correction pooled across benchmarks would be correcting for comparisons nobody made.",
+    )
     _require_metric(results, metric, benchmark)
 
     try:
@@ -3233,8 +3421,18 @@ def results_per_query(
     rebuild the ranking the metrics were computed on.
     """
 
-    rows = _load_results(results_path).per_query(benchmark)
+    results = _load_results(results_path)
+    if benchmark:
+        benchmark = _resolve_benchmark(results, benchmark)
+    rows = results.per_query(benchmark)
     if config:
+        if config not in results.configs:
+            from .core._text import did_you_mean
+
+            _error(
+                f"No config {config!r} in this run{did_you_mean(config, results.configs)}. "
+                f"It has: {', '.join(results.configs)}."
+            )
         rows = [r for r in rows if r["config"] == config]
     if not rows:
         _error("No per-query scores in this run. Nothing scored, or an older results file.")
@@ -3377,16 +3575,13 @@ def results_interaction(
     """
 
     results = _load_results(results_path)
-
-    benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
-    if not benchmark:
-        if len(benchmarks) != 1:
-            _error(
-                f"This run covers {len(benchmarks)} benchmarks ({', '.join(benchmarks)}). "
-                "Pass --benchmark: an interaction is a property of one benchmark, and "
-                "pooling across them mixes different corpora into one number."
-            )
-        benchmark = benchmarks[0]
+    benchmark = _pick_benchmark(
+        results,
+        benchmark,
+        results_path,
+        "an interaction is a property of one benchmark, and pooling across them mixes "
+        "different corpora into one number.",
+    )
     _require_metric(results, metric, benchmark)
 
     configs = sorted({r.config_name for r in results._results if not r.error})
@@ -3715,8 +3910,7 @@ def results_leaderboard(
         "when no --output is given",
     ),
 ):
-    """Render bundles, or one run's results.json, as leaderboards grouped by
-    comparability key.
+    """Leaderboards of bundles or a run's results.json, by comparability key.
 
     Rows inside a group held the same configuration fixed, so they are
     comparable by construction. Rows in different groups are not, and are never
@@ -3873,20 +4067,42 @@ pipelines_app = typer.Typer(
 app.add_typer(pipelines_app, name="pipelines")
 
 
+def _session_profile(session_id: str) -> str:
+    """The profile ``session_id`` is on (``default`` when it has none)."""
+    try:
+        from .core.session_config import get_knowledge_config_manager
+
+        manager = get_knowledge_config_manager(session_id=session_id)
+        return manager.get_active_profile(session_id=session_id) or "default"
+    except Exception:  # noqa: BLE001 - only names the profile
+        return "default"
+
+
 @pipelines_app.command("list")
-def pipelines_list():
+def pipelines_list(
+    session_id: str = typer.Option(
+        "default", "--session", "-s", help="Session whose pipeline to mark as the one that runs."
+    ),
+):
     """List all registered agentic pipelines.
 
-    Shows name, description, implementing class, and which pipeline is
-    active (from config). Use it to check that a pipeline you registered
-    with @registry.register("agentic_pipeline", ...) is there.
+    Shows name, description, implementing class, and which pipeline the
+    session runs when a query reaches the agentic tier (from its profile).
+    Use it to check that a pipeline you registered with
+    @registry.register("agentic_pipeline", ...) is there.
     """
     try:
         from .core.registry import registry
         from .core.config import rag_config
 
         pipelines = registry.list_pipelines()
-        active = rag_config.agentic_pipeline
+        # The session's, not the process's: `standard`, `balanced` and
+        # `max_quality` run `default`, while this marked `legacy_react`, the
+        # settings file's value, whatever the session's profile.
+        config = rag_config.with_session(session_id)
+        agentic = bool(config.use_agentic_rag)
+        active = config.agentic_pipeline if agentic else ""
+        profile = _session_profile(session_id)
     except Exception as exc:
         console.print(f"[red]Error loading pipeline registry: {exc}[/red]")
         raise typer.Exit(code=1)
@@ -3911,7 +4127,14 @@ def pipelines_list():
         table.add_row(p["name"], p.get("description", ""), p.get("class", "unknown"), marker)
 
     console.print(table)
-    console.print(f"\n[dim]Active pipeline: [cyan]{active}[/cyan][/dim]")
+    where = f"session {escape(session_id)} ({escape(profile)} profile)"
+    if agentic:
+        console.print(
+            f"\n[dim]Active in {where}: [cyan]{escape(active)}[/cyan], for queries the "
+            f"router sends to the agentic tier.[/dim]"
+        )
+    else:
+        console.print(f"\n[dim]Agentic retrieval is off in {where}, so no pipeline runs.[/dim]")
     console.print(f"[dim]{_count(len(pipelines), 'pipeline')} registered[/dim]")
 
 

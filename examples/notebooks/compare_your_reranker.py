@@ -32,7 +32,7 @@ import lasagna
 
 
 @lasagna.reranker
-def coverage(query, text):
+def keyword_overlap(query, text):
     """Score a passage by the share of the query's words it contains."""
     words = set(re.findall(r"\\w+", query.lower()))
     return len(words & set(re.findall(r"\\w+", text.lower()))) / max(len(words), 1)
@@ -40,7 +40,7 @@ def coverage(query, text):
 
 #: Step 3: three arms, each one change away from the one before it.
 SWEEP = """\
-name: does coverage help
+name: does keyword_overlap help
 benchmarks:
   - name: beir/scifact
     n_samples: 100
@@ -51,13 +51,13 @@ pipeline:
   base_profile: speed
   config_overrides:
     - {name: cross_encoder, reranker: cross_encoder, chunker: fixed, chunk_size: 2000}
-    - {name: coverage, reranker: "my_ideas:coverage", chunker: fixed, chunk_size: 2000}
-    - {name: coverage_bm25, reranker: "my_ideas:coverage", retriever: bm25, chunker: fixed, chunk_size: 2000}
+    - {name: keyword_overlap, reranker: "my_ideas:keyword_overlap", chunker: fixed, chunk_size: 2000}
+    - {name: keyword_overlap_bm25, reranker: "my_ideas:keyword_overlap", retriever: bm25, chunker: fixed, chunk_size: 2000}
 """
 
 #: Step 6: does the technique compose with hybrid search? A 2x2 factorial.
 COMPOSE = """\
-name: does coverage compose with hybrid search
+name: does keyword_overlap compose with hybrid search
 benchmarks:
   - name: beir/scifact
     n_samples: 100
@@ -68,7 +68,7 @@ pipeline:
   factorial:
     factor_a: enable_hybrid_search
     factor_b: enable_reranking
-    held_fixed: {reranker: "my_ideas:coverage", chunker: fixed, chunk_size: 2000}
+    held_fixed: {reranker: "my_ideas:keyword_overlap", chunker: fixed, chunk_size: 2000}
 """
 
 #: What each step must print for the run to count as a pass. An exit code of 0
@@ -76,7 +76,7 @@ pipeline:
 _EXPECT = {
     "validate": "Contract satisfied",
     "sweep": "Stage isolation: the configuration that reached each stage",
-    "leaderboard": "coverage",
+    "leaderboard": "keyword_overlap",
     # The verdict box's own words, whether 0, 1 or several pairs survive
     # ("No pair survives Holm correction at ...", "1 of 3 pairs survives
     # correction at ..."); "pairs survive correction" missed the one-pair case.
@@ -123,7 +123,7 @@ def main(workdir: Path) -> None:
 
     # 2. Write the technique, and check it meets the reranker contract.
     Path("my_ideas.py").write_text(MY_IDEAS)
-    _lasagna("validate", "component", "validate", "my_ideas:coverage")
+    _lasagna("validate", "component", "validate", "my_ideas:keyword_overlap")
 
     # 3. Measure it against a real control in a complete pipeline.
     Path("sweep.yaml").write_text(SWEEP)
