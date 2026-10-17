@@ -2126,9 +2126,8 @@ def benchmark_compare(
     if format_ != "latex":
         results_compare(results_a, results_b, metric=metric)
         return
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    runs = [BenchmarkResults.load(path) for path in (results_a, results_b)]
+    runs = [_load_results(path) for path in (results_a, results_b)]
     for path, run in zip((results_a, results_b), runs):
         _require_metric(run, metric, where=Path(path).name)
     console.print(runs[0].to_latex(metric))
@@ -2691,6 +2690,42 @@ results_app = typer.Typer(
 app.add_typer(results_app, name="results")
 
 
+def _results_file(path: str) -> Path:
+    """``path`` as a run's results.json: the file itself, or the run folder holding it.
+
+    Every results command takes either. A folder (what a run prints after
+    "Output:") ended in a 30-line IsADirectoryError traceback in all but view
+    and leaderboard.
+    """
+    given = Path(path).expanduser()
+    if given.is_dir():
+        inside = given / "results.json"
+        if inside.is_file():
+            return inside
+        _error(
+            f"{path} is a folder with no results.json in it. Pass the folder a run printed "
+            f'after "Output:", or the results.json inside it.'
+        )
+    if not given.exists():
+        _error(f"No such file or folder: {path}")
+    return given
+
+
+def _load_results(path: str):
+    """The run at ``path`` (a results.json or its folder), or a one-line error."""
+    from .knowledge_evaluation_sdk.results import BenchmarkResults
+
+    file = _results_file(path)
+    try:
+        return BenchmarkResults.load(str(file))
+    except json.JSONDecodeError as exc:
+        _error(f"{file} is not valid JSON ({exc}). Pass a results.json from a run.")
+    except (OSError, UnicodeDecodeError) as exc:
+        _error(f"Cannot read {file}: {exc}")
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        _error(f"{file} is not a results.json from a run ({type(exc).__name__}: {exc}).")
+
+
 @results_app.command("bundle")
 def results_bundle(
     results_path: str = typer.Argument(..., help="results.json from a run"),
@@ -2700,9 +2735,8 @@ def results_bundle(
 ):
     """Package a run into a self-contained, publishable bundle."""
     from .knowledge_evaluation_sdk.bundle import MetricsVersionError
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    results = BenchmarkResults.load(results_path)
+    results = _load_results(results_path)
     submitter = {k: v for k, v in {"name": name, "affiliation": affiliation}.items() if v}
     try:
         bundle = results.to_bundle(submitter=submitter or None)
@@ -2748,7 +2782,18 @@ def results_validate(
         ranked_list_mismatches,
     )
 
-    bundle = json.loads(Path(bundle_path).read_text())
+    given = Path(bundle_path).expanduser()
+    if given.is_dir():
+        _error(
+            f"{bundle_path} is a folder; results validate checks a bundle. Make one from "
+            f"the run with: lasagna results bundle {shlex.quote(bundle_path)} -o run.json"
+        )
+    if not given.exists():
+        _error(f"No such file: {bundle_path}")
+    try:
+        bundle = json.loads(given.read_text())
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        _error(f"{bundle_path} is not valid JSON ({exc}). Pass a bundle from results bundle.")
     problems: List[str] = []
 
     schema = str(bundle.get("schema_version", ""))
@@ -2833,9 +2878,8 @@ def results_compare(
     metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to compare."),
 ):
     """Compare two runs, reporting whether they are comparable at all."""
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    first, second = BenchmarkResults.load(a), BenchmarkResults.load(b)
+    first, second = _load_results(a), _load_results(b)
     for path, results in ((a, first), (b, second)):
         _require_metric(results, metric, where=Path(path).name)
     console.print(first.compare(second, metric), markup=False, highlight=False)
@@ -2860,9 +2904,8 @@ def results_power(
     the smallest difference this run could have detected, and how many queries
     the observed difference would need.
     """
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    results = BenchmarkResults.load(results_path)
+    results = _load_results(results_path)
     benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
     if not benchmarks:
         _error(
@@ -2947,12 +2990,11 @@ def results_significance(
     whole set, so what comes out is a claim about the grid rather than about the
     pair that happened to look best. Each pair is a paired sign-flip test.
     """
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
     if correction not in ("holm", "none"):
         _error(f"Unknown correction {correction!r}. Use 'holm' or 'none'.")
 
-    results = BenchmarkResults.load(results_path)
+    results = _load_results(results_path)
     benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
     if not benchmarks:
         _error(
@@ -3128,9 +3170,8 @@ def results_per_query(
     The rank is authoritative: scores can tie, so sorting by score does not
     rebuild the ranking the metrics were computed on.
     """
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    rows = BenchmarkResults.load(results_path).per_query(benchmark)
+    rows = _load_results(results_path).per_query(benchmark)
     if config:
         rows = [r for r in rows if r["config"] == config]
     if not rows:
@@ -3272,9 +3313,8 @@ def results_interaction(
     alone cannot be recovered from the two, because the interaction is not a
     function of the main effects.
     """
-    from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    results = BenchmarkResults.load(results_path)
+    results = _load_results(results_path)
 
     benchmarks = sorted({r.benchmark_name for r in results._results if not r.error})
     if not benchmark:
