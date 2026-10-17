@@ -53,7 +53,7 @@ not know which they hold. A client method that needs a local-only feature checks
 
 **Refusals.** Applying runtime config raises when the session does not take it:
 `DocumentsLeftBehind` or `EmbeddingSizeConflict` when the change would leave the session's
-documents unsearched, `ProfileCannotLoad` when a model cannot load here, and `ReindexFailed`.
-Each is a `KnowledgeError` and imports from
+documents unsearched, `ProfileCannotLoad` when a model cannot load here, `ReindexFailed`, and
+`SettingsNotSaved` when the store did not record it. Each is a `KnowledgeError` and imports from
 `lasagna.sdk` (`from lasagna.sdk import DocumentsLeftBehind`). Until the settings apply, every
 operation raises again and `get_config_dict()` reports the session's settings in force.

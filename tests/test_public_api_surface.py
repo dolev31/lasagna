@@ -140,6 +140,7 @@ EXPECTED_SDK = {
     "SearchError",
     "SearchResult",
     "SearchResults",
+    "SettingsNotSaved",
     "UnknownProfileError",
     "UploadError",
     "UploadResult",

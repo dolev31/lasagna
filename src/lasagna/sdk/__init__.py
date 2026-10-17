@@ -175,13 +175,14 @@ _LAZY_IMPORTS = {
     "MCPKnowledgeClient": (".integrations.mcp_client", "MCPKnowledgeClient"),
     # What a settings change, a profile switch or a reindex refuses with: each a
     # ConfigurationError or KnowledgeError, and ValueError as before (ReindexFailed:
-    # RuntimeError).
+    # RuntimeError; SettingsNotSaved, the store did not record it: BackendError).
     "EmbeddingSizeConflict": ("..api._profile_guard", "EmbeddingSizeConflict"),
     "DocumentsLeftBehind": ("..api._profile_guard", "DocumentsLeftBehind"),
     "ProfileSwitchInProgress": ("..api._profile_guard", "ProfileSwitchInProgress"),
     "ProfileCannotLoad": ("..api._profile_switch", "ProfileCannotLoad"),
     "ReindexFailed": ("..api._profile_switch", "ReindexFailed"),
     "UnknownProfileError": ("..core.session_config._data_models", "UnknownProfileError"),
+    "SettingsNotSaved": ("..core.session_config._data_models", "SettingsNotSaved"),
     # Managers
     "DocumentManager": (".managers", "DocumentManager"),
     "SearchManager": (".managers", "SearchManager"),
@@ -308,7 +309,7 @@ if TYPE_CHECKING:
         ProfileSwitchInProgress,
     )
     from ..api._profile_switch import ProfileCannotLoad, ReindexFailed
-    from ..core.session_config._data_models import UnknownProfileError
+    from ..core.session_config._data_models import SettingsNotSaved, UnknownProfileError
     from .managers import (
         DocumentManager,
         SearchManager,
@@ -585,4 +586,5 @@ __all__ = [
     "ProfileCannotLoad",
     "ReindexFailed",
     "UnknownProfileError",
+    "SettingsNotSaved",
 ]

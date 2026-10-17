@@ -360,14 +360,23 @@ def main() -> None:
     """The `lasagna` command: the app, with a bad setting reported in one message.
 
     A ConfigError names the setting, its value and the fix. Raised from a
-    command that does not catch it, it arrived inside a 40-line traceback.
+    command that does not catch it, it arrived inside a 40-line traceback; so
+    did a store that did not save a change or stayed locked.
     """
     try:
         app()
     except Exception as exc:
         config_error = _in_cause_chain(exc, "ConfigError")
         if config_error is None:
-            raise
+            # The store did not take a change, or another process held it
+            # past the wait: the message says what to do.
+            store = _in_cause_chain(exc, "SettingsNotSaved") or _in_cause_chain(
+                exc, "StoreLockTimeout"
+            )
+            if store is None:
+                raise
+            console.print(f"[red]Error: {escape(str(store))}[/red]")
+            raise SystemExit(1) from None
         console.print(f"[red]Error: {escape(str(config_error))}[/red]")
         raise SystemExit(2) from None
 

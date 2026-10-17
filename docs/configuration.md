@@ -208,8 +208,9 @@ each model writes to a collection of its own, named
   (`reset=true` on `PUT /api/config/knowledge/active`). In Python these
   refusals are `KnowledgeError`s you can import:
   `from lasagna.sdk import DocumentsLeftBehind, ProfileCannotLoad, ReindexFailed`
-  (with `EmbeddingSizeConflict`, `ProfileSwitchInProgress` and
-  `UnknownProfileError`).
+  (with `EmbeddingSizeConflict`, `ProfileSwitchInProgress`,
+  `UnknownProfileError`, and `SettingsNotSaved` when the metadata store did not
+  record a change: then nothing changed, and REST answers 503).
 - A `collection_name` you set yourself (in the settings file or as
   `RAG_COLLECTION_NAME`) is used as given. The evaluation
   harness names one per sweep arm this way, so sweeps are unaffected.

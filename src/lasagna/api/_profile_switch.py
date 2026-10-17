@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
-from lasagna.core.session_config._data_models import ANONYMOUS
+from lasagna.core.session_config._data_models import ANONYMOUS, SettingsNotSaved
 from lasagna.sdk.exceptions import ConfigurationError, KnowledgeError
 
 
@@ -356,19 +356,29 @@ def _switch_with_reindex(
             profile, config=config, session_id=session_id, user_id=user_id, force=True, reset=reset
         )
         settled = True
-    except BaseException:
-        # Interrupted (Ctrl-C, SystemExit), or the switch itself failed: the
-        # documents already moved go back first. Interrupted again while they
-        # do, the row stays, for doctor and the next switch.
+    except BaseException as exc:
+        # Interrupted (Ctrl-C, SystemExit), or the switch itself failed (its
+        # settings were not saved): the documents already moved go back
+        # first. Interrupted again while they do, the row stays, for doctor
+        # and the next switch.
         if not settled:
             _restore(backend, session_id, report, left_behind)
             settled = True
+            if isinstance(exc, SettingsNotSaved):
+                raise SettingsNotSaved(f"{exc} {_undone(report)}") from exc
         raise
     finally:
         forget_documents_elsewhere(session_id)
         end = getattr(_store(), "end_profile_switch", None)
         if settled and end is not None:
-            end(session_id)
+            try:
+                end(session_id)
+            except Exception as exc:  # noqa: BLE001 - never hides why the switch stopped
+                logger.warning(
+                    f"The record of the switch of session {session_id!r} could not be "
+                    f"removed ({type(exc).__name__}), so its writes are refused until it is: "
+                    f"lasagna configure --resume-switch -s {session_id} ends it."
+                )
     return report
 
 
@@ -426,6 +436,24 @@ def _restore(
             logger.warning(f"Could not move {document_id} back after a failed switch: {exc}")
             report.stranded.append((document_id, _plain_reason(exc, document_id, session_id)))
     report.reindexed = []
+
+
+def _undone(report: SwitchReport) -> str:
+    """What a switch stopped by a failed write left: the documents moved back, or not."""
+    lines = [f"The switch to profile {report.profile!r} was undone."]
+    if report.restored:
+        lines.append(
+            f"The {_plural(len(report.restored), 'document')} already reindexed "
+            f"{'was' if len(report.restored) == 1 else 'were'} moved back"
+            + (", so every document is searchable as before." if not report.stranded else ".")
+        )
+    for stranded, why in report.stranded:
+        lines.append(
+            f"{stranded} could not be moved back ({why}) and is searched only with "
+            f"{report.embedding_model}: run lasagna configure --profile {report.previous} "
+            f"-s {report.session_id} --reindex to reindex it."
+        )
+    return " ".join(lines)
 
 
 def _failure_message(report: SwitchReport) -> str:

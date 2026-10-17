@@ -58,6 +58,17 @@ def session_lock(session_id: str):
     return store_lock(f"session:{session_id or 'default'}")
 
 
+#: The fields of a session a change can make, restored when the change fails.
+_CHANGED_FIELDS = (
+    "profiles",
+    "active_profile",
+    "session_overrides",
+    "rag_enabled",
+    "focused_document_ids",
+    "user_id",
+)
+
+
 def _persisted_view(state: Any) -> tuple:
     """The fields the session table keeps, from a state or a stored row."""
     get = state.get if isinstance(state, dict) else lambda k, d=None: getattr(state, k, d)
@@ -266,7 +277,9 @@ class SessionStateMixin:
         back the overrides it had read. Every change to a session's settings
         goes through this. Refused (``ProfileSwitchInProgress``) while a
         switch that moves the session's documents runs in another thread or
-        process, or stopped before it ended.
+        process, or stopped before it ended. A change that raises (a write
+        the store did not take, ``SettingsNotSaved``) leaves nothing of itself
+        in this process: it was served from memory until the next read.
         """
         from lasagna.api._profile_guard import refuse_during_switch
 
@@ -281,8 +294,16 @@ class SessionStateMixin:
             refuse_during_switch(sid, "This change")
             with self._lock:
                 self._adopt_persisted_session(sid, fresh=True)
+                state = self.get_session_state(sid)
+                before = {f: copy.deepcopy(getattr(state, f)) for f in _CHANGED_FIELDS}
+                saved = (list(self._global_custom_profiles), set(self._global_profile_names))
                 try:
-                    yield self.get_session_state(sid)
+                    yield state
+                except BaseException:
+                    for name, value in before.items():
+                        setattr(state, name, value)
+                    self._global_custom_profiles, self._global_profile_names = saved
+                    raise
                 finally:
                     _writes_here[sid] = _writes_here.get(sid, 0) + 1
                     self._session_writes_seen[sid] = _writes_here[sid]

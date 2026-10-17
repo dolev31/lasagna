@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lasagna.sdk.exceptions import ProfileNotFoundError
+from lasagna.sdk.exceptions import BackendError, ProfileNotFoundError
 
 # Knowledge module folder (for self-contained config)
 KNOWLEDGE_MODULE_DIR = Path(__file__).parent.parent.parent
@@ -93,6 +93,27 @@ def kept_in_process(session_id: Optional[str]) -> bool:
 
 class UnknownProfileError(ProfileNotFoundError, ValueError):
     """No profile of that name exists for the caller."""
+
+
+class SettingsNotSaved(BackendError):
+    """The settings store could not record a change; nothing was changed.
+
+    Every surface answers it plainly (REST with a 503): a failed write used
+    to be logged and answered as a success, and the process read the old
+    row back within a second.
+    """
+
+
+def not_saved(what: str, exc: BaseException) -> SettingsNotSaved:
+    """``SettingsNotSaved`` for ``what`` (``the settings of session 'r1'``), naming why."""
+    from lasagna.core.provenance import redact_paths
+
+    reason = (redact_paths(str(exc)).strip().splitlines() or [""])[0][:300]
+    return SettingsNotSaved(
+        f"{what[0].upper()}{what[1:]} could not be saved ({type(exc).__name__}"
+        f"{': ' + reason if reason else ''}), so nothing was changed. Retry once the "
+        f"metadata store answers (lasagna doctor and GET /api/v1/health/ready name it)."
+    )
 
 
 # Memory limits for session state

@@ -20,6 +20,7 @@ from ._data_models import (
     RAGProfile,
     KnowledgeConfigState,
     kept_in_process,
+    not_saved,
     session_idle_seconds,
 )
 
@@ -143,7 +144,7 @@ class DatabasePersistenceMixin:
             )
             self._cache_profiles(profile.user_id or ANONYMOUS)
         except Exception as exc:
-            logger.warning(f"Failed to save profile {profile.name!r} to PostgreSQL: {exc}")
+            raise not_saved(f"profile {profile.name!r}", exc) from exc
 
     def _delete_global_profile(self, profile: RAGProfile) -> None:
         """Delete one saved profile's row."""
@@ -151,7 +152,7 @@ class DatabasePersistenceMixin:
             _get_pg_db().delete_profile(profile.user_id or ANONYMOUS, profile.name)
             self._cache_profiles(profile.user_id or ANONYMOUS)
         except Exception as exc:
-            logger.warning(f"Failed to delete profile {profile.name!r} from PostgreSQL: {exc}")
+            raise not_saved(f"the deletion of profile {profile.name!r}", exc) from exc
 
     def _load_session_states(self) -> None:
         """Load session states from PostgreSQL.
@@ -299,7 +300,10 @@ class DatabasePersistenceMixin:
             logger.debug(f"Could not record the use of session {session_id}: {exc}")
 
     def _persist_single_session(self, session_id: str) -> None:
-        """Persist a single session (more efficient than persisting all)."""
+        """Persist one session; ``SettingsNotSaved`` when PostgreSQL does not take it.
+
+        A failure was logged, and the change answered as made.
+        """
         if kept_in_process(session_id):
             return  # the evaluation harness's: this process's only
         state = self._session_states.get(session_id)
@@ -315,9 +319,9 @@ class DatabasePersistenceMixin:
                 "focused_document_ids": state.focused_document_ids,
             }
             db.save_session(session_id, state_dict)
-            self._cache_session(session_id, state)
         except Exception as exc:
-            logger.warning(f"Failed to persist session {session_id} to PostgreSQL: {exc}")
+            raise not_saved(f"the settings of session {session_id!r}", exc) from exc
+        self._cache_session(session_id, state)
 
     def _cleanup_old_sessions(self) -> None:
         """Remove expired sessions from PostgreSQL.

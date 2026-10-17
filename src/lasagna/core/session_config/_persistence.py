@@ -17,6 +17,7 @@ from ._data_models import (
     MAX_CACHED_SESSIONS,
     RAGProfile,
     kept_in_process,
+    not_saved,
     session_idle_seconds,
 )
 
@@ -214,14 +215,14 @@ class PersistenceMixin:
                 description=profile.description,
             )
         except Exception as exc:
-            logger.warning(f"Failed to save profile {profile.name!r} to database: {exc}")
+            raise not_saved(f"profile {profile.name!r}", exc) from exc
 
     def _delete_global_profile(self, profile: RAGProfile) -> None:
         """Delete one saved profile's row."""
         try:
             _get_db().delete_profile(profile.user_id or ANONYMOUS, profile.name)
         except Exception as exc:
-            logger.warning(f"Failed to delete profile {profile.name!r} from database: {exc}")
+            raise not_saved(f"the deletion of profile {profile.name!r}", exc) from exc
 
     def _load_session_states(self) -> None:
         """Load session states from SQLite."""
@@ -297,10 +298,11 @@ class PersistenceMixin:
             logger.debug(f"Could not record the use of session {session_id}: {exc}")
 
     def _persist_single_session(self, session_id: str) -> None:
-        """Persist one session.
+        """Persist one session; ``SettingsNotSaved`` when the store does not take it.
 
         Writing every cached session on each change put this process's stale
-        copies of sessions another process had changed back over them.
+        copies of sessions another process had changed back over them. A
+        failure was logged, and the change answered as made.
         """
         if kept_in_process(session_id):
             return  # the evaluation harness's: this process's only
@@ -322,7 +324,7 @@ class PersistenceMixin:
                 },
             )
         except Exception as exc:
-            logger.warning(f"Failed to persist session {session_id} to database: {exc}")
+            raise not_saved(f"the settings of session {session_id!r}", exc) from exc
 
     def _persist_session_states(self) -> None:
         """Persist session states to SQLite."""

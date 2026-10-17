@@ -911,17 +911,18 @@ class ProfileMixin:
                 state.active_profile = new_name
 
             renamed = None
-            for gp in self._global_custom_profiles:
+            for i, gp in enumerate(self._global_custom_profiles):
                 if gp.name == old_name:
                     # Same ownership rule as save_profile and delete_profile.
                     if user_id and gp.user_id != "__anonymous__" and gp.user_id != user_id:
                         raise ValueError(f"Profile '{old_name}' is owned by another user.")
-                    gp.name = new_name
-                    if gp.description:
-                        gp.description = gp.description.replace(old_name, new_name)
+                    renamed = copy.deepcopy(gp)
+                    renamed.name = new_name
+                    if renamed.description:
+                        renamed.description = renamed.description.replace(old_name, new_name)
+                    self._global_custom_profiles[i] = renamed
                     self._global_profile_names.discard(old_name)
                     self._global_profile_names.add(new_name)
-                    renamed = gp
                     break
 
             state.profiles = self._ensure_default_profile(state.profiles)
@@ -1010,8 +1011,9 @@ class ProfileMixin:
 
             profile.description = description
 
-            for gp in self._global_custom_profiles:
+            for i, gp in enumerate(self._global_custom_profiles):
                 if gp.name == profile_name:
+                    gp = self._global_custom_profiles[i] = copy.deepcopy(gp)
                     gp.description = description
                     self._save_global_profile(gp)
                     self._saved_profiles_changed()

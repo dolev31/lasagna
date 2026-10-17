@@ -20,6 +20,7 @@ REFUSALS = {
     "ProfileCannotLoad": ValueError,
     "UnknownProfileError": ValueError,
     "ReindexFailed": RuntimeError,
+    "SettingsNotSaved": sdk.BackendError,
 }
 
 

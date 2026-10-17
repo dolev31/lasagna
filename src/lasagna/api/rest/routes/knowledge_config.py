@@ -19,6 +19,7 @@ from loguru import logger
 
 from lasagna.api._profile_guard import EmbeddingSizeConflict
 from lasagna.core.session_config import get_knowledge_config_manager
+from lasagna.core.session_config._data_models import SettingsNotSaved
 from lasagna.core.store_locks import StoreLockTimeout
 from ..dependencies import get_profile_owner, get_session_id
 from ..models import (
@@ -35,8 +36,9 @@ from ..models import (
 router = APIRouter(prefix="/api/config/knowledge", tags=["configurator"])
 
 #: Answered by the app with a 503 and the reason (see ``app._answer_switch_in_progress``):
-#: caught below as any other error, a store lock held past its wait was a 500.
-STORE_UNAVAILABLE = (StoreLockTimeout,)
+#: caught below as any other error, a store lock held past its wait, or a change
+#: the store did not save, was a 500.
+STORE_UNAVAILABLE = (StoreLockTimeout, SettingsNotSaved)
 
 
 def _to_response(data: Dict[str, Any]) -> KnowledgeConfigFullResponse:
