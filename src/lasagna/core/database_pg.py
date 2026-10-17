@@ -430,7 +430,8 @@ class PostgresRAGDatabase:
         if own is None:
             with self._lock:
                 if getattr(self, "_own_lock_slots", None) is None:
-                    cap = max(1, self._pool_max // 2) if pool is not None else self._pool_max
+                    size = getattr(self, "_pool_max", 10)
+                    cap = max(1, size // 2) if pool is not None else max(1, size)
                     self._own_lock_slots = (threading.BoundedSemaphore(cap), cap)
             own = self._own_lock_slots
         slots, cap = own

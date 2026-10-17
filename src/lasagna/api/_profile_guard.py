@@ -468,18 +468,21 @@ def refuse_leaving_documents(
     from lasagna.core.database import get_rag_database
 
     db = get_rag_database()
-    target = collection_name_for_settings(after)
-    current = collection_name_for_settings(before)
-    if target == current:
-        return
-    archived = archived_left_behind(session_id, target, change, kept)
-    if archived:
-        raise DocumentsLeftBehind(archived)
     rows = [
         row
         for row in db.get_documents(session_id)
         if str(row.get("status") or "").lower() in _SEARCHED_STATUSES
     ]
+    archived_rows = _archived_rows(session_id)
+    if not rows and not archived_rows:
+        return
+    target = collection_name_for_settings(after)
+    current = collection_name_for_settings(before)
+    if target == current:
+        return
+    archived = archived_left_behind(session_id, target, change, kept, archived_rows)
+    if archived:
+        raise DocumentsLeftBehind(archived)
     if not rows:
         return
     # Only the documents the session searches now: those already in another
@@ -544,7 +547,19 @@ def refuse_leaving_documents(
     )
 
 
-def archived_left_behind(session_id: str, collection: str, change: str, kept: str) -> Optional[str]:
+def _archived_rows(session_id: str) -> list:
+    """The session's archived documents' rows (a stand-in store: none)."""
+    from lasagna.core.database import get_rag_database
+
+    try:
+        return list(get_rag_database().get_documents(session_id, status="soft_deleted"))
+    except TypeError:  # a stand-in store without the status filter
+        return []
+
+
+def archived_left_behind(
+    session_id: str, collection: str, change: str, kept: str, rows: Optional[list] = None
+) -> Optional[str]:
     """Why ``change``, to search ``collection``, would strand the session's archived documents.
 
     None when every archived document of the session is in ``collection``. A
@@ -552,12 +567,7 @@ def archived_left_behind(session_id: str, collection: str, change: str, kept: st
     reindexed), and restoring one later put it back as ready in the old
     model's collection, where the session no longer searched.
     """
-    from lasagna.core.database import get_rag_database
-
-    try:
-        rows = get_rag_database().get_documents(session_id, status="soft_deleted")
-    except TypeError:  # a stand-in store
-        return None
+    rows = _archived_rows(session_id) if rows is None else rows
     left = sorted(
         str(r["document_id"])
         for r in rows

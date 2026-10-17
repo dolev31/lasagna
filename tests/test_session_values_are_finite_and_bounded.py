@@ -1,4 +1,4 @@
-"""A session's settings are finite numbers, counts are not negative, and dict settings have a size.
+"""Settings are finite numbers, counts are not negative, and a session's dict settings have a size.
 
 ``hybrid_alpha`` and ``similarity_threshold`` accepted NaN (every comparison with
 it is false, so the maximum let it through), ``hybrid_fusion_depth`` and
@@ -17,6 +17,7 @@ from lasagna.core.session_config import KnowledgeConfigManager
 from lasagna.core.session_config._session_keys import (
     DICT_MAXIMUM_BYTES,
     SessionSettingRefused,
+    number_problems,
     session_key_problem,
 )
 
@@ -36,13 +37,19 @@ from lasagna.core.session_config._session_keys import (
     ],
 )
 def test_a_value_that_is_not_a_finite_number_or_a_negative_count_is_refused(key, value):
-    problem = session_key_problem(key, value)
-    assert problem is not None and ("finite" in problem or "negative" in problem), problem
+    manager = KnowledgeConfigManager()
+    sid = f"num-{uuid.uuid4().hex[:8]}"
+    with pytest.raises(ValueError) as refused:
+        manager.patch_config({key: value}, session_id=sid)
+    # The configurator's range, or the session maximum, says so where there is one.
+    why = str(refused.value)
+    assert any(w in why for w in ("finite", "negative", "below minimum", "at most")), why
+    assert key not in manager.get_session_state(sid).session_overrides
 
 
-@pytest.mark.parametrize("key, value", [("hybrid_alpha", 0.0), ("default_top_k", 0)])
-def test_zero_is_still_a_value(key, value):
-    assert session_key_problem(key, value) is None
+@pytest.mark.parametrize("key, value", [("hybrid_alpha", 0.0), ("default_top_k", 1)])
+def test_zero_and_small_values_are_still_values(key, value):
+    assert number_problems({key: value}) == []
 
 
 def test_a_dict_setting_has_a_size():
@@ -64,9 +71,18 @@ def test_patches_cannot_grow_a_dict_setting_past_its_size():
     assert len(str(stored)) <= DICT_MAXIMUM_BYTES + 100
 
 
-def test_a_patch_with_nan_is_refused_before_anything_is_stored():
+def test_an_import_or_a_trusted_write_with_nan_is_refused_too():
     manager = KnowledgeConfigManager()
     sid = f"nan-{uuid.uuid4().hex[:8]}"
-    with pytest.raises(SessionSettingRefused, match="hybrid_alpha"):
-        manager.patch_config({"hybrid_alpha": float("nan")}, session_id=sid)
+    with pytest.raises(ValueError, match="hybrid_alpha: is nan"):
+        manager.import_config(
+            {
+                "schema_version": 2,
+                "profiles": [],
+                "session_overrides": {"hybrid_alpha": float("nan")},
+            },
+            session_id=sid,
+        )
+    with pytest.raises(ValueError, match="hybrid_alpha: is nan"):
+        manager.patch_config({"hybrid_alpha": float("nan")}, session_id=sid, trusted=True)
     assert "hybrid_alpha" not in manager.get_session_state(sid).session_overrides
