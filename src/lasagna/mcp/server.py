@@ -4301,11 +4301,13 @@ def main():
             print(exc, file=sys.stderr)
             sys.exit(1)
     else:
+        from lasagna.core.setup_text import profile_download_size
+
         logger.info(
             "RAG backend will be initialized on the first tool call. A session whose "
             "embedding model is not downloaded is refused with the fix rather than "
             "downloaded inside a tool call (the speed profile, `lasagna configure "
-            "--profile speed -s <session>`, uses a 91 MB model)."
+            f"--profile speed -s <session>`, uses a {profile_download_size('speed')} model)."
         )
 
     from lasagna.core.model_downloads import refuse_downloads_in_requests

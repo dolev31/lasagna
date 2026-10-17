@@ -233,7 +233,7 @@ PARAMETERS: list[ParameterDef] = [
         open_enum=True,
         label="AI Understanding Model",
         description="Determines how well your system understands document content. Better models find more relevant results but use more memory.",
-        help_text="Technical: Sentence-transformer embedding model. Larger models produce higher-quality vectors but are slower. MiniLM (91 MB) is fast; BGE-large (1.3 GB) is highest quality.",
+        help_text="Technical: Sentence-transformer embedding model. Larger models produce higher-quality vectors but are slower. MiniLM (92 MB) is fast; BGE-large (1.3 GB) is highest quality.",
         tab="essential",
         group="embedding",
         default="BAAI/bge-m3",
@@ -242,7 +242,7 @@ PARAMETERS: list[ParameterDef] = [
             EnumOption(
                 "all-MiniLM-L6-v2",
                 "Fast & Light",
-                "Quick processing, good for most use cases (91 MB)",
+                "Quick processing, good for most use cases (92 MB)",
             ),
             EnumOption(
                 "BAAI/bge-small-en-v1.5", "Improved Light", "Better quality, same speed as Fast"

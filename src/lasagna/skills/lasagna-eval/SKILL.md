@@ -12,13 +12,13 @@ what you think it means.
 
 ```bash
 lasagna benchmark list                       # what is available, and what supports live mode
-lasagna benchmark run smoke --profile speed  # 24 docs, no download beyond a 91 MB model, no API key
+lasagna benchmark run smoke --profile speed  # 24 docs, no download beyond a 92 MB model, no API key
 ```
 
 `smoke` is a wiring check. A green run means the stack works end to end; it is
 deliberately easy, so the score never means "this is good". Without
 `--profile speed`, `benchmark run` starts from the `standard` profile, which
-downloads about 3.1 GB of models.
+downloads about 3.2 GB of models.
 
 ## Run a real comparison
 
