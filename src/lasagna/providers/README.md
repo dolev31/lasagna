@@ -32,12 +32,13 @@ fills in only the providers not already set:
    `_API_KEY_TO_PLATFORM` that is set (`OPENAI_API_KEY` first, then `ANTHROPIC_API_KEY`,
    `GROQ_API_KEY`, ...; watsonx accepts `WATSONX_APIKEY` and `WATSONX_API_KEY`; the local
    platforms come last). With none set, `get_llm_provider()` raises `LLMProviderNotConfigured`.
-3. Session: `InMemorySessionProvider`, unless `RAG_SESSION_BACKEND=persistent`, which selects
-   `PersistentSessionProvider`. The `lasagna` CLI (`cli.py`) and `lasagna-mcp`
-   (`--session-backend`, default `persistent`) set it to `persistent`, so a profile chosen by
-   one command applies in the next. A library user who imports `lasagna` directly gets the
-   in-memory provider. The variable is read from the environment directly; it has no
-   `LASAGNA_` alias.
+3. Session: `PersistentSessionProvider`, which keeps each session's settings in the metadata
+   database, unless `RAG_SESSION_BACKEND=memory`, which selects `InMemorySessionProvider`. The
+   CLI, `lasagna-mcp`, `lasagna serve` and a library user who imports `lasagna` directly all
+   read the same store, so a profile chosen by `lasagna configure` applies to a
+   `KnowledgeClient` in another process. The in-memory provider keeps a process's sessions to
+   itself (tests, a notebook that should not touch saved sessions). The variable is read from
+   the environment directly; it has no `LASAGNA_` alias.
 
 `reset_providers()` clears all three and the done flag; tests use it.
 

@@ -509,7 +509,7 @@ switches on this page that are not settings are read only by the name shown:
 | `RAG_DATABASE_BACKEND` | `sqlite` | `postgresql` | `postgresql` |
 | `RAG_CACHE_BACKEND` | `memory` | `redis` | `redis` |
 | `RAG_CELERY_ENABLED` | `false` | follows the `celery` profile under `make`, else `true` | `true` |
-| `RAG_SESSION_BACKEND` | in memory (`persistent` for `lasagna` and `lasagna-mcp`) | `persistent` | `persistent` |
+| `RAG_SESSION_BACKEND` | `persistent` | `persistent` | `persistent` |
 | `RAG_CONNECTION_POOL_SIZE` (vector store) | `1` | `10` | `10` |
 | `RAG_EMBEDDING_MODEL` | `BAAI/bge-m3` | `BAAI/bge-m3` | `BAAI/bge-large-en-v1.5` |
 | `RAG_RERANKER_MODEL` | `mixedbread-ai/mxbai-rerank-large-v1` | same | same |

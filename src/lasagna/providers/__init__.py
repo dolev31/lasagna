@@ -144,12 +144,16 @@ def _auto_configure_from_env() -> None:
             if platform:
                 _llm_provider = SimpleLLMProvider(default_provider=platform)
 
-        # Session provider: persistent (file-backed) or in-memory (default)
+        # Session provider: the metadata database every surface shares, unless
+        # RAG_SESSION_BACKEND=memory. The SDK kept sessions in memory while the
+        # CLI and the MCP server kept them on disk, so after `lasagna configure
+        # --profile speed -s cfg` a KnowledgeClient(session_id="cfg") searched
+        # with the default model and failed with "BAAI/bge-m3 is not downloaded".
         if _session_provider is None:
-            if os.environ.get("RAG_SESSION_BACKEND", "").lower() == "persistent":
-                _session_provider = PersistentSessionProvider()
-            else:
+            if session_backend() == "memory":
                 _session_provider = InMemorySessionProvider()
+            else:
+                _session_provider = PersistentSessionProvider()
 
         _auto_config_done = True
 
@@ -218,18 +222,33 @@ def set_llm_provider(provider: LLMProvider) -> None:
         _llm_provider = provider
 
 
+def session_backend() -> str:
+    """``memory`` or ``persistent``: where sessions' settings are kept (``RAG_SESSION_BACKEND``).
+
+    Persistent unless the variable says ``memory``: one store for the CLI, the
+    MCP server, the REST API and the SDK.
+    """
+    value = os.environ.get("RAG_SESSION_BACKEND", "").strip().lower()
+    if value and value not in ("memory", "persistent"):
+        logger.warning(
+            f"RAG_SESSION_BACKEND={value!r} is not a session backend; using persistent. "
+            f"Set it to persistent (the default) or memory."
+        )
+    return "memory" if value == "memory" else "persistent"
+
+
 def get_session_provider() -> SessionConfigProvider:
     """Get the current session configuration provider.
 
-    Defaults to InMemorySessionProvider if none configured
-    (created by _auto_configure_from_env).
+    Defaults to PersistentSessionProvider (the metadata database), or
+    InMemorySessionProvider with ``RAG_SESSION_BACKEND=memory``.
 
     Returns:
         SessionConfigProvider instance
     """
     _auto_configure_from_env()
-    # _auto_configure_from_env always creates InMemorySessionProvider
-    # if none was set, so _session_provider is guaranteed non-None here.
+    # _auto_configure_from_env always creates a provider if none was set, so
+    # _session_provider is guaranteed non-None here.
     return _session_provider  # type: ignore[return-value]
 
 

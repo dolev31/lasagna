@@ -204,8 +204,9 @@ lasagna serve                      # REST API and configuration page on 127.0.0.
 > `lasagna init`, run `lasagna configure --profile speed`, or from Python pass
 > `config=config_for_speed()` (from `lasagna.sdk`) to `KnowledgeClient`; the
 > embedding model is process-wide, so two clients in one process share it. A
-> client saves its settings as its session's on the session's first upload, so
-> the CLI, REST API and MCP server search that corpus with the same model. The other
+> client's settings are saved as its session's, and a client without `config=`
+> reads the session's saved settings, so the CLI, REST API, MCP server and a
+> rerun of this script search that corpus with the same model. The other
 > profiles send queries they judge complex to an agentic loop, which calls an
 > LLM; without an API key those queries run the profile's standard pipeline,
 > and the result's `degraded_stages` names `agentic`.

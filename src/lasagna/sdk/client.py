@@ -505,17 +505,25 @@ class KnowledgeClient:
             # would run its searches on the session's other model instead.
             raise
         except Exception as e:
-            logger.debug(f"Runtime config bridge skipped: {e}")
+            # The session store is the metadata database by default, which can
+            # fail to write; then this client searches with the session's
+            # stored settings, not its own.
+            logger.warning(
+                f"This client's settings could not be applied to session "
+                f"{self._session_id!r}, so it searches with the session's stored settings: {e}"
+            )
 
     def _remember_session_config(self) -> None:
         """Save this client's settings as its session's, on the session's first write.
 
-        ``lasagna configure`` saves a session's profile to disk. A client's
-        configuration lived in its process only (the in-memory session store,
-        and the process-wide embedder), so after an SDK upload with
-        ``config_for_speed()``, ``lasagna status`` showed BGE-M3 and the CLI,
-        REST and MCP searched that corpus with a model that had not built it.
-        A session that already has settings of its own keeps them.
+        ``lasagna configure`` saves a session's profile to disk. With
+        ``RAG_SESSION_BACKEND=memory`` a client's configuration lives in its
+        process only (the in-memory session store, and the process-wide
+        embedder), so after an SDK upload with ``config_for_speed()``,
+        ``lasagna status`` showed BGE-M3 and the CLI, REST and MCP searched that
+        corpus with a model that had not built it. A session that already has
+        settings of its own keeps them. With the default store, applying the
+        client's settings (``_apply_runtime_config``) has saved them already.
         """
         if self._session_config_saved or self._is_remote:
             return

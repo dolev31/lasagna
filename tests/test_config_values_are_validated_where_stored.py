@@ -94,10 +94,19 @@ def test_an_import_with_an_invalid_value_is_a_422_and_the_config_still_reads(man
     assert client.get("/api/v1/config", headers=sid).status_code == 200
 
 
-def test_a_config_stored_before_validation_reads_as_a_422_naming_the_key(manager):
-    from lasagna.providers import get_session_provider
+@pytest.mark.parametrize("backend", ["memory", "persistent"])
+def test_a_config_stored_before_validation_reads_as_a_422_naming_the_key(manager, backend):
+    import lasagna.providers as providers
 
-    get_session_provider().set_config_overrides("rest-poisoned", {"chunk_size": "lots"})
+    if backend == "memory":
+        provider = providers.InMemorySessionProvider()
+        provider.set_config_overrides("rest-poisoned", {"chunk_size": "lots"})
+    else:
+        # A row written before values were checked: the store holds it as is.
+        provider = providers.PersistentSessionProvider()
+        provider._manager = manager
+        manager.get_session_state("rest-poisoned").session_overrides["chunk_size"] = "lots"
+    providers.set_session_provider(provider)
     response = rest_client().get("/api/v1/config", headers={"X-Session-ID": "rest-poisoned"})
     assert response.status_code == 422
     assert "chunk_size" in response.json()["detail"]

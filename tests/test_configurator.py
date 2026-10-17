@@ -550,14 +550,23 @@ class TestProfileLifecycle:
         active = manager.get_active_profile(session_id=session_id)
         assert active == "new_active"
 
-    def test_save_as_active_changes_what_search_runs(self, manager, session_id):
+    @pytest.mark.parametrize("backend", ["memory", "persistent"])
+    def test_save_as_active_changes_what_search_runs(self, manager, session_id, backend):
         """The configurator's "Save As" must reach search, not just the store.
 
         It reported "Saved!" while retrieval kept its old settings, because
         saving never published the profile to the config search reads.
         """
+        import lasagna.providers as providers
         from lasagna.core.config import rag_config
 
+        if backend == "memory":
+            providers.set_session_provider(providers.InMemorySessionProvider())
+        else:
+            # The default store reads the manager that saved the profile.
+            provider = providers.PersistentSessionProvider()
+            provider._manager = manager
+            providers.set_session_provider(provider)
         manager.save_profile("no_rerank", {"enable_reranking": False}, session_id=session_id)
         assert rag_config.with_session(session_id).enable_reranking is False
 

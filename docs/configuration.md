@@ -43,14 +43,14 @@ and keys that are no setting, with an error naming each one; a value equal to
 the one already in force is dropped instead, so an exported configuration
 imports again. A model named by a path or URL is refused the same way.
 
-**Where session overrides are kept.** The `lasagna` command and `lasagna-mcp`
-store them in the metadata database (SQLite under the data directory, or
-PostgreSQL when `database_backend` is `postgresql`), so a profile set by one
-command applies in the next one and in `lasagna serve`. Python code keeps them
-in memory for the life of the process unless `RAG_SESSION_BACKEND=persistent`
-is set. The compose stack and the Kubernetes ConfigMap set it, so the api's
-workers, the Celery worker and the MCP server read one session's settings
-alike.
+**Where session overrides are kept.** In the metadata database (SQLite under
+the data directory, or PostgreSQL when `database_backend` is `postgresql`), for
+every surface: the `lasagna` command, `lasagna-mcp`, `lasagna serve` and Python
+code. A profile set by one command applies in the next one, in a running
+server and in a `KnowledgeClient` for that session; the compose stack's api
+workers, Celery worker and MCP server read one session's settings alike.
+`RAG_SESSION_BACKEND=memory` keeps a process's sessions in memory, for the life
+of the process (tests, or a notebook that should leave saved sessions alone).
 
 **From Python**, a `KnowledgeConfig` passed to `KnowledgeClient` splits the
 same way: the fields that choose what the process connects to (vector backend,
