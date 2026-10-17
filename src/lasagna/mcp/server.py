@@ -2558,6 +2558,7 @@ def set_active_profile(
     session_id: str = "",
     session_token: Optional[str] = None,
     force: bool = False,
+    reindex: bool = False,
 ) -> str:
     """Set the active RAG profile for a session.
 
@@ -2571,6 +2572,9 @@ def set_active_profile(
     :param force: Switch even when the session's documents were embedded with
         another model and would not be searched; reindex them afterwards with
         reindex_document.
+    :param reindex: Reindex the session's documents with the new profile first,
+        and switch only when every one is reindexed; if one fails, the session
+        keeps its profile.
     :returns: Confirmation message or error.
     """
     session_id, user_id = _resolve_session(session_id, session_token)
@@ -2578,16 +2582,25 @@ def set_active_profile(
     _log_tool_call("set_active_profile", {"session_id": session_id, "profile_name": profile_name})
 
     try:
+        from lasagna.api._profile_switch import summary, switch_profile
         from lasagna.core.session_config import get_knowledge_config_manager
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        manager.set_active_profile(
-            profile_name, session_id=session_id, user_id=_profile_owner(user_id), force=force
+        report = switch_profile(
+            manager,
+            profile_name,
+            session_id=session_id,
+            user_id=_profile_owner(user_id),
+            force=force,
+            reindex=reindex,
         )
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("set_active_profile", True, f"activated={profile_name}", duration_ms)
-        return f"Profile '{profile_name}' activated for session '{session_id}'."
+        done = summary(report)
+        return f"Profile '{profile_name}' activated for session '{session_id}'." + (
+            f" {done}" if done else ""
+        )
 
     except ValueError as e:
         duration_ms = (time.time() - start_time) * 1000
@@ -2845,6 +2858,16 @@ def patch_rag_config(
             )
 
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
+        if force:
+            # A forced change of model must still leave a model that loads,
+            # or every later search fails.
+            from lasagna.api._profile_switch import unloadable_models
+
+            problems = unloadable_models({**manager.get_resolved_config(session_id), **patch})
+            if problems:
+                raise ValueError(
+                    f"{' '.join(problems)} Nothing was changed for session {session_id!r}."
+                )
         manager.patch_config(patch, session_id, force=force)
         result = manager.get_config(session_id, user_id=_profile_owner(user_id))
 

@@ -1343,13 +1343,13 @@ def configure(
         False,
         "--force",
         help="Apply even if the session's stored documents would no longer be searched "
-        "(they stay where they are until reindexed)",
+        "(they stay where they are until reindexed); the new models must load",
     ),
     reindex: bool = typer.Option(
         False,
         "--reindex",
-        help="Apply, then reindex the session's documents with the new model; each keeps "
-        "its old index until its new one is stored",
+        help="Reindex the session's documents with the new profile, then apply it; if one "
+        "fails, the session keeps its profile and every document stays searchable",
     ),
 ):
     """Configure RAG settings.
@@ -1366,20 +1366,34 @@ def configure(
     if profile:
         _require_profile(profile, session_id)
         from lasagna.api._profile_guard import EmbeddingSizeConflict
+        from lasagna.api._profile_switch import (
+            ProfileCannotLoad,
+            ReindexFailed,
+            summary,
+            switch_profile,
+        )
 
         try:
-            mgr.set_active_profile(profile, session_id=session_id, force=force or reindex)
+            report = switch_profile(
+                mgr, profile, session_id=session_id, force=force, reindex=reindex
+            )
         except EmbeddingSizeConflict as exc:
             _error(
                 f"{exc} To switch and reindex them now: lasagna configure --profile "
                 f"{profile} -s {session_id} --reindex. To switch anyway: lasagna "
                 f"configure --profile {profile} -s {session_id} --force."
             )
-        except ValueError as exc:
+        except (ProfileCannotLoad, ReindexFailed, ValueError) as exc:
             _error(str(exc))
+        finally:
+            if reindex:
+                from lasagna.api.rag_backend import close_backend
+
+                close_backend()
         console.print(f"[green]Applied profile: {profile}[/green]")
-        if reindex:
-            _reindex_session(session_id)
+        done = summary(report)
+        if done:
+            console.print(done)
         return
 
     # List profiles
@@ -1402,36 +1416,6 @@ def configure(
 # ---------------------------------------------------------------------------
 # export / import
 # ---------------------------------------------------------------------------
-
-
-def _reindex_session(session_id: str) -> None:
-    """Reindex every document of ``session_id`` with its current settings, one at a time."""
-    url = _serving_url()
-
-    async def _reindex():
-        client = _client_for(session_id, url)
-        done, failed = 0, []
-        try:
-            docs = await client.documents.list()
-            for doc in docs:
-                try:
-                    await client.documents.reindex(doc.document_id)
-                    done += 1
-                except Exception as exc:  # noqa: BLE001 - reported per document below
-                    failed.append((doc.document_id, exc))
-        finally:
-            await client.close()
-        return len(docs), done, failed
-
-    try:
-        total, done, failed = _run(_reindex())
-    except Exception as exc:
-        _error(f"Reindex failed: {exc}", exc=exc)
-    console.print(f"Reindexed {done} of {_count(total, 'document')} in session {session_id}.")
-    for document_id, exc in failed:
-        console.print(f"  [red]{escape(document_id)}[/red]: {escape(str(exc))}")
-    if failed:
-        raise typer.Exit(1)
 
 
 @app.command(name="export")

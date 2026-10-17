@@ -581,37 +581,9 @@ class ProfileMixin:
         state = self.get_session_state(session_id)
 
         with self._lock:
-            previous = state.get_active_profile()
-            profile = self._find_profile(state, profile_name, user_id)
-            if profile is None and not config:
-                # Recording a name no profile has made `configure --profile
-                # bogus` print "Applied profile: bogus" and change nothing.
-                foreign = self._foreign_profile_names(user_id)
-                known = sorted(
-                    {p.name for p in state.profiles if p.name not in foreign}
-                    | {
-                        p.name
-                        for p in self._global_custom_profiles
-                        if self._is_visible_to(p, user_id)
-                    }
-                )
-                raise UnknownProfileError(
-                    f"Unknown profile {profile_name!r}. Available: {', '.join(known)}"
-                )
-
-            # Everything the switch would leave in force, worked out before any
-            # of it is applied, so a refusal changes nothing. The old order
-            # switched, checked, and switched back, and the way back dropped the
-            # user's overrides or kept the refused request's.
-            if profile is None:
-                profile_config, overrides = config, state.session_overrides
-            elif config:
-                profile_config, overrides = profile.config, config
-            elif previous is not None and previous.name != profile_name:
-                profile_config = profile.config
-                overrides = _without_echoes(state.session_overrides, previous.config)
-            else:
-                profile_config, overrides = profile.config, state.session_overrides
+            profile, profile_config, overrides = self._switch_plan(
+                state, profile_name, config, user_id
+            )
             self._refuse_unsearchable(
                 state,
                 _resolve(profile_config, overrides),
@@ -638,6 +610,81 @@ class ProfileMixin:
         # search resolves through the session provider, not this manager.
         self._publish_to_search(session_id)
         return state.to_dict()
+
+    def _switch_plan(
+        self,
+        state: Any,
+        profile_name: str,
+        config: Optional[Dict[str, Any]],
+        user_id: str,
+    ) -> tuple:
+        """``(profile, profile_config, overrides)`` a switch to ``profile_name`` would leave.
+
+        Worked out before any of it is applied, so a refusal changes nothing.
+        The old order switched, checked, and switched back, and the way back
+        dropped the user's overrides or kept the refused request's. Call with
+        ``self._lock`` held.
+        """
+        previous = state.get_active_profile()
+        profile = self._find_profile(state, profile_name, user_id)
+        if profile is None and not config:
+            # Recording a name no profile has made `configure --profile
+            # bogus` print "Applied profile: bogus" and change nothing.
+            foreign = self._foreign_profile_names(user_id)
+            known = sorted(
+                {p.name for p in state.profiles if p.name not in foreign}
+                | {p.name for p in self._global_custom_profiles if self._is_visible_to(p, user_id)}
+            )
+            raise UnknownProfileError(
+                f"Unknown profile {profile_name!r}. Available: {', '.join(known)}"
+            )
+        if profile is None:
+            return profile, config, state.session_overrides
+        if config:
+            return profile, profile.config, config
+        if previous is not None and previous.name != profile_name:
+            return (
+                profile,
+                profile.config,
+                _without_echoes(state.session_overrides, previous.config),
+            )
+        return profile, profile.config, state.session_overrides
+
+    def preview_active_profile(
+        self,
+        profile_name: str,
+        session_id: Optional[str] = None,
+        *,
+        config: Optional[Dict[str, Any]] = None,
+        user_id: str = ANONYMOUS,
+    ) -> tuple:
+        """``(resolved, chosen)``: the session's settings after ``set_active_profile``.
+
+        Takes what ``set_active_profile`` takes. ``resolved`` is what the
+        refusal checks compare (the profile's whole configuration and the
+        overrides); ``chosen`` is what search would read as the session's own
+        (see ``get_chosen_config``). Nothing is changed: a reindex into the new
+        profile runs on these before the switch.
+        """
+        if config:
+            config = self._session_settings(config, document=True)
+            self._validate_or_raise(config, session_id)
+        state = self.get_session_state(session_id)
+        with self._lock:
+            profile, profile_config, overrides = self._switch_plan(
+                state, profile_name, config, user_id
+            )
+            resolved = _resolve(profile_config, overrides)
+            chosen: Dict[str, Any] = {}
+            if profile_name != "default":
+                spec = (
+                    self._PROFILE_SPECS.get(profile_name)
+                    if self._is_protected_profile_name(profile_name)
+                    else None
+                )
+                chosen = copy.deepcopy(spec if spec is not None else profile_config)
+            _deep_merge(chosen, copy.deepcopy(overrides))
+        return resolved, chosen
 
     def save_profile(
         self,

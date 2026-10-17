@@ -160,9 +160,21 @@ each model writes to a collection of its own, named
 - Switching a session to a profile with another model makes it search that
   model's collection, so a session that holds documents is refused the switch,
   even at the same embedding size: none of its documents would be found.
-  Use a new session for the new model, or switch with
+  Use a new session for the new model, or switch and reindex in one step:
+  `lasagna configure --profile <name> -s <session> --reindex`
+  (`reindex=true` on `PUT /api/v1/config/profiles/{name}` and
+  `PUT /api/config/knowledge/active`, and on the MCP tool
+  `set_active_profile`). It first checks that the new profile's models load
+  (downloaded, or downloadable here), then reindexes every document with the
+  new profile while the session stays on the old one, and switches only once
+  all of them are reindexed. If one fails, the documents already moved are
+  moved back, the session keeps its profile, and the error names the document
+  and why. `lasagna doctor -s <session>` reports documents that sit in another
+  model's collection as blocking.
+  To switch without moving them, use
   `lasagna configure --profile <name> -s <session> --force` (`force=true`
-  over REST and MCP) and reindex the documents with the new model:
+  over REST and MCP), which also checks that the new models load, and reindex
+  the documents with the new model afterwards:
   `client.documents.reindex(document_id)` in the SDK,
   `POST /api/v1/documents/{id}/reindex` (or `POST /api/knowledge/reindex` for
   all of a session's documents) over REST, or the MCP tool

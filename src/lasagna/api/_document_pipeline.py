@@ -534,8 +534,13 @@ class DocumentPipeline:
     # Reindex and replacement
     # =========================================================================
 
-    def reindex_document(self, document_id: str, session_id: str) -> Document:
+    def reindex_document(
+        self, document_id: str, session_id: str, *, config: Optional[RAGConfig] = None
+    ) -> Document:
         """Process a stored document again with the session's current settings.
+
+        ``config`` replaces those settings (``RAGConfig.with_session_settings``):
+        a profile switch reindexes into the new profile before it switches.
 
         The document keeps answering searches from its old chunks until the new
         ones are stored; then the old chunks go and its row points at the new
@@ -561,12 +566,14 @@ class DocumentPipeline:
                 f"document_id={document_id} to keep the id)."
             )
         if storage.backend_name == self.storage.backend_name:
-            return self._replace_document(row)
+            return self._replace_document(row, config=config)
         # Stored on another storage backend than the current one: the new copy
         # is stored on the current one, as an upload would be.
         local = storage.ensure_local(stored)
         try:
-            return self._replace_document(row, source_path=local, filename=row.get("filename"))
+            return self._replace_document(
+                row, source_path=local, filename=row.get("filename"), config=config
+            )
         finally:
             if local != stored and os.path.isfile(local):
                 os.unlink(local)
@@ -602,6 +609,7 @@ class DocumentPipeline:
         counts_as_upload: bool = False,
         _chunker_override: Any = None,
         _document_processor_override: Any = None,
+        config: Optional[RAGConfig] = None,
     ) -> Document:
         """Index a new copy of the document in ``row``, then retire the old copy.
 
@@ -629,7 +637,7 @@ class DocumentPipeline:
                 f"(POST /api/v1/documents/{document_id}/restore)."
             )
 
-        config = self._get_session_config(session_id)
+        config = config or self._get_session_config(session_id)
         unknown = getattr(config, "embedding_size_unknown", None)
         problem = unknown() if callable(unknown) else None
         if isinstance(problem, str) and problem:

@@ -121,7 +121,7 @@ Tools that operate on data take an optional `session_id` (it scopes documents an
 | `reset_rag_config` | Reset to defaults. `scope="active"` clears overrides, `"all"` full reset *(all only)* |
 | `list_profiles` | List built-in + custom profiles |
 | `get_active_profile` | Current active profile name |
-| `set_active_profile` | Switch session to a different profile; `force=true` switches even when its documents were embedded with another model (reindex them after) |
+| `set_active_profile` | Switch session to a different profile; `reindex=true` reindexes its documents with the new profile first and switches only when all are reindexed (a failure changes nothing); `force=true` switches even when its documents were embedded with another model (reindex them after) |
 | `save_rag_profile` | Create or update a named custom profile |
 | `delete_rag_profile` | Delete a custom profile (built-in profiles are protected) *(all only)* |
 | `get_profile_stats` | Profile and session counts |

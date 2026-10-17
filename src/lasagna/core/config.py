@@ -702,6 +702,28 @@ class RAGConfig:
         config._query_overrides = {}
         return config
 
+    def with_session_settings(self, session_id: str, settings: Dict[str, Any]) -> "RAGConfig":
+        """This configuration for ``session_id`` as if the session had chosen ``settings``.
+
+        ``settings`` stand in for what the session store holds (its profile's
+        settings and its overrides, as ``get_chosen_config`` gives them). For
+        work done before a change is applied: a profile switch reindexes the
+        session's documents with the new profile's settings, and switches only
+        once every one of them is reindexed.
+        """
+        config = self.with_session(session_id)
+        config._pinned_session = copy.deepcopy(settings)
+        return config
+
+    def _session_resolved(self) -> Dict[str, Any]:
+        """The session's chosen settings: pinned ones, else the session store's."""
+        pinned = getattr(self, "_pinned_session", None)
+        if pinned is not None:
+            return pinned
+        from lasagna.providers import get_session_provider
+
+        return get_session_provider().get_resolved_config(self._session_id)
+
     def settings_fingerprint(self) -> str:
         """A short hash of everything that can differ between two searches.
 
@@ -716,9 +738,7 @@ class RAGConfig:
         parts: Dict[str, Any] = {"query": getattr(self, "_query_overrides", None) or {}}
         if self._session_id:
             try:
-                from lasagna.providers import get_session_provider
-
-                parts["session"] = get_session_provider().get_resolved_config(self._session_id)
+                parts["session"] = self._session_resolved()
             except Exception:
                 parts["session"] = {"_unresolved": self._session_id}
         blob = _json.dumps(parts, sort_keys=True, default=str)
@@ -749,6 +769,7 @@ class RAGConfig:
         config._knowledge_settings = self._knowledge_settings
         config._session_id = self._session_id
         config._query_overrides = dict(overrides)
+        config._pinned_session = getattr(self, "_pinned_session", None)
         return config
 
     def _get_session_override(self, *keys: str, default: Any = None) -> Any:
@@ -781,11 +802,9 @@ class RAGConfig:
             return value, True
 
         try:
-            from lasagna.providers import get_session_provider
-
             resolved = getattr(self, "_resolved_once", None)
             if resolved is None:
-                resolved = get_session_provider().get_resolved_config(self._session_id)
+                resolved = self._session_resolved()
 
             # Navigate nested keys
             value, ok = _lookup(resolved, keys)
@@ -1460,9 +1479,7 @@ class RAGConfig:
         self._resolved_once = None
         if self._session_id:
             try:
-                from lasagna.providers import get_session_provider
-
-                self._resolved_once = get_session_provider().get_resolved_config(self._session_id)
+                self._resolved_once = self._session_resolved()
             except Exception:  # noqa: BLE001 - each lookup then resolves (and logs) itself
                 self._resolved_once = None
         try:

@@ -91,13 +91,13 @@ def refuse_leaving_documents(
         f"{'was' if one else 'were'} embedded with {old_model}, in that model's "
         f"collection, so no search would find {them}. Nothing was changed; profile "
         f"{kept!r} is still active. Either use a new session for {new_model} and "
-        f"upload there, or switch anyway (force: lasagna configure --force, or "
-        f"force=true over REST and MCP) and reindex {them} with {new_model}: "
-        f"client.documents.reindex(document_id) in the SDK, POST "
-        f"/api/v1/documents/<id>/reindex or POST /api/knowledge/reindex over REST, or "
-        f"the MCP tool reindex_document. A reindex moves a document to {new_model}'s "
-        f"collection, and one that fails leaves it as it was; until then searches "
-        f"return nothing from {them}."
+        f"upload there, or switch and reindex {them} in one step (lasagna configure "
+        f"--reindex, or reindex=true over REST and MCP), which reindexes every document "
+        f"with {new_model} first and keeps the session as it is if one fails. To switch "
+        f"anyway: lasagna configure --force, or force=true over REST and MCP; until "
+        f"each document is reindexed (client.documents.reindex(document_id) in the "
+        f"SDK, POST /api/v1/documents/<id>/reindex or POST /api/knowledge/reindex over "
+        f"REST, or the MCP tool reindex_document), searches return nothing from {them}."
     )
 
 

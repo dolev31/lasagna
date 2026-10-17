@@ -1008,6 +1008,12 @@
           "title": "Profile Name",
           "type": "string"
         },
+        "reindex": {
+          "default": false,
+          "description": "Reindex the session's documents with the new profile first, and switch only when every one is reindexed; if one fails, the session keeps its profile.",
+          "title": "Reindex",
+          "type": "boolean"
+        },
         "session_id": {
           "default": "",
           "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",

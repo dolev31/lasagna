@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -233,6 +234,11 @@ async def apply_profile(
         description="Switch even when the session's documents would not be searched; "
         "reindex them afterwards (POST /api/knowledge/reindex).",
     ),
+    reindex: bool = Query(
+        False,
+        description="Reindex the session's documents with the new profile first, and switch "
+        "only when every one is reindexed; if one fails, the session keeps its profile.",
+    ),
     session_id: str = Depends(get_session_id),
     user_id: str = Depends(get_profile_owner),
     backend: RAGBackend = Depends(get_backend),
@@ -244,12 +250,22 @@ async def apply_profile(
             detail=f"Profile '{profile_name}' not found. Available: {list(_PROFILES.keys())}",
         )
 
+    from lasagna.api._profile_switch import ProfileCannotLoad, ReindexFailed, switch_profile
+
     try:
         from lasagna.core.session_config import get_knowledge_config_manager
 
         mgr = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
-        mgr.set_active_profile(profile_name, session_id=session_id, user_id=user_id, force=force)
-    except EmbeddingSizeConflict as conflict:
+        report = await asyncio.to_thread(
+            switch_profile,
+            mgr,
+            profile_name,
+            session_id=session_id,
+            user_id=user_id,
+            force=force,
+            reindex=reindex,
+        )
+    except (EmbeddingSizeConflict, ProfileCannotLoad, ReindexFailed) as conflict:
         raise HTTPException(status_code=409, detail=str(conflict))
     except ValueError as ve:
         logger.warning(f"Validation error applying profile {profile_name}: {ve}")
@@ -259,4 +275,7 @@ async def apply_profile(
         raise HTTPException(status_code=500, detail="Internal server error")
 
     # Return updated config
-    return await get_config(session_id=session_id, backend=backend)
+    response = await get_config(session_id=session_id, backend=backend)
+    if reindex:
+        response.reindex = report.to_dict()
+    return response

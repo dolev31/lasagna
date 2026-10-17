@@ -25,6 +25,63 @@ MODEL_DOWNLOAD_BYTES = {
     "mixedbread-ai/mxbai-rerank-large-v1": 881_291_471,
 }
 
+#: The files each model's first load reads (sentence-transformers for an
+#: embedder, a cross-encoder for a reranker); ``MODEL_DOWNLOAD_BYTES`` is their
+#: total. ``hf download <model>`` alone fetches the whole repository: for
+#: BAAI/bge-m3 that is 4.6 GB, the ONNX export included, which nothing reads.
+_SENTENCE_TRANSFORMERS_FILES = (
+    "modules.json",
+    "config_sentence_transformers.json",
+    "sentence_bert_config.json",
+    "README.md",
+    "1_Pooling/config.json",
+    "config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "special_tokens_map.json",
+)
+_MINILM_FILES = (*_SENTENCE_TRANSFORMERS_FILES, "model.safetensors", "vocab.txt")
+MODEL_FILES = {
+    "all-MiniLM-L6-v2": _MINILM_FILES,
+    "sentence-transformers/all-MiniLM-L6-v2": _MINILM_FILES,
+    "cross-encoder/ms-marco-MiniLM-L-6-v2": (
+        "README.md",
+        "config.json",
+        "model.safetensors",
+        "special_tokens_map.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.txt",
+    ),
+    "BAAI/bge-large-en-v1.5": (*_SENTENCE_TRANSFORMERS_FILES, "model.safetensors", "vocab.txt"),
+    "BAAI/bge-m3": (*_SENTENCE_TRANSFORMERS_FILES, "pytorch_model.bin", "sentencepiece.bpe.model"),
+    "mixedbread-ai/mxbai-rerank-large-v1": (
+        "added_tokens.json",
+        "config.json",
+        "model.safetensors",
+        "special_tokens_map.json",
+        "spm.model",
+        "tokenizer.json",
+        "tokenizer_config.json",
+    ),
+}
+
+
+def download_command(model: str) -> str:
+    """The ``hf download`` command that fetches what loading ``model`` reads, and its size.
+
+    ``hf download BAAI/bge-m3 --include modules.json ... (2.3 GB)``. A model
+    with no recorded file list gets the whole-repository command.
+    """
+    repo = model if "/" in model else f"sentence-transformers/{model}"
+    files = MODEL_FILES.get(model) or MODEL_FILES.get(repo)
+    if not files:
+        return f"hf download {repo}"
+    includes = " ".join(f"--include {name}" for name in files)
+    size = MODEL_DOWNLOAD_BYTES.get(model) or MODEL_DOWNLOAD_BYTES.get(repo)
+    return f"hf download {repo} {includes}" + (f" ({human_size(size)})" if size else "")
+
+
 #: What FlagEmbedding adds for BAAI/bge-m3 (the ``flag-embedding`` extra, which
 #: ``all`` includes): it downloads the model's whole repository, so on top of
 #: the files above it fetches the ONNX export (``onnx/model.onnx_data``, 2.27 GB,
