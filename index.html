@@ -514,7 +514,7 @@ lasagna results significance <span class="tok-s">"&lt;output&gt;/results.json"</
     </div>
     <div class="repro reveal">
       <h3 class="use-facts-title">It reproduces published numbers</h3>
-      <p class="repro-lede">Before you trust a harness with your component, check it on methods whose numbers are already known. On the full SciFact and NFCorpus test sets, with nothing tuned, the built-in components land within 0.008 NDCG@10 of BEIR and MTEB, and the dense models within 0.002.</p>
+      <p class="repro-lede">Before you trust a harness with your component, check it on methods whose numbers are already known. On the full SciFact and NFCorpus test sets, with nothing tuned, the dense models land within 0.002 NDCG@10 of MTEB, and BM25 followed by a cross-encoder within 0.004 of the BEIR paper. BM25 alone is within 0.008 of BEIR's multifield run, and 0.015 and 0.005 below its single-field run, which is how Lasagna indexes.</p>
       <div class="table-card">
         <table>
           <thead>
