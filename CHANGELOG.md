@@ -933,6 +933,13 @@ Requests to current models:
 
 Servers and deployment:
 
+- `status` with `LASAGNA_VECTOR_BACKEND=milvuss` printed "No documents
+  uploaded yet." and exited 0; it checks the backend first, as `doctor` and
+  the other commands do. The refusal said "set RAG_VECTOR_BACKEND" wherever the
+  typo was; it names the variable that set the value, or `vector_backend` in
+  the settings file. A REST upload answered 201 while `/health/ready` reported
+  the embedding model down, and the document then failed in the worker; single
+  and batch uploads now answer 503 with the reason readiness gives.
 - The MCP README said "All 31", headed "Search (4 tools)" over two, and said
   the two deprecated search aliases still answer (they return "Unknown tool";
   the server registers 29), and the SDK integration pages said 31 tools, "the

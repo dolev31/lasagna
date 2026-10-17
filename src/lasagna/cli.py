@@ -886,6 +886,10 @@ def status(
 ):
     """Show knowledge base status."""
     url = _serving_url()
+    if not url:
+        # A typo ("milvuss") printed "No documents uploaded yet." and exit 0:
+        # the local store is read only when this names a backend.
+        _require_vector_backend()
 
     async def _served_status():
         client = _client_for(session_id, url)

@@ -190,11 +190,36 @@ def _check_model_cache(session_id: str = "default") -> Check:
 _BUILTIN_VECTOR_BACKENDS = ("milvus", "pgvector", "qdrant", "weaviate", "pinecone", "opensearch")
 
 
+def vector_backend_source() -> str:
+    """Where the configured vector backend's name was set, as a fix should name it.
+
+    ``LASAGNA_VECTOR_BACKEND`` wins over ``RAG_VECTOR_BACKEND``, and either over
+    the settings file. The advice said "set RAG_VECTOR_BACKEND" for a typo in
+    the settings file, where setting the variable fixes nothing that is wrong.
+    """
+    for var in ("LASAGNA_VECTOR_BACKEND", "RAG_VECTOR_BACKEND"):
+        if os.environ.get(var, "").strip():
+            return var
+    try:
+        from .config import rag_config
+
+        path = getattr(rag_config, "_settings_path", None)
+        settings = getattr(rag_config, "_knowledge_settings", None) or {}
+        rag = settings.get("rag") if isinstance(settings, dict) else getattr(settings, "rag", None)
+        in_file = (rag or {}).get("vector_backend") if isinstance(rag, dict) else None
+        if path and in_file is not None:
+            return f"vector_backend in {path}"
+    except Exception:  # noqa: BLE001 - the advice falls back to the variable
+        pass
+    return "RAG_VECTOR_BACKEND"
+
+
 def unknown_vector_backend(name: str) -> Optional[Tuple[str, str]]:
     """``(what, advice)`` when ``name`` is no built-in or plugin vector backend, else None.
 
     Plugins (``lasagna_vector_*`` packages) are discovered only for a name that
-    is not built in.
+    is not built in. The advice names where the value was set
+    (:func:`vector_backend_source`).
     """
     if name in _BUILTIN_VECTOR_BACKENDS:
         return None
@@ -212,7 +237,7 @@ def unknown_vector_backend(name: str) -> Optional[Tuple[str, str]]:
 
     return (
         f"unknown backend {name!r}{did_you_mean(name, known)}",
-        f"set RAG_VECTOR_BACKEND to one of: {', '.join(sorted(known))}",
+        f"set {vector_backend_source()} to one of: {', '.join(sorted(known))}",
     )
 
 
