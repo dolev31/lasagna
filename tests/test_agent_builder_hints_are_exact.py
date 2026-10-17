@@ -145,6 +145,14 @@ def test_init_lists_every_store_and_preselects_what_the_readme_recommends(monkey
 
     monkeypatch.setattr(questionary, "select", select)
     monkeypatch.chdir(tmp_path)
+    # init applies the profile to the default session; keep the suite's own.
+    import lasagna.core.session_config as session_config
+
+    monkeypatch.setattr(
+        session_config,
+        "get_knowledge_config_manager",
+        lambda **kw: SimpleNamespace(set_active_profile=lambda profile: None),
+    )
     result = CliRunner().invoke(cli.app, ["init"])
     assert result.exit_code == 0, result.output
     (_, stores, _), (_, profiles, preselected) = asked
