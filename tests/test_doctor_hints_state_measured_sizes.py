@@ -26,7 +26,11 @@ def _size(model: str) -> str:
 
 
 def test_the_cache_hint_states_the_measured_sizes(tmp_path, monkeypatch):
-    monkeypatch.setenv("HF_HOME", str(tmp_path / "empty"))
+    # huggingface_hub reads HF_HOME once, at import: setting it here left the
+    # check reading the real cache, so the test failed wherever mxbai was cached.
+    from huggingface_hub import constants
+
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path / "empty" / "hub"))
 
     check = diagnostics._check_model_cache()
 
