@@ -28,7 +28,7 @@ from typer.testing import CliRunner
 
 from lasagna import cli
 from lasagna.knowledge_evaluation_sdk.bundle import METRICS_VERSION
-from tests._paths import PACKAGE_DIR
+from tests._paths import PACKAGE_DIR, tracked
 
 DASH = "—"
 REPO = PACKAGE_DIR.parents[1]
@@ -76,7 +76,7 @@ def _owner(parents, node):
 
 def test_no_string_in_the_source_has_one():
     found = []
-    for path in sorted(PACKAGE_DIR.rglob("*.py")):
+    for path in tracked(PACKAGE_DIR.rglob("*.py"), PACKAGE_DIR):
         source = path.read_text(encoding="utf-8")
         if DASH not in source:
             continue
@@ -239,8 +239,9 @@ def test_the_generated_pages_have_none(tmp_path):
 
 #: Shipped text a user reads as written: every page of the docs, the legal
 #: notice, and the issue forms GitHub shows a reporter. The changelog quotes
-#: old text, so it is left out.
-_SHIPPED_TEXT = sorted(
+#: old text, so it is left out. Only tracked files: a built frontend's
+#: node_modules holds READMEs that ship nowhere.
+_SHIPPED_TEXT = tracked(
     {
         *REPO.glob("*.md"),
         *REPO.glob("docs/**/*.md"),
@@ -250,7 +251,8 @@ _SHIPPED_TEXT = sorted(
         REPO / "NOTICE",
         *REPO.glob(".github/ISSUE_TEMPLATE/*.yml"),
     }
-    - {REPO / "CHANGELOG.md"}
+    - {REPO / "CHANGELOG.md"},
+    REPO,
 )
 
 #: " -- " used as a dash between words; an SQL comment ("REAL,  -- DOUBLE")

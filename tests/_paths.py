@@ -12,6 +12,7 @@ the heavy import chain.
 """
 
 import importlib.util
+import subprocess
 from pathlib import Path
 
 _spec = importlib.util.find_spec("lasagna")
@@ -29,4 +30,27 @@ DEPLOY_DIR = PACKAGE_DIR / "deploy"
 #: Configuration UI, including its Vite/React frontend sources.
 CONFIGURATOR_DIR = PACKAGE_DIR / "configurator"
 
-__all__ = ["PACKAGE_DIR", "DEPLOY_DIR", "CONFIGURATOR_DIR"]
+#: Folders that hold build output or installed dependencies, never shipped text.
+_NOT_SHIPPED = {"build", "dist", "node_modules", ".venv"}
+
+
+def tracked(paths, root):
+    """The files among ``paths`` that git tracks under ``root``.
+
+    A plain glob also read git-ignored files, such as the READMEs of the
+    configurator's ``node_modules``, and failed on text that ships nowhere.
+    Outside a git checkout (an installed wheel), keeps the files outside build
+    output and dependency folders.
+    """
+    paths = [Path(p) for p in paths]
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=root, capture_output=True, check=True
+        ).stdout.decode()
+    except (OSError, subprocess.CalledProcessError):
+        return sorted(p for p in paths if not _NOT_SHIPPED & set(p.parts))
+    names = {(Path(root) / name).resolve() for name in out.split("\0") if name}
+    return sorted(p for p in paths if p.resolve() in names)
+
+
+__all__ = ["PACKAGE_DIR", "DEPLOY_DIR", "CONFIGURATOR_DIR", "tracked"]
