@@ -524,6 +524,11 @@ Server and deployment:
   is logged at DEBUG only; warnings name the sample by its id or number. A
   test reads every log call in the package for a query variable at INFO or
   above.
+- **Switching auth on ends the tokens minted while it was off.** Such a token
+  names no principal, and with the same `RAG_JWT_SECRET` it stayed valid for
+  its whole lifetime (7 days) after `RAG_REQUIRE_AUTH` was turned on. With
+  auth on and `RAG_API_KEYS` set, a token must name its key, or `admin` for
+  one minted with `X-Admin-Token`.
 - **A session can no longer point the server at another vector store.**
   Session settings (REST `/api/v1/config`, `/api/config/knowledge/profile` and
   `/import`, the MCP config tools, the config manager) accepted any key, and

@@ -59,8 +59,11 @@ inputs on an instance you control.
   requests. Storage and document quotas are still counted per session.
   Removing a key from `RAG_API_KEYS` ends every session it minted: the
   principal is checked against the configured keys whenever a token is read,
-  on REST and MCP. Tokens minted with `RAG_ADMIN_TOKEN` name no key; changing
-  `RAG_JWT_SECRET` ends those, and every other token.
+  on REST and MCP. Tokens minted with `RAG_ADMIN_TOKEN` name no key (their
+  principal is `admin`); changing `RAG_JWT_SECRET` ends those, and every other
+  token. A token minted while auth was off names no principal at all, and is
+  refused once auth is on with keys configured, so switching auth on ends
+  those sessions without a new secret.
 
   `RAG_ADMIN_TOKEN` is a **narrower** thing and is not a password for the API.
   It guards the operations whose blast radius is the whole instance rather than

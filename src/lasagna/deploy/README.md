@@ -234,7 +234,9 @@ With `RAG_REQUIRE_AUTH=true`:
 - Every other request sends the token as `X-Session-Token`. A session named by
   `X-Session-ID` or `?session_id=` without a token is refused with 401, the shared
   `default` session included (unless `RAG_ALLOW_ANONYMOUS_SESSION=true`). An invalid or
-  expired token is 401 with auth on or off.
+  expired token is 401 with auth on or off. So is a token minted while auth was off, once
+  auth is on with `RAG_API_KEYS` set: it names no key. A token minted with
+  `X-Admin-Token` names `admin` and stays valid.
 - Rate limits are counted per API key, not per session (see [Request limits](#request-limits)).
 
 Tokens are HS256 JWTs signed with `RAG_JWT_SECRET`, valid for

@@ -152,12 +152,26 @@ def decode_session_claims(token: str) -> Optional[dict]:
         if payload.get("typ") != "session" or payload.get("iss") not in ACCEPTED_ISSUERS:
             return None
         if payload.get("sid") and payload.get("sub"):
-            from lasagna.api.rest.auth_mode import principal_is_revoked
+            from lasagna.api.rest.auth_mode import (
+                configured_api_keys,
+                principal_is_revoked,
+                require_auth,
+            )
 
             if principal_is_revoked(payload.get("prn")):
                 from loguru import logger
 
                 logger.debug("Session token refused: its API key is no longer configured")
+                return None
+            if not payload.get("prn") and require_auth() and configured_api_keys():
+                # Minted while auth was off: such a token names no key, and it
+                # stayed valid for its whole lifetime (7 days) after auth was
+                # switched on with the same RAG_JWT_SECRET. With auth on and
+                # keys configured every token names its key, or "admin" for
+                # one minted with the admin token.
+                from loguru import logger
+
+                logger.debug("Session token refused: it was minted while auth was off")
                 return None
             return payload
     except Exception:
