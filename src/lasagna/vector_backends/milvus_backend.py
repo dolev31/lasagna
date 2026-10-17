@@ -878,7 +878,9 @@ class MilvusBackend(VectorStoreAdapter):
             "filter": milvus_filter,
             "limit": limit,
             "output_fields": output_fields,
-            "search_params": {"metric_type": metric_type, **params},
+            # The metric last: search_params is a session setting and
+            # metric_type is not, so a metric_type inside it must not win.
+            "search_params": {**params, "metric_type": metric_type},
         }
         if partition_key is not None:
             search_kwargs["partition_names"] = [partition_key]

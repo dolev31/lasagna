@@ -99,8 +99,12 @@ def offline() -> bool:
     )
 
 
-def is_cached(model: str) -> bool:
-    """Whether ``model`` loads without a download: a local folder or a cached hub copy."""
+def is_cached(model: str, filename: str = "config.json") -> bool:
+    """Whether ``model`` loads without a download: a local folder or a cached hub copy.
+
+    ``filename`` is a file every copy of that kind of repository holds
+    (``tokenizer_config.json`` for a tokenizer).
+    """
     if not model:
         return False
     if Path(model).expanduser().is_dir():
@@ -110,7 +114,7 @@ def is_cached(model: str) -> bool:
     try:
         from huggingface_hub import try_to_load_from_cache
 
-        return any(isinstance(try_to_load_from_cache(n, "config.json"), str) for n in names)
+        return any(isinstance(try_to_load_from_cache(n, filename), str) for n in names)
     except Exception:
         return False
 
@@ -124,9 +128,11 @@ def _allowed() -> bool:
         return False
 
 
-def refusal(model: str, kind: str = "embedding model") -> Optional[ModelNotDownloaded]:
+def refusal(
+    model: str, kind: str = "embedding model", filename: str = "config.json"
+) -> Optional[ModelNotDownloaded]:
     """Why ``model`` cannot be loaded here without a download, or None when it can."""
-    if is_cached(model):
+    if is_cached(model) if filename == "config.json" else is_cached(model, filename):
         return None
     if offline():
         return ModelNotDownloaded(model, offline=True, kind=kind)
@@ -135,13 +141,30 @@ def refusal(model: str, kind: str = "embedding model") -> Optional[ModelNotDownl
     return None
 
 
-def check(model: str, kind: str = "embedding model") -> None:
+def check(model: str, kind: str = "embedding model", filename: str = "config.json") -> None:
     """Raise :class:`ModelNotDownloaded` when a server would have to download ``model``."""
     if not _refusing:
         return
-    problem = refusal(model, kind)
+    problem = refusal(model, kind, filename)
     if problem is not None:
         raise problem
+
+
+_process_refusal = False
+
+
+def refuse_downloads_for_this_process() -> None:
+    """For the rest of the process: a model that is not cached is refused, not fetched.
+
+    For a process that serves requests and has no ``with`` block around its
+    life, the Celery worker: it processed uploads with the same models and
+    downloaded any it lacked, whatever ``allow_model_download_in_requests``
+    said. Calling it again changes nothing.
+    """
+    global _refusing, _process_refusal
+    if not _process_refusal:
+        _process_refusal = True
+        _refusing += 1
 
 
 def session_configured(session_id: str) -> bool:

@@ -71,6 +71,31 @@ def _build_beat_schedule() -> dict:
 TASK_MODULE = "lasagna.infrastructure.tasks.document_tasks"
 
 
+def refuse_model_downloads_in_worker(**_signal) -> None:
+    """A worker processes uploads as the API does, so it refuses downloads the same way.
+
+    It downloaded any model it lacked inside a task, whatever
+    ``allow_model_download_in_requests`` (``RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS``)
+    said; a document now fails with the model's name and the fix, as an
+    upload to the API does.
+    """
+    from lasagna.core.model_downloads import refuse_downloads_for_this_process
+
+    refuse_downloads_for_this_process()
+
+
+def _connect_worker_signals() -> None:
+    """Run :func:`refuse_model_downloads_in_worker` in every worker process."""
+    try:
+        from celery.signals import worker_init, worker_process_init
+    except ImportError:
+        return
+    # The main process, which forks the pool, and each child (a pool that
+    # spawns does not inherit the main process's state).
+    worker_init.connect(refuse_model_downloads_in_worker, weak=False)
+    worker_process_init.connect(refuse_model_downloads_in_worker, weak=False)
+
+
 def create_celery_app() -> "Celery":
     """Create and configure the Celery application.
 
@@ -127,6 +152,7 @@ def create_celery_app() -> "Celery":
     # refused", and every upload fell back to the api's own threads with the
     # worker idle. The default app is shared by all threads.
     app.set_default()
+    _connect_worker_signals()
 
     from lasagna.core.provenance import redact_url
 

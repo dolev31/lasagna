@@ -57,6 +57,11 @@ class _Tokenizer:
         else:
             from transformers import AutoTokenizer
 
+            from lasagna.core import model_downloads
+
+            # A server refuses a tokenizer it would have to download, as it
+            # refuses a model: this one downloaded inside the request.
+            model_downloads.check(name, kind="chunk tokenizer", filename="tokenizer_config.json")
             tok = AutoTokenizer.from_pretrained(name)
             if not getattr(tok, "is_fast", False):
                 # Only fast tokenizers report character offsets, and without

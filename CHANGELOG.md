@@ -499,6 +499,19 @@ Server and deployment:
 - A search whose candidates held one chunk twice came back one result short:
   repeats were removed after reranking and the cut to `top_k`. They are
   removed from the candidates first.
+- **More session settings are the server's.** A session's component slot
+  takes a registered component name only (`reranker: "os:system"` or a
+  `module:Class` reference was stored); `embedding_provider`,
+  `crag_web_search_fallback` and the API-backed embedders (`openai`,
+  `cohere`, `voyage`) and reranker (`cohere`), which send documents or
+  queries to a third party on the server's key, are refused;
+  `search_params` may not carry `metric_type`, and Milvus and native hybrid
+  search no longer let one inside it override the configured metric; a model
+  or tokenizer named by a relative path that exists on the server, or with a
+  `.`, `..` or backslash in it, is refused as a path. `chunk_tokenizer` and
+  the Celery worker follow `RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS`: a server
+  refuses a tokenizer it would have to download, and a worker refuses a
+  model, as the API does.
 - **A session can no longer point the server at another vector store.**
   Session settings (REST `/api/v1/config`, `/api/config/knowledge/profile` and
   `/import`, the MCP config tools, the config manager) accepted any key, and
