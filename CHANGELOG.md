@@ -910,6 +910,11 @@ Requests to current models:
 
 Servers and deployment:
 
+- The first upload to a fresh store under `lasagna serve` or `lasagna-mcp`
+  printed "[ERROR][_log_rpc_error]: RPC error: [describe_collection] ... does
+  not exist" and a 20-line pymilvus traceback: the collection identity check
+  described the session's collection before it was created. A collection that
+  does not exist is no longer described.
 - **`configure --profile` stranded a session's documents.** On a `speed`
   session holding documents, `configure --profile standard` printed "Applied
   profile: standard" and exited 0; switching bge-small to `speed` (both 384
