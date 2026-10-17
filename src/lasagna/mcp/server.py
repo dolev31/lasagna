@@ -1667,7 +1667,7 @@ def delete_document(
 
 @mcp.tool()
 def get_document_status(
-    document_id: str, session_id: str, session_token: Optional[str] = None
+    document_id: str, session_id: str = "", session_token: Optional[str] = None
 ) -> str:
     """Get the processing status of a document (lightweight O(1) lookup).
 
@@ -1727,7 +1727,7 @@ def get_document_status(
 
 @mcp.tool()
 def get_document_info(
-    document_id: str, session_id: str, session_token: Optional[str] = None
+    document_id: str, session_id: str = "", session_token: Optional[str] = None
 ) -> str:
     """Get detailed information about a specific document.
 
@@ -2267,7 +2267,7 @@ def reindex_document(
 
 @mcp.tool()
 def clear_session(
-    session_id: str, confirm: bool = False, session_token: Optional[str] = None
+    session_id: str = "", confirm: bool = False, session_token: Optional[str] = None
 ) -> str:
     """Delete all documents in a session.
 
@@ -2405,7 +2405,7 @@ def get_lifecycle_policy(session_id: str = "default", admin_token: Optional[str]
 
 @mcp.tool()
 def set_lifecycle_policy(
-    session_id: str, policy_updates: str, admin_token: Optional[str] = None
+    policy_updates: str, session_id: str = "", admin_token: Optional[str] = None
 ) -> str:
     """Update lifecycle policy fields at runtime.
 
@@ -2504,7 +2504,7 @@ def set_lifecycle_policy(
 
 @mcp.tool()
 def list_profiles(
-    include_builtin: bool = True, session_id: str = "default", session_token: Optional[str] = None
+    include_builtin: bool = True, session_id: str = "", session_token: Optional[str] = None
 ) -> str:
     """List available RAG configuration profiles.
 
@@ -2594,7 +2594,7 @@ def get_active_profile(session_id: str = "", session_token: Optional[str] = None
 
 @mcp.tool()
 def set_active_profile(
-    session_id: str, profile_name: str, session_token: Optional[str] = None
+    profile_name: str, session_id: str = "", session_token: Optional[str] = None
 ) -> str:
     """Set the active RAG profile for a session.
 
@@ -2640,7 +2640,7 @@ def set_active_profile(
 
 
 @mcp.tool()
-def get_profile_stats(session_id: str = "default", session_token: Optional[str] = None) -> str:
+def get_profile_stats(session_id: str = "", session_token: Optional[str] = None) -> str:
     """Get statistics about profiles and sessions.
 
     Returns counts and limits for profiles and sessions, useful for
@@ -2677,7 +2677,7 @@ def get_profile_stats(session_id: str = "default", session_token: Optional[str] 
 
 @mcp.tool()
 def set_focused_documents(
-    session_id: str, document_ids: str = "", session_token: Optional[str] = None
+    session_id: str = "", document_ids: str = "", session_token: Optional[str] = None
 ) -> str:
     """Set focused document IDs for a session.
 
@@ -2826,7 +2826,7 @@ def get_rag_config(session_id: str = "", session_token: Optional[str] = None) ->
 
 @mcp.tool()
 def patch_rag_config(
-    session_id: str, config_patch: str, session_token: Optional[str] = None
+    config_patch: str, session_id: str = "", session_token: Optional[str] = None
 ) -> str:
     """Apply configuration overrides to the current session.
 
@@ -2893,9 +2893,9 @@ def patch_rag_config(
 
 @mcp.tool()
 def save_rag_profile(
-    session_id: str,
     profile_name: str,
     config: str,
+    session_id: str = "",
     set_active: bool = True,
     session_token: Optional[str] = None,
 ) -> str:
@@ -2941,7 +2941,7 @@ def save_rag_profile(
 
 @mcp.tool()
 def delete_rag_profile(
-    session_id: str, profile_name: str, session_token: Optional[str] = None
+    profile_name: str, session_id: str = "", session_token: Optional[str] = None
 ) -> str:
     """Delete a custom RAG profile.
 
@@ -2979,7 +2979,7 @@ def delete_rag_profile(
 
 @mcp.tool()
 def reset_rag_config(
-    session_id: str, scope: str = "active", session_token: Optional[str] = None
+    session_id: str = "", scope: str = "active", session_token: Optional[str] = None
 ) -> str:
     """Reset RAG configuration to defaults.
 
@@ -3145,7 +3145,7 @@ def bulk_delete_session(
 
 @mcp.tool()
 def get_gc_status(
-    session_id: str, session_token: Optional[str] = None, admin_token: Optional[str] = None
+    session_id: str = "", session_token: Optional[str] = None, admin_token: Optional[str] = None
 ) -> str:
     """Get the last garbage-collection run report.
 
@@ -4018,10 +4018,22 @@ def _split_docstring(doc: Optional[str]) -> Tuple[str, Dict[str, str]]:
     return plain("\n\n".join(paragraphs)), {k: plain(v) for k, v in fields.items()}
 
 
+#: Said of every tool's ``session_id``: none is required, and `_resolve_session`
+#: is how each tool picks the session when the call names none.
+_SESSION_DEFAULT = (
+    "Optional: without it, the server's session (RAG_SESSION_ID, or "
+    "lasagna serve --mcp -s <session>)."
+)
+
+
 def _describe_parameters(server: FastMCP, tool_name: str, parameters: Dict[str, str]) -> None:
     """Put each parameter's text in the tool's input schema, where clients read it."""
     tool = server._tool_manager.get_tool(tool_name)
     properties = (tool.parameters or {}).get("properties", {}) if tool else {}
+    if "session_id" in properties:
+        text = parameters.get("session_id", "Session identifier.")
+        if not text.startswith("Unused"):
+            parameters = {**parameters, "session_id": f"{text} {_SESSION_DEFAULT}"}
     for name, text in parameters.items():
         if name in properties:
             properties[name]["description"] = text

@@ -910,6 +910,15 @@ Requests to current models:
 
 Servers and deployment:
 
+- **Eleven MCP tools required `session_id` with `RAG_SESSION_ID` set** (stdio
+  and `serve --mcp -s`): `get_document_status`, `get_document_info`,
+  `set_active_profile`, `patch_rag_config` and seven more answered a raw
+  pydantic error with a URL, and `list_profiles` and `get_profile_stats` used
+  the session "default" instead of the server's. No tool requires `session_id`
+  now: every tool takes the argument, else the server's session, else says
+  how to set one. `set_active_profile`, `patch_rag_config`, `save_rag_profile`,
+  `delete_rag_profile` and `set_lifecycle_policy` list `session_id` after
+  their required arguments (MCP clients pass arguments by name).
 - **The MCP server over stdio wrote 144 lines to the client's log per
   search**, at DEBUG, in ANSI color, under the name `rag_knowledge_mcp`, with
   FastMCP's "Processing request" lines and a "suspicious citations" warning for
