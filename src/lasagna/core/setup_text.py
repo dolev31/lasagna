@@ -73,6 +73,8 @@ MODEL_FILES = {
 COMPONENT_MODEL_SETTINGS = {
     ("reranker", "cross_encoder"): "reranker_model",
     ("reranker", "combined"): "reranker_model",
+    # Its members default to the one reranker_model (ensemble_reranker_models).
+    ("reranker", "ensemble"): "reranker_model",
     ("reranker", "colbert"): "colbert_model",
     ("reranker", "monot5"): "monot5_model",
     ("reranker", "flashrank"): "flashrank_model",

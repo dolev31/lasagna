@@ -618,9 +618,11 @@ otherwise send (`RAGAS_DO_NOT_TRACK=true`, unless you set it yourself).
 ## Model licenses
 
 Lasagna ships **no model weights**. They download from their upstream host on
-first use, each under its own license. Three selectable models are
-**non-commercial**, including `naver/splade-cocondenser-ensembledistil`, the
-default SPLADE sparse encoder; selecting one logs a warning naming the license.
+first use, each under its own license. Four selectable models are **not
+licensed for commercial use** (or state no license), including
+`naver/splade-cocondenser-ensembledistil`, the default SPLADE sparse encoder,
+and `castorini/monot5-base-msmarco-10k`, the default monoT5 reranker; selecting
+one logs a warning naming the license.
 Before taking a configuration into a commercial product, read
 **[docs/model-licenses.md](https://github.com/dolev31/lasagna/blob/main/docs/model-licenses.md)**.
 

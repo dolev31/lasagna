@@ -5,13 +5,13 @@ model is downloaded from its upstream host (usually the Hugging Face Hub) the fi
 time you use it, and each carries its own license, independent of Lasagna's
 Apache 2.0.
 
-Most are permissive. Three are **not**, and they are selectable on purpose:
+Most are permissive. Four are **not**, and they are selectable on purpose:
 Lasagna exists to compare RAG components, and excluding well-known models would
 undercut that. What matters is that you know which one you picked.
 
 > **Short version:** for research, evaluation and benchmarking, everything below
 > is fine. Before putting a configuration into a commercial product, check this
-> page: three models forbid that use.
+> page: four models forbid that use, or do not say they allow it.
 
 ## Restricted: research and evaluation only
 
@@ -20,6 +20,7 @@ undercut that. What matters is that you know which one you picked.
 | `naver/splade-cocondenser-ensembledistil` | CC-BY-NC-SA-4.0 | Default SPLADE sparse encoder | Non-commercial, **share-alike**. Sparse retrieval is opt-in, so this loads only when you enable it. |
 | `jinaai/jina-reranker-v2-base-multilingual` | CC-BY-NC-4.0 | Reranker option | Non-commercial. Jina AI sells a commercial license separately. |
 | `BAAI/bge-reranker-v2-gemma` | Gemma Terms of Use | Reranker option | Built on Gemma; inherits use restrictions. Not an OSI-approved open source license. |
+| `castorini/monot5-base-msmarco-10k` | none stated | Default `monot5` reranker | The model card states no license. T5-base (Apache-2.0) fine-tuned on MS MARCO, whose terms allow non-commercial research use; ask the authors before using it in a product. Loads only when a sweep or setting names `monot5`. |
 
 Selecting any of these logs a `WARNING` the first time the model loads, naming
 the license and linking the model card. The warning is advisory. Lasagna will
@@ -47,6 +48,12 @@ not stop you, because for research use there is nothing to stop.
 | `mixedbread-ai/mxbai-rerank-large-v1` | Apache-2.0 |
 | `sentence-transformers/all-MiniLM-L6-v2` | Apache-2.0 |
 | `colbert-ir/colbertv2.0` | MIT |
+| `ms-marco-TinyBERT-L-2-v2` (FlashRank's default, from `prithivida/flashrank`) | CC-BY-SA-4.0: attribution, and share-alike for adaptations |
+
+A model named without its organization (`all-MiniLM-L6-v2`, the `speed`
+profile's embedder) is sentence-transformers' own, and is looked up as such.
+`tests/test_model_licenses.py` fails when the default model of a built-in
+component, or a profile's model, has no entry here.
 
 ## Checking programmatically
 
