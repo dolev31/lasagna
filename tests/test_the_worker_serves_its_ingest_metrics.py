@@ -8,6 +8,7 @@ the api processed itself, which with a worker running is none.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -85,8 +86,11 @@ def test_the_metrics_process_serves_the_shared_directory(monkeypatch, tmp_path):
     monkeypatch.setattr(
         prometheus_client, "start_http_server", lambda port, registry: started.append(port)
     )
-    # Its worker is already gone (another parent), so it returns at once.
-    assert worker_metrics.main(["9100", "1"]) == 0
+    # Its worker is already gone (its parent is another process), so it returns
+    # at once. Not pid 1: in a container the test's parent can be pid 1, and the
+    # loop then waited forever (it hung the suite in a Linux CI container).
+    gone = os.getppid() + 1
+    assert worker_metrics.main(["9100", str(gone)]) == 0
     assert started == [9100]
 
 
