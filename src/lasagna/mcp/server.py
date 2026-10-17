@@ -989,6 +989,43 @@ _NO_RESULTS_MSG = (
     "Try rephrasing your search or check that documents have been uploaded."
 )
 
+#: What to call over MCP for a stage that fell back, after the stage's own reason.
+_MCP_FIXES = {
+    "documents_elsewhere": (
+        "Over MCP: set_active_profile with reindex=true reindexes the session's "
+        "documents with that profile's model, and reindex_document reindexes one."
+    ),
+}
+
+
+def _stage_notes() -> List[str]:
+    """Why the stages of this search fell back, with the MCP call that fixes each.
+
+    The text is what the stage reported (the REST response and the CLI print
+    the same), so an agent reads the cause instead of "Try rephrasing".
+    """
+    from lasagna.utils import degraded
+
+    notes = []
+    reasons = degraded.reasons()
+    for stage in degraded.current():
+        note = reasons.get(stage) or f"the {stage} stage fell back to a lesser result."
+        fix = _MCP_FIXES.get(stage)
+        notes.append(f"{stage}: {note}" + (f" {fix}" if fix else ""))
+    return notes
+
+
+def _no_results() -> str:
+    """The reply to a search that found nothing: why, when a stage says why.
+
+    A session whose documents sit in another model's collection got "Try
+    rephrasing your search", the one thing that cannot help.
+    """
+    notes = _stage_notes()
+    if not notes:
+        return _NO_RESULTS_MSG
+    return _append_search_metadata("No results. " + " ".join(notes), [], [])
+
 
 #: The REST API's bound for the same argument (`SearchRequest.top_k`).
 _MAX_TOP_K = 100
@@ -1153,7 +1190,9 @@ async def search(
 
     Returns formatted context with citations ready for LLM injection,
     plus a trailing ``<search_metadata>`` JSON block with structured
-    citation data.
+    citation data. When a stage fell back (``degraded_stages``), the reply
+    says why and how to fix it, also when nothing was found: for example,
+    the session's documents are in another embedding model's collection.
 
     Retrieval behavior (hybrid search, reranking, HyDE, adaptive routing)
     is governed by the session configuration: callers only specify *what*
@@ -1234,7 +1273,7 @@ async def search(
 
             if not rag_result.formatted_context:
                 _log_tool_result("search", True, "No results", duration_ms)
-                return _NO_RESULTS_MSG
+                return _no_results()
 
             _store_citations(
                 user_id, session_id, rag_result.citations, rag_result.chunks, "AGENTIC"
@@ -1262,7 +1301,7 @@ async def search(
 
             if not results:
                 _log_tool_result("search", True, "No results", duration_ms)
-                return _NO_RESULTS_MSG
+                return _no_results()
 
             # Log citation diagnostics for monitoring
             _log_citation_diagnostics(results, citations, query, session_id)
@@ -1302,7 +1341,7 @@ async def search(
 
             if not results:
                 _log_tool_result("search", True, "No results", duration_ms)
-                return _NO_RESULTS_MSG
+                return _no_results()
 
             # Build formatted context for V1
             sources = "\n".join([f"[{i + 1}] {r.document.filename}" for i, r in enumerate(results)])
@@ -1367,13 +1406,19 @@ def _append_search_metadata(formatted_context: str, citations: list, chunks: lis
     The formatted_context (human/LLM-readable) is returned unchanged.
     A <search_metadata> JSON block is appended so callers can extract
     citation data without a separate API call. It names the stages that fell
-    back (``degraded_stages``) when any did, as the REST API does.
+    back (``degraded_stages``) when any did, as the REST API does, and why
+    (``warnings``), which also follow the results as notes.
     """
     from lasagna.utils import degraded
 
     payload = {"citations": citations or [], "chunks": chunks or []}
     if degraded.current():
         payload["degraded_stages"] = degraded.current()
+        payload["warnings"] = _stage_notes()
+        if citations or chunks:
+            # The list may be short of what the configured pipeline returns.
+            notes = "\n".join(f"Note: {note}" for note in payload["warnings"])
+            formatted_context = f"{formatted_context}\n{notes}"
     metadata = json.dumps(payload, ensure_ascii=False)
     return f"{formatted_context}\n<search_metadata>{metadata}</search_metadata>"
 

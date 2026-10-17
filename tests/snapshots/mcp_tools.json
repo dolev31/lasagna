@@ -944,7 +944,7 @@
     ]
   },
   "search": {
-    "description": "Search the knowledge base with the session's retrieval pipeline.\n\nReturns formatted context with citations ready for LLM injection, plus a trailing `<search_metadata>` JSON block with structured citation data.\n\nRetrieval behavior (hybrid search, reranking, HyDE, adaptive routing) is governed by the session configuration: callers only specify *what* to search and optional scope constraints.\n\nReturns: Formatted context with citations, plus appended search_metadata JSON.",
+    "description": "Search the knowledge base with the session's retrieval pipeline.\n\nReturns formatted context with citations ready for LLM injection, plus a trailing `<search_metadata>` JSON block with structured citation data. When a stage fell back (`degraded_stages`), the reply says why and how to fix it, also when nothing was found: for example, the session's documents are in another embedding model's collection.\n\nRetrieval behavior (hybrid search, reranking, HyDE, adaptive routing) is governed by the session configuration: callers only specify *what* to search and optional scope constraints.\n\nReturns: Formatted context with citations, plus appended search_metadata JSON.",
     "input_schema": {
       "properties": {
         "allow_broaden": {

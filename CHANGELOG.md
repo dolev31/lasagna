@@ -119,7 +119,9 @@ Serving:
 
 - **MCP server** (`lasagna-mcp`, stdio by default, or `lasagna serve --mcp`)
   for Claude Code, Claude Desktop and Cursor. The default tool set, `safe`,
-  serves no deletion tools (`--tools all` does).
+  serves no deletion tools (`--tools all` does). `search` names the stages that
+  fell back and why, with the fix, also when it finds nothing (for example,
+  when the session's documents are in another model's collection).
 - **REST API** (`lasagna serve`, or the Compose stack) under `/api/v1`,
   covered by the deprecation policy in [GOVERNANCE.md](GOVERNANCE.md); search
   responses name the stages that fell back in `degraded_stages`.
