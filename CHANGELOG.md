@@ -620,6 +620,11 @@ Numbers that were wrong:
 
 Results tooling:
 
+- `results validate --help` said the check lets a reviewer "reject tampering";
+  it says it detects mistakes and accidental edits, not tampering, since the run
+  id is a content hash and not a signature, as the README says. `upload --help`
+  says what several files in one command buy (the models load once) instead of
+  how an old README used the command.
 - The Colab notebook said its bundle's warnings include `SINGLE_RUN` and
   `UNPINNED_DATASET`; a retrieval-only run raises neither, and `results
   validate` prints only VALID. Its script expected "pairs survive correction",

@@ -676,8 +676,8 @@ def upload(
 ):
     """Upload and index documents.
 
-    Several files go through one client, so the models load once: the README
-    looped `lasagna upload` over a folder, one process per file.
+    Name several files, or a glob such as 'docs/*.md', in one command: they go
+    through one client, so the models load once instead of once per file.
     """
     _configure_cli_logging(
         bool(ctx.find_root().params.get("verbose")),
@@ -2583,9 +2583,11 @@ def results_validate(
 ):
     """Check a bundle is well-formed, complete, and internally consistent.
 
-    Recomputes the comparability key and the run id from the recorded fields.
-    A bundle whose numbers were edited by hand no longer matches its own id,
-    which is what lets a reviewer reject tampering without rerunning anything.
+    Recomputes the comparability key, the run id and every aggregate from the
+    recorded fields, so a number edited after the run no longer matches its
+    bundle. It detects mistakes and accidental edits, not tampering: the run id
+    is a content hash, not a signature, and anyone who edits a number can
+    recompute it.
     """
     from .knowledge_evaluation_sdk.bundle import (
         _content_hash,
