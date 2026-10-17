@@ -844,6 +844,141 @@ def _present_document_ids(
         )
 
 
+#: Documents a corpus census reads at the end of each task (all, up to this).
+_CENSUS_DOCUMENTS = 2_000
+
+
+def _corpus_census(
+    backend: Any, collection_name: str, session_id: str, document_ids: Any
+) -> Dict[str, Any]:
+    """What a published corpus holds, to compare at the end of each task.
+
+    The documents (all, or an evenly spread ``_CENSUS_DOCUMENTS`` of them)
+    and their chunks: a corpus another process deleted, or ingested again on
+    top, differs in one or the other. A few queries, as the pre-flight asks.
+    """
+    ids = sorted(document_ids)
+    if len(ids) > _CENSUS_DOCUMENTS:
+        step = len(ids) / _CENSUS_DOCUMENTS
+        ids = [ids[int(i * step)] for i in range(_CENSUS_DOCUMENTS)]
+    present, chunks = _count_present(backend, collection_name, session_id, ids)
+    return {
+        "collection": collection_name,
+        "documents": ids,
+        "present": present,
+        "chunks": chunks,
+    }
+
+
+def _count_present(backend: Any, collection_name: str, session_id: str, ids: List[str]) -> tuple:
+    """``(documents with chunks, chunks)`` among ``ids`` in this session."""
+    from lasagna.vector_backends.filters import FilterExpression as _FE
+
+    documents: set = set()
+    chunks = 0
+    pending = [ids[i : i + 400] for i in range(0, len(ids), 400)]
+    while pending:
+        batch = pending.pop()
+        rows = backend.query(
+            collection_name=collection_name,
+            filter_expr=_FE.and_(
+                _FE.eq("session_id", session_id), _FE.in_list("document_id", batch)
+            ),
+            output_fields=["document_id"],
+            limit=_PRESENCE_QUERY_ROWS,
+        )
+        if len(rows) >= _PRESENCE_QUERY_ROWS and len(batch) > 1:
+            half = len(batch) // 2
+            pending.extend([batch[:half], batch[half:]])
+            continue
+        hits = [r.get("document_id") for r in rows if r.get("document_id")]
+        documents.update(hits)
+        chunks += len(hits)
+    return len(documents), chunks
+
+
+def _corpus_changed(corpus_info: Dict[str, Any]) -> Optional[str]:
+    """Why the corpus a task searched is not the one published to it, or None.
+
+    Another process on the same vector store (a Milvus or Qdrant server
+    that two experiments share) could delete the corpus, or ingest it again
+    on top, while this one evaluated against it, and the numbers it recorded
+    described neither.
+    """
+    census = corpus_info.get("corpus_census")
+    store = corpus_info.get("_census_store")
+    if not census or store is None:
+        return None
+    try:
+        present, chunks = _count_present(
+            store(), census["collection"], corpus_info["session_id"], census["documents"]
+        )
+    except NotImplementedError:
+        return None  # a store that cannot be asked; nothing was counted at the start either
+    except Exception as exc:  # noqa: BLE001 - unknown is not "unchanged"
+        return (
+            f"The corpus of session {corpus_info['session_id']} could not be counted at the "
+            f"end of this task ({type(exc).__name__}: {exc}), so whether it changed while "
+            f"this run used it is unknown; its numbers are not recorded."
+        )
+    if (present, chunks) == (census["present"], census["chunks"]):
+        return None
+    return (
+        f"The corpus of session {corpus_info['session_id']} changed while this run used it: "
+        f"{present} of {len(census['documents'])} documents checked have chunks now "
+        f"({chunks} chunks), against {census['present']} ({census['chunks']} chunks) when it "
+        f"was published. Another process on the same vector store deleted it or ingested "
+        f"it again, so this task's numbers are not recorded. Run one experiment on a "
+        f"corpus at a time per vector store, then run this one again."
+    )
+
+
+class _CorpusLock:
+    """The corpus's store lock, held from the check of what is stored until it is published.
+
+    ``corpus:<session>:<collection>`` in the metadata store: on PostgreSQL an
+    advisory lock every host shares, on SQLite a lock file for the processes
+    of one host. Without it a second experiment process took the first's
+    ingest in progress for a stale partial corpus and deleted its vectors.
+    Waited for without a limit (an ingest takes hours), saying so once a
+    minute; a process that dies releases it. Milvus Lite admits one process
+    per store, so there it is never contended. Machines that share a vector
+    store but not a metadata store are not covered by it; the census at the
+    end of each task (``_corpus_changed``) catches what changed under them.
+    """
+
+    def __init__(self):
+        self._held = None
+
+    async def take(self, session_id: str, collection: str) -> None:
+        from lasagna.core.store_locks import StoreLockTimeout, store_lock
+
+        name = f"corpus:{session_id}:{collection}"
+        started, said = time.monotonic(), None
+        while True:
+            lock = store_lock(name, timeout=0)
+            try:
+                lock.__enter__()
+            except StoreLockTimeout:
+                now = time.monotonic()
+                if said is None or now - said >= 60:
+                    logger.warning(
+                        f"Waiting for another process ingesting the corpus of session "
+                        f"{session_id} into {collection!r} ({now - started:.0f} s so far); "
+                        f"this run uses that corpus once it is published."
+                    )
+                    said = now
+                await asyncio.sleep(1.0)
+                continue
+            self._held = lock
+            return
+
+    def release(self) -> None:
+        held, self._held = self._held, None
+        if held is not None:
+            held.__exit__(None, None, None)
+
+
 def _check_components_exist(pipeline_configs: List[Dict[str, Any]]) -> None:
     """Refuse a sweep that names a component the registry does not have.
 
@@ -3515,6 +3650,7 @@ async def _ensure_corpus_ingested(
         return entry
 
     # --- We are the ingester ---
+    corpus_lock = _CorpusLock()
     try:
         adapter = benchmark_registry.get(benchmark_name)
         # Always pass it. Omitting the kwarg when 0 let the adapter's own
@@ -3689,6 +3825,9 @@ async def _ensure_corpus_ingested(
             else (ingestion_overrides.get("collection_name", _rag_cfg.collection_name))
         )
 
+        # From the check of what is stored until the corpus is published, held
+        # against every process sharing the metadata store (_CorpusLock).
+        await corpus_lock.take(shared_session_id, _coll_name)
         # Pre-flight: check if corpus already fully indexed via vector store
         expected_valid_ids = {corpus_to_valid[cid] for cid in corpus}
         ready_ids: set = set()
@@ -3807,6 +3946,20 @@ async def _ensure_corpus_ingested(
                 _al[shared_session_id] = sorted(error_ids)
                 _allowlist_path.write_text(json.dumps(_al, indent=2))
 
+        # What is published, counted under the lock: each task compares it at its end.
+        census = None
+        try:
+            census = _corpus_census(
+                _resolved,
+                _coll_name,
+                shared_session_id,
+                {corpus_to_valid[cid] for cid in corpus} - failed_valid_ids,
+            )
+        except NotImplementedError:
+            pass  # a store without filtered queries: nothing to compare
+        except Exception as exc:  # noqa: BLE001 - the census only guards the result
+            logger.warning(f"Could not count the published corpus: {exc}")
+        corpus_lock.release()
         logger.info(f"Corpus ingestion complete for '{benchmark_name}' (cache_key='{cache_key}')")
         ingest_gap = _ingest_gap(corpus, valid_to_corpus, failed_valid_ids)
         if ingest_gap:
@@ -3834,6 +3987,10 @@ async def _ensure_corpus_ingested(
             # could never fire and truncated bundles validated clean.
             slot["corpus_truncated"] = bool(getattr(adapter, "corpus_truncated", False))
             slot["corpus_ingest_gap"] = ingest_gap
+            slot["corpus_census"] = census
+            slot["_census_store"] = (
+                lambda: _get_ingest_backend()._collection_manager.resolve_backend(shared_session_id)
+            )
             slot["ready"].set()
 
         return _corpus_sessions[cache_key]
@@ -3850,6 +4007,8 @@ async def _ensure_corpus_ingested(
                 slot["error"] = f"Corpus ingestion failed: {type(exc).__name__}: {exc}"
                 slot["ready"].set()  # unblock waiters
         raise
+    finally:
+        corpus_lock.release()
 
 
 async def _release_corpus(benchmark_name: str, corpus_key: Optional[str] = None) -> None:
@@ -5076,6 +5235,17 @@ async def _eval_live(
         # Release corpus ref — always called even if evaluation raises, so the
         # shared corpus is not leaked when a task errors or is cancelled.
         await _release_corpus(task.benchmark_name, corpus_key=_corpus_key)
+
+    changed = await asyncio.to_thread(_corpus_changed, corpus_info)
+    if changed:
+        logger.error(changed)
+        return TaskResult(
+            task_key=task.task_key,
+            benchmark_name=task.benchmark_name,
+            config_name=task.config_name,
+            run_index=task.run_index,
+            error=changed,
+        )
 
     if _n_generations:
         metrics["generations_failed"] = float(_failed_generations)
