@@ -183,4 +183,5 @@ def test_the_readme_sweep_records_and_prints_the_claim(my_ideas):
     assert run.returncode == 0, run.stdout[-3000:] + run.stderr[-3000:]
     assert "claimed 0.4560 (Doe et al. 2026)" in run.stdout
     saved = json.loads(next((my_ideas / "out").rglob("results.json")).read_text())
-    assert saved["experiment_config"]["components"] == {"my_ideas:longer_first": SMOKE_CLAIM}
+    # The control's paper is recorded too: cross_encoder cites Nogueira & Cho 2019.
+    assert saved["experiment_config"]["components"]["my_ideas:longer_first"] == SMOKE_CLAIM
