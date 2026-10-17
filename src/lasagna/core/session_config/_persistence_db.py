@@ -211,6 +211,7 @@ class DatabasePersistenceMixin:
             "session_overrides": row.get("session_overrides", {}),
             "rag_enabled": row.get("rag_enabled", True),
             "focused_document_ids": row.get("focused_document_ids", []),
+            "user_id": row.get("user_id") or ANONYMOUS,
             "last_accessed": (
                 row["last_accessed"].timestamp()
                 if hasattr(row.get("last_accessed"), "timestamp")
@@ -284,6 +285,14 @@ class DatabasePersistenceMixin:
             return None
         return self._row_to_state_data(row) if isinstance(row, dict) and row else None
 
+    def _sessions_on_profile(self, profile_name: str) -> Optional[List[Dict[str, Any]]]:
+        """The stored sessions on ``profile_name`` (id, owner, overrides); None when unknown."""
+        lister = getattr(_get_pg_db(), "list_sessions_on_profile", None)
+        if lister is None:
+            return None  # a stand-in store
+        rows = lister(profile_name)
+        return rows if isinstance(rows, list) else None
+
     def _touch_persisted_session(self, session_id: str) -> None:
         """Record in PostgreSQL that the session is in use."""
         try:
@@ -307,7 +316,8 @@ class DatabasePersistenceMixin:
         try:
             db = _get_pg_db()
             state_dict = {
-                "user_id": getattr(self, "_user_id", "__anonymous__"),
+                # Whose profile of that name the session is on, as SQLite keeps it.
+                "user_id": getattr(state, "user_id", None) or ANONYMOUS,
                 "active_profile": state.active_profile,
                 "session_overrides": state.session_overrides,
                 "rag_enabled": state.rag_enabled,
@@ -387,6 +397,7 @@ class DatabasePersistenceMixin:
                 "session_overrides": state.session_overrides,
                 "rag_enabled": state.rag_enabled,
                 "focused_document_ids": state.focused_document_ids,
+                "user_id": getattr(state, "user_id", None) or ANONYMOUS,
                 "last_accessed": state.last_accessed,
             }
             key = f"{self._CACHE_PREFIX_SESSION}{session_id}"

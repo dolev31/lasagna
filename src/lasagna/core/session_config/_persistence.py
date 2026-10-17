@@ -290,6 +290,14 @@ class PersistenceMixin:
             "user_id": row.get("user_id", "__anonymous__"),
         }
 
+    def _sessions_on_profile(self, profile_name: str) -> Optional[List[Dict[str, Any]]]:
+        """The stored sessions on ``profile_name`` (id, owner, overrides); None when unknown."""
+        lister = getattr(_get_db(), "list_sessions_on_profile", None)
+        if lister is None:
+            return None  # a stand-in store
+        rows = lister(profile_name)
+        return rows if isinstance(rows, list) else None
+
     def _touch_persisted_session(self, session_id: str) -> None:
         """Record in SQLite that the session is in use."""
         try:

@@ -77,6 +77,7 @@ def _persisted_view(state: Any) -> tuple:
         get("session_overrides", {}),
         bool(get("rag_enabled", True)),
         list(get("focused_document_ids", []) or []),
+        get("user_id", ANONYMOUS) or ANONYMOUS,
     )
 
 
@@ -111,23 +112,21 @@ class SessionStateMixin:
         profiles = self._ensure_default_profile(profiles)
         profile_names = {p.name for p in profiles}
         active_profile = data.get("active_profile") or "default"
+        # Whose profile of that name the session is on (see set_active_profile).
+        owner = data.get("user_id") or ANONYMOUS
         if active_profile not in profile_names:
-            # The session table keeps the active profile's name, not the
-            # profile: a saved custom profile is found among the saved ones.
-            # Without this every restart put such a session back on default.
-            saved = next(
-                (p for p in self._global_custom_profiles if p.name == active_profile), None
-            )
+            # The session table keeps the active profile's name and owner, not
+            # the profile: a saved custom profile is found among the saved
+            # ones. Without this every restart put such a session back on default.
+            saved = self._saved_for(active_profile, owner)
             if saved is None and hasattr(self, "_refresh_saved_profiles"):
                 # Saved by another process since this one read the list.
                 self._refresh_saved_profiles(force=True)
-                saved = next(
-                    (p for p in self._global_custom_profiles if p.name == active_profile), None
-                )
+                saved = self._saved_for(active_profile, owner)
             if saved is not None:
                 profiles.append(copy.deepcopy(saved))
             else:
-                active_profile = "default"
+                active_profile, owner = "default", ANONYMOUS
 
         session_overrides = data.get("session_overrides", {})
         if not isinstance(session_overrides, dict):
@@ -155,6 +154,7 @@ class SessionStateMixin:
             rag_enabled=rag_enabled,
             focused_document_ids=focused_document_ids,
             last_accessed=last_accessed,
+            user_id=owner,
         )
 
     def get_session_state(self, session_id: Optional[str] = None) -> KnowledgeConfigState:
@@ -324,12 +324,16 @@ class SessionStateMixin:
         """
         data = state.to_dict()
         with self._lock:
-            foreign = self._foreign_profile_names(user_id)
-            shown = [p for p in data["profiles"] if p["name"] not in foreign]
+            shown = [p for p in data["profiles"] if self._is_visible_to(p, user_id)]
             names = {p["name"] for p in shown}
-            for profile in self._global_custom_profiles:
+            # The caller's own first, then the shared ones: one per name.
+            for profile in sorted(
+                self._global_custom_profiles,
+                key=lambda p: (p.user_id != user_id, p.user_id != ANONYMOUS, p.user_id or ""),
+            ):
                 if profile.name not in names and self._is_visible_to(profile, user_id):
                     shown.append(profile.to_dict())
+                    names.add(profile.name)
         data["profiles"] = shown
         return data
 
@@ -565,6 +569,8 @@ class SessionStateMixin:
         with self._session_write(session_id) as state:
             profiles = [copy.deepcopy(p) for p in state.profiles]
             for imported in imported_profiles:
+                # The session's own, whatever owner the file names.
+                imported.user_id = state.user_id or ANONYMOUS
                 for i, p in enumerate(profiles):
                     if p.name == imported.name:
                         profiles[i] = imported

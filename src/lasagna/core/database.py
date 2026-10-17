@@ -1415,6 +1415,26 @@ class RAGDatabase:
                 rows.append(d)
             return rows
 
+    def list_sessions_on_profile(self, profile_name: str) -> List[Dict[str, Any]]:
+        """``session_id``, ``user_id`` and ``session_overrides`` of each session on ``profile_name``."""
+        import json as _json
+
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT session_id, user_id, session_overrides FROM rag_sessions "
+                "WHERE active_profile = ?",
+                (profile_name,),
+            ).fetchall()
+        found = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["session_overrides"] = _json.loads(d.get("session_overrides") or "{}")
+            except (ValueError, TypeError):
+                d["session_overrides"] = {}
+            found.append(d)
+        return found
+
     def delete_session(self, session_id: str) -> bool:
         """Delete a single session by ID."""
         with self.transaction() as conn:

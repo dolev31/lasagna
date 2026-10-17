@@ -46,6 +46,17 @@ class FakePostgres:
     def cleanup_expired_sessions(self, max_age_seconds=0):
         return 0
 
+    def list_sessions_on_profile(self, profile_name):
+        return [
+            {
+                "session_id": sid,
+                "user_id": row.get("user_id"),
+                "session_overrides": copy.deepcopy(row.get("session_overrides") or {}),
+            }
+            for sid, row in self.sessions.items()
+            if row.get("active_profile") == profile_name
+        ]
+
     def get_saved_profiles(self):
         return [
             {"user_id": o, "profile_name": n, "description": "", "config": copy.deepcopy(c)}

@@ -1346,6 +1346,31 @@ class PostgresRAGDatabase:
                     rows.append(d)
                 return rows
 
+    def list_sessions_on_profile(self, profile_name: str) -> List[Dict[str, Any]]:
+        """``session_id``, ``user_id`` and ``session_overrides`` of each session on ``profile_name``."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT session_id, user_id, session_overrides FROM rag_sessions "
+                    "WHERE active_profile = %s",
+                    (profile_name,),
+                )
+                found = []
+                for session_id, user_id, overrides in cur.fetchall():
+                    if isinstance(overrides, str):
+                        try:
+                            overrides = json.loads(overrides)
+                        except (json.JSONDecodeError, TypeError):
+                            overrides = {}
+                    found.append(
+                        {
+                            "session_id": session_id,
+                            "user_id": user_id,
+                            "session_overrides": overrides or {},
+                        }
+                    )
+                return found
+
     def delete_session(self, session_id: str) -> bool:
         """Delete a single session by ID."""
         with self._conn() as conn:
