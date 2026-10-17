@@ -46,6 +46,7 @@ from lasagna.api.rest.auth_mode import (
     require_auth_or_refuse_to_start,
     warn_once_if_unauthenticated,
 )
+from lasagna.core._text import LOG_LEVELS
 from lasagna.core.local_server import StoreHeld as _StoreHeld
 from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_session
 from lasagna.mcp import transport_guard
@@ -4181,7 +4182,8 @@ def main():
     parser.add_argument(
         "--log-level",
         default=None,
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        type=str.upper,
+        choices=list(LOG_LEVELS),
         help="Log level on stderr (default: WARNING on stdio, INFO on sse; or LASAGNA_LOG_LEVEL "
         "or RAG_LOG_LEVEL)",
     )

@@ -26,6 +26,8 @@ from rich.measure import Measurement
 from rich.panel import Panel
 from rich.table import Table
 
+from .core._text import LOG_LEVELS
+
 # No emoji codes: user-supplied names reach the console, and
 # `component validate nope:x` printed "nope❌" (":x:" is an emoji code).
 console = Console(emoji=False)
@@ -37,7 +39,7 @@ app = typer.Typer(
 
 #: Levels loguru accepts. An unknown value would raise from `logger.add`, which
 #: would turn a typo in an environment variable into a crash on every command.
-_LOG_LEVELS = frozenset({"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"})
+_LOG_LEVELS = frozenset(LOG_LEVELS)
 
 
 def _configure_cli_logging(

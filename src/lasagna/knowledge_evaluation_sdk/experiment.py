@@ -522,9 +522,12 @@ class FactorialSpec:
                     f"example `enable_reranking` rather than `reranker`."
                 )
             if name not in flags:
+                from lasagna.core._text import did_you_mean
+
                 suggestions = sorted(f for f in flags if f.startswith(("enable_", "use_")))
                 raise ValueError(
-                    f"{role}={name!r} is not a known boolean setting. "
+                    f"{role}={name!r} is not a known boolean setting"
+                    f"{did_you_mean(str(name), flags)}. "
                     f"Candidates: {', '.join(suggestions[:12])}, ... "
                     f"({len(suggestions)} in total)."
                 )
@@ -1410,9 +1413,15 @@ def _parse_tracks(value: Any) -> List[str]:
     if value is None:
         return list(_TRACKS)
     tracks = [value] if isinstance(value, str) else list(value)
-    unknown = sorted(set(tracks) - set(_TRACKS))
+    unknown = sorted(set(tracks) - set(_TRACKS), key=str)
     if unknown or not tracks:
-        raise ValueError(f"tracks must be a non-empty subset of {list(_TRACKS)}; got {value!r}")
+        from lasagna.core._text import did_you_mean
+
+        named = "; ".join(f"{t!r} is not a track{did_you_mean(str(t), _TRACKS)}" for t in unknown)
+        raise ValueError(
+            f"tracks must be a non-empty subset of {list(_TRACKS)}; got {value!r}"
+            + (f" ({named})" if named else "")
+        )
     return [t for t in _TRACKS if t in tracks]
 
 

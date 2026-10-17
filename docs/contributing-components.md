@@ -100,9 +100,9 @@ That list is the set of *fair* baselines. Use it.
 It exercises the component in isolation. That is deliberate (it is the fastest
 possible check), but it means a green result does not mean the pipeline can
 call your component. A wrapper bridges the orchestrator's internal reranker
-signature to `BaseReranker`; when such a bridge breaks, a documented component
-raises `TypeError` the first time it runs for real, after every isolated check
-passed.
+signature to `BaseReranker` (it passes `query`, `documents` and `top_k`); if such
+a bridge broke, a component would fail the first time it ran for real, after
+every isolated check passed.
 
 Which is why step 3 exists and is not optional.
 

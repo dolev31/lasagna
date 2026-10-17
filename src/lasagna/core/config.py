@@ -165,6 +165,8 @@ _CHOICES: Dict[str, Tuple[str, ...]] = {
     "database_backend": ("sqlite", "postgresql"),
     "cache_backend": ("memory", "redis"),
     "tenant_isolation": ("none", "partition"),
+    # The same as core._text.LOG_LEVELS (a test checks): a literal, so
+    # scripts/gen_settings_doc.py can read it.
     "log_level": ("TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"),
     "routing_default_tier": ("fast", "standard", "comprehensive"),
     "routing_strategy": ("rule_based", "adaptive"),
@@ -623,19 +625,54 @@ def _check_file_value(key: str, value: Any, template: Any) -> None:
     _check_bounds(key, value)
 
 
+#: ``LASAGNA_*`` variables that are not settings and have no ``RAG_`` name:
+#: read by the CLI, the MCP server, the test suite and the live checks.
+_LASAGNA_ONLY_ENV = frozenset(
+    {
+        "LASAGNA_AGENTIC_COOLDOWN_S",
+        "LASAGNA_DATA_DIR",
+        "LASAGNA_DATASET_REVISIONS",
+        "LASAGNA_ENABLE_DOCS_API",
+        "LASAGNA_LEGACY_COLLECTION_MODEL",
+        "LASAGNA_LLM_CACHE",
+        "LASAGNA_LOG_FORMAT",
+        "LASAGNA_MCP_TOOLS",
+        "LASAGNA_MILVUS_DB_PATH",
+        "LASAGNA_MILVUS_URI",
+        "LASAGNA_SKIP_LOGGING",
+        "LASAGNA_STRICT_PLUGINS",
+        "LASAGNA_UUID_NAMESPACE",
+    }
+)
+
+
 def _warn_unknown_env(env_key: str, known: Dict[str, Any]) -> None:
-    """Warn once that ``env_key`` is not a setting, naming the closest one."""
+    """Warn once that ``env_key`` is not a setting, naming the closest one.
+
+    ``RAG_<name>`` always warns. ``LASAGNA_<name>`` warns only when ``<name>``
+    is close to a setting, since ``LASAGNA_`` also names variables that are
+    not settings: ``LASAGNA_CHUNK_SISE`` was ignored without a word while
+    ``RAG_CHUNK_SISE`` warned.
+    """
+    lasagna = env_key.startswith("LASAGNA_")
+    rest = env_key[len("LASAGNA_") :] if lasagna else env_key[len("RAG_") :]
     if (
-        env_key in NON_SETTING_ENV
-        or env_key.startswith(NON_SETTING_ENV_PREFIXES)
+        f"RAG_{rest}" in NON_SETTING_ENV
+        or f"RAG_{rest}".startswith(NON_SETTING_ENV_PREFIXES)
+        or env_key in NON_SETTING_ENV
+        or env_key in _LASAGNA_ONLY_ENV
+        or env_key.startswith(("LASAGNA_TEST", "LASAGNA_LIVE_", "LASAGNA_RUN_"))
         or env_key in _warned_unknown_env
     ):
         return
-    _warned_unknown_env.add(env_key)
     import difflib
 
-    match = difflib.get_close_matches(env_key[4:].lower(), list(known), n=1, cutoff=0.75)
-    hint = f" Did you mean RAG_{match[0].upper()}?" if match else ""
+    match = difflib.get_close_matches(rest.lower(), list(known), n=1, cutoff=0.75)
+    if lasagna and not match:
+        return
+    _warned_unknown_env.add(env_key)
+    prefix = "LASAGNA_" if lasagna else "RAG_"
+    hint = f" Did you mean {prefix}{match[0].upper()}?" if match else ""
     logger.warning(
         f"{env_key} is not a Lasagna setting and was ignored.{hint} "
         f"The settings are listed in docs/reference/settings.md."
@@ -1335,7 +1372,8 @@ class RAGConfig:
         not parse, or is outside its range or its set of choices, raises
         :class:`ConfigError` naming every bad variable; it used to be logged
         and ignored, so a typo ran the default without a visible sign. A
-        ``RAG_*`` name that is no setting warns once, with the closest one.
+        ``RAG_*`` name that is no setting warns once, with the closest one; a
+        ``LASAGNA_*`` one warns when it is close to a setting.
 
         Example:
             ``RAG_DATABASE_BACKEND=postgresql``  →  ``{'database_backend': 'postgresql'}``
@@ -1347,7 +1385,10 @@ class RAGConfig:
             if env_key.startswith("LASAGNA_"):
                 config_key = env_key[len("LASAGNA_") :].lower()
                 if config_key not in default_config:
-                    continue  # LASAGNA_* also names things that are not settings
+                    # LASAGNA_* also names things that are not settings: only
+                    # a near miss of one warns.
+                    _warn_unknown_env(env_key, default_config)
+                    continue
             elif env_key.startswith("RAG_"):
                 config_key = env_key[len("RAG_") :].lower()
                 if config_key not in default_config:

@@ -952,10 +952,10 @@ def config_for_standalone(
     db_path: Optional[Union[str, Path]] = None,
     upload_dir: Optional[Union[str, Path]] = None,
 ) -> KnowledgeConfig:
-    """Configuration for standalone usage standalone environment.
+    """Configuration that keeps the databases and uploads in folders you name.
 
-    Provides explicit paths for databases and uploads.
-    Uses balanced profile settings as the base configuration.
+    For a script or notebook that should not use the shared data directory
+    (``~/.lasagna``). The search settings are the balanced profile's.
 
     Args:
         db_path: Path to vector database. Default: ./knowledge_data/vectors.db

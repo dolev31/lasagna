@@ -59,9 +59,11 @@ class MyReranker(BaseReranker):
         ...
 ```
 
-Match that signature exactly. `**kwargs` is not decoration: the pipeline passes
-keywords a component never declared, and one without it raises `TypeError` the
-first time it is called for real.
+Match that signature. The pipeline calls `rerank(query, documents, top_k=k)` and
+passes nothing else to a component of yours, so a `rerank` without `**kwargs`
+runs too, and `lasagna component validate` passes it. Keep `**kwargs` anyway: the
+built-in rerankers also receive the session's `config` that way, and a component
+that accepts it keeps working if a later release passes it on.
 
 The decorator only runs when the module is imported, which is fine in-tree and
 not enough for a separate package. To ship one, declare an entry point (see

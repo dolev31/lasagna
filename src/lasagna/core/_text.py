@@ -6,6 +6,12 @@ import difflib
 from typing import Iterable
 
 
+#: The log levels every surface accepts (``log_level``, ``lasagna --verbose``'s
+#: sink, ``lasagna-mcp --log-level``): loguru's. The MCP server took four of the
+#: seven the setting accepts.
+LOG_LEVELS = ("TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL")
+
+
 def did_you_mean(key: str, known: Iterable[str], quote: str = "") -> str:
     """``" (did you mean 'speed'?)"`` for the closest of ``known``, else ``""``.
 
