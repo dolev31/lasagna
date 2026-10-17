@@ -199,6 +199,9 @@ def switch_profile(
             logger.warning(f"Reindex of {document_id} with profile {profile!r} failed: {exc}")
             report.failed.append((document_id, str(exc)))
             break
+    from lasagna.api._profile_guard import forget_documents_elsewhere
+
+    forget_documents_elsewhere(session_id)
     if report.failed:
         _restore(backend, session_id, report)
         raise ReindexFailed(_failure_message(report), report)

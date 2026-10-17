@@ -220,34 +220,12 @@ def _check_session_documents(session_id: str = "default") -> Optional[Check]:
             f"{len(rows)} in session {session_id!r}, all in {model}'s collection",
         )
     collections = sorted({str(r.get("collection_name")) for r in elsewhere})
-    from .config import collection_name_for_settings
-    from .session_config._profiles import ProfileMixin
+    from lasagna.api._profile_guard import model_of_collection
 
-    # The built-in profiles whose model writes to those collections.
-    by_collection: Dict[str, Tuple[str, str]] = {}
-    for name, spec in ProfileMixin._PROFILE_SPECS.items():
-        try:
-            by_collection.setdefault(
-                collection_name_for_settings(spec),
-                (name, str(spec.get("embedding_model") or rag_config.embedding_model)),
-            )
-        except Exception:  # noqa: BLE001 - only names a profile
-            continue
-
-    def model_of(collection: str) -> str:
-        try:
-            stamp = get_rag_database().get_collection_meta(
-                collection, rag_config.vector_backend or "milvus"
-            )
-        except Exception:  # noqa: BLE001 - the stamp only names the model
-            stamp = None
-        if stamp and stamp.get("embedding_model"):
-            return str(stamp["embedding_model"])
-        return by_collection.get(collection, ("", collection))[1]
-
-    models = [model_of(c) for c in collections]
+    named = [model_of_collection(c) for c in collections]
+    models = [m for m, _ in named]
+    back = [p for _, p in named if p]
     profile = _active_profile(session_id)
-    back = [by_collection[c][0] for c in collections if c in by_collection]
     switch_back = (
         f"Or switch back to {back[0]}, whose model indexed them: lasagna configure "
         f"--profile {back[0]} -s {session_id}."

@@ -332,6 +332,38 @@ class SearchManager:
             hybrid_alpha=alpha,
         )
 
+    def _warn_documents_elsewhere(self, session_id: str) -> None:
+        """Warn that the search could not see some of the session's documents.
+
+        They are in another embedding model's collection, so the result list
+        is short or empty for a reason the caller can fix.
+        """
+        import warnings
+
+        from ...api._profile_guard import DocumentsElsewhereWarning
+
+        message = None
+        if not self._client._is_remote:
+            try:
+                from ...api._profile_guard import documents_elsewhere
+                from ...core.config import rag_config
+
+                config = rag_config.with_session(session_id)
+                message = documents_elsewhere(
+                    session_id, config.collection_name, config.embedding_model
+                )
+            except Exception:  # noqa: BLE001 - the stage alone still says it
+                message = None
+        warnings.warn(
+            message
+            or f"Some documents of session {session_id!r} are in another embedding model's "
+            f"collection, so this search could not find them (degraded stage "
+            f"documents_elsewhere). Reindex them with the session's model, or search with "
+            f"the model that indexed them.",
+            DocumentsElsewhereWarning,
+            stacklevel=4,
+        )
+
     async def _search_internal(
         self,
         query: str,
@@ -393,6 +425,8 @@ class SearchManager:
                 raw_results = await backend.async_search(**search_kwargs)
         except Exception as e:
             raise SearchError(f"Search failed: {e}") from e
+        if "documents_elsewhere" in degraded:
+            self._warn_documents_elsewhere(session_id)
 
         search_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
 

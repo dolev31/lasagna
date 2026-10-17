@@ -849,17 +849,26 @@ def search(
         finally:
             await client.close()
 
+    import warnings
+
+    from lasagna.api._profile_guard import DocumentsElsewhereWarning
+
     try:
-        result = _run(_search())
+        with warnings.catch_warnings(record=True) as warned:
+            warnings.simplefilter("always", DocumentsElsewhereWarning)
+            result = _run(_search())
     except Exception as exc:
         # The SDK's SearchError already says "Search failed: ...".
         cause = exc.__cause__ if type(exc).__name__ == "SearchError" and exc.__cause__ else exc
         _error(f"Search failed: {cause}", exc=exc)
+    elsewhere = any(issubclass(w.category, DocumentsElsewhereWarning) for w in warned)
 
     if context:
         # Chunk text is data, not markup: Rich deleted "[metrics](...)" and
         # "[copy.deepcopy(d) ...]" from what it printed.
         console.print(Panel(escape(str(result)), title="LLM Context", border_style="cyan"))
+        if elsewhere:
+            _warn_documents_elsewhere(session_id, warned)
         return
 
     table = Table(title=f'Search: "{escape(query)}"', show_lines=True)
@@ -880,6 +889,30 @@ def search(
 
     console.print(table)
     console.print(f"[dim]{_count(len(result), 'result')}[/dim]")
+    if elsewhere:
+        _warn_documents_elsewhere(session_id, warned)
+
+
+def _warn_documents_elsewhere(session_id: str, warned: List[Any]) -> None:
+    """Say why the search could not see some of the session's documents.
+
+    Read from this machine's metadata database, which a local server shares;
+    the SDK's own warning is the fallback.
+    """
+    from lasagna.api._profile_guard import DocumentsElsewhereWarning, documents_elsewhere
+
+    message = None
+    try:
+        from lasagna.core.config import rag_config
+
+        config = rag_config.with_session(session_id)
+        message = documents_elsewhere(session_id, config.collection_name, config.embedding_model)
+    except Exception:  # noqa: BLE001 - the SDK's warning says it too
+        message = None
+    if message is None:
+        first = next(w for w in warned if issubclass(w.category, DocumentsElsewhereWarning))
+        message = str(first.message)
+    console.print(f"[yellow]Warning: {escape(message)}[/yellow]")
 
 
 # ---------------------------------------------------------------------------

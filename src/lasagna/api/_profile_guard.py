@@ -18,6 +18,7 @@ user's overrides on the way back.
 
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
@@ -55,6 +56,101 @@ def session_has_documents(session_id: str) -> bool:
     except Exception:  # noqa: BLE001 - unknown is "may hold some"
         return True
     return any(str(row.get("status") or "").lower() in _SEARCHED_STATUSES for row in rows)
+
+
+class DocumentsElsewhereWarning(UserWarning):
+    """A search missed the session's documents that sit in another model's collection."""
+
+
+#: ``(session, collection) -> (checked at, message)``: searches read this at
+#: most once every few seconds per session, from the metadata database.
+_elsewhere: Dict[tuple, tuple] = {}
+_ELSEWHERE_TTL_SECONDS = 3.0
+
+
+def model_of_collection(collection: str) -> tuple:
+    """``(model, profile)`` that writes to ``collection``: its stamp, or the built-in
+    profile whose model it is named after; ``profile`` is None when no built-in is."""
+    from lasagna.core.config import collection_name_for_settings, get_rag_config
+    from lasagna.core.database import get_rag_database
+    from lasagna.core.session_config._profiles import ProfileMixin
+
+    config = get_rag_config()
+    model, profile = None, None
+    for name, spec in ProfileMixin._PROFILE_SPECS.items():
+        try:
+            if collection_name_for_settings(spec) == collection:
+                model = spec.get("embedding_model") or config.embedding_model
+                profile = name
+                break
+        except Exception:  # noqa: BLE001 - only names a profile
+            continue
+    try:
+        stamp = get_rag_database().get_collection_meta(
+            collection, config.vector_backend or "milvus"
+        )
+    except Exception:  # noqa: BLE001 - the stamp only names the model
+        stamp = None
+    if stamp and stamp.get("embedding_model"):
+        model = stamp["embedding_model"]
+    return str(model or collection), profile
+
+
+def documents_elsewhere(session_id: str, collection: str, model: str) -> Optional[str]:
+    """Why a search of ``collection`` cannot find some of the session's documents.
+
+    None when every document of the session is in ``collection``. A reindex
+    into another model through the SDK, or a switch with ``force``, left the
+    documents in the old model's collection while the session searched the
+    new one's, and every search returned an empty list with no word of why.
+    """
+    key = (session_id, collection)
+    now = time.monotonic()
+    cached = _elsewhere.get(key)
+    if cached is not None and now - cached[0] < _ELSEWHERE_TTL_SECONDS:
+        return cached[1]
+    from lasagna.core.database import get_rag_database
+
+    rows = [
+        row
+        for row in get_rag_database().get_documents(session_id)
+        if str(row.get("status") or "").lower() in _SEARCHED_STATUSES
+    ]
+    missed = [r for r in rows if r.get("collection_name") not in (None, "", collection)]
+    message = None
+    if missed:
+        others = sorted({str(r["collection_name"]) for r in missed})
+        named = [model_of_collection(c) for c in others]
+        back = next((profile for _, profile in named if profile), None)
+        try:
+            from lasagna.core.session_config import get_knowledge_config_manager
+
+            mgr = get_knowledge_config_manager(session_id=session_id)
+            active = mgr.get_active_profile(session_id=session_id) or "default"
+        except Exception:  # noqa: BLE001 - only names the profile in the advice
+            active = "<profile>"
+        message = (
+            f"{len(missed)} of {_plural(len(rows), 'document')} in session {session_id!r} "
+            f"{'is' if len(missed) == 1 else 'are'} in "
+            f"{', '.join(m for m, _ in named)}'s collection, and this search uses "
+            f"{model}'s, so it cannot find {'it' if len(missed) == 1 else 'them'}. "
+            f"Reindex them with {model} (lasagna configure --profile {active} -s "
+            f"{session_id} --reindex, or client.documents.reindex(document_id) from a client "
+            f"on that model), or search with the model that indexed them"
+            + (f" (lasagna configure --profile {back} -s {session_id})." if back else ".")
+        )
+    if message and (cached is None or cached[1] != message):
+        from loguru import logger
+
+        logger.warning(message)
+    _elsewhere[key] = (now, message)
+    return message
+
+
+def forget_documents_elsewhere(session_id: Optional[str] = None) -> None:
+    """Drop what searches remember about where a session's documents are."""
+    for key in [k for k in _elsewhere if session_id is None or k[0] == session_id]:
+        _elsewhere.pop(key, None)
 
 
 def refuse_leaving_documents(

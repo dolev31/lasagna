@@ -551,6 +551,31 @@ class KnowledgeClient:
                 f"Run: lasagna configure --profile <name> -s {self._session_id}"
             )
 
+    def _record_reindexed_model(self) -> None:
+        """After a reindex, make the stored session name the model it was reindexed with.
+
+        A client configured with another model than its session's moved the
+        document to that model's collection, and the session kept the old
+        model: ``lasagna search`` then printed "0 results" and ``status``
+        named the old model. With the default store the client's settings are
+        the session's already; this matters with ``RAG_SESSION_BACKEND=memory``.
+        """
+        if self._is_remote:
+            return
+        from ..core.config import rag_config
+        from ..core.session_config import get_knowledge_config_manager
+
+        mgr = get_knowledge_config_manager(session_id=self._session_id)
+        here = rag_config.with_session(self._session_id)
+        chosen = mgr.get_chosen_config(self._session_id)
+        if chosen.get("embedding_model", rag_config.embedding_model) == here.embedding_model:
+            return
+        model = {"embedding_model": here.embedding_model, "embedding_dim": here.embedding_dim}
+        if here.embedding_truncate_dim:
+            model["embedding_truncate_dim"] = here.embedding_truncate_dim
+        # The documents moved there: what the session searches with now.
+        mgr.patch_config(model, session_id=self._session_id, force=True, trusted=True)
+
     # =========================================================================
     # Core Operations (Convenience Methods)
     # =========================================================================
