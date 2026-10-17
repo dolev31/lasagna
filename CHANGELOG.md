@@ -1474,6 +1474,11 @@ Servers and deployment:
   session settings, loaded without the server's download policy: a session
   naming any repository started a download inside a request. Every model
   loader now checks it first, as the embedder and the cross-encoder did.
+- Numeric session settings had no maximum (`ircot_max_steps`,
+  `rag_fusion_n_queries`, `hybrid_fusion_depth` and the rest accepted 10^6).
+  `SESSION_MAXIMUMS` gives each one a bound above every shipped profile,
+  preset and sweep; it applies to session writes (REST, MCP, imports), never
+  to the evaluation harness or the server's own settings.
 
 ### Known issues
 

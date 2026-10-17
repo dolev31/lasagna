@@ -1043,8 +1043,8 @@ class TestValidationEnforcement:
             manager.patch_config({"default_top_k": "not_a_number"}, session_id=session_id)
 
     def test_patch_config_rejects_out_of_range(self, manager, session_id):
-        """patch_config should reject value exceeding maximum."""
-        with pytest.raises(ValueError, match="Invalid configuration"):
+        """patch_config should reject value exceeding maximum (a session's, the lower)."""
+        with pytest.raises(ValueError, match="default_top_k is at most 1000"):
             manager.patch_config({"default_top_k": 100_001}, session_id=session_id)
 
     def test_patch_config_rejects_cross_field_violation(self, manager, session_id):
