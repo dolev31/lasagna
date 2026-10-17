@@ -1457,6 +1457,10 @@ Servers and deployment:
   the second's row replaced the first's (on PostgreSQL its `session_id` too),
   so another session could take the document over. A taken id answers 409, or
   404 when another session holds it.
+- Chunks of archived documents (and of failed or processing ones) took places
+  in the top-k cut and were dropped after it, so such a query returned fewer
+  than `top_k` results. They are removed before the cut. Benchmark corpora are
+  all ready documents, so no benchmark number changes.
 
 ### Known issues
 

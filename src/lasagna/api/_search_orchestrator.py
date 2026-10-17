@@ -1101,6 +1101,18 @@ class SearchOrchestrator:
             distinct.append(hit)
         hits_for_rerank = distinct
 
+        # Likewise a chunk of a document search may not return (archived,
+        # failed, still processing, or with no row): removed only after the
+        # cut, it took a place there and the list came back short. One lookup
+        # for every candidate, reused below.
+        doc_metadata_map = self._document_pipeline.get_documents_metadata_batch(
+            list({h.get("document_id") for h in hits_for_rerank if h.get("document_id")})
+        )
+        missing_metadata_ids = self._unregistered(
+            {h.get("document_id") for h in hits_for_rerank} - set(doc_metadata_map)
+        )
+        hits_for_rerank = [h for h in hits_for_rerank if h.get("document_id") in doc_metadata_map]
+
         # Apply reranking
         if use_reranking and config.enable_reranking:
             # Check if adaptive-k retrieval is enabled
@@ -1194,20 +1206,7 @@ class SearchOrchestrator:
             # raw cross-encoder logits can be negative and 0.0 would drop them.
             return result.normalized_score if min_score >= 0.0 else result.rerank_score
 
-        # OPTIMIZATION: Batch fetch all document metadata in single query
-        document_ids_to_fetch = list(
-            {result.document_id for result in reranked if _score_for_filter(result) >= min_score}
-        )
-        doc_metadata_map = self._document_pipeline.get_documents_metadata_batch(
-            document_ids_to_fetch
-        )
-
         search_results = []
-        # Chunks retrieved and ranked, then discarded because their parent
-        # document has no metadata row. Counted rather than ignored: dropping
-        # every result silently is indistinguishable from retrieving nothing,
-        # and the caller sees a well-formed empty result either way.
-        missing_metadata_ids: List[str] = []
         # A chunk is returned once, at its best rank.
         returned_chunk_ids: set = set()
         for result in reranked:
@@ -1233,17 +1232,20 @@ class SearchOrchestrator:
                     SearchResult(chunk=chunk, score=_reported(result), document=doc_metadata)
                 )
             else:
-                missing_metadata_ids.append(result.document_id)
+                # A reranker that returned a document no candidate came from.
+                missing_metadata_ids.add(result.document_id)
 
         if missing_metadata_ids:
-            unique_missing = sorted(set(missing_metadata_ids))
-            # Loud when it swallowed the entire result set, because that is the
-            # case a caller cannot tell apart from "nothing matched": retrieval,
-            # reranking and MMR all succeeded and the answer is still empty.
+            # Chunks retrieved, then discarded because their document has no
+            # metadata row. Counted rather than ignored: dropping every result
+            # silently is indistinguishable from retrieving nothing, and the
+            # caller sees a well-formed empty result either way. Loud when it
+            # swallowed the entire result set.
+            unique_missing = sorted(missing_metadata_ids)
             level = logger.error if not search_results else logger.warning
             level(
-                f"Dropped {len(missing_metadata_ids)} retrieved chunk(s) from "
-                f"{len(unique_missing)} document(s) with no metadata row"
+                f"Dropped retrieved chunk(s) of {len(unique_missing)} document(s) "
+                f"with no metadata row"
                 + (
                     ": returning 0 results despite successful retrieval"
                     if not search_results
@@ -2038,7 +2040,12 @@ class SearchOrchestrator:
             [(sum(w / (rrf_k + r) for r, w in d["ranks"]), d["vsr"]) for d in chunk_data.values()],
             key=lambda x: x[0],
             reverse=True,
-        )[:top_k]
+        )
+        # Only chunks of documents search may return take a place in the cut.
+        doc_map = self._document_pipeline.get_documents_metadata_batch(
+            list({vsr.entity.get("document_id", "") for _score, vsr in fused})
+        )
+        fused = [f for f in fused if f[1].entity.get("document_id", "") in doc_map][:top_k]
 
         # Rerank the fused results for quality parity with the threaded path
         from ..retrieval.search.ranker import adapt_reranker_for_pipeline, search_embedder
@@ -2070,9 +2077,6 @@ class SearchOrchestrator:
             )
 
         # Convert reranked results to SearchResult objects
-        doc_ids = list({r.document_id for r in reranked})
-        doc_map = self._document_pipeline.get_documents_metadata_batch(doc_ids)
-
         final_results = []
         for result in reranked:
             doc = doc_map.get(result.document_id)
@@ -2538,6 +2542,20 @@ class SearchOrchestrator:
                 logger.warning(f"Abstractive compression failed for chunk {result.chunk_id}: {e}")
 
         return results
+
+    def _unregistered(self, document_ids: set) -> set:
+        """Which of ``document_ids`` have no metadata row at all (not merely not ready)."""
+        document_ids = {d for d in document_ids if d}
+        if not document_ids:
+            return set()
+        lookup = getattr(self._document_pipeline, "registered_document_ids", None)
+        if not callable(lookup):
+            return document_ids
+        try:
+            return document_ids - set(lookup(sorted(document_ids)))
+        except Exception as exc:  # noqa: BLE001 - only a log line depends on it
+            logger.debug(f"Could not tell unregistered documents apart: {exc}")
+            return set()
 
     @staticmethod
     def _get_session_config(session_id: Optional[str] = None) -> RAGConfig:

@@ -2117,6 +2117,14 @@ class DocumentPipeline:
             error_message=row.get("error_message"),
         )
 
+    def registered_document_ids(self, document_ids: List[str]) -> List[str]:
+        """Those of ``document_ids`` that have a row, in any status."""
+        from lasagna.core.database import get_rag_database
+
+        valid = [d for d in document_ids if is_safe_document_id(d)]
+        rows = get_rag_database().get_documents_batch(valid, include_soft_deleted=True)
+        return [r["document_id"] for r in rows]
+
     def get_documents_metadata_batch(self, document_ids: List[str]) -> Dict[str, Document]:
         """The documents search may return chunks of, by id, in one query: ready ones.
 
