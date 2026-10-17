@@ -2556,15 +2556,30 @@ def get_active_profile(session_id: str = "", session_token: Optional[str] = None
     try:
         from lasagna.core.session_config import get_knowledge_config_manager
 
+        from lasagna.core.config import rag_config
+
         manager = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
         state = manager.get_session_state(session_id)
         active_profile = state.get_active_profile()
+        searched = rag_config.with_session(session_id)
 
+        # The profile's own model and the session's overrides apart: the
+        # description named speed's all-MiniLM-L6-v2 for a session whose
+        # override embeds with another model.
         result = {
             "session_id": session_id,
             "active_profile_name": state.active_profile,
             "profile_description": active_profile.description if active_profile else None,
+            "profile_embedding_model": (active_profile.config if active_profile else {}).get(
+                "embedding_model"
+            ),
             "has_session_overrides": bool(state.session_overrides),
+            "session_overrides": state.session_overrides,
+            "embeds_with": {
+                "embedding_model": searched.embedding_model,
+                "embedding_dim": searched.embedding_dim,
+                "collection": searched.collection_name,
+            },
         }
 
         duration_ms = (time.time() - start_time) * 1000

@@ -221,27 +221,33 @@ def _check_session_documents(session_id: str = "default") -> Optional[Check]:
             f"{len(rows)} in session {session_id!r}, all in {model}'s collection",
         )
     collections = sorted({str(r.get("collection_name")) for r in elsewhere})
-    from lasagna.api._profile_guard import model_of_collection
+    from lasagna.api._profile_guard import (
+        _described,
+        fixes_for_documents_elsewhere,
+        model_of_collection,
+    )
 
     named = [model_of_collection(c) for c in collections]
-    models = [m for m, _ in named]
-    back = [p for _, p in named if p]
-    profile = _active_profile(session_id)
+    back = next((p for _, p in named if p), None)
+    reindex, back_fix = fixes_for_documents_elsewhere(session_id, back)
     switch_back = (
-        f"Or switch back to {back[0]}, whose model indexed them: lasagna configure "
-        f"--profile {back[0]} -s {session_id}."
-        if back
+        f"Or search with {back}, whose model indexed them: {back_fix}."
+        if back_fix
         else f"Or switch back to the profile that indexed them: lasagna configure "
         f"--profile <name> -s {session_id}."
+        if back is None
+        else ""
     )
+    where = ", ".join(_described(c, m, model) for c, (m, _) in zip(collections, named))
     return Check(
         "session_documents",
         _FAIL,
         f"{len(elsewhere)} of {len(rows)} documents in session {session_id!r} are in "
-        f"{', '.join(models)}'s collection, but the session searches with {model}, so no "
-        f"search finds them",
-        f"Reindex them with {model}: lasagna configure --profile {profile} -s {session_id} "
-        f"--reindex (it changes nothing if one fails). {switch_back}",
+        f"{where}, but the session searches with {model}"
+        + (f" in collection {searched!r}" if any(m == model for m, _ in named) else "")
+        + ", so no search finds them",
+        f"Reindex them with {model}: {reindex} (it changes nothing if one fails). "
+        f"{switch_back}".strip(),
     )
 
 
@@ -276,16 +282,6 @@ def _check_profile_switches(session_id: str = "default") -> Optional[Check]:
         f"--resume-switch -s {sid}, or go back with lasagna configure --profile {previous} "
         f"-s {sid} --reindex.",
     )
-
-
-def _active_profile(session_id: str) -> str:
-    try:
-        from .session_config import get_knowledge_config_manager
-
-        mgr = get_knowledge_config_manager(session_id=session_id)
-        return mgr.get_active_profile(session_id=session_id) or "default"
-    except Exception:  # noqa: BLE001
-        return "default"
 
 
 #: The vector stores Lasagna ships an adapter for (``vector_backends/``).

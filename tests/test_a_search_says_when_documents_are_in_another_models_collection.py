@@ -173,6 +173,9 @@ async def main():
     config = config_for_speed().with_updates(embedding_model="BAAI/bge-small-en-v1.5")
     client = KnowledgeClient(session_id="s3", config=config)
     try:
+        # Another model than the session's documents: refused until applied,
+        # as with lasagna configure --force; then each document follows.
+        await client.set_config(force=True)
         for doc in await client.documents.list():
             await client.documents.reindex(doc.document_id)
     finally:

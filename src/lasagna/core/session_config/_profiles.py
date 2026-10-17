@@ -649,6 +649,7 @@ class ProfileMixin:
                 change=f"Profile {profile_name!r}",
                 force=force,
                 session_id=session_id,
+                profile_config=profile_config,
             )
 
             if profile is None:

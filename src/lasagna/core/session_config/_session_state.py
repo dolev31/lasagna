@@ -397,12 +397,16 @@ class SessionStateMixin:
         *,
         force: bool = False,
         trusted: bool = False,
+        remedy: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Apply a patch to the session overrides.
 
         Only settings a session may set are accepted (see ``_session_keys``);
         ``trusted`` is for in-process callers writing the process's own
-        configuration, never for a value a client sent.
+        configuration, never for a value a client sent. It skips that check
+        only: a patch that would leave the session's documents unsearched is
+        refused whoever sends it (``force`` applies it anyway; ``remedy``
+        names the fixes, see ``refuse_leaving_documents``).
         """
         patch = self._session_settings(patch, trusted=trusted)
 
@@ -417,9 +421,12 @@ class SessionStateMixin:
                 change="This change",
                 force=force,
                 session_id=session_id,
-                # In-process writes of the process's own configuration: the
-                # harness names a collection per arm on its own sessions.
-                documents=not trusted,
+                # The harness's own sessions only: it names a collection per
+                # arm, and they are its process's alone. ``trusted`` exempted
+                # every in-process write, so an SDK client's ``config=`` moved
+                # a shared session off its documents on every surface.
+                documents=not kept_in_process(session_id or "default"),
+                remedy=remedy,
             )
             _deep_merge(state.session_overrides, patch)
             self._persist_single_session(session_id or "default")

@@ -126,9 +126,20 @@ A setting is looked up in this order, and the first place that has it wins: per-
 
 `KnowledgeConfig` fields enter that order in one of two places (`sdk/_config_bridge.py`):
 
-**Init-time fields** (for example `vector_backend`, `database_backend`, `cache_backend`, `celery_enabled`, `storage_backend`, and the embedding fields `embedding_model`, `embedding_dim` and `embedding_provider`) are written where environment variables go, before the backend is created, so they apply to the whole process. Set them when you create the `KnowledgeClient`; changing them afterward logs a warning and has no effect until a new client creates the backend.
+**Init-time fields** (for example `vector_backend`, `database_backend`, `cache_backend`, `celery_enabled`, `storage_backend`) are written where environment variables go, before the backend is created, so they apply to the whole process. Set them when you create the `KnowledgeClient`; changing them afterward logs a warning and has no effect until a new client creates the backend. The embedding fields (`embedding_model`, `embedding_dim`, `embedding_provider`) are written there too, and are also runtime fields: a later `set_config()` of one applies to the session at once.
 
 **Runtime fields** (for example `enable_hyde`, `enable_reranking`, `chunk_size`) are written as session overrides for the client's session. `set_config()` and `use_preset()` change them, and the next operation uses the new values. If you call them before the backend exists, the overrides are written when it is created.
+
+**The session's settings are shared.** They are kept in the session store that the CLI, the REST API and the MCP server read too, so a client's settings are the session's settings on every surface: two clients with different settings on one session take turns overwriting each other, and the last one to apply its settings decides. Use one session per configuration. A client writes nothing when the session already has its settings.
+
+**A session's documents are protected, as on every surface.** Settings that would search another model's collection than the one holding the session's documents (for example `config=config_for_speed()` on a session uploaded with BGE-M3) are refused with `DocumentsLeftBehind` at the client's first operation, or by `set_config()`, and nothing is written; every operation of that client raises it until it is resolved. Use another session for those settings, or:
+
+```python
+await client.set_config(reindex=True)  # reindex every document with these settings first
+await client.set_config(force=True)    # apply them anyway; reindex the documents later
+```
+
+`reindex=True` keeps the session as it is if one document fails, like `lasagna configure --reindex`; `force=True` is `lasagna configure --force`, and the documents are found again once each is reindexed (`client.documents.reindex(document_id)`).
 
 **Only chosen fields are sent.** A field is forwarded when you set it (by keyword or by assignment) or when its value differs from the dataclass default. A plain `KnowledgeConfig()` writes no overrides, so the profile, environment and settings file decide.
 

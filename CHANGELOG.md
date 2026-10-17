@@ -227,7 +227,11 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
 - **Sessions' settings are kept in one store for every surface.** The CLI, the
   MCP server, `lasagna serve` and the SDK read and write the metadata
   database, so a profile set with `lasagna configure` applies to a
-  `KnowledgeClient` for that session in another process.
+  `KnowledgeClient` for that session in another process, and a client's
+  `config=` is that session's settings on every surface: refused, as by
+  `lasagna configure`, when it would search another model's collection than
+  the one holding the session's documents (`set_config(reindex=True)` moves
+  them first, `force=True` applies it anyway).
   `RAG_SESSION_BACKEND=memory` keeps a process's sessions to itself. Changes
   that several processes make at once to one session, or to the saved
   profiles, are all kept. The evaluation harness's corpus sessions keep their

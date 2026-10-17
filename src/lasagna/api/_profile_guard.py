@@ -164,6 +164,53 @@ def model_of_collection(collection: str) -> tuple:
     return str(model or collection), profile
 
 
+#: Settings that say which model a session embeds with. A switch to another
+#: profile keeps a session's override of one, as it keeps any override that
+#: does not only repeat the profile it leaves.
+_EMBEDDING_KEYS = ("embedding_model", "embedding_dim", "embedding_truncate_dim")
+
+
+def fixes_for_documents_elsewhere(session_id: str, back: Optional[str]) -> tuple:
+    """``(reindex, switch_back)``: what every surface offers for documents in another
+    model's collection; ``switch_back`` is None when no built-in profile indexed them.
+
+    ``reindex`` reindexes them with the session's settings as they are, its
+    overrides included (a switch to the profile it is on keeps them).
+    ``switch_back`` makes the session search where they are: a switch to
+    ``back``, the built-in profile whose model indexed them. A session that
+    overrides its embedding model keeps that override across a switch, so the
+    advice was a switch that changed nothing; then its overrides are reset too.
+    """
+    try:
+        from lasagna.core.session_config import get_knowledge_config_manager
+
+        state = get_knowledge_config_manager(session_id=session_id).get_session_state(session_id)
+        active = state.active_profile or "default"
+        overridden = [k for k in _EMBEDDING_KEYS if k in state.session_overrides]
+    except Exception:  # noqa: BLE001 - only shapes the advice
+        active, overridden = "<profile>", []
+    reindex = f"lasagna configure --profile {active} -s {session_id} --reindex"
+    if back is None:
+        return reindex, None
+    switch = f"lasagna configure --profile {back} -s {session_id}"
+    if not overridden:
+        return reindex, None if back == active else switch
+    named = " and ".join(
+        [", ".join(overridden[:-1]), overridden[-1]] if len(overridden) > 1 else overridden
+    )
+    reset = (
+        f"reset the session's overrides, which set {named}, with POST "
+        f"/api/config/knowledge/reset, client.config_manager.reset() in the SDK, or the "
+        f"MCP tool reset_rag_config"
+    )
+    return reindex, reset if back == active else f"{reset}, then {switch}"
+
+
+def _described(collection: str, model: str, other_model: str) -> str:
+    """``model``'s collection, or the collection by name when both sides name one model."""
+    return f"{model}'s collection" if model != other_model else f"collection {collection!r}"
+
+
 def documents_elsewhere(session_id: str, collection: str, model: str) -> Optional[str]:
     """Why a search of ``collection`` cannot find some of the session's documents.
 
@@ -190,22 +237,16 @@ def documents_elsewhere(session_id: str, collection: str, model: str) -> Optiona
         others = sorted({str(r["collection_name"]) for r in missed})
         named = [model_of_collection(c) for c in others]
         back = next((profile for _, profile in named if profile), None)
-        try:
-            from lasagna.core.session_config import get_knowledge_config_manager
-
-            mgr = get_knowledge_config_manager(session_id=session_id)
-            active = mgr.get_active_profile(session_id=session_id) or "default"
-        except Exception:  # noqa: BLE001 - only names the profile in the advice
-            active = "<profile>"
+        reindex, switch_back = fixes_for_documents_elsewhere(session_id, back)
+        where = ", ".join(_described(c, m, model) for c, (m, _) in zip(others, named))
+        here = _described(collection, model, named[0][0]) if len(named) == 1 else f"{model}'s"
         message = (
             f"{len(missed)} of {_plural(len(rows), 'document')} in session {session_id!r} "
-            f"{'is' if len(missed) == 1 else 'are'} in "
-            f"{', '.join(m for m, _ in named)}'s collection, and this search uses "
-            f"{model}'s, so it cannot find {'it' if len(missed) == 1 else 'them'}. "
-            f"Reindex them with {model} (lasagna configure --profile {active} -s "
-            f"{session_id} --reindex, or client.documents.reindex(document_id) from a client "
-            f"on that model), or search with the model that indexed them"
-            + (f" (lasagna configure --profile {back} -s {session_id})." if back else ".")
+            f"{'is' if len(missed) == 1 else 'are'} in {where}, and this search uses "
+            f"{here}, so it cannot find {'it' if len(missed) == 1 else 'them'}. "
+            f"Reindex them with {model} ({reindex}, or client.documents.reindex(document_id) "
+            f"from a client on that model), or search with the model that indexed them"
+            + (f" ({switch_back})." if switch_back else ".")
         )
     if message and (cached is None or cached[1] != message):
         from loguru import logger
@@ -221,6 +262,30 @@ def forget_documents_elsewhere(session_id: Optional[str] = None) -> None:
         _elsewhere.pop(key, None)
 
 
+def _model_of_documents(collection: str, before: Dict[str, Any], vector_backend: str) -> tuple:
+    """``(model, size)`` the documents in ``collection`` were embedded with.
+
+    From the collection's stamp, else the built-in profile it is named after,
+    else the session's settings before the change. Naming the session's model
+    instead made a refusal say the documents were embedded with the very model
+    it refused.
+    """
+    from lasagna.core.database import get_rag_database
+    from lasagna.core.session_config._profiles import ProfileMixin
+
+    try:
+        stamp = get_rag_database().get_collection_meta(collection, vector_backend)
+    except Exception:  # noqa: BLE001 - the stamp only names the model
+        stamp = None
+    if stamp and stamp.get("embedding_model"):
+        return stamp["embedding_model"], stamp.get("embedding_dim")
+    model, profile = model_of_collection(collection)
+    if profile is not None:
+        spec = ProfileMixin._PROFILE_SPECS[profile]
+        return spec.get("embedding_model") or model, spec.get("embedding_dim")
+    return before.get("embedding_model"), _effective_dim(before)
+
+
 def refuse_leaving_documents(
     *,
     session_id: str,
@@ -228,6 +293,8 @@ def refuse_leaving_documents(
     after: Dict[str, Any],
     change: str,
     kept: str,
+    profile_config: Optional[Dict[str, Any]] = None,
+    remedy: Optional[str] = None,
 ) -> None:
     """Raise when the session's documents are in a collection the change would stop searching.
 
@@ -238,6 +305,11 @@ def refuse_leaving_documents(
     from the documents `status` still counted. The documents' collection is
     the one the metadata database recorded for each (the session's current
     one for a document from before per-model collections).
+
+    ``profile_config`` is the profile a switch goes to, so the message names
+    its model apart from a session override that would replace it.
+    ``remedy`` replaces the fixes named (for one surface); it may name
+    ``{new_model}`` and ``{them}``.
     """
     from lasagna.core.config import collection_name_for_settings
     from lasagna.core.database import get_rag_database
@@ -256,27 +328,56 @@ def refuse_leaving_documents(
     if not left:
         return
     collection = left[0].get("collection_name") or current
-    try:
-        stamp = db.get_collection_meta(collection, after.get("vector_backend") or "milvus")
-    except Exception:  # noqa: BLE001 - the stamp only names the model
-        stamp = None
-    old_model = (stamp or {}).get("embedding_model") or before.get("embedding_model")
-    new_model = after.get("embedding_model")
+    old_model, old_dim = _model_of_documents(
+        collection, before, after.get("vector_backend") or "milvus"
+    )
+    new_model, new_dim = after.get("embedding_model"), _effective_dim(after)
+    new, old = new_model, old_model
+    if old_model == new_model:
+        # One model on both sides: the size, or else the collection, differs.
+        if old_dim is not None and int(old_dim) != new_dim:
+            new, old = (
+                f"{new_model} at {new_dim} dimensions",
+                f"{old_model} at {old_dim} dimensions",
+            )
+        else:
+            new = f"{new_model} in collection {target!r}"
+            old = f"{old_model} in collection {collection!r}"
     one = len(left) == 1
     them = "it" if one else "them"
+    why = ""
+    profile_model = (profile_config or {}).get("embedding_model")
+    if profile_model and profile_model != new_model:
+        why = (
+            f" (the profile embeds with {profile_model}, and this session's override "
+            f"embedding_model={new_model} stays in force across a switch)"
+        )
+    fixes = (
+        remedy.format(new_model=new_model, them=them)
+        if remedy
+        else (
+            f"Either use a new session for {new_model} and upload there, or switch and "
+            f"reindex {them} in one step (lasagna configure --reindex, or reindex=true over "
+            f"REST and MCP), which reindexes every document with {new_model} first and keeps "
+            f"the session as it is if one fails. To switch anyway: lasagna configure --force, "
+            f"or force=true over REST and MCP; until each document is reindexed "
+            f"(client.documents.reindex(document_id) in the SDK, POST "
+            f"/api/v1/documents/<id>/reindex or POST /api/knowledge/reindex over REST, or the "
+            f"MCP tool reindex_document), searches return nothing from {them}."
+        )
+    )
+    if why:
+        fixes += (
+            " To use the profile's own model instead, reset the session's overrides first "
+            "(POST /api/config/knowledge/reset, client.config_manager.reset() in the SDK, or "
+            "the MCP tool reset_rag_config)."
+        )
     raise DocumentsLeftBehind(
-        f"{change} would search with {new_model}, but the "
+        f"{change} would search with {new}{why}, but the "
         f"{_plural(len(left), 'document')} in session {session_id!r} "
-        f"{'was' if one else 'were'} embedded with {old_model}, in that model's "
-        f"collection, so no search would find {them}. Nothing was changed; profile "
-        f"{kept!r} is still active. Either use a new session for {new_model} and "
-        f"upload there, or switch and reindex {them} in one step (lasagna configure "
-        f"--reindex, or reindex=true over REST and MCP), which reindexes every document "
-        f"with {new_model} first and keeps the session as it is if one fails. To switch "
-        f"anyway: lasagna configure --force, or force=true over REST and MCP; until "
-        f"each document is reindexed (client.documents.reindex(document_id) in the "
-        f"SDK, POST /api/v1/documents/<id>/reindex or POST /api/knowledge/reindex over "
-        f"REST, or the MCP tool reindex_document), searches return nothing from {them}."
+        f"{'was' if one else 'were'} embedded with {old}, in that model's collection, so "
+        f"no search would find {them}. Nothing was changed; profile {kept!r} is still "
+        f"active. {fixes}"
     )
 
 
