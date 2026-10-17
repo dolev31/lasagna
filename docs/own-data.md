@@ -92,7 +92,9 @@ loads, with the reason and the fix.
 
 ## Names, checkpoints and comparisons
 
-A file registers as `local/<file name>@<12 hex digits>`, the start of the
+A file registers as `local/<stem>@<12 hex digits>` (`data/my_data.jsonl` as
+`local/my_data@` and the digits; a BEIR folder as `local/<folder name>@...`), the
+start of the
 sha256 of its bytes (for a BEIR folder, of the files read from it), or as
 `<name>@<12 hex digits>` when the entry gives `name:`. The full digest is
 recorded as the dataset revision. Because the hash is in the benchmark name:

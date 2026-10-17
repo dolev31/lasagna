@@ -16,6 +16,7 @@ import json
 import os
 import shlex
 from pathlib import Path
+from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Optional
 
 import typer
@@ -2490,6 +2491,11 @@ def component_list(
 
 def _registered_component(name: str, stage: Optional[str]) -> Any:
     """The class registered as ``name``, in ``stage`` or the one stage that has it."""
+    return _registered_component_and_stage(name, stage)[0]
+
+
+def _registered_component_and_stage(name: str, stage: Optional[str]) -> tuple:
+    """``(class, stage)`` registered as ``name``, in ``stage`` or the one stage that has it."""
     from .core._text import did_you_mean
     from .core.registry import registry
 
@@ -2503,7 +2509,44 @@ def _registered_component(name: str, stage: Optional[str]) -> Any:
         )
     if len(found) > 1:
         _error(f"{name!r} is registered for {', '.join(found)}; pick one with --stage.")
-    return registry.get_class(found[0], name)
+    return registry.get_class(found[0], name), found[0]
+
+
+@contextmanager
+def _validated_with_profile(stage: str, name: str, profile: str):
+    """Build a registered component with ``profile``'s model, and say which before loading.
+
+    ``component validate cross_encoder`` built it with the settings file's
+    reranker, an 881 MB download, while the speed profile and the README's
+    sweeps use a 92 MB one.
+    """
+    from lasagna.core.config import rag_config
+    from lasagna.core.model_downloads import is_cached
+    from lasagna.core.session_config._profiles import ProfileMixin
+    from lasagna.core.setup_text import COMPONENT_MODEL_SETTINGS, MODEL_DOWNLOAD_BYTES, human_size
+
+    setting = COMPONENT_MODEL_SETTINGS.get((stage, name))
+    if setting is None:
+        yield
+        return
+    spec = ProfileMixin._PROFILE_SPECS.get(profile, {})
+    model = str(spec.get(setting) or getattr(rag_config, setting, "") or "")
+    size = MODEL_DOWNLOAD_BYTES.get(model)
+    where = "cached" if is_cached(model) else "downloaded on first use"
+    console.print(
+        f"Builds {escape(name)} with the {escape(profile)} profile's {setting}: "
+        f"{escape(model)}" + (f" ({human_size(size)}, {where})." if size else f" ({where}).")
+    )
+    overrides = rag_config._env_overrides
+    had, previous = setting in overrides, overrides.get(setting)
+    overrides[setting] = model
+    try:
+        yield
+    finally:
+        if had:
+            overrides[setting] = previous
+        else:
+            overrides.pop(setting, None)
 
 
 @component_app.command("validate")
@@ -2518,6 +2561,13 @@ def component_validate(
         None,
         "--stage",
         help="The stage a plain, undecorated function implements: " + ", ".join(_FUNCTION_STAGES),
+    ),
+    profile: str = typer.Option(
+        "speed",
+        "--profile",
+        "-p",
+        help="Profile whose model a registered component is built with (default speed: "
+        "the 92 MB cross-encoder, not the settings file's 881 MB one)",
     ),
 ):
     """Check a component satisfies its stage contract.
@@ -2538,13 +2588,14 @@ def component_validate(
     from lasagna.core.testing import ComponentTestHarness
 
     module_path, _, attr = target.rpartition(":")
+    found_stage = None  # the stage of a registered component
     if stage is not None and stage not in _FUNCTION_STAGES:
         _error(f"--stage must be one of {', '.join(_FUNCTION_STAGES)}, got {stage!r}")
     if not module_path or not attr:
         # A registered name, as a sweep's arm names one: `component validate
         # cross_encoder` was refused as not being module:function.
-        obj, attr = _registered_component(target, stage), target
-        name = target
+        obj, found_stage = _registered_component_and_stage(target, stage)
+        attr = name = target
     else:
         try:
             obj = components.import_reference(target)
@@ -2567,19 +2618,26 @@ def component_validate(
         except (TypeError, ValueError) as exc:
             _error(str(exc))
 
-    try:
-        instance = obj() if isinstance(obj, type) else obj
-    except Exception as exc:
-        _error(
-            f"Could not instantiate {attr} with no arguments: {type(exc).__name__}: {exc}. "
-            f"Components must be constructible without required arguments so the "
-            f"pipeline can build them from a config name."
-        )
+    from contextlib import nullcontext
 
-    try:
-        report = ComponentTestHarness().validate(instance)
-    except Exception as exc:  # a model that cannot load, a missing key: not a contract verdict
-        _error(f"The checks could not run: {type(exc).__name__}: {exc}")
+    _require_profile(profile)
+    built_with = (
+        _validated_with_profile(found_stage, target, profile) if found_stage else nullcontext()
+    )
+    with built_with:
+        try:
+            instance = obj() if isinstance(obj, type) else obj
+        except Exception as exc:
+            _error(
+                f"Could not instantiate {attr} with no arguments: {type(exc).__name__}: "
+                f"{exc}. Components must be constructible without required arguments so "
+                f"the pipeline can build them from a config name."
+            )
+
+        try:
+            report = ComponentTestHarness().validate(instance)
+        except Exception as exc:  # a model that cannot load, a missing key: no verdict
+            _error(f"The checks could not run: {type(exc).__name__}: {exc}")
 
     console.print(f"\n[bold]{escape(name)}[/bold] ({report.component_type or 'unknown'})")
     for check in report.checks:

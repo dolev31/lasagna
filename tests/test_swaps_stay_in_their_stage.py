@@ -219,13 +219,13 @@ def test_a_change_that_never_moved_a_ranking_is_inert():
     # MMR is read only when reranking is on: the mmr cell of a rerank x mmr
     # factorial reached its config and returned the neither cell's lists,
     # and the harness then reported a significant "interaction".
-    same = {"q1": ["d1", "d2"], "q2": ["d3", "d4"]}
+    same = {f"q{i}": [f"d{i}", f"e{i}"] for i in range(12)}
     rows = [
         _with_lists(_row("neither", {"enable_mmr": False}, _manifest()), same),
         _with_lists(_row("mmr", {"enable_mmr": True}, _manifest(enable_mmr=True)), same),
     ]
     inert = isolation_report(rows)["inert"]
-    assert len(inert) == 1 and "identical ranked lists on all 2 queries" in inert[0]
+    assert len(inert) == 1 and "identical ranked lists on all 12 queries" in inert[0]
     assert "enable_mmr" in inert[0]
 
 

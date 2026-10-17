@@ -67,6 +67,22 @@ MODEL_FILES = {
 }
 
 
+#: The setting that names the model each built-in component loads, by
+#: ``(stage, name)``. Components with no model of their own (BM25, MMR, the
+#: chunkers) and those that call an API are absent.
+COMPONENT_MODEL_SETTINGS = {
+    ("reranker", "cross_encoder"): "reranker_model",
+    ("reranker", "combined"): "reranker_model",
+    ("reranker", "colbert"): "colbert_model",
+    ("reranker", "monot5"): "monot5_model",
+    ("reranker", "flashrank"): "flashrank_model",
+    ("retriever", "splade"): "splade_model",
+    ("retriever", "dense"): "embedding_model",
+    ("embedder", "default"): "embedding_model",
+    ("embedder", "sentence_transformers"): "embedding_model",
+}
+
+
 def download_command(model: str) -> str:
     """The ``hf download`` command that fetches what loading ``model`` reads, and its size.
 

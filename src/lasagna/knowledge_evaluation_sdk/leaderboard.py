@@ -66,6 +66,11 @@ def _one_file(path: Path) -> Dict[str, Any]:
         from .results import BenchmarkResults
 
         data = BenchmarkResults.load(str(path)).to_bundle()
+        # A run's own file, bundled here: nothing validated it, and a link to
+        # it would be a path on this machine.
+        data["_source"] = "results"
+        data["_path"] = ""
+        return data
     data["_path"] = path.name
     return data
 
@@ -175,6 +180,7 @@ def collect_rows(bundles: Iterable[Dict[str, Any]], metric: str) -> List[Dict[st
                     ),
                     "run_id": bundle.get("run_id", ""),
                     "path": bundle.get("_path", ""),
+                    "source": bundle.get("_source", "bundle"),
                     # What `group` ranks by: without it every metric sorted
                     # highest first, latency and token counts included.
                     "metric": metric,
@@ -265,11 +271,21 @@ def render_markdown(
     directory. Pages are usually written to ``leaderboards/`` while bundles live
     in ``runs/``, so without it every link on the page is broken.
     """
+    groups = grouped.get(benchmark, {})
+    from_results = any(r.get("source") == "results" for rows in groups.values() for r in rows)
+    trust = (
+        f"Ranked by `{metric}`. **From a run's results.json: self-reported, not validated "
+        "and not independently reproduced.** To publish it, bundle it (`lasagna results "
+        "bundle`) and check the bundle (`lasagna results validate`)."
+        if from_results
+        else f"Ranked by `{metric}`. **Self-reported, not independently reproduced.** Every "
+        "row links to its bundle; `lasagna results validate` recomputes a bundle's "
+        "comparability keys, run id and aggregates."
+    )
     lines = [
         f"# {benchmark}",
         "",
-        f"Ranked by `{metric}`. **Self-reported and machine-validated, not "
-        "independently reproduced**. Every row links to its bundle.",
+        trust,
         "",
         "Each table is one comparability group: those rows held the same "
         "configuration fixed, so they may be compared with each other. Rows in "
@@ -277,7 +293,6 @@ def render_markdown(
         "",
     ]
 
-    groups = grouped.get(benchmark, {})
     for key in sorted(groups, key=lambda k: -groups[k][0]["mean"]):
         rows = groups[key]
         held = rows[0]["held_fixed"]
@@ -320,10 +335,11 @@ def render_markdown(
             spread = f" ± {row['std']:.4f}" if row["n_runs"] > 1 else ""
             verified = "yes" if row.get("verified") else ""
             claim = f" {claim_text(row.get('claim'))} |" if show_claim else ""
+            run = f"`{row['run_id'][:12]}`"
+            bundle = f"[{run}]({link_prefix}{row['path']})" if row.get("path") else run
             lines.append(
                 f"| {row['mean']:.4f}{spread} |{claim} {varied} | {row['submitter']} | "
-                f"{row['n_runs']} | {verified} | "
-                f"[`{row['run_id'][:12]}`]({link_prefix}{row['path']}) |"
+                f"{row['n_runs']} | {verified} | {bundle} |"
             )
         lines.append("")
 

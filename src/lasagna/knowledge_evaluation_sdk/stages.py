@@ -447,13 +447,30 @@ def _differing_overrides(a: Mapping[str, Any], b: Mapping[str, Any]) -> List[str
     return sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k) and stage_of(k) is not None)
 
 
-def _same_output(entries: List[Tuple[str, Mapping[str, Any]]], bench: str) -> List[str]:
+#: Fewest queries on which an arm that never changed a ranking is called inert.
+#: On two questions of one's own data a cross-encoder can keep the order it was
+#: given because that order was already right, and the bundle was marked
+#: INERT_ARM for a reranker that works.
+MIN_QUERIES_TO_CALL_INERT = 10
+
+
+def _too_few(bench: str, what: str, n: int) -> str:
+    return (
+        f"{bench}: {what} on all {n} queries, too few queries to tell whether it "
+        f"changes anything (at least {MIN_QUERIES_TO_CALL_INERT} are needed)"
+    )
+
+
+def _same_output(
+    entries: List[Tuple[str, Mapping[str, Any]]], bench: str, too_few: List[str]
+) -> List[str]:
     """Pairs of arms whose differences should move a ranking and never did.
 
     This is the behavioural half of the inert check. A setting can reach its
     stage's config and still change nothing: MMR is read only when reranking
     is on, a technique can fail into a fallback, a component can be ignored.
-    The config manifest cannot see that; the ranked lists can.
+    The config manifest cannot see that; the ranked lists can. A pair compared
+    on fewer than ``MIN_QUERIES_TO_CALL_INERT`` queries goes to ``too_few``.
     """
     lines: List[str] = []
     lists = {name: _ranked_lists(row) for name, row in entries}
@@ -467,6 +484,16 @@ def _same_output(entries: List[Tuple[str, Mapping[str, Any]]], bench: str) -> Li
             la, lb = lists[name_a], lists[name_b]
             shared = sorted(set(la) & set(lb))
             if shared and all(la[q] == lb[q] for q in shared):
+                if len(shared) < MIN_QUERIES_TO_CALL_INERT:
+                    too_few.append(
+                        _too_few(
+                            bench,
+                            f"arms {name_a!r} and {name_b!r} returned identical ranked lists "
+                            f"({', '.join(keys)} tells them apart)",
+                            len(shared),
+                        )
+                    )
+                    continue
                 lines.append(
                     f"{bench}: arms {name_a!r} and {name_b!r} returned identical ranked lists "
                     f"on all {len(shared)} queries, so what tells them apart ({', '.join(keys)}) "
@@ -475,7 +502,9 @@ def _same_output(entries: List[Tuple[str, Mapping[str, Any]]], bench: str) -> Li
     return lines
 
 
-def _reranker_never_moved(entries: List[Tuple[str, Mapping[str, Any]]], bench: str) -> List[str]:
+def _reranker_never_moved(
+    entries: List[Tuple[str, Mapping[str, Any]]], bench: str, too_few: List[str]
+) -> List[str]:
     """Arms whose reranker handed back its candidates in the order it got them.
 
     The pairwise check needs an arm without the change to compare against, and
@@ -494,6 +523,16 @@ def _reranker_never_moved(entries: List[Tuple[str, Mapping[str, Any]]], bench: s
             if isinstance(s, Mapping) and "_reranker_moved" in s
         ]
         if component and moved and not any(moved):
+            if len(moved) < MIN_QUERIES_TO_CALL_INERT:
+                too_few.append(
+                    _too_few(
+                        bench,
+                        f"arm {name!r} ran reranker {component!r}, which kept the order "
+                        f"it was given",
+                        len(moved),
+                    )
+                )
+                continue
             lines.append(
                 f"{bench}: arm {name!r} ran reranker {component!r}, which returned its "
                 f"candidates in the order it was given on all {len(moved)} queries, so its "
@@ -583,6 +622,6 @@ def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
                         f"identical to the control {control_name!r} there"
                     )
                 break
-        report["inert"].extend(_same_output(entries, bench))
-        report["inert"].extend(_reranker_never_moved(entries, bench))
+        report["inert"].extend(_same_output(entries, bench, report["unverified"]))
+        report["inert"].extend(_reranker_never_moved(entries, bench, report["unverified"]))
     return report
