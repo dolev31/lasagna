@@ -131,14 +131,42 @@ def test_every_write_that_changes_the_embedding_size_is_checked(manager, monkeyp
 
 
 def test_an_unreadable_store_refuses_the_switch(manager, monkeypatch):
+    """For a session with documents; one without has nothing in the store to protect
+    (tests/test_configure_works_while_serve_runs.py)."""
+    from lasagna.core.config import collection_name_for_settings
+    from lasagna.core.database import get_rag_database
+
     sid = "store-locked"
     manager.set_active_profile("speed", session_id=sid)
+    resolved, _ = manager.preview_active_profile("standard", sid)
+    get_rag_database().save_document(
+        {
+            "document_id": "doc_store_locked",
+            "session_id": sid,
+            "filename": "a.md",
+            "file_size": 10,
+            "file_type": "md",
+            "status": "ready",
+            "chunks_count": 1,
+        },
+        "/nonexistent/a.md",
+        # Already in standard's collection, so only the size check is left.
+        collection_name=collection_name_for_settings(resolved),
+    )
     _unreadable(monkeypatch)
     before = _everything(manager, sid)
 
     with pytest.raises(EmbeddingSizeUnverified, match="another process holds the lock"):
         manager.set_active_profile("standard", session_id=sid)
     assert _everything(manager, sid) == before
+
+
+def test_an_unreadable_store_lets_an_empty_session_switch(manager, monkeypatch):
+    sid = "store-locked-empty"
+    manager.set_active_profile("speed", session_id=sid)
+    _unreadable(monkeypatch)
+    manager.set_active_profile("standard", session_id=sid)
+    assert manager.get_active_profile(sid) == "standard"
 
 
 def test_a_write_that_keeps_the_embedding_size_never_reads_the_store(manager, monkeypatch):

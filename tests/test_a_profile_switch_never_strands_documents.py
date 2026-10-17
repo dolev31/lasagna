@@ -104,6 +104,11 @@ def test_configure_refuses_and_names_force(start, saved):
     assert "Applied profile" not in words
     assert f"lasagna configure --profile {to} -s {sid} --force" in words
 
-    forced = runner.invoke(app, ["configure", "--profile", to, "-s", sid, "--force"])
+    from lasagna.core import model_downloads
+
+    # A forced switch still checks that the new profile's models load; here they do.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(model_downloads, "refusal", lambda *a, **k: None)
+        forced = runner.invoke(app, ["configure", "--profile", to, "-s", sid, "--force"])
     assert forced.exit_code == 0, forced.output
     assert f"Applied profile: {to}" in forced.output

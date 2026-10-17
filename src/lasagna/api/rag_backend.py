@@ -729,6 +729,8 @@ class RAGBackend:
         replaces the session's settings for this reindex. See
         ``DocumentPipeline.reindex_document`` for what it raises.
         """
+        if config is None:
+            return self._document_pipeline.reindex_document(document_id, session_id)
         return self._document_pipeline.reindex_document(document_id, session_id, config=config)
 
     def clear_session_state(self, session_id: str) -> Dict[str, Any]:
