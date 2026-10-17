@@ -430,6 +430,55 @@ def _require_vector_backend() -> None:
         _error(f"Vector store: {what}. To fix it, {advice}.")
 
 
+def _benchmark_store() -> None:
+    """Give a benchmark a store of its own when another process holds the default one.
+
+    With `lasagna serve` running, `benchmark run smoke` printed "Output: ...",
+    then failed its task with "The Milvus Lite store ... is in use", and left
+    a results folder of failed tasks. A benchmark needs nothing from the
+    user's store (its corpora are its own), so it moves to
+    ``<data dir>/bench/dbs`` and says so; corpora ingested there are reused by
+    the next run that finds the store held, and a run that finds it free uses
+    the default store as before. A store chosen explicitly (``RAG_DB_DIR``, a
+    ``db_path``) is not moved: the run stops before it starts, with the choices.
+
+    Called first in each benchmark command, before anything reads the
+    configuration (a test checks), so the reset below leaves no module holding
+    the old one.
+    """
+    from . import providers
+    from .core import paths
+    from .core.config import rag_config, reset_rag_config
+    from .core.local_server import lite_store_locked
+
+    if (rag_config.vector_backend or "milvus") != "milvus":
+        return
+    backend = rag_config.vector_backend_config or {}
+    if backend.get("uri") or os.environ.get("MILVUS_URI"):
+        return
+    store = str(backend.get("db_path") or paths.db_dir() / "rag_milvus.db")
+    if not lite_store_locked(store):
+        return
+    own = paths.data_dir() / "bench" / "dbs"
+    chosen = bool(backend.get("db_path") or paths.env_get("DB_DIR"))
+    if chosen or lite_store_locked(str(own / "rag_milvus.db")):
+        _error(
+            f"Another process is using the local store at {store} (a running `lasagna "
+            f"serve`, an MCP server or another benchmark), so this benchmark cannot open "
+            f"it. Stop that process and run this again, or give the benchmark a store "
+            f"of its own: RAG_DB_DIR=<another directory> before the command."
+        )
+    os.environ["LASAGNA_DB_DIR"] = os.environ["RAG_DB_DIR"] = str(own)
+    # Read with the old directory above; the next read uses the new one.
+    providers.reset_providers()
+    reset_rag_config()
+    console.print(
+        f"[dim]Another process is using the local store, so this benchmark uses its own "
+        f"at {escape(str(own))}.[/dim]",
+        soft_wrap=True,
+    )
+
+
 def _require_benchmark(name: str) -> None:
     from .knowledge_evaluation_sdk.benchmarks import benchmark_registry
 
@@ -1755,6 +1804,7 @@ def benchmark_run(
         _parse_tracks,
     )
 
+    _benchmark_store()
     if tracks is None:
         # Naming a generator is asking for answers; it ran on nothing otherwise.
         tracks = "retrieval,generation" if generator else "retrieval"
@@ -1907,6 +1957,8 @@ def benchmark_experiment(
 
     if not Path(config_file).exists():
         _error(f"Config file not found: {config_file}")
+    if not (dry_run and no_probe):
+        _benchmark_store()
 
     try:
         exp = Experiment.from_file(config_file)

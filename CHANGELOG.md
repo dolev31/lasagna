@@ -75,6 +75,10 @@ Experiments:
 - **`lasagna benchmark synthesize`** writes factoid, multi-hop and unanswerable
   questions from your documents with the configured LLM, for development
   rather than for reported results.
+- **Benchmarks run beside `lasagna serve`.** While another process holds the
+  local Milvus Lite store, `benchmark run` and `benchmark experiment` use one
+  of their own in `~/.lasagna/bench/dbs` and say so
+  ([configuration.md](docs/configuration.md#where-data-lives)).
 - **`--dry-run`** prints the arms, tasks, models and whether each is
   downloaded, with token, time and (from a price table, `prices:`) dollar
   estimates from a 3-sample probe.

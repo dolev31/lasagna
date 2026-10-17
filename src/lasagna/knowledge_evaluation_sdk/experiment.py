@@ -1002,6 +1002,26 @@ def _check_override_values(pipeline_configs: List[Dict[str, Any]]) -> None:
         )
 
 
+def _refuse_a_held_store() -> None:
+    """Raise before a run makes its folder when another process holds the local store.
+
+    With `lasagna serve` running, every task failed when it opened the store,
+    after the run had printed its output folder. The CLI's benchmark commands
+    move to a store of their own when the default one is held; a run started
+    from Python is told how to do the same.
+    """
+    from lasagna.core.local_server import local_store_held, local_store_path
+
+    if local_store_held():
+        raise RuntimeError(
+            f"Another process is using the local store at {local_store_path()} (a running "
+            f"`lasagna serve`, an MCP server or another benchmark), so this experiment "
+            f"cannot open it. Stop that process, or give the experiment a store of its "
+            f"own: set RAG_DB_DIR=<another directory> before Python starts. `lasagna "
+            f"benchmark experiment` does this itself when the default store is held."
+        )
+
+
 def _load_component_references(
     pipeline_configs: List[Dict[str, Any]], search_paths: List[str]
 ) -> None:
@@ -1782,6 +1802,7 @@ class Experiment:
             :class:`BenchmarkResults` with all task outcomes.
         """
         cfg = self.config
+        _refuse_a_held_store()
         output_dir = cfg.effective_output_dir()
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
