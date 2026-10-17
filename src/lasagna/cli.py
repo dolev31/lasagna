@@ -2765,8 +2765,8 @@ def _results_file(path: str) -> Path:
         if inside.is_file():
             return inside
         _error(
-            f"{path} is a folder with no results.json in it. Pass the folder a run printed "
-            f'after "Output:", or the results.json inside it.'
+            f"{path or given.resolve()} is a folder with no results.json in it. Pass the "
+            f'folder a run printed after "Output:", or the results.json inside it.'
         )
     if not given.exists():
         _error(f"No such file or folder: {path}")
