@@ -1088,6 +1088,19 @@ class SearchOrchestrator:
                 logger.warning(f"GraphRAG expansion failed: {e}")
                 _degraded.record("graphrag", e)
 
+        # A chunk is a candidate once, at its best rank. Removed only after the
+        # reranker and the cut to top_k, a repeat took a place in the cut and
+        # the list came back short.
+        seen_chunks: set = set()
+        distinct = []
+        for hit in hits_for_rerank:
+            chunk_id = hit.get("chunk_id")
+            if chunk_id and chunk_id in seen_chunks:
+                continue
+            seen_chunks.add(chunk_id)
+            distinct.append(hit)
+        hits_for_rerank = distinct
+
         # Apply reranking
         if use_reranking and config.enable_reranking:
             # Check if adaptive-k retrieval is enabled

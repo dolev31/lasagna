@@ -496,6 +496,9 @@ Server and deployment:
   the server's settings (`reranker_model`, `ensemble_reranker_models`) or in a
   sweep arm's own overrides; a model a session chooses loads with trust off.
   No other setting trusts remote code.
+- A search whose candidates held one chunk twice came back one result short:
+  repeats were removed after reranking and the cut to `top_k`. They are
+  removed from the candidates first.
 - **A session can no longer point the server at another vector store.**
   Session settings (REST `/api/v1/config`, `/api/config/knowledge/profile` and
   `/import`, the MCP config tools, the config manager) accepted any key, and
