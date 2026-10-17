@@ -303,12 +303,14 @@ jobs:
           } > .env
           make validate
 
+      # bge-small is the second 384-dimension model the live reindex test
+      # switches a session to (tests/live/test_deployment.py, TestReindex).
       - name: Build the image
         run: |
           $COMPOSE build \
             --build-arg EMBEDDING_MODELS=sentence-transformers/all-MiniLM-L6-v2 \
             --build-arg RERANKER_MODELS=cross-encoder/ms-marco-MiniLM-L-6-v2 \
-            --build-arg OPTIONAL_MODELS=
+            --build-arg OPTIONAL_MODELS=BAAI/bge-small-en-v1.5
 
       - name: Start the stack and wait for every healthcheck
         run: $COMPOSE up -d --wait --wait-timeout 600
