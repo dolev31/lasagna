@@ -192,14 +192,14 @@ async def upload_document(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        from lasagna.api._document_pipeline import DocumentBusy, DocumentRemoved
+        from lasagna.api._document_pipeline import DocumentBusy, DocumentNotFound
         from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_session
 
         if isinstance(exc, DocumentBusy):
             # A replacement of a document that is still processing.
             raise HTTPException(status_code=409, detail=str(exc))
-        if isinstance(exc, DocumentRemoved):
-            # A replacement of a document deleted while it was processed.
+        if isinstance(exc, DocumentNotFound):
+            # A replacement of a document deleted before or while it was processed.
             raise HTTPException(status_code=404, detail=str(exc))
         if isinstance(exc, ModelNotDownloaded):
             raise HTTPException(

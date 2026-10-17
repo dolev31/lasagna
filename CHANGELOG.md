@@ -1436,6 +1436,9 @@ Servers and deployment:
   lock beside a SQLite store; a document deleted while it is processed has
   its new chunks removed and answers 404 with the reason. Workers starting at
   once on a new SQLite file no longer fail with "database is locked".
+- Two reindexes of one document at once left two copies after a model
+  switch: the second read the row before the lock and replaced a copy the
+  first had already retired. The row is now read under the lock.
 
 ### Known issues
 

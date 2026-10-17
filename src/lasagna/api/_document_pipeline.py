@@ -578,7 +578,14 @@ class DocumentPipeline:
             ModelNotDownloaded, QuotaExceededError, ValueError: the new copy
                 cannot be made; the document is unchanged.
         """
-        row = self._owned_row(document_id, session_id)
+        # The row is read under the lock: read before it, a second reindex
+        # waiting for the first replaced the copy the first had already
+        # retired, and after a model switch both copies stayed.
+        with _document_lock(document_id):
+            return self._reindex_held(self._owned_row(document_id, session_id))
+
+    def _reindex_held(self, row: Dict[str, Any]) -> Document:
+        document_id = row["document_id"]
         stored = row.get("file_path") or ""
         storage = self._storage_of(row)
         if not stored or not storage.exists(stored):
@@ -620,7 +627,26 @@ class DocumentPipeline:
         except Exception:
             return self.storage
 
-    def _replace_document(
+    def _replace_document(self, row: Dict[str, Any], **kwargs: Any) -> Document:
+        """`_replace_held` with the document's lock held and its row read again under it.
+
+        ``row`` may be stale: read before the lock, while another reindex of
+        the document held it. That one replaced the copy ``row`` describes, so
+        replacing it again left the other's chunks in place (twice after a
+        model switch: the stale row named the old collection, which no longer
+        held any chunk to retire).
+        """
+        document_id, session_id = row["document_id"], row["session_id"]
+        with _document_lock(document_id):
+            try:
+                current = self._owned_row(document_id, session_id)
+            except DocumentNotFound:
+                raise DocumentRemoved(
+                    f"Document {document_id} was deleted before it could be replaced."
+                ) from None
+            return self._replace_held(current, **kwargs)
+
+    def _replace_held(
         self,
         row: Dict[str, Any],
         *,
