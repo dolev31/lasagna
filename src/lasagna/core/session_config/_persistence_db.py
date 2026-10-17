@@ -227,20 +227,14 @@ class DatabasePersistenceMixin:
         """
         pass
 
-    def _delete_persisted_session(self, session_id: str) -> None:
-        """Delete a single session from PostgreSQL + Redis cache."""
+    def _delete_persisted_session(self, session_id: str) -> bool:
+        """Delete a single session from PostgreSQL and Redis; whether a row was there."""
         try:
-            db = _get_pg_db()
-            db.delete_session(session_id)
-            # Invalidate Redis cache
-            cache = _get_cache()
-            if cache:
-                try:
-                    cache.delete(f"{self._CACHE_PREFIX_SESSION}{session_id}")
-                except Exception:
-                    pass
+            deleted = bool(_get_pg_db().delete_session(session_id))
         except Exception as exc:
-            logger.warning(f"Failed to delete session {session_id} from PostgreSQL: {exc}")
+            raise not_saved(f"the deletion of session {session_id!r}'s settings", exc) from exc
+        self._forget_cached_session(session_id)
+        return deleted
 
     def _persist_session_states(self) -> None:
         """Persist session states to PostgreSQL + Redis cache."""

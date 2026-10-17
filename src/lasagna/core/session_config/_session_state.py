@@ -679,7 +679,12 @@ class SessionStateMixin:
                 self._persist_single_session(session_id or "default")
 
     def delete_session_state(self, session_id: str) -> bool:
-        """Completely remove a session from config state."""
+        """Completely remove a session from config state: this process's copy and the stored row.
+
+        The stored row went only when this process had the session cached, so
+        a session another worker had read, or one evicted from the cache, kept
+        its settings and came back.
+        """
         deleted = False
 
         with self._lock:
@@ -701,10 +706,12 @@ class SessionStateMixin:
             except Exception as e:
                 logger.warning(f"Could not delete citations file for session {session_id}: {e}")
 
+            # Delete from database (SQLite/PostgreSQL) so it doesn't get
+            # resurrected on next restart.
+            if self._delete_persisted_session(session_id):
+                deleted = True
+            self._session_checked_at.pop(session_id, None)
             if deleted:
-                # Delete from database (SQLite/PostgreSQL) so it doesn't
-                # get resurrected on next restart.
-                self._delete_persisted_session(session_id)
                 logger.info(f"Session state deleted: {session_id}")
 
         return deleted

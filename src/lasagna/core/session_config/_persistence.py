@@ -259,13 +259,12 @@ class PersistenceMixin:
         """
         pass
 
-    def _delete_persisted_session(self, session_id: str) -> None:
-        """Delete a single session from SQLite."""
+    def _delete_persisted_session(self, session_id: str) -> bool:
+        """Delete a single session from SQLite; whether a row was there."""
         try:
-            db = _get_db()
-            db.delete_session(session_id)
+            return bool(_get_db().delete_session(session_id))
         except Exception as exc:
-            logger.warning(f"Failed to delete session {session_id} from database: {exc}")
+            raise not_saved(f"the deletion of session {session_id!r}'s settings", exc) from exc
 
     def _read_persisted_session(
         self, session_id: str, *, fresh: bool = False

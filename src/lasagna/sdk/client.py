@@ -1272,11 +1272,13 @@ class KnowledgeClient:
 
         try:
             # 1. Delete all documents (includes vector DB cleanup)
+            documents_left = False
             try:
                 result["documents_deleted"] = await self.documents.delete_all(confirm=True)
             except Exception as e:
                 logger.warning(f"Document deletion partial failure: {e}")
                 result["errors"].append(f"documents: {e}")
+                documents_left = True
 
             # 2. Clear all citations
             try:
@@ -1285,15 +1287,24 @@ class KnowledgeClient:
                 logger.warning(f"Citation clearing partial failure: {e}")
                 result["errors"].append(f"citations: {e}")
 
-            # 3. Clear backend session state (cache, BM25, config)
-            try:
-                backend = await self._get_backend()
-                backend_result = backend.clear_session_state(self._session_id)
-                result["cache_invalidated"] = backend_result.get("cache_invalidated", False)
-                result["session_cleared"] = backend_result.get("session_cleared", False)
-            except Exception as e:
-                logger.warning(f"Backend session cleanup partial failure: {e}")
-                result["errors"].append(f"session_state: {e}")
+            # 3. Clear backend session state (cache, BM25, config), unless
+            # documents remain: their settings are what searches them, and
+            # cleared, the ones left were searched with the default model.
+            if documents_left:
+                result["errors"].append(
+                    "session_state: the session's settings were kept, since some of its "
+                    "documents could not be deleted; delete them (client.documents.delete) "
+                    "and call delete_session again"
+                )
+            else:
+                try:
+                    backend = await self._get_backend()
+                    backend_result = backend.clear_session_state(self._session_id)
+                    result["cache_invalidated"] = backend_result.get("cache_invalidated", False)
+                    result["session_cleared"] = backend_result.get("session_cleared", False)
+                except Exception as e:
+                    logger.warning(f"Backend session cleanup partial failure: {e}")
+                    result["errors"].append(f"session_state: {e}")
 
             # 4. Clear client-side state
             self._focused_document_ids = None
