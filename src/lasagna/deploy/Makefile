@@ -3,7 +3,9 @@
 # =============================================================================
 # Usage:
 #   make up                         Start with VECTOR_BACKEND from .env
-#   VECTOR_BACKEND=pgvector make up Override backend on the fly
+#   make up VECTOR_BACKEND=pgvector Another backend for one command (as an
+#                                   environment variable it has no effect
+#                                   while .env sets VECTOR_BACKEND)
 #   make down                       Stop all services (keep volumes)
 #   make down-v                     Stop all services + delete volumes
 #   make logs                       Follow API logs
@@ -129,6 +131,9 @@ stress-test-all:  ## Run stress tests against ALL backends (~27 min)
 	done
 	@echo "\nResults saved to /tmp/stress-{pgvector,qdrant,weaviate,milvus-lite}.log"
 
+# This file only: with .env included, grep named the file on every line and
+# each target printed as "Makefile". Digits are target characters
+# (validate-k8s).
 help:  ## Show available commands
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
+	@grep -hE '^[a-zA-Z0-9_-]+:.*?## .*$$' $(firstword $(MAKEFILE_LIST)) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'

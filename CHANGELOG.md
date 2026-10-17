@@ -933,6 +933,15 @@ Requests to current models:
 
 Servers and deployment:
 
+- `lasagna doctor --issue` promised "no absolute paths" and printed the
+  settings file's full path when the project was outside `$HOME`. Doctor now
+  shows a path under the working directory as `./...` and any other absolute
+  path as `<path>/<name>`. After the deploy quick start's
+  `cp .env.example .env`, `make` listed every target as "Makefile" and never
+  listed `validate-k8s`; the help target reads only the Makefile and allows
+  digits. The Makefile header said `VECTOR_BACKEND=pgvector make up` overrides
+  the backend; while `.env` sets it only `make up VECTOR_BACKEND=pgvector` does,
+  as the deploy README says.
 - The first upload to a fresh store under `lasagna serve` or `lasagna-mcp`
   printed "[ERROR][_log_rpc_error]: RPC error: [describe_collection] ... does
   not exist" and a 20-line pymilvus traceback: the collection identity check

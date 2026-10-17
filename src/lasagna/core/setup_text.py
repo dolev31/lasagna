@@ -169,12 +169,12 @@ def download_text(models: List[str]) -> str:
 def doctor_context(session_id: str = "default") -> List[Tuple[str, str]]:
     """What ``doctor`` reports about the setup in force: session, profile, files.
 
-    Paths are redacted (``<home>/...``), as everything doctor prints is.
+    Paths are redacted (``<home>/...``, ``./...``), as everything doctor prints is.
     """
     from pathlib import Path
 
     from lasagna.core import paths
-    from lasagna.core.provenance import redact
+    from lasagna.core.provenance import redact_paths
 
     rows: List[Tuple[str, str]] = [("session", session_id)]
     try:
@@ -189,6 +189,7 @@ def doctor_context(session_id: str = "default") -> List[Tuple[str, str]]:
     settings = paths.env_get("SETTINGS_FILE") or str(
         Path(__file__).resolve().parents[1] / "settings.lasagna.toml"
     )
-    rows.append(("settings file", redact(settings)))
-    rows.append(("data directory", redact(str(paths.data_dir()))))
+    # redact_paths: a settings file outside the home directory kept its full path.
+    rows.append(("settings file", redact_paths(settings)))
+    rows.append(("data directory", redact_paths(str(paths.data_dir()))))
     return rows

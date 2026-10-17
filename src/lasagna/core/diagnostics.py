@@ -348,7 +348,7 @@ def diagnose(*, check_gh: bool = True, session_id: str = "default") -> Diagnosis
 
     ``session_id`` is the session whose models the cache check looks for.
     """
-    from .provenance import capture, redact
+    from .provenance import capture, redact, redact_paths
 
     env = capture()
     checks: List[Check] = [
@@ -366,9 +366,10 @@ def diagnose(*, check_gh: bool = True, session_id: str = "default") -> Diagnosis
 
     diagnosis = Diagnosis(checks=checks, environment=env)
     # Redact once, at the boundary. Paths appear in several checks and the
-    # output is meant to be pasted into a public issue.
+    # output is meant to be pasted into a public issue, so no absolute path
+    # is left, inside the home directory or not.
     return Diagnosis(
-        checks=[Check(**redact(asdict(c))) for c in diagnosis.checks],
+        checks=[Check(**redact_paths(asdict(c))) for c in diagnosis.checks],
         environment=redact(env),
     )
 
