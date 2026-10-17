@@ -624,6 +624,10 @@ Numbers that were wrong:
 
 Results tooling:
 
+- Offline, a dataset cached only in part (a build without its
+  `dataset_info.json`, or an interrupted download) failed every task with a raw
+  "[Errno 2] ... dataset_info.json"; it now gets the one message, before any
+  task, that a dataset not cached gets.
 - `results validate --help` said the check lets a reviewer "reject tampering";
   it says it detects mistakes and accidental edits, not tampering, since the run
   id is a content hash and not a signature, as the README says. `upload --help`
