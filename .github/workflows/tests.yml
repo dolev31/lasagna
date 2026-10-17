@@ -34,10 +34,14 @@ env:
   # `pytest -p randomly --randomly-seed=<run id>`.
   SHUFFLE: --randomly-seed=${{ github.run_id }}
 
+# Every job names its runner image. `ubuntu-latest` moves to the next Ubuntu
+# release on GitHub's schedule, and the first run after the move would install
+# other system libraries and Python builds with no commit to point at. Move all
+# jobs together, in both workflows (tests/test_ci_jobs_run_on_a_pinned_runner.py).
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -60,7 +64,7 @@ jobs:
 
   secrets:
     name: Secret scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       # Full history: a credential committed and then deleted is still in the
@@ -91,7 +95,7 @@ jobs:
 
   plugin-template:
     name: Plugin template
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -133,7 +137,7 @@ jobs:
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -222,7 +226,7 @@ jobs:
   # the local release gate (see e2e/README.md).
   e2e-smoke:
     name: E2E gate (quick subset)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Phase p2 downloads the default models (about 4.5 GB) on a cold cache.
     timeout-minutes: 60
     if: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.event.repository.private) }}
@@ -262,7 +266,7 @@ jobs:
   # the API, let the worker process it, search it, and check the MCP server.
   live-compose:
     name: Live compose stack
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     if: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.event.repository.private) }}
     env:
@@ -335,7 +339,7 @@ jobs:
 
   compliance:
     name: Secrets and licenses
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5

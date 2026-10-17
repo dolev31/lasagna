@@ -508,6 +508,9 @@ Server and deployment:
 - CI pins detect-secrets 1.5.0, the version that wrote `.secrets.baseline`.
 - The release workflow pins `pypa/gh-action-pypi-publish` to the commit v1.14.2
   names; the pin was the tag object.
+- Every CI job runs on `ubuntu-24.04` instead of `ubuntu-latest`, which GitHub
+  moves to Ubuntu 26 on 2026-10-19. RELEASING.md says to start the Tests and
+  Release workflows by hand and watch them after Actions billing is restored.
 - **`--resume` no longer restores results computed with another LLM.** The
   resume key was the same for gpt-6-luna on OpenAI and Claude on Anthropic; it
   now includes the LLM provider and model (`MODEL_NAME`, the detected API key),

@@ -10,11 +10,17 @@ is stored anywhere.
 Do these once, in this order, after the repository is public.
 
 1. **GitHub Actions runs.** <https://github.com/settings/billing> must show no
-   failed payment or spending-limit block, or no job starts. Check with a dry
-   run, which builds,
-   checks and smoke-tests but never publishes:
-   `gh workflow run release.yml --repo dolev31/lasagna --ref main`, then
-   `gh run watch --repo dolev31/lasagna`.
+   failed payment or spending-limit block, or no job starts. No workflow has
+   run on GitHub since billing stopped them, so the first run after billing is
+   restored is the first test of the workflows as they stand: start both by
+   hand and watch them to the end before anything else.
+   `gh workflow run tests.yml --repo dolev31/lasagna --ref main` runs every
+   job, including the E2E gate and the live compose stack. The Release dry run
+   builds, checks and smoke-tests but never publishes:
+   `gh workflow run release.yml --repo dolev31/lasagna --ref main`. Follow each
+   with `gh run watch --repo dolev31/lasagna`. Every job runs on
+   `ubuntu-24.04`, named in the workflows rather than `ubuntu-latest`, so a new
+   runner image cannot change a run without a commit.
 2. **PyPI pending publisher.** On pypi.org (account with 2FA), go to Your
    account > Publishing > Add a new pending publisher > GitHub, and enter:
    PyPI project name `lasagna-rag`, owner `dolev31`, repository name `lasagna`,
