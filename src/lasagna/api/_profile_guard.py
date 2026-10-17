@@ -30,6 +30,73 @@ class EmbeddingSizeUnverified(EmbeddingSizeConflict):
     """The store could not be read, so the change could not be checked."""
 
 
+class DocumentsLeftBehind(EmbeddingSizeConflict):
+    """The change would search another collection than the one holding the session's documents."""
+
+
+#: Documents with vectors, or about to have them; a failed upload stored none.
+_SEARCHED_STATUSES = frozenset({"uploading", "processing", "indexing", "ready"})
+
+
+def _plural(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def refuse_leaving_documents(
+    *,
+    session_id: str,
+    before: Dict[str, Any],
+    after: Dict[str, Any],
+    change: str,
+    kept: str,
+) -> None:
+    """Raise when the session's documents are in a collection the change would stop searching.
+
+    Each embedding model has its own collection, so a switch from ``speed``
+    (all-MiniLM-L6-v2) to ``standard`` (bge-m3), or from bge-small to
+    ``speed`` at the same 384 dimensions, moved search to an empty collection:
+    `configure` printed "Applied profile" and every search returned nothing
+    from the documents `status` still counted. The documents' collection is
+    the one the metadata database recorded for each (the session's current
+    one for a document from before per-model collections).
+    """
+    from lasagna.core.config import collection_name_for_settings
+    from lasagna.core.database import get_rag_database
+
+    db = get_rag_database()
+    rows = [
+        row
+        for row in db.get_documents(session_id)
+        if str(row.get("status") or "").lower() in _SEARCHED_STATUSES
+    ]
+    if not rows:
+        return
+    target = collection_name_for_settings(after)
+    current = collection_name_for_settings(before)
+    left = [row for row in rows if (row.get("collection_name") or current) != target]
+    if not left:
+        return
+    collection = left[0].get("collection_name") or current
+    try:
+        stamp = db.get_collection_meta(collection, after.get("vector_backend") or "milvus")
+    except Exception:  # noqa: BLE001 - the stamp only names the model
+        stamp = None
+    old_model = (stamp or {}).get("embedding_model") or before.get("embedding_model")
+    new_model = after.get("embedding_model")
+    one = len(left) == 1
+    them = "it" if one else "them"
+    raise DocumentsLeftBehind(
+        f"{change} would search with {new_model}, but the "
+        f"{_plural(len(left), 'document')} in session {session_id!r} "
+        f"{'was' if one else 'were'} embedded with {old_model}, in that model's "
+        f"collection, so no search would find {them}. Nothing was changed; profile "
+        f"{kept!r} is still active. Either use a new session for {new_model} and "
+        f"upload there, or switch anyway and reindex {them} with {new_model} (the "
+        f"SDK's client.documents.reindex(document_id), or the MCP tool "
+        f"reindex_document); until then searches return nothing from {them}."
+    )
+
+
 def _in_process_backend() -> Any:
     """The vector backend this process already serves from, if it has one.
 

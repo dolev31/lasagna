@@ -143,7 +143,7 @@ def test_readiness_checks_the_model_the_served_session_uses(surfaces, monkeypatc
     from lasagna.api.rest.routes import health
 
     served = SimpleNamespace(model_name="all-MiniLM-L6-v2", dimension=384, is_loaded=False)
-    monkeypatch.setattr(health, "_served_embedder", lambda b: served)
+    monkeypatch.setattr(health, "_served_embedder", lambda b, session_id=None: served)
     r = client.get("/api/v1/health/ready")
     assert r.status_code == 200, r.json()
     assert "all-MiniLM-L6-v2" in r.json()["checks"]["embedding_model"]["detail"]

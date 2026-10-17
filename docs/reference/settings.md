@@ -8,8 +8,7 @@ Where a setting comes from, lowest priority first:
 1. the default below;
 2. `settings.lasagna.toml`, `[rag]` table (`LASAGNA_SETTINGS_FILE` names another file);
 3. the environment variable: `LASAGNA_<NAME>`, or `RAG_<NAME>` (the older name, still
-   read; `LASAGNA_` wins when both are set). `LASAGNA_LOG_LEVEL` is the exception:
-   it sets the CLI's console log level, so `log_level` is `RAG_LOG_LEVEL` only;
+   read; `LASAGNA_` wins when both are set);
 4. the session (`lasagna configure --profile <name> -s <session>`, the REST API or MCP).
 
 The settings file and environment variables are the process defaults. A
@@ -17,7 +16,9 @@ session's profile and overrides are kept in the session database and win over
 both for that session only.
 
 An environment variable that does not parse, or is outside the allowed values,
-stops the process with an error naming it. A `RAG_` variable that is not a
+stops the process with an error naming it, except `log_level`, which warns and
+keeps its default: it is also the `lasagna` command's console level (`WARNING`
+unless set), and a typo in it must not stop `lasagna doctor`. A `RAG_` variable that is not a
 setting is ignored with a warning that suggests the closest one. Booleans take
 `true`/`false`, `1`/`0`, `yes`/`no` or `on`/`off`; lists and objects take JSON.
 
@@ -287,7 +288,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `tracing_exporter` | str | `"otlp"` | `LASAGNA_TRACING_EXPORTER`, `RAG_TRACING_EXPORTER` | Tracing exporter: 'otlp', 'jaeger', 'zipkin', or 'console'. |
 | `tracing_endpoint` | str | `"http://localhost:4317"` | `LASAGNA_TRACING_ENDPOINT`, `RAG_TRACING_ENDPOINT` | OTLP/Jaeger/Zipkin collector endpoint. |
 | `tracing_service_name` | str | `"rag-knowledge"` | `LASAGNA_TRACING_SERVICE_NAME`, `RAG_TRACING_SERVICE_NAME` | Service name reported in traces. |
-| `log_level` | str: `TRACE`, `DEBUG`, `INFO`, `SUCCESS`, `WARNING`, `ERROR`, `CRITICAL` | `"INFO"` | `RAG_LOG_LEVEL` | Logging verbosity. |
+| `log_level` | str: `TRACE`, `DEBUG`, `INFO`, `SUCCESS`, `WARNING`, `ERROR`, `CRITICAL` | `"INFO"` | `LASAGNA_LOG_LEVEL`, `RAG_LOG_LEVEL` | Logging verbosity. |
 
 ## Multi-Tenancy
 

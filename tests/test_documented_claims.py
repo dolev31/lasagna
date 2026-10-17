@@ -194,7 +194,8 @@ class TestCountsThatDriftedOnce:
         use IBM's own spelling `WATSONX_APIKEY`. The CLI was setting a variable
         nothing reads."""
         cli = _read(REPO_ROOT / "src" / "lasagna" / "cli.py")
-        assert "WATSONX_APIKEY" in cli
+        # `init` no longer asks for a provider, so the CLI may name no watsonx
+        # variable at all; it must never name the one nothing reads.
         assert '"WATSONX_API_KEY"' not in cli
 
 

@@ -41,10 +41,14 @@ from ..models import (
 router = APIRouter(tags=["health"])
 
 
-def _served_embedder(backend):
-    """The embedder a request without a session uses: that session's model.
+def _served_session() -> str:
+    """The session a request without one uses: `lasagna serve -s`, else ``default``."""
+    return os.environ.get("RAG_SESSION_ID", "").strip() or "default"
 
-    The session is `lasagna serve -s` (``RAG_SESSION_ID``), else ``default``.
+
+def _served_embedder(backend, session_id: Optional[str] = None):
+    """The embedder ``session_id`` (default: the served session) searches with.
+
     The backend's own manager is the settings file's model, which a session
     on a profile does not search with.
     """
@@ -52,12 +56,35 @@ def _served_embedder(backend):
     get_config = getattr(backend, "get_session_config", None)
     if get_config is None:
         return manager
-    config = get_config(os.environ.get("RAG_SESSION_ID", "").strip() or "default")
+    config = get_config(session_id or _served_session())
     if config.embedding_model == manager.model_name:
         return manager
     from lasagna.infrastructure.embedding.manager import shared_embedding_manager
 
     return shared_embedding_manager(config)
+
+
+def embedding_problem(backend, session_id: Optional[str] = None) -> Optional[str]:
+    """Why the session's embedding model cannot load here, with the fix; None when it can.
+
+    Readiness reports it, and an upload is refused with it: an upload answered
+    201 while readiness said the model was down, and failed in the worker.
+    """
+    from lasagna.core.model_downloads import refusal
+
+    if getattr(backend, "embedding_manager", None) is None:
+        return None  # a backend that embeds elsewhere has no model to load here
+    session = session_id or _served_session()
+    manager = _served_embedder(backend, session)
+    if getattr(manager, "is_loaded", True):
+        return None
+    problem = refusal(manager.model_name)
+    if problem is None:
+        return None
+    return (
+        f"{problem} Sessions on another profile still work. For session {session!r}: "
+        f"lasagna configure --profile speed -s {session}, or hf download {manager.model_name}."
+    )
 
 
 def _embedding_check(backend) -> HealthCheckDetail:
@@ -66,22 +93,15 @@ def _embedding_check(backend) -> HealthCheckDetail:
     It said "up" from the model's name alone, while the model was not
     downloaded and the server offline, and every search answered 500.
     """
-    from lasagna.core.model_downloads import refusal
-
     try:
         t0 = perf_counter()
         manager = _served_embedder(backend)
         model_name = manager.model_name
         dim = manager.dimension
-        problem = None if getattr(manager, "is_loaded", True) else refusal(model_name)
+        problem = embedding_problem(backend)
         ms = (perf_counter() - t0) * 1000
         if problem is not None:
-            return HealthCheckDetail(
-                status="down",
-                latency_ms=round(ms, 2),
-                detail=f"{problem} Sessions on another profile still work. For the "
-                f"default: lasagna configure --profile speed, or hf download {model_name}.",
-            )
+            return HealthCheckDetail(status="down", latency_ms=round(ms, 2), detail=problem)
         loaded = "" if getattr(manager, "is_loaded", True) else ", loads on first use"
         return HealthCheckDetail(
             status="up", latency_ms=round(ms, 2), detail=f"{model_name} (dim={dim}{loaded})"

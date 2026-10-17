@@ -65,7 +65,11 @@ def _configure_cli_logging(
 
     from loguru import logger
 
-    level = "DEBUG" if verbose else (os.environ.get("LASAGNA_LOG_LEVEL", "").strip().upper())
+    from .core.paths import env_get
+
+    # The log_level setting, by either name (LASAGNA_LOG_LEVEL wins over
+    # RAG_LOG_LEVEL); a value it does not take is ignored, never fatal.
+    level = "DEBUG" if verbose else (env_get("LOG_LEVEL") or "").strip().upper()
     if level not in _LOG_LEVELS:
         level = default
 
@@ -164,6 +168,9 @@ def _cli(
     # Profiles and settings saved by one command must apply in the next process
     # (`configure` then `upload`, `search`, `serve`): keep sessions on disk.
     os.environ.setdefault("RAG_SESSION_BACKEND", "persistent")
+    # This process's sink shows DEBUG when log_level asks for it; the
+    # library's own DEBUG handler would print every line twice.
+    os.environ.setdefault("LASAGNA_SKIP_LOGGING", "1")
     _settings_file_from_dotenv()
     _configure_cli_logging(verbose, hide=_server_only_warning)
 
@@ -455,6 +462,18 @@ def _require_component(stage: str, name: str) -> None:
     _require_known(stage.replace("_", " "), name, registry.list(stage)[stage], listing)
 
 
+def _require_metric(results, metric: str, benchmark: str = "", where: str = "these results"):
+    """Exit with the recorded metrics when ``results`` never recorded ``metric``.
+
+    Every results command checks this before it computes anything: a typo in
+    `-m` got a significance verdict and exit 0.
+    """
+    try:
+        results.require_metric(metric, benchmark, where)
+    except ValueError as exc:
+        _error(str(exc))
+
+
 # ---------------------------------------------------------------------------
 # init
 # ---------------------------------------------------------------------------
@@ -464,11 +483,12 @@ def _require_component(stage: str, name: str) -> None:
 def init():
     """Interactive setup wizard for RAG knowledge base.
 
-    Asks for a vector backend, an LLM provider and a quality profile, writes
-    the backend to ./settings.lasagna.toml and applies the profile to the
-    default session. The profile decides the embedding model. API keys are not
-    asked for or written anywhere: Lasagna reads them from the environment
-    only, so init says which one to export.
+    Asks for a vector backend and a quality profile, writes the backend to
+    ./settings.lasagna.toml and applies the profile to the default session.
+    The profile decides the embedding model. The LLM provider is not asked
+    for: Lasagna picks it from the API key exported in the shell, so init
+    names the provider that key selects, or which variable to export. API
+    keys are not asked for or written anywhere.
     """
     try:
         import questionary
@@ -478,8 +498,10 @@ def init():
         raise typer.Exit(1)
 
     from lasagna.core.session_config._profiles import ProfileMixin
-    from lasagna.core.setup_text import profile_download_text
+    from lasagna.core.setup_text import needs_llm_key, profile_download_text
+    from lasagna.providers import detected_llm_key
     from lasagna.providers.llm_provider import SimpleLLMProvider
+    from lasagna.utils.model_utils import get_default_model_name
 
     console.print()
     # The subtitle sat on the border, wider than the title: the box cut it off.
@@ -502,28 +524,11 @@ def init():
     if vector_backend is None:
         raise typer.Exit(0)
 
-    # 2. LLM provider, each named with the model Lasagna calls by default.
-    providers = {
-        "openai": ("OpenAI", "OPENAI_API_KEY"),
-        "anthropic": ("Anthropic", "ANTHROPIC_API_KEY"),
-        "groq": ("Groq", "GROQ_API_KEY"),
-        "watsonx": ("IBM watsonx", "WATSONX_APIKEY"),
-    }
-    default_models = SimpleLLMProvider.SUPPORTED_PLATFORMS
-    llm_provider = questionary.select(
-        "LLM provider (for HyDE, query expansion, answer generation)?",
-        choices=[
-            *(
-                questionary.Choice(f"{label} ({default_models[name]})", value=name)
-                for name, (label, _key) in providers.items()
-            ),
-            questionary.Choice("None, search only (no LLM features)", value="none"),
-        ],
-    ).ask()
-    if llm_provider is None:
-        raise typer.Exit(0)
+    # There was an "LLM provider?" question here too. Nothing read its answer:
+    # the provider follows the API key exported in the shell, and the summary
+    # named one nothing would call. The summary now says which key does.
 
-    # 3. Quality profile
+    # 2. Quality profile
     profile = questionary.select(
         "Quality profile?",
         choices=[
@@ -583,18 +588,27 @@ def init():
 
     # What `lasagna status` will show: the profile's model.
     embedding = ProfileMixin._PROFILE_SPECS[profile]["embedding_model"]
-    if llm_provider in providers:
-        label, key_name = providers[llm_provider]
-        llm = f"{label}, {default_models[llm_provider]}"
+    # What will answer an LLM call: the provider the exported key selects.
+    found = detected_llm_key()
+    if found is not None:
+        key_name, platform = found
+        model = get_default_model_name(SimpleLLMProvider.SUPPORTED_PLATFORMS.get(platform, ""))
+        llm = f"{platform}, {model}" if model else platform
+        key_line = f"({key_name} is set in this shell)"
+    else:
+        llm = "none"
+        uses = (
+            f"The {profile} profile sends complex queries to an LLM; without a key they "
+            f"run its standard pipeline."
+            if needs_llm_key(profile)
+            else f"The {profile} profile searches without one."
+        )
         key_line = (
-            f"{key_name} is set in this shell."
-            if os.environ.get(key_name, "").strip()
-            else f"Before using LLM features, export {key_name} in your shell:\n"
-            f"  export {key_name}=<your key>\n"
+            f"(no API key is set; the provider follows the key you export)\n{uses} "
+            f"For LLM features (answer generation, HyDE, query expansion):\n"
+            f"  export OPENAI_API_KEY=<your key>   (or ANTHROPIC_API_KEY, GROQ_API_KEY, ...)\n"
             f"and add that line to your shell profile (~/.zshrc or ~/.bashrc) to keep it."
         )
-    else:
-        llm, key_line = "none (search only)", "No API key is needed."
 
     console.print()
     console.print(
@@ -603,8 +617,7 @@ def init():
             f"Profile: [cyan]{profile}[/cyan]\n"
             f"Vector DB: [cyan]{vector_backend}[/cyan]\n"
             f"Embeddings: [cyan]{embedding}[/cyan] (the {profile} profile's model)\n"
-            f"LLM: [cyan]{escape(llm)}[/cyan]\n"
-            f"{escape(key_line)}\n\n"
+            f"LLM: [cyan]{escape(llm)}[/cyan] {escape(key_line)}\n\n"
             f"[dim]Quick start (from this directory):[/dim]\n"
             f"  lasagna upload ./document.pdf\n"
             f'  lasagna search "your query"\n'
@@ -670,8 +683,8 @@ def upload(
 ):
     """Upload and index documents.
 
-    Several files go through one client, so the models load once: the README
-    looped `lasagna upload` over a folder, one process per file.
+    Name several files, or a glob such as 'docs/*.md', in one command: they go
+    through one client, so the models load once instead of once per file.
     """
     _configure_cli_logging(
         bool(ctx.find_root().params.get("verbose")),
@@ -880,6 +893,10 @@ def status(
 ):
     """Show knowledge base status."""
     url = _serving_url()
+    if not url:
+        # A typo ("milvuss") printed "No documents uploaded yet." and exit 0:
+        # the local store is read only when this names a backend.
+        _require_vector_backend()
 
     async def _served_status():
         client = _client_for(session_id, url)
@@ -1325,7 +1342,8 @@ def configure(
     force: bool = typer.Option(
         False,
         "--force",
-        help="Apply even if the profile's embedding size differs from stored documents",
+        help="Apply even if the session's stored documents would no longer be searched "
+        "(they stay where they are until reindexed)",
     ),
 ):
     """Configure RAG settings.
@@ -1346,7 +1364,10 @@ def configure(
         try:
             mgr.set_active_profile(profile, session_id=session_id, force=force)
         except EmbeddingSizeConflict as exc:
-            _error(f"{exc} Or pass --force to switch anyway.")
+            _error(
+                f"{exc} To switch anyway: lasagna configure --profile {profile} "
+                f"-s {session_id} --force."
+            )
         except ValueError as exc:
             _error(str(exc))
         console.print(f"[green]Applied profile: {profile}[/green]")
@@ -1490,7 +1511,24 @@ def benchmark_list(
             f"\n[dim]{shown} of {len(benchmarks)} benchmarks shown (filtered by {category})[/dim]"
         )
     else:
-        console.print(f"\n[dim]{len(benchmarks)} benchmarks available[/dim]")
+        console.print(f"\n[dim]{_benchmark_count_line(benchmark_registry, benchmarks)}[/dim]")
+
+
+def _benchmark_count_line(registry, benchmarks) -> str:
+    """``31 benchmarks, plus smoke (a wiring check) and 1 from plugins``.
+
+    The README counts the benchmarks that measure something: built in, not
+    ``smoke``. This printed every registered name (32, or 33 with a plugin)
+    while the README said 31.
+    """
+    builtin = [n for n in benchmarks if registry.is_builtin(n) and n != "smoke"]
+    others = [n for n in benchmarks if not registry.is_builtin(n)]
+    line = f"{_count(len(builtin), 'benchmark')}"
+    if "smoke" in benchmarks:
+        line += ", plus smoke (a wiring check, not a result)"
+    if others:
+        line += f"{' and' if 'smoke' in benchmarks else ', plus'} {len(others)} from plugins or your own files"
+    return line
 
 
 @benchmark_app.command("info")
@@ -1784,6 +1822,14 @@ def benchmark_experiment(
         console.print(f"Resuming from {escape(latest)}", soft_wrap=True)
 
     _require_vector_backend()
+    try:
+        tasks = exp.generate_tasks()
+    except (ValueError, TypeError, KeyError, ImportError) as exc:
+        # The pre-flight's refusals (unknown benchmark or component, a missing
+        # data file, wrong signature, a contract failure) end in one actionable
+        # sentence, before "Starting experiment"; a 40-line Rich traceback
+        # buried it, and an unknown benchmark failed every task instead.
+        _error(str(exc))
     cp = CheckpointManager(exp.config.checkpoint_dir or exp.config.effective_output_dir())
     if not resume:
         # When not resuming, clear any stale checkpoints from a previous run
@@ -1795,14 +1841,6 @@ def benchmark_experiment(
     console.print(f"  Benchmarks: {len(exp.config.benchmarks)}")
     console.print(f"  Runs: {exp.config.n_runs}")
     console.print(f"  Mode: {exp.config.mode}")
-
-    try:
-        tasks = exp.generate_tasks()
-    except (ValueError, TypeError, KeyError, ImportError) as exc:
-        # The pre-flight's refusals (unknown component, wrong signature, a
-        # contract failure) end in one actionable sentence; a 40-line Rich
-        # traceback buried it.
-        _error(str(exc))
     console.print(f"  Total tasks: {len(tasks)}")
     if resume:
         done = cp.completed_keys() & {t.task_key for t in tasks}
@@ -1968,9 +2006,12 @@ def benchmark_compare(
         return
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    console.print(BenchmarkResults.load(results_a).to_latex(metric))
+    runs = [BenchmarkResults.load(path) for path in (results_a, results_b)]
+    for path, run in zip((results_a, results_b), runs):
+        _require_metric(run, metric, where=Path(path).name)
+    console.print(runs[0].to_latex(metric))
     console.print()
-    console.print(BenchmarkResults.load(results_b).to_latex(metric))
+    console.print(runs[1].to_latex(metric))
 
 
 @benchmark_app.command("licenses")
@@ -2566,9 +2607,11 @@ def results_validate(
 ):
     """Check a bundle is well-formed, complete, and internally consistent.
 
-    Recomputes the comparability key and the run id from the recorded fields.
-    A bundle whose numbers were edited by hand no longer matches its own id,
-    which is what lets a reviewer reject tampering without rerunning anything.
+    Recomputes the comparability key, the run id and every aggregate from the
+    recorded fields, so a number edited after the run no longer matches its
+    bundle. It detects mistakes and accidental edits, not tampering: the run id
+    is a content hash, not a signature, and anyone who edits a number can
+    recompute it.
     """
     from .knowledge_evaluation_sdk.bundle import (
         _content_hash,
@@ -2658,11 +2701,10 @@ def results_compare(
     """Compare two runs, reporting whether they are comparable at all."""
     from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-    console.print(
-        BenchmarkResults.load(a).compare(BenchmarkResults.load(b), metric),
-        markup=False,
-        highlight=False,
-    )
+    first, second = BenchmarkResults.load(a), BenchmarkResults.load(b)
+    for path, results in ((a, first), (b, second)):
+        _require_metric(results, metric, where=Path(path).name)
+    console.print(first.compare(second, metric), markup=False, highlight=False)
 
 
 @results_app.command("power")
@@ -2701,6 +2743,7 @@ def results_power(
                 "them would describe none of them."
             )
         benchmark = benchmarks[0]
+    _require_metric(results, metric, benchmark)
 
     try:
         report = results.minimum_detectable_effect(
@@ -2790,6 +2833,7 @@ def results_significance(
                 "correcting for comparisons nobody made."
             )
         benchmark = benchmarks[0]
+    _require_metric(results, metric, benchmark)
 
     try:
         rows = results.pairwise_significance(metric, benchmark, correction=correction, alpha=alpha)
@@ -2960,7 +3004,13 @@ def results_per_query(
 
     if sort_by:
         if not any(sort_by in r for r in rows):
-            _error(f"No row carries {sort_by!r}. Available: {sorted(_metric_columns(rows))}")
+            from .core._text import did_you_mean
+
+            columns = sorted(_metric_columns(rows))
+            _error(
+                f"No row carries {sort_by!r}{did_you_mean(sort_by, columns)}. "
+                f"Available: {', '.join(columns)}."
+            )
         rows = sorted(rows, key=lambda r: r.get(sort_by, float("inf")))
 
     if output:
@@ -3101,6 +3151,7 @@ def results_interaction(
                 "pooling across them mixes different corpora into one number."
             )
         benchmark = benchmarks[0]
+    _require_metric(results, metric, benchmark)
 
     configs = sorted({r.config_name for r in results._results if not r.error})
     # A factorial run names its arms `neither`, `<a>`, `<b>`, `<a>+<b>`, so the
@@ -3164,6 +3215,11 @@ def results_interaction(
         console.print(
             f"  composition efficiency: {report['composition_efficiency'] * 100:.1f}% "
             "[dim](of the additive prediction actually delivered)[/dim]"
+        )
+    elif report.get("composition_efficiency_omitted"):
+        console.print(
+            "  composition efficiency: not reported "
+            f"[dim]because {escape(report['composition_efficiency_omitted'])}[/dim]"
         )
     console.print()
     console.print(f"  [bold]{report['verdict']}[/bold]")
@@ -3464,7 +3520,9 @@ def results_leaderboard(
         if fmt == "markdown" and not output and not _is_bundle(data):
             from .knowledge_evaluation_sdk.results import BenchmarkResults
 
-            console.print(BenchmarkResults.load(directory).leaderboard(metric), markup=False)
+            run = BenchmarkResults.load(directory)
+            _require_metric(run, metric)
+            console.print(run.leaderboard(metric), markup=False)
             return
     try:
         if fmt == "latex" and not output:

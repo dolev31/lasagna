@@ -206,7 +206,8 @@ def test_init_states_each_profiles_download_and_writes_no_key(tmp_path, monkeypa
     # init used to ask for the key and save it to ./.env, which Lasagna then
     # never read; it now says which variable to export (see
     # test_init_writes_no_key_and_matches_status.py).
-    answers = _Answers(["milvus", "openai", "speed"], [])
+    # init asks no LLM provider (it follows the exported key).
+    answers = _Answers(["milvus", "speed"], [])
     monkeypatch.setitem(sys.modules, "questionary", answers)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)

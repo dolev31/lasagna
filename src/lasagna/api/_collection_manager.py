@@ -574,6 +574,12 @@ class CollectionManager:
             return _field_value(field, "name") == "embedding" or dense
 
         try:
+            # A collection not created yet has no size. Describing one made
+            # pymilvus log an RPC error and a 20-line traceback on the first
+            # upload under `serve` and `lasagna-mcp`, whose backend starts on
+            # the process's default model, not the session's.
+            if not backend.has_collection(collection_name):
+                return None
             # Runs on every search; the fields alone skip a count of the rows.
             fields = backend.describe_fields(collection_name) or []
             vectors = sorted(

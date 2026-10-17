@@ -10,7 +10,7 @@
         },
         "session_id": {
           "default": "",
-          "description": "Session that owns the document.",
+          "description": "Session that owns the document. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -63,7 +63,7 @@
         },
         "session_id": {
           "default": "",
-          "description": "Session to wipe.",
+          "description": "Session to wipe. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -98,7 +98,8 @@
           "type": "boolean"
         },
         "session_id": {
-          "description": "Session identifier; all documents in this session will be deleted.",
+          "default": "",
+          "description": "Session identifier; all documents in this session will be deleted. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -115,9 +116,6 @@
           "title": "Session Token"
         }
       },
-      "required": [
-        "session_id"
-      ],
       "title": "clear_sessionArguments",
       "type": "object"
     },
@@ -136,7 +134,7 @@
         },
         "session_id": {
           "default": "",
-          "description": "Session identifier; used to verify ownership.",
+          "description": "Session identifier; used to verify ownership. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -173,7 +171,8 @@
           "type": "string"
         },
         "session_id": {
-          "description": "Session identifier.",
+          "default": "",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -191,7 +190,6 @@
         }
       },
       "required": [
-        "session_id",
         "profile_name"
       ],
       "title": "delete_rag_profileArguments",
@@ -207,7 +205,7 @@
       "properties": {
         "session_id": {
           "default": "",
-          "description": "Session identifier.",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -255,7 +253,7 @@
         },
         "session_id": {
           "default": "",
-          "description": "Session identifier; used to verify ownership.",
+          "description": "Session identifier; used to verify ownership. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -295,7 +293,7 @@
         },
         "session_id": {
           "default": "",
-          "description": "Session identifier.",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -330,7 +328,8 @@
           "type": "string"
         },
         "session_id": {
-          "description": "Session identifier; used to verify ownership.",
+          "default": "",
+          "description": "Session identifier; used to verify ownership. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -348,8 +347,7 @@
         }
       },
       "required": [
-        "document_id",
-        "session_id"
+        "document_id"
       ],
       "title": "get_document_infoArguments",
       "type": "object"
@@ -369,7 +367,8 @@
           "type": "string"
         },
         "session_id": {
-          "description": "Session identifier; used to verify ownership.",
+          "default": "",
+          "description": "Session identifier; used to verify ownership. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -387,8 +386,7 @@
         }
       },
       "required": [
-        "document_id",
-        "session_id"
+        "document_id"
       ],
       "title": "get_document_statusArguments",
       "type": "object"
@@ -404,7 +402,7 @@
       "properties": {
         "session_id": {
           "default": "",
-          "description": "Session identifier.",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -447,7 +445,8 @@
           "title": "Admin Token"
         },
         "session_id": {
-          "description": "Session identifier (used for auth resolution only).",
+          "default": "",
+          "description": "Session identifier (used for auth resolution only). Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -464,9 +463,6 @@
           "title": "Session Token"
         }
       },
-      "required": [
-        "session_id"
-      ],
       "title": "get_gc_statusArguments",
       "type": "object"
     },
@@ -512,8 +508,8 @@
     "input_schema": {
       "properties": {
         "session_id": {
-          "default": "default",
-          "description": "Session identifier.",
+          "default": "",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -544,7 +540,7 @@
       "properties": {
         "session_id": {
           "default": "",
-          "description": "Session identifier.",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -587,7 +583,7 @@
       "properties": {
         "session_id": {
           "default": "",
-          "description": "Session identifier.",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -623,8 +619,8 @@
           "type": "boolean"
         },
         "session_id": {
-          "default": "default",
-          "description": "Session identifier.",
+          "default": "",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -659,7 +655,8 @@
           "type": "string"
         },
         "session_id": {
-          "description": "Session identifier.",
+          "default": "",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -677,7 +674,6 @@
         }
       },
       "required": [
-        "session_id",
         "config_patch"
       ],
       "title": "patch_rag_configArguments",
@@ -713,6 +709,7 @@
         },
         "session_id": {
           "default": "",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -753,7 +750,7 @@
         },
         "session_id": {
           "default": "",
-          "description": "Session identifier; used to verify ownership.",
+          "description": "Session identifier; used to verify ownership. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -792,7 +789,8 @@
           "type": "string"
         },
         "session_id": {
-          "description": "Session identifier.",
+          "default": "",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -809,9 +807,6 @@
           "title": "Session Token"
         }
       },
-      "required": [
-        "session_id"
-      ],
       "title": "reset_rag_configArguments",
       "type": "object"
     },
@@ -830,7 +825,7 @@
         },
         "session_id": {
           "default": "",
-          "description": "Session that owns the document.",
+          "description": "Session that owns the document. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -873,7 +868,8 @@
           "type": "string"
         },
         "session_id": {
-          "description": "Session identifier.",
+          "default": "",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -897,7 +893,6 @@
         }
       },
       "required": [
-        "session_id",
         "profile_name",
         "config"
       ],
@@ -939,7 +934,7 @@
         },
         "session_id": {
           "default": "",
-          "description": "Session identifier; only documents belonging to this session are searched.",
+          "description": "Session identifier; only documents belonging to this session are searched. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -1002,7 +997,8 @@
           "type": "string"
         },
         "session_id": {
-          "description": "Session identifier.",
+          "default": "",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -1020,7 +1016,6 @@
         }
       },
       "required": [
-        "session_id",
         "profile_name"
       ],
       "title": "set_active_profileArguments",
@@ -1042,7 +1037,8 @@
           "type": "string"
         },
         "session_id": {
-          "description": "Session identifier.",
+          "default": "",
+          "description": "Session identifier. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },
@@ -1059,9 +1055,6 @@
           "title": "Session Token"
         }
       },
-      "required": [
-        "session_id"
-      ],
       "title": "set_focused_documentsArguments",
       "type": "object"
     },
@@ -1093,13 +1086,13 @@
           "type": "string"
         },
         "session_id": {
+          "default": "",
           "description": "Unused; policy is global, not per-session.",
           "title": "Session Id",
           "type": "string"
         }
       },
       "required": [
-        "session_id",
         "policy_updates"
       ],
       "title": "set_lifecycle_policyArguments",
@@ -1133,7 +1126,7 @@
         },
         "session_id": {
           "default": "",
-          "description": "Session identifier; the document will only be visible within this session.",
+          "description": "Session identifier; the document will only be visible within this session. Optional: without it, the server's session (RAG_SESSION_ID, or lasagna serve --mcp -s <session>).",
           "title": "Session Id",
           "type": "string"
         },

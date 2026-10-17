@@ -246,7 +246,7 @@ class TestResearchProvenance:
             "reranker",
             "_provenance_probe",
             paper="arxiv:1234.56789",
-            claims={"ndcg@10": 0.456},
+            claims={"beir/scifact": {"ndcg@10": 0.456}},
             version="1.2.3",
         )
         class _ProbeReranker(BaseReranker):
@@ -256,16 +256,16 @@ class TestResearchProvenance:
         try:
             entry = next(r for r in registry.list_rerankers() if r["name"] == "_provenance_probe")
             assert entry["paper"] == "arxiv:1234.56789"
-            assert entry["claims"] == {"ndcg@10": 0.456}
+            assert entry["claims"] == {"beir/scifact": {"ndcg@10": 0.456}}
             assert entry["version"] == "1.2.3"
         finally:
             registry._components["reranker"].pop("_provenance_probe", None)
 
     def test_components_without_provenance_stay_uncluttered(self):
-        """Built-ins declare no paper, so those keys must be absent, not None."""
+        """A built-in that implements no paper (a vendor's API) lists no such keys, not None."""
         from lasagna.core.registry import registry
 
-        entry = next(r for r in registry.list_rerankers() if r["name"] == "cross_encoder")
+        entry = next(r for r in registry.list_rerankers() if r["name"] == "cohere")
         assert "paper" not in entry
         assert "claims" not in entry
         assert {"name", "description", "class"} <= set(entry)

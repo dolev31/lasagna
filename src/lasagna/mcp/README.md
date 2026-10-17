@@ -16,7 +16,7 @@ By default it serves the **safe** set: every tool except the seven that delete d
 │                    MCP Server                         │
 │                                                       │
 │   Search ──────┐    Documents    Config    Session    │
-│   (4 tools)    │    (6 tools)   (9 tools) (3 tools)  │
+│   (2 tools)    │    (6 tools)   (9 tools) (3 tools)  │
 │                │                                      │
 │   System (3 tools)   Lifecycle (6 tools)              │
 └────────────────┼──────────────────────────────────────┘
@@ -60,8 +60,8 @@ endpoint; start the server with `--mcp` and register that URL in the client.
 
 | Set | How to select | What it serves |
 | --- | ------------- | -------------- |
-| `safe` (default) | `--tools safe`, or `LASAGNA_MCP_TOOLS=safe` | Every tool except the seven marked *(all only)* below: 22 listed. The two deprecated search aliases still answer but are not listed. |
-| `all` | `--tools all`, or `LASAGNA_MCP_TOOLS=all` | All 31, including `delete_document`, `clear_session`, `bulk_delete_session`, `rebuild_collection`, `delete_rag_profile`, `reset_rag_config` and `set_lifecycle_policy`. |
+| `safe` (default) | `--tools safe`, or `LASAGNA_MCP_TOOLS=safe` | Every tool except the seven marked *(all only)* below: 22 listed. |
+| `all` | `--tools all`, or `LASAGNA_MCP_TOOLS=all` | All 29, including `delete_document`, `clear_session`, `bulk_delete_session`, `rebuild_collection`, `delete_rag_profile`, `reset_rag_config` and `set_lifecycle_policy`. |
 
 `patch_rag_config` stays in `safe`: it changes only the caller's session, a change can be patched back, and one that would leave stored documents unsearchable is refused. `set_lifecycle_policy` is server-wide: a grace period of zero or a document TTL makes the next garbage collection delete other sessions' documents.
 
@@ -73,9 +73,9 @@ The names, descriptions and input schemas of every tool are recorded in `tests/s
 
 ## Tools
 
-All tools that operate on data take a `session_id` parameter (scopes documents and config) and an optional `session_token` for multi-user auth.
+Tools that operate on data take an optional `session_id` (it scopes documents and config; without it a tool acts on the server's session, `RAG_SESSION_ID` or `lasagna serve --mcp -s <session>`) and an optional `session_token` for multi-user auth. No tool requires `session_id`.
 
-### Search (4 tools)
+### Search (2 tools)
 
 | Tool | Description |
 | ---- | ----------- |
@@ -104,7 +104,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | `get_lifecycle_policy` | Read the server's retention policy: grace window, quotas, GC schedule |
 | `set_lifecycle_policy` | Change the server-wide retention policy, which decides what archive and GC delete *(all only)* |
 
-### Session
+### Session (3 tools)
 
 | Tool | Description |
 | ---- | ----------- |
@@ -112,7 +112,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | `get_focused_documents` | Get currently focused document IDs |
 | `clear_session` | Delete all documents in a session (requires `confirm=True`) *(all only)* |
 
-### Config Tools
+### Config (9 tools)
 
 | Tool | Description |
 | ---- | ----------- |
@@ -126,7 +126,7 @@ All tools that operate on data take a `session_id` parameter (scopes documents a
 | `delete_rag_profile` | Delete a custom profile (built-in profiles are protected) *(all only)* |
 | `get_profile_stats` | Profile and session counts |
 
-### System
+### System (3 tools)
 
 | Tool | Description |
 | ---- | ----------- |

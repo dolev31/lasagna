@@ -131,8 +131,9 @@ def _aggregate(values: List[float]) -> Tuple[float, float]:
 def collect_rows(bundles: Iterable[Dict[str, Any]], metric: str) -> List[Dict[str, Any]]:
     """One row per (bundle, config), aggregated across that config's runs.
 
-    A row whose component claims a number for ``metric`` (``claims=`` on its
-    decorator) carries it as ``claim``, with the paper.
+    A row whose component claims a number for ``metric`` on the row's
+    benchmark (``claims=`` on its decorator) carries it as ``claim``, with the
+    paper.
     """
     from .run_provenance import claimed
 
@@ -142,6 +143,7 @@ def collect_rows(bundles: Iterable[Dict[str, Any]], metric: str) -> List[Dict[st
         components = (bundle.get("experiment") or {}).get("components")
         by_config: Dict[Tuple[str, str], List[float]] = {}
         systems: Dict[Tuple[str, str], Any] = {}
+        splits: Dict[Tuple[str, str], str] = {}
         for result in bundle.get("results", []):
             if result.get("error"):
                 continue
@@ -151,6 +153,7 @@ def collect_rows(bundles: Iterable[Dict[str, Any]], metric: str) -> List[Dict[st
             slot = (result.get("benchmark_name", ""), result.get("config_name", ""))
             by_config.setdefault(slot, []).append(float(value))
             systems.setdefault(slot, result.get("system"))
+            splits.setdefault(slot, result.get("split") or "")
 
         for (benchmark, config_name), values in by_config.items():
             cfg = keys.get(config_name, {})
@@ -175,7 +178,13 @@ def collect_rows(bundles: Iterable[Dict[str, Any]], metric: str) -> List[Dict[st
                     # What `group` ranks by: without it every metric sorted
                     # highest first, latency and token counts included.
                     "metric": metric,
-                    "claim": claimed(components, systems.get((benchmark, config_name)), metric),
+                    "claim": claimed(
+                        components,
+                        systems.get((benchmark, config_name)),
+                        metric,
+                        benchmark,
+                        splits.get((benchmark, config_name), ""),
+                    ),
                 }
             )
     return rows
@@ -429,10 +438,30 @@ def render_latex(
 FORMATS = {"markdown": ".md", "latex": ".tex"}
 
 
+def _bundles_recording(directory: str | Path, metric: str) -> List[Dict[str, Any]]:
+    """The bundles under ``directory``, refusing a ``metric`` none of them records.
+
+    A typo used to list every row as "no ndgc@10 recorded" and succeed.
+    """
+    from .results import require_metric
+
+    bundles = load_bundles(directory)
+    if bundles:
+        recorded = {
+            name
+            for bundle in bundles
+            for result in bundle.get("results", [])
+            for name in (result.get("metrics") or {})
+        }
+        where = Path(directory).name if Path(directory).is_file() else "these bundles"
+        require_metric(metric, recorded, where)
+    return bundles
+
+
 def grouped_rows(directory: str | Path, metric: str = "ndcg@10") -> Dict[str, Any]:
     """Read the bundles under ``directory`` (or the one file it names) as
     ranked comparability groups."""
-    rows = collect_rows(load_bundles(directory), metric)
+    rows = collect_rows(_bundles_recording(directory, metric), metric)
     mark_verified(rows)
     return group(rows)
 
@@ -448,7 +477,7 @@ def build(
     ``"markdown"`` or ``"latex"``) plus an index."""
     if fmt not in FORMATS:
         raise ValueError(f"Unknown format {fmt!r}. Use 'markdown' or 'latex'.")
-    rows = collect_rows(load_bundles(directory), metric)
+    rows = collect_rows(_bundles_recording(directory, metric), metric)
     mark_verified(rows)
     grouped = group(rows)
 

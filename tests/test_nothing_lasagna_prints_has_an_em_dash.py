@@ -18,6 +18,7 @@ prompt fingerprint in the comparability key.
 from __future__ import annotations
 
 import ast
+import re
 import asyncio
 import json
 
@@ -234,3 +235,34 @@ def test_the_generated_pages_have_none(tmp_path):
         "docs/reference/settings.md",
     ):
         assert DASH not in (REPO / page).read_text(encoding="utf-8"), page
+
+
+#: Shipped text a user reads as written: every page of the docs, the legal
+#: notice, and the issue forms GitHub shows a reporter. The changelog quotes
+#: old text, so it is left out.
+_SHIPPED_TEXT = sorted(
+    {
+        *REPO.glob("*.md"),
+        *REPO.glob("docs/**/*.md"),
+        *REPO.glob("examples/**/*.md"),
+        *REPO.glob("hub/*.md"),
+        *PACKAGE_DIR.rglob("*.md"),
+        REPO / "NOTICE",
+        *REPO.glob(".github/ISSUE_TEMPLATE/*.yml"),
+    }
+    - {REPO / "CHANGELOG.md"}
+)
+
+#: " -- " used as a dash between words; an SQL comment ("REAL,  -- DOUBLE")
+#: has spaces and capitals around it.
+_DOUBLE_HYPHEN = re.compile(r"[\w\"')] -- [a-z]")
+
+
+@pytest.mark.parametrize("path", _SHIPPED_TEXT, ids=lambda p: str(p.relative_to(REPO)))
+def test_no_shipped_page_or_form_has_one(path):
+    """The guide's code comments read "handed -- the", and the issue forms and
+    NOTICE had em dashes, while the changelog said none were left."""
+    text = path.read_text(encoding="utf-8")
+    assert DASH not in text
+    lines = [line for line in text.splitlines() if _DOUBLE_HYPHEN.search(line)]
+    assert not lines, lines

@@ -344,7 +344,7 @@ Status values: `pending` → `processing` → `indexing` → `ready` (or `failed
 | Local SDK | ✅ | Full features including `AgenticSearchResults` with hop data |
 | Remote SDK | ✅ | Standard search |
 | REST | ✅ | Agentic endpoint returns context + citations only (no hop data) |
-| MCP | ✅ | `search` (returns formatted text, not SDK objects; `search_knowledge` and `search_with_context` are deprecated aliases) |
+| MCP | ✅ | `search` (returns formatted text, not SDK objects) |
 
 #### SDK Examples
 
@@ -1038,23 +1038,21 @@ Returns `SearchWithCitationsResponse` with `context`, `citations`, and `total_re
 1. **Embedded** in the REST API app: Set `RAG_EMBED_MCP=true` env var. MCP SSE endpoint mounted at `/mcp/sse`.
 2. **Standalone**: run `lasagna-mcp` (stdio, the default, for a client that launches it), or `lasagna-mcp --transport sse --host 127.0.0.1 --port 8005` to serve it on a port. Over SSE it provides `/sse` (MCP transport), `/docs` (interactive API docs) and `/health`.
 
-By default the server serves the `safe` tool set, which leaves out the six tools marked *(all only)* below; `--tools all` or `LASAGNA_MCP_TOOLS=all` adds them.
+By default the server serves the `safe` tool set, 22 tools, which leaves out the seven marked *(all only)* below; `--tools all` or `LASAGNA_MCP_TOOLS=all` adds them.
 
-**All 31 MCP tools:**
+**All 29 MCP tools:**
 
 | Category | Tools |
 |----------|-------|
-| **Search** | `search`, `search_knowledge` *(deprecated)*, `search_with_context` *(deprecated)*, `get_document_context` |
+| **Search** | `search`, `get_document_context` |
 | **Documents** | `upload_document`, `list_documents`, `delete_document` *(all only)*, `get_document_info`, `get_document_chunks`, `get_document_status`, `reindex_document` |
-| **Lifecycle** | `archive_document`, `restore_document`, `bulk_delete_session` *(all only)*, `get_gc_status`, `get_lifecycle_policy`, `set_lifecycle_policy` |
+| **Lifecycle** | `archive_document`, `restore_document`, `bulk_delete_session` *(all only)*, `get_gc_status`, `get_lifecycle_policy`, `set_lifecycle_policy` *(all only)* |
 | **Sessions** | `clear_session` *(all only)*, `get_system_status`, `rebuild_collection` *(all only)* |
 | **Focus** | `set_focused_documents`, `get_focused_documents` |
 | **Config** | `get_rag_config`, `patch_rag_config` |
 | **Profiles** | `list_profiles`, `set_active_profile`, `get_active_profile`, `get_profile_stats`, `save_rag_profile`, `delete_rag_profile` *(all only)*, `reset_rag_config` *(all only)* |
 
-Under `safe`, the two deprecated search aliases still answer but are not listed.
-
-> Each tool requires a `session_id` parameter for tenant isolation (except `get_system_status`).
+> A tool acts on the session its optional `session_id` names, else on the server's (`RAG_SESSION_ID`, or `lasagna serve --mcp -s <session>`); no tool requires it.
 
 **Client mode**: call an MCP server from Python (over SSE):
 

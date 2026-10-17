@@ -308,6 +308,10 @@ class SessionStateMixin:
                 _resolve(state.get_resolved_config(), patch),
                 change="This change",
                 force=force,
+                session_id=session_id,
+                # In-process writes of the process's own configuration: the
+                # harness names a collection per arm on its own sessions.
+                documents=not trusted,
             )
             _deep_merge(state.session_overrides, patch)
             self._persist_single_session(session_id or "default")
@@ -330,7 +334,9 @@ class SessionStateMixin:
             else:
                 active = state.get_active_profile()
                 after = _resolve(active.config if active else {}, {})
-            self._refuse_unsearchable(state, after, change="Resetting the configuration")
+            self._refuse_unsearchable(
+                state, after, change="Resetting the configuration", session_id=session_id
+            )
             if scope == "all":
                 state.profiles = [copy.deepcopy(p) for p in self._default_profiles]
                 state.active_profile = "default"
@@ -443,7 +449,9 @@ class SessionStateMixin:
                 # Against the profile they will apply to, so cross-field rules
                 # see what search will see.
                 self._validate_or_raise(after)
-            self._refuse_unsearchable(state, after, change="The imported configuration")
+            self._refuse_unsearchable(
+                state, after, change="The imported configuration", session_id=session_id
+            )
 
             state.profiles = profiles
             state.active_profile = active

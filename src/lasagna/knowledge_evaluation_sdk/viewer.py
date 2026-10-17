@@ -715,11 +715,7 @@ def render_html(
             )
         benchmarks = [benchmark]
     metric = metric or _default_metric(res)
-    if metric not in res.get_metric_names():
-        raise ValueError(
-            f"No metric {metric!r} in these results. They record: "
-            f"{', '.join(res.get_metric_names())}."
-        )
+    res.require_metric(metric)
     if diff:
         diff = (str(diff[0]), str(diff[1]))
         unknown = [arm for arm in diff if arm not in res.configs]

@@ -11,7 +11,7 @@ import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from loguru import logger
 
@@ -335,6 +335,23 @@ LOWER_IS_BETTER = frozenset(
 )
 
 
+def require_metric(metric: str, recorded: Iterable[str], where: str = "these results") -> None:
+    """Raise ``ValueError`` when ``metric`` is not one of ``recorded``.
+
+    The message names the closest recorded metric and lists them all. Every
+    `lasagna results` command checks this before computing anything: given
+    `-m ndgc@10`, `results significance` printed "No pair survives Holm
+    correction" and exited 0, a verdict on numbers that do not exist.
+    """
+    from ..core._text import did_you_mean
+
+    names = sorted(set(recorded))
+    if metric in names:
+        return
+    listing = f"They record: {', '.join(names)}." if names else "They record no metrics."
+    raise ValueError(f"No metric {metric!r} in {where}{did_you_mean(metric, names)}. {listing}")
+
+
 def lower_is_better(metric: str) -> bool:
     """Whether a smaller ``metric`` ranks first (``noise_sensitivity_regen`` too)."""
     for suffix in ("_regen", "_agentic"):
@@ -469,6 +486,22 @@ class BenchmarkResults:
         for r in self._results:
             names.update(r.metrics.keys())
         return sorted(names)
+
+    def require_metric(
+        self, metric: str, benchmark: str = "", where: str = "these results"
+    ) -> None:
+        """Raise ``ValueError`` unless some task (on ``benchmark``, if given)
+        recorded ``metric``, as an aggregate or per query; see :func:`require_metric`."""
+        tasks = self._by_benchmark.get(benchmark, []) if benchmark else self._results
+        recorded = {name for t in tasks for name in t.metrics}
+        recorded.update(
+            name
+            for t in tasks
+            for sample in t.per_sample_scores or []
+            for name, value in sample.items()
+            if not name.startswith("_") and isinstance(value, (int, float))
+        )
+        require_metric(metric, recorded, f"{where} on {benchmark}" if benchmark else where)
 
     # ------------------------------------------------------------------
     # Statistical testing
@@ -1165,10 +1198,24 @@ class BenchmarkResults:
         expected = main_a + main_b
 
         # How much of the additive prediction the combination actually
-        # delivered. Undefined when the two techniques predict no change at
-        # all, and reported as None rather than as 1.0 -- "they composed
-        # perfectly" is not what "neither did anything" means.
-        efficiency = (combined / expected) if abs(expected) > 1e-12 else None
+        # delivered. A ratio of two effects reads true only when the
+        # interaction is real and both effects point the same way: "77.0% of
+        # the additive prediction delivered" was printed for -0.0062 over
+        # -0.0081 at p = 0.91. Otherwise None, with the reason. None, not 1.0,
+        # when nothing was predicted: "they composed perfectly" is not what
+        # "neither did anything" means.
+        efficiency: Optional[float] = None
+        if abs(expected) <= 1e-12:
+            omitted: Optional[str] = "the two techniques together predict no change"
+        elif p_value >= alpha:
+            omitted = (
+                f"the interaction is not significant (p={format_p(p_value)}), so the ratio "
+                "would describe noise"
+            )
+        elif (combined > 0) != (expected > 0) or abs(combined) <= 1e-12:
+            omitted = "the combination moved the metric the other way from the additive prediction"
+        else:
+            efficiency, omitted = combined / expected, None
 
         if p_value >= alpha:
             verdict = "additive (no detectable interaction)"
@@ -1193,6 +1240,7 @@ class BenchmarkResults:
             "expected_if_additive": expected,
             "interaction": observed,
             "composition_efficiency": efficiency,
+            "composition_efficiency_omitted": omitted,
             "ci_lower": float(lo),
             "ci_upper": float(hi),
             "p_value": p_value,
@@ -1289,17 +1337,19 @@ class BenchmarkResults:
     def claim_for(
         self, config: str, metric: str, benchmark: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """What the component in ``config`` claims for ``metric``, and its paper.
+        """What the component in ``config`` claims for ``metric`` on the
+        benchmark it ran, and its paper.
 
         From the run's ``components`` record (`run_provenance.component_provenance`)
-        and the config's stage manifest; None when nothing in it claims ``metric``.
+        and the config's stage manifest; None when nothing in it claims ``metric``
+        on that benchmark and split.
         """
         components = (self.experiment_config or {}).get("components")
         for task in self._results:
             if task.config_name == config and (
                 benchmark is None or task.benchmark_name == benchmark
             ):
-                return claimed(components, task.system, metric)
+                return claimed(components, task.system, metric, task.benchmark_name, task.split)
         return None
 
     def _no_context_notes(self) -> List[str]:

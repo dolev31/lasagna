@@ -52,6 +52,9 @@ class _Client:
         self.calls = collections.Counter()
         self.filters = []
 
+    def has_collection(self, name, **kw):
+        return True
+
     def describe_collection(self, name, **kw):
         self.calls["describe_collection"] += 1
         return {"collection_name": name, "description": "", "fields": self.fields}

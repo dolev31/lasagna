@@ -72,14 +72,10 @@ def rag_overrides(environ: Optional[Mapping[str, str]] = None) -> Dict[str, Any]
     evaluation model variables. Credentials, hosts and connection strings show
     as ``<redacted>``: a results file is meant to be published.
     """
-    from lasagna.core.config import LASAGNA_RESERVED_ENV
-
     env = os.environ if environ is None else environ
     names = _setting_names()
     out: Dict[str, Any] = {}
     for var in sorted(env):
-        if var in LASAGNA_RESERVED_ENV:
-            continue
         for prefix in ("RAG_", "LASAGNA_"):
             if var.startswith(prefix) and var[len(prefix) :].lower() in names:
                 out[var] = _redact_value(var, env[var])
@@ -208,7 +204,7 @@ def component_provenance(rows: Iterable[Mapping[str, Any]]) -> Dict[str, Dict[st
     that declared a paper or claimed numbers, keyed by the name the run used.
 
     What lets a results table put the claimed number beside the measured one:
-    ``@lasagna.reranker(paper="Doe et al. 2026", claims={"ndcg@10": 0.456})``.
+    ``@lasagna.reranker(paper="Doe et al. 2026", claims={"beir/scifact": {"ndcg@10": 0.456}})``.
     """
     from lasagna.core.registry import registry
 
@@ -233,14 +229,22 @@ def component_provenance(rows: Iterable[Mapping[str, Any]]) -> Dict[str, Dict[st
 
 
 def claimed(
-    components: Optional[Mapping[str, Any]], system: Optional[Mapping[str, Any]], metric: str
+    components: Optional[Mapping[str, Any]],
+    system: Optional[Mapping[str, Any]],
+    metric: str,
+    benchmark: str,
+    split: str = "",
 ) -> Optional[Dict[str, Any]]:
-    """The number a task's component claims for ``metric``, with its paper.
+    """The number a task's component claims for ``metric`` on ``benchmark``, with its paper.
 
     ``{"component", "value", "paper"}`` from the run's ``components`` record
     and the task's stage manifest, or None when no component in it claims
-    that metric (names compared case-insensitively).
+    that metric on that benchmark (and ``split``, when the claim names one).
+    A claim is a paper's number on one benchmark; shown beside a run of
+    another, it compared nothing (`core.claims`).
     """
+    from lasagna.core.claims import claimed_value
+
     if not components or not system:
         return None
     for slot in ((system.get("stages") or {}) if isinstance(system, Mapping) else {}).values():
@@ -248,9 +252,9 @@ def claimed(
         record = components.get(name) if name else None
         if not record:
             continue
-        for key, value in (record.get("claims") or {}).items():
-            if str(key).lower() == metric.lower() and isinstance(value, (int, float)):
-                return {"component": name, "value": float(value), "paper": record.get("paper")}
+        value = claimed_value(record.get("claims"), benchmark, metric, split or "")
+        if value is not None:
+            return {"component": name, "value": value, "paper": record.get("paper")}
     return None
 
 

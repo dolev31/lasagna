@@ -127,8 +127,10 @@ def test_a_patch_of_embedding_dim_is_refused_while_documents_are_stored(monkeypa
     monkeypatch.setattr(guard, "stored_embedding_dim", lambda collection, vector_backend=None: 384)
     reply = json.loads(
         server.patch_rag_config(
-            "tenant-b-patch",
-            json.dumps({"embedding_model": "BAAI/bge-base-en-v1.5", "embedding_dim": 768}),
+            session_id="tenant-b-patch",
+            config_patch=json.dumps(
+                {"embedding_model": "BAAI/bge-base-en-v1.5", "embedding_dim": 768}
+            ),
         )
     )
     assert "384" in reply["error"]

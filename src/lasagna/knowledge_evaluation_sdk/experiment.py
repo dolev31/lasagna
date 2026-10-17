@@ -879,6 +879,25 @@ def _check_components_exist(pipeline_configs: List[Dict[str, Any]]) -> None:
         )
 
 
+def _check_benchmarks_exist(specs: List[BenchmarkSpec]) -> None:
+    """Refuse a benchmark name nobody registered, before any task starts.
+
+    ``benchmarks: [{name: smok}]`` printed "Starting experiment", then failed
+    every task with a quoted ``KeyError`` listing every benchmark, and the dry
+    run printed that list three times and exited 0. Every unknown name is
+    named once, with the closest registered one. Entries given as a ``path``
+    are registered before this runs, so their names are known.
+    """
+    from .benchmarks import benchmark_registry
+
+    known = benchmark_registry.names()
+    unknown = [spec.name for spec in specs if spec.name not in known]
+    if unknown:
+        names = ", ".join(f"{name!r}{_did_you_mean(name, known)}" for name in unknown)
+        noun = "benchmark" if len(unknown) == 1 else "benchmarks"
+        raise ValueError(f"Unknown {noun} {names}. `lasagna benchmark list` shows them all.")
+
+
 def _check_profiles(pipeline_configs: List[Dict[str, Any]]) -> None:
     """Refuse an unknown profile name before any corpus is ingested.
 
@@ -1599,6 +1618,7 @@ class Experiment:
         from .benchmarks.adapters.local_files import prepare_local_benchmarks
 
         prepare_local_benchmarks(cfg.benchmarks, cfg.base_dir, cfg.tracks)
+        _check_benchmarks_exist(cfg.benchmarks)
         pipeline_configs = _generate_pipeline_configs(cfg.pipeline)
         tasks: List[BenchmarkTask] = []
 

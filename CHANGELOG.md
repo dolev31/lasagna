@@ -419,8 +419,12 @@ Servers and deployment:
 - Run metadata records a local benchmark's `path`, relative to the sweep file.
 - MCP `get_system_status` names the chunking strategy that runs, and its
   `sota_features` block is now `features`.
-- Nothing Lasagna prints, writes or describes uses an em dash; empty table
-  cells print `-`.
+- Nothing Lasagna prints, writes or describes uses an em dash: command output
+  and help, MCP tool descriptions, the REST API document, reports and generated
+  pages, the docs (the guide also had " -- " for a dash), NOTICE and the issue
+  forms. Tests check those and every string literal in the package; other
+  docstrings, comments and the agentic prompts (model input) are not checked.
+  Empty table cells print `-`.
 
 Documentation:
 
@@ -433,9 +437,9 @@ Documentation:
   lists of `GET /api/v1/config/profiles` and the SDK's `list_profiles` (which
   said "SOTA features" and named models the profiles do not use) share the
   profiles' own descriptions, and the configurator, settings files, compose,
-  Makefile, Dockerfile and Kubernetes comments, docstrings and help lose
-  "SOTA", "production-ready", "seamless", "powerful" and their em dashes. A
-  test covers those files and every string in the package.
+  Makefile, Dockerfile and Kubernetes files and every string in the package
+  lose "SOTA", "production-ready", "seamless" and "powerful", which a test
+  checks; those files lose their em dashes too.
 
 ### Deprecated
 
@@ -717,6 +721,48 @@ Numbers that were wrong:
 
 Results tooling:
 
+- Offline, a dataset cached only in part (a build without its
+  `dataset_info.json`, or an interrupted download) failed every task with a raw
+  "[Errno 2] ... dataset_info.json"; it now gets the one message, before any
+  task, that a dataset not cached gets.
+- `results validate --help` said the check lets a reviewer "reject tampering";
+  it says it detects mistakes and accidental edits, not tampering, since the run
+  id is a content hash and not a signature, as the README says. `upload --help`
+  says what several files in one command buy (the models load once) instead of
+  how an old README used the command.
+- The Colab notebook said its bundle's warnings include `SINGLE_RUN` and
+  `UNPINNED_DATASET`; a retrieval-only run raises neither, and `results
+  validate` prints only VALID. Its script expected "pairs survive correction",
+  which the verdict does not print when exactly one pair survives, so a correct
+  run failed the check. The README's "Published methods: 55 components" counted
+  20 that name no paper: `mmr` cites Carbonell & Goldstein (1998),
+  `cross_encoder` Nogueira & Cho (2019) and `legacy_react` Yao et al. (2022),
+  and the table says 30 of 55 components cite the paper they implement.
+- `results interaction` printed "composition efficiency: 77.0% (of the
+  additive prediction actually delivered)" for expected and observed effects
+  that were both negative, at p = 0.91. The ratio is reported only when the
+  interaction is significant and the combination moved the metric the way the
+  additive prediction did; otherwise the report (`composition_efficiency_omitted`)
+  and the command say why it is left out.
+- **A sweep naming an unknown benchmark started anyway.** `benchmarks: [{name:
+  smok}]` printed "Starting experiment", then failed every task with a quoted
+  `KeyError` listing every benchmark; `--dry-run` printed the list three times
+  and exited 0, and a missing local `path` also got as far as "Starting
+  experiment". Benchmark names and data files are checked first, in the run
+  and the dry run, with one error naming the closest benchmark and exit 1.
+- **A claim printed beside any benchmark.** Claims were keyed by metric
+  alone, so `benchmark run smoke --reranker my_ideas:keyword_overlap` printed
+  "claimed 0.4200 (Someone et al. 2026)" next to a 24-document smoke test, in
+  the LaTeX "Claimed" column too. A claim names its benchmark,
+  `claims={"beir/scifact": {"ndcg@10": 0.456}}` (with `"split"` inside if the
+  paper gives one), and tables show it only on a run of that benchmark and
+  split. The flat form needs an explicit `"benchmark"` key; without one,
+  registration fails with the form to use.
+- **A typo in `-m` got a verdict.** `results significance -m ndgc@10` (or a
+  metric no task recorded) printed "No pair survives Holm correction" and
+  exited 0, and `results leaderboard`, `compare`, `power` and `interaction`
+  also exited 0. Every results command now refuses a metric the run did not
+  record, names the closest one and lists the rest, as `results view` did.
 - **`--strict` and the hub refused single-run bundles while the docs
   recommend `n_runs: 1` for retrieval.** A run now records `nothing_samples`
   (only retrieval ran, no task called an LLM, repeats if any were identical);
@@ -805,6 +851,29 @@ Results tooling:
 
 First run:
 
+- The log level had two names: `LASAGNA_LOG_LEVEL` set the CLI's and MCP's
+  console level and was not the `log_level` setting, which only
+  `RAG_LOG_LEVEL` set. `log_level` now reads both, `LASAGNA_` first, as every
+  setting does, and the CLI, MCP server and REST server all take their level
+  from it; a value it does not take warns and is ignored, so a typo never stops
+  `lasagna doctor`. `benchmark list` printed 32 benchmarks (33 with a plugin)
+  while the README said 31: it now says "31 benchmarks, plus smoke (a wiring
+  check, not a result)" and names what plugins add, and the README says what
+  it leaves out.
+- `docs/configuration.md`, the evaluation skill and the plugin template said
+  `benchmark run` starts from `standard` (a 3.2 GB download); it starts from
+  `speed`. They now say so, and that a sweep file without `base_profile:`
+  starts from `standard`; a test checks each page against the code.
+- `lasagna init` asked "LLM provider?" and threw the answer away: it wrote
+  only `vector_backend`, yet the summary said "LLM: OpenAI, gpt-6-luna". The
+  question is gone, since the provider follows the API key exported in the
+  shell; the summary names the provider and model that key selects, or says
+  none is set and which variable to export.
+- The README said its component comparison "runs as is, with no model,
+  corpus or key"; with an empty Hugging Face cache the sweep failed
+  ("all-MiniLM-L6-v2 is not downloaded"). It says `python my_ideas.py`
+  downloads nothing and the sweep downloads 183 MB once, the size a test
+  computes from the sweep the README shows.
 - `lasagna doctor` said the first search downloads "~5 GB" and the speed
   profile "an 80 MB model" (measured: 3.2 GB and 92 MB), and that retrieval
   works without an API key, while the default configuration sends complex
@@ -983,6 +1052,54 @@ Requests to current models:
 
 Servers and deployment:
 
+- `status` with `LASAGNA_VECTOR_BACKEND=milvuss` printed "No documents
+  uploaded yet." and exited 0; it checks the backend first, as `doctor` and
+  the other commands do. The refusal said "set RAG_VECTOR_BACKEND" wherever the
+  typo was; it names the variable that set the value, or `vector_backend` in
+  the settings file. A REST upload answered 201 while `/health/ready` reported
+  the embedding model down, and the document then failed in the worker; single
+  and batch uploads now answer 503 with the reason readiness gives.
+- The MCP README said "All 31", headed "Search (4 tools)" over two, and said
+  the two deprecated search aliases still answer (they return "Unknown tool";
+  the server registers 29), and the SDK integration pages said 31 tools, "the
+  six" left out of `safe`, and that every tool requires `session_id`. A test
+  checks the tables and counts against the tool snapshot. `lasagna-mcp
+  --version` prints the version (it was a usage error), and the README says
+  `python -m e2e.run` needs a source checkout and points pip users at
+  `lasagna doctor`.
+- `lasagna doctor --issue` promised "no absolute paths" and printed the
+  settings file's full path when the project was outside `$HOME`. Doctor now
+  shows a path under the working directory as `./...` and any other absolute
+  path as `<path>/<name>`. After the deploy quick start's
+  `cp .env.example .env`, `make` listed every target as "Makefile" and never
+  listed `validate-k8s`; the help target reads only the Makefile and allows
+  digits. The Makefile header said `VECTOR_BACKEND=pgvector make up` overrides
+  the backend; while `.env` sets it only `make up VECTOR_BACKEND=pgvector` does,
+  as the deploy README says.
+- The first upload to a fresh store under `lasagna serve` or `lasagna-mcp`
+  printed "[ERROR][_log_rpc_error]: RPC error: [describe_collection] ... does
+  not exist" and a 20-line pymilvus traceback: the collection identity check
+  described the session's collection before it was created. A collection that
+  does not exist is no longer described.
+- **`configure --profile` stranded a session's documents.** On a `speed`
+  session holding documents, `configure --profile standard` printed "Applied
+  profile: standard" and exited 0; switching bge-small to `speed` (both 384
+  dimensions) did the same, and search then returned 0 results while `status`
+  said "Documents: 1". The guard compared embedding sizes in the new model's
+  empty collection, so `--force` never had anything to override. Any write to
+  a session's configuration (profile switch, patch, save, import, reset) is
+  now refused when the session's documents are in another collection than the
+  one it would search, naming the choices: a new session, or `--force` and a
+  reindex.
+- **Eleven MCP tools required `session_id` with `RAG_SESSION_ID` set** (stdio
+  and `serve --mcp -s`): `get_document_status`, `get_document_info`,
+  `set_active_profile`, `patch_rag_config` and seven more answered a raw
+  pydantic error with a URL, and `list_profiles` and `get_profile_stats` used
+  the session "default" instead of the server's. No tool requires `session_id`
+  now: every tool takes the argument, else the server's session, else says
+  how to set one. `set_active_profile`, `patch_rag_config`, `save_rag_profile`,
+  `delete_rag_profile` and `set_lifecycle_policy` list `session_id` after
+  their required arguments (MCP clients pass arguments by name).
 - **The MCP server over stdio wrote 144 lines to the client's log per
   search**, at DEBUG, in ANSI color, under the name `rag_knowledge_mcp`, with
   FastMCP's "Processing request" lines and a "suspicious citations" warning for
