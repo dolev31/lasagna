@@ -213,6 +213,19 @@ CREATE TABLE IF NOT EXISTS content_generations (
 );
 """
 
+_CREATE_SESSION_PRINCIPALS = """
+CREATE TABLE IF NOT EXISTS session_principals (
+    session_id TEXT PRIMARY KEY,
+    principal TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+"""
+
+_SESSION_PRINCIPALS_INDEX = (
+    "CREATE INDEX IF NOT EXISTS idx_session_principals_principal "
+    "ON session_principals(principal, created_at);"
+)
+
 _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_documents_session_id ON rag_documents(session_id);",
     "CREATE INDEX IF NOT EXISTS idx_documents_status ON rag_documents(status);",
@@ -428,6 +441,8 @@ class PostgresRAGDatabase:
                 cur.execute(_CREATE_GC_AUDIT_LOG)
                 cur.execute(_CREATE_GC_LOCK)
                 cur.execute(_CREATE_CONTENT_GENERATIONS)
+                cur.execute(_CREATE_SESSION_PRINCIPALS)
+                cur.execute(_SESSION_PRINCIPALS_INDEX)
                 for idx_sql in _CREATE_INDEXES:
                     cur.execute(idx_sql)
                 # Add storage_backend_name column if missing (v3->v4 migration)
@@ -1597,6 +1612,47 @@ class PostgresRAGDatabase:
     # ------------------------------------------------------------------
     # Content generations (mirrors RAGDatabase; created with the schema)
     # ------------------------------------------------------------------
+
+    def bind_session_principal(
+        self,
+        session_id: str,
+        principal: str,
+        *,
+        limit: Optional[int] = None,
+        since: Optional[datetime] = None,
+    ) -> bool:
+        """See ``RAGDatabase.bind_session_principal``; the principal's advisory lock
+        makes the count and the insert one step for every API pod."""
+        with self.exclusive(f"sessions:{principal}"), self._conn() as conn:
+            with conn.cursor() as cur:
+                if limit is not None:
+                    cur.execute(
+                        "SELECT COUNT(*) FROM session_principals "
+                        "WHERE principal = %s AND created_at >= %s",
+                        (principal, since or datetime.min.replace(tzinfo=timezone.utc)),
+                    )
+                    if cur.fetchone()[0] >= limit:
+                        conn.commit()
+                        return False
+                cur.execute(
+                    "INSERT INTO session_principals (session_id, principal) VALUES (%s, %s) "
+                    "ON CONFLICT (session_id) DO NOTHING",
+                    (session_id, principal),
+                )
+            conn.commit()
+        return True
+
+    def session_principal(self, session_id: str) -> Optional[str]:
+        """The principal that minted ``session_id``; None when none is recorded."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT principal FROM session_principals WHERE session_id = %s",
+                    (session_id,),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return row[0] if row else None
 
     def get_content_generation(self, session_id: str) -> int:
         """How many times the session's documents have changed; 0 before the first."""

@@ -1461,16 +1461,16 @@ Servers and deployment:
   in the top-k cut and were dropped after it, so such a query returned fewer
   than `top_k` results. They are removed before the cut. Benchmark corpora are
   all ready documents, so no benchmark number changes.
+- **With auth on, quotas count per API key, and a key mints a bounded number of
+  sessions.** Quotas were per session and a session cost nothing, so one key
+  could fill the uploads volume and the vector store. Each session is recorded
+  with the key that minted it, its usage counts toward that key's quota, and
+  `RAG_MAX_SESSIONS_PER_KEY` (default 100 per token lifetime) caps the sessions
+  a key mints. Auth off: unchanged.
 
 ### Known issues
 
-- **Quotas are counted per session, not per API key.** With auth on, rate
-  limits are counted per key, but the document, storage and chunk quotas are
-  per session, and one key can mint any number of sessions. Counting them per
-  key needs a durable record of which key made each session, readable by the
-  Celery worker and by garbage collection, which rebuild the counters per
-  session; it is planned. `src/lasagna/deploy/README.md` (Request limits) says
-  what to do meanwhile.
+None.
 
 ### Planned for 0.2.0
 

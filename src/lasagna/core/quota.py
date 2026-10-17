@@ -7,6 +7,12 @@ Dual-mode:
     - **Disabled** (default, single-user): No enforcement — all operations allowed.
     - **Enabled** (production): Quotas checked before document uploads and searches.
 
+Whose usage a session's counts toward (`QuotaManager.owner_of`): with
+``RAG_REQUIRE_AUTH`` on, a session minted with an API key counts toward that
+key, summed over its sessions; otherwise, and for a session minted with the
+admin token, toward the session itself. A key used to get a fresh allowance
+with every session it minted.
+
 Usage::
 
     from lasagna.core.quota import get_quota_manager
@@ -26,6 +32,9 @@ from dataclasses import dataclass, field
 from typing import Deque, Dict, Optional
 
 from loguru import logger
+
+#: Sessions whose owner is remembered at once; the memory starts over past it.
+_OWNERS_REMEMBERED = 10_000
 
 
 @dataclass
@@ -69,17 +78,33 @@ class TenantUsage:
         return len(self._upload_timestamps)
 
 
+#: Owner keys of API keys: ``key:<principal>``, apart from every session id.
+OWNER_PREFIX = "key:"
+
+
 class QuotaExceededError(Exception):
     """Raised when a tenant exceeds their resource quota."""
 
-    def __init__(self, resource: str, limit: int, current: int, session_id: str):
+    def __init__(
+        self,
+        resource: str,
+        limit: int,
+        current: int,
+        session_id: str,
+        owner: Optional[str] = None,
+    ):
         self.resource = resource
         self.limit = limit
         self.current = current
         self.session_id = session_id
+        self.owner = owner or session_id
+        whose = (
+            f"the API key of session {session_id!r} (its sessions share one quota)"
+            if self.owner.startswith(OWNER_PREFIX)
+            else f"session {session_id!r}"
+        )
         super().__init__(
-            f"Quota exceeded for session {session_id!r}: "
-            f"{resource} limit is {limit}, current usage is {current}"
+            f"Quota exceeded for {whose}: {resource} limit is {limit}, current usage is {current}"
         )
 
 
@@ -96,17 +121,54 @@ class QuotaManager:
         self._usage: Dict[str, TenantUsage] = {}
         self._tenant_quotas: Dict[str, TenantQuota] = {}
         self._lock = threading.Lock()
+        self._owners: Dict[str, str] = {}
 
     @property
     def is_enabled(self) -> bool:
         return self._enabled
 
+    def owner_of(self, session_id: str) -> str:
+        """The key ``session_id``'s usage is counted under.
+
+        With auth on, ``key:<principal>`` for a session minted with an API key
+        (recorded by ``POST /api/v1/sessions`` in the metadata store, which
+        every process reads); otherwise the session id. An owner key is its
+        own owner. Remembered per session: which key minted a session never
+        changes.
+        """
+        if session_id.startswith(OWNER_PREFIX):
+            return session_id
+        from lasagna.api.rest.auth_mode import KEY_PRINCIPAL_PREFIX, require_auth
+
+        if not require_auth():
+            return session_id
+        owner = self._owners.get(session_id)
+        if owner is not None:
+            return owner
+        try:
+            from lasagna.core.database import get_rag_database
+
+            lookup = getattr(get_rag_database(), "session_principal", None)
+            principal = lookup(session_id) if callable(lookup) else None
+        except Exception as exc:  # noqa: BLE001 - counted per session until it can be read
+            logger.debug(f"Could not read which key minted session {session_id[:8]}: {exc}")
+            return session_id
+        if isinstance(principal, str) and principal.startswith(KEY_PRINCIPAL_PREFIX):
+            owner = OWNER_PREFIX + principal
+        else:
+            owner = session_id
+        if len(self._owners) >= _OWNERS_REMEMBERED:
+            self._owners.clear()
+        self._owners[session_id] = owner
+        return owner
+
     def _get_usage(self, session_id: str) -> TenantUsage:
-        if session_id not in self._usage:
+        key = self.owner_of(session_id)
+        if key not in self._usage:
             with self._lock:
-                if session_id not in self._usage:
-                    self._usage[session_id] = TenantUsage()
-        return self._usage[session_id]
+                if key not in self._usage:
+                    self._usage[key] = TenantUsage()
+        return self._usage[key]
 
     def _get_usage_locked(self, session_id: str) -> TenantUsage:
         """Get or create usage record. Must be called while ``self._lock`` is held.
@@ -115,15 +177,19 @@ class QuotaManager:
         custom quotas above the default (600 searches/min) are tracked correctly.
         Upload timestamps use a dict (keyed by reservation_id) — no maxlen needed.
         """
-        if session_id not in self._usage:
+        key = self.owner_of(session_id)
+        if key not in self._usage:
             quota = self._get_quota(session_id)
-            self._usage[session_id] = TenantUsage(
+            self._usage[key] = TenantUsage(
                 _search_timestamps=deque(maxlen=max(1200, quota.max_searches_per_minute * 2)),
             )
-        return self._usage[session_id]
+        return self._usage[key]
 
     def _get_quota(self, session_id: str) -> TenantQuota:
-        return self._tenant_quotas.get(session_id, self._default_quota)
+        quota = self._tenant_quotas.get(session_id)
+        if quota is None:
+            quota = self._tenant_quotas.get(self.owner_of(session_id), self._default_quota)
+        return quota
 
     def set_tenant_quota(self, session_id: str, quota: TenantQuota) -> None:
         """Override quota for a specific tenant.
@@ -132,10 +198,11 @@ class QuotaManager:
         deque to match the new quota limits so that higher quotas are tracked
         correctly.
         """
+        key = self.owner_of(session_id)
         with self._lock:
             self._tenant_quotas[session_id] = quota
-            if session_id in self._usage:
-                usage = self._usage[session_id]
+            if key in self._usage:
+                usage = self._usage[key]
                 new_maxlen = max(1200, quota.max_searches_per_minute * 2)
                 if usage._search_timestamps.maxlen != new_maxlen:
                     usage._search_timestamps = deque(
@@ -163,7 +230,11 @@ class QuotaManager:
 
             if usage.documents >= quota.max_documents:
                 raise QuotaExceededError(
-                    "max_documents", quota.max_documents, usage.documents, session_id
+                    "max_documents",
+                    quota.max_documents,
+                    usage.documents,
+                    session_id,
+                    owner=self.owner_of(session_id),
                 )
 
             if (
@@ -175,6 +246,7 @@ class QuotaManager:
                     quota.max_storage_bytes,
                     usage.storage_bytes + file_size_bytes,
                     session_id,
+                    owner=self.owner_of(session_id),
                 )
 
             if usage.uploads_last_hour() >= quota.max_uploads_per_hour:
@@ -183,6 +255,7 @@ class QuotaManager:
                     quota.max_uploads_per_hour,
                     usage.uploads_last_hour(),
                     session_id,
+                    owner=self.owner_of(session_id),
                 )
 
     def check_search(self, session_id: str) -> None:
@@ -200,6 +273,7 @@ class QuotaManager:
                     quota.max_searches_per_minute,
                     usage.searches_last_minute(),
                     session_id,
+                    owner=self.owner_of(session_id),
                 )
 
     def check_chunks(self, session_id: str, additional_chunks: int) -> None:
@@ -217,6 +291,7 @@ class QuotaManager:
                     quota.max_chunks,
                     usage.chunks + additional_chunks,
                     session_id,
+                    owner=self.owner_of(session_id),
                 )
 
     # -----------------------------------------------------------------------
@@ -249,7 +324,11 @@ class QuotaManager:
 
             if usage.documents >= quota.max_documents:
                 raise QuotaExceededError(
-                    "max_documents", quota.max_documents, usage.documents, session_id
+                    "max_documents",
+                    quota.max_documents,
+                    usage.documents,
+                    session_id,
+                    owner=self.owner_of(session_id),
                 )
 
             if (
@@ -261,6 +340,7 @@ class QuotaManager:
                     quota.max_storage_bytes,
                     usage.storage_bytes + file_size_bytes,
                     session_id,
+                    owner=self.owner_of(session_id),
                 )
 
             if usage.uploads_last_hour() >= quota.max_uploads_per_hour:
@@ -269,6 +349,7 @@ class QuotaManager:
                     quota.max_uploads_per_hour,
                     usage.uploads_last_hour(),
                     session_id,
+                    owner=self.owner_of(session_id),
                 )
 
             # Reserve capacity (visible to concurrent checks)
@@ -354,8 +435,8 @@ class QuotaManager:
     # Replacing a document's copy (a reindex, or an upload under its id)
     # -----------------------------------------------------------------------
 
-    @staticmethod
     def _refuse_replacement(
+        self,
         session_id: str,
         quota: TenantQuota,
         storage_bytes: int,
@@ -367,11 +448,19 @@ class QuotaManager:
         storage = storage_bytes - old_file_size + new_file_size
         if new_file_size > old_file_size and storage > quota.max_storage_bytes:
             raise QuotaExceededError(
-                "max_storage_bytes", quota.max_storage_bytes, storage, session_id
+                "max_storage_bytes",
+                quota.max_storage_bytes,
+                storage,
+                session_id,
+                owner=self.owner_of(session_id),
             )
         if counts_as_upload and uploads_last_hour >= quota.max_uploads_per_hour:
             raise QuotaExceededError(
-                "max_uploads_per_hour", quota.max_uploads_per_hour, uploads_last_hour, session_id
+                "max_uploads_per_hour",
+                quota.max_uploads_per_hour,
+                uploads_last_hour,
+                session_id,
+                owner=self.owner_of(session_id),
             )
 
     def check_replace(
@@ -588,7 +677,7 @@ class RedisQuotaManager(QuotaManager):
             self._redis = None
 
     def _rkey(self, session_id: str, resource: str) -> str:
-        return f"rag:quota:{session_id}:{resource}"
+        return f"rag:quota:{self.owner_of(session_id)}:{resource}"
 
     def check_upload(self, session_id: str, file_size_bytes: int = 0) -> None:
         if not self._enabled:
@@ -600,7 +689,13 @@ class RedisQuotaManager(QuotaManager):
         try:
             docs = int(self._redis.get(self._rkey(session_id, "documents")) or 0)
             if docs >= quota.max_documents:
-                raise QuotaExceededError("max_documents", quota.max_documents, docs, session_id)
+                raise QuotaExceededError(
+                    "max_documents",
+                    quota.max_documents,
+                    docs,
+                    session_id,
+                    owner=self.owner_of(session_id),
+                )
 
             storage = int(self._redis.get(self._rkey(session_id, "storage_bytes")) or 0)
             if file_size_bytes > 0 and (storage + file_size_bytes) > quota.max_storage_bytes:
@@ -609,6 +704,7 @@ class RedisQuotaManager(QuotaManager):
                     quota.max_storage_bytes,
                     storage + file_size_bytes,
                     session_id,
+                    owner=self.owner_of(session_id),
                 )
 
             # Sliding window for uploads/hour
@@ -622,6 +718,7 @@ class RedisQuotaManager(QuotaManager):
                     quota.max_uploads_per_hour,
                     count,
                     session_id,
+                    owner=self.owner_of(session_id),
                 )
         except QuotaExceededError:
             raise
@@ -647,6 +744,7 @@ class RedisQuotaManager(QuotaManager):
                     quota.max_searches_per_minute,
                     count,
                     session_id,
+                    owner=self.owner_of(session_id),
                 )
         except QuotaExceededError:
             raise
@@ -669,6 +767,7 @@ class RedisQuotaManager(QuotaManager):
                     quota.max_chunks,
                     chunks + additional_chunks,
                     session_id,
+                    owner=self.owner_of(session_id),
                 )
         except QuotaExceededError:
             raise
@@ -716,7 +815,9 @@ class RedisQuotaManager(QuotaManager):
                 resource = result[1] if isinstance(result[1], str) else result[1].decode()
                 current = int(result[2])
                 limit = getattr(quota, resource, 0)
-                raise QuotaExceededError(resource, limit, current, session_id)
+                raise QuotaExceededError(
+                    resource, limit, current, session_id, owner=self.owner_of(session_id)
+                )
             return reservation_id
         except QuotaExceededError:
             raise

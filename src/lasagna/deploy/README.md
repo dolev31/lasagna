@@ -278,22 +278,21 @@ one in front. Health and `/metrics` answer any `Host`.
 | Processing threads, single upload without Celery | `RAG_MAX_CONCURRENT_UPLOADS` = 5 | 503 with `Retry-After: 5`; nothing is stored, so a retry is a clean upload |
 | Processing threads, a file in a batch without Celery | `RAG_MAX_CONCURRENT_UPLOADS` = 5 | waits for a thread, at most `processing_timeout` (300 s); after that, that item reports `status: "error"` |
 | Request rate | 60 per minute, burst 10, `adaptive` | 429 with `Retry-After` (seconds, rounded up) |
-| Quota per session | 1,000 documents, 5 GiB, 100,000 chunks, 600 searches per minute, 200 uploads per hour | 429 |
+| Quota per session, or per API key with auth on | 1,000 documents, 5 GiB, 100,000 chunks, 600 searches per minute, 200 uploads per hour | 429 |
+| Sessions one API key mints, with auth on | `RAG_MAX_SESSIONS_PER_KEY` = 100 per token lifetime (7 days) | 429 from `POST /api/v1/sessions` |
 
-With auth on, the request rate is counted per API key (its principal), so a key that mints
-more sessions gets no more requests. The quotas are counted per session: one key can mint
-any number of sessions, so they bound what one session stores, not what one key stores.
-Counting them per key needs a record of which key made each session that every process can
-read, because documents finish processing in the Celery worker or a pool thread, outside
-the request that knows the key, and garbage collection rebuilds the counters per session
-from the database; that record is planned. Until then, give each tenant its own key and
-watch storage per session in the metadata database (`file_size` in `rag_documents`, by
-`session_id`).
+With auth on, the request rate and the quotas are counted per API key (its principal), so
+a key that mints more sessions gets no more requests and no more storage: its sessions
+share one quota. `POST /api/v1/sessions` records which key minted each session in the
+metadata database (`session_principals`), where the API workers, the Celery worker and
+garbage collection, which rebuilds the counters from the database, all read it. A session
+minted with the admin token, and every session with auth off, has a quota of its own.
 
 A chunked body is counted as it arrives and refused once it passes its limit.
-`RAG_MAX_BATCH_FILES` (1 to 1000), `RAG_MAX_BATCH_BYTES` (1 to 2^40) and
-`RAG_SEARCH_TIMEOUT` (1 to 3600) are checked when the app starts: a value out of range or
-not a number stops it with an error naming the variable.
+`RAG_MAX_BATCH_FILES` (1 to 1000), `RAG_MAX_BATCH_BYTES` (1 to 2^40),
+`RAG_SEARCH_TIMEOUT` (1 to 3600) and `RAG_MAX_SESSIONS_PER_KEY` (1 to 1,000,000) are
+checked when the app starts: a value out of range or not a number stops it with an error
+naming the variable.
 
 **Rate limits** apply when `RAG_RATE_LIMITING_ENABLED` is true (the code default is false;
 compose and k8s turn it on), tuned by `RAG_RATE_LIMITING_RPM`, `RAG_RATE_LIMITING_BURST`

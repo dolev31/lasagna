@@ -1827,6 +1827,77 @@ class RAGDatabase:
                 conn.close()
 
     # =========================================================================
+    # SESSION PRINCIPALS (which API key minted a session)
+    # =========================================================================
+    #
+    # With auth on, quotas count per API key over all its sessions, and a key
+    # mints a bounded number of sessions. Every process that counts usage (API
+    # workers, the Celery worker, garbage collection) reads the record here.
+
+    def _session_principals_conn(self):
+        conn = self._get_connection()
+        if not getattr(self, "_session_principals_ready", False):
+            conn.execute(CREATE_SESSION_PRINCIPALS_TABLE)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_session_principals_principal "
+                "ON session_principals(principal, created_at);"
+            )
+            conn.commit()
+            self._session_principals_ready = True
+        return conn
+
+    def bind_session_principal(
+        self,
+        session_id: str,
+        principal: str,
+        *,
+        limit: Optional[int] = None,
+        since: Optional[datetime] = None,
+    ) -> bool:
+        """Record that ``principal`` minted ``session_id``; False when it already has ``limit``.
+
+        ``limit`` counts the principal's sessions minted at or after ``since``
+        (the ones whose tokens may still be valid). The count and the insert
+        hold the principal's lock, so two mints at once cannot both pass.
+        """
+        with self.exclusive(f"sessions:{principal}"), self._lock:
+            conn = self._session_principals_conn()
+            try:
+                if limit is not None:
+                    (count,) = conn.execute(
+                        "SELECT COUNT(*) FROM session_principals "
+                        "WHERE principal = ? AND created_at >= ?",
+                        (
+                            principal,
+                            (since or datetime.min.replace(tzinfo=timezone.utc)).isoformat(),
+                        ),
+                    ).fetchone()
+                    if count >= limit:
+                        return False
+                conn.execute(
+                    "INSERT INTO session_principals (session_id, principal, created_at) "
+                    "VALUES (?, ?, ?) ON CONFLICT(session_id) DO NOTHING",
+                    (session_id, principal, datetime.now(timezone.utc).isoformat()),
+                )
+                conn.commit()
+                return True
+            finally:
+                conn.close()
+
+    def session_principal(self, session_id: str) -> Optional[str]:
+        """The principal that minted ``session_id``; None when none is recorded."""
+        with self._lock:
+            conn = self._session_principals_conn()
+            try:
+                row = conn.execute(
+                    "SELECT principal FROM session_principals WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                return row[0] if row else None
+            finally:
+                conn.close()
+
+    # =========================================================================
     # CONTENT GENERATIONS (when a session's searchable chunks last changed)
     # =========================================================================
     #
@@ -1913,6 +1984,16 @@ CREATE_CONTENT_GENERATIONS_TABLE = """
 CREATE TABLE IF NOT EXISTS content_generations (
     session_id TEXT PRIMARY KEY,
     generation INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+#: One row per session minted with an API key: the key's principal (a digest,
+#: never the key) and when. Quotas count per principal with auth on.
+CREATE_SESSION_PRINCIPALS_TABLE = """
+CREATE TABLE IF NOT EXISTS session_principals (
+    session_id TEXT PRIMARY KEY,
+    principal TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL
 );
 """
 

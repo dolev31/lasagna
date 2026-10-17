@@ -7895,7 +7895,7 @@
                 }
               }
             },
-            "description": "Rate limit or quota exceeded; see Retry-After"
+            "description": "The API key has minted RAG_MAX_SESSIONS_PER_KEY sessions"
           },
           "500": {
             "content": {
