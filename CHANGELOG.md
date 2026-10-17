@@ -1483,6 +1483,11 @@ Servers and deployment:
   the database and upload paths and the row count of the collection all
   sessions share. It now needs a session token like the other tools; the
   paths and the count need `admin_token`.
+- The MCP `/docs` tester logged each call's arguments (a search's query
+  among them) and the first 100 characters of its result at INFO; it logs
+  the tool and argument names at DEBUG. The batch upload and the bulk reindex
+  returned raw exception text per file; they return the reason the single
+  routes give.
 
 ### Known issues
 

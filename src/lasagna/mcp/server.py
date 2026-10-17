@@ -3886,17 +3886,18 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
             if not tool_name:
                 return JSONResponse({"error": "Missing 'tool' parameter"}, status_code=400)
 
-            # `arguments` carries session_token for every session-scoped tool
-            # and admin_token for the five admin-scoped ones. Logged verbatim,
-            # both landed in the container log.
-            logger.info(
-                f"API call: tool={tool_name}, "
-                f"args={_redact_credentials(arguments if isinstance(arguments, dict) else {})}"
+            # Names only, at DEBUG: `arguments` carries the query of a search
+            # tool, a session_token and the admin_token, and the result is
+            # the text the tool returned; logged at INFO, they landed in the
+            # container log.
+            logger.debug(
+                f"API call: tool={tool_name}, argument names="
+                f"{sorted(arguments) if isinstance(arguments, dict) else []}"
             )
 
             # Call the tool directly
             result = await mcp_instance.call_tool(tool_name, arguments)
-            logger.debug(f"Tool result type: {type(result)}, value: {result}")
+            logger.debug(f"Tool result type: {type(result).__name__}")
 
             # Handle different result types - extract text from ContentBlocks
             if isinstance(result, list):
@@ -3911,7 +3912,7 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
                     else:
                         # Try to convert to string
                         result_text += str(block)
-                logger.info(f"Extracted text ({len(result_text)} chars): {result_text[:100]}...")
+                logger.debug(f"Tool {tool_name} returned {len(result_text)} characters")
                 return JSONResponse({"result": result_text})
             elif isinstance(result, dict):
                 return JSONResponse({"result": result})

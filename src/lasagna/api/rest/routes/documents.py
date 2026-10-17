@@ -186,36 +186,53 @@ async def upload_document(
         )
     except HTTPException:
         raise
-    except ProcessingAtCapacity as exc:
-        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "5"})
-    except QuotaExceededError as exc:
-        raise HTTPException(status_code=429, detail=str(exc))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        from lasagna.api._document_pipeline import DocumentBusy, DocumentNotFound
-        from lasagna.core.database import DocumentIdTaken
-        from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_session
-
-        if isinstance(exc, DocumentIdTaken):
-            # Taken between the check above and this upload's row: 404 for
-            # another session's, as the check answers; 409 for this session's.
-            _reject_foreign_document_id(backend, exc.document_id, session_id)
-            raise HTTPException(status_code=409, detail=str(exc))
-        if isinstance(exc, DocumentBusy):
-            # A replacement of a document that is still processing.
-            raise HTTPException(status_code=409, detail=str(exc))
-        if isinstance(exc, DocumentNotFound):
-            # A replacement of a document deleted before or while it was processed.
-            raise HTTPException(status_code=404, detail=str(exc))
-        if isinstance(exc, ModelNotDownloaded):
-            raise HTTPException(
-                status_code=503, detail=f"{exc} {fix_for_session(session_id, exc.model)}"
-            )
-        logger.error(f"Upload failed: {exc}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise upload_failure(exc, backend, session_id) from exc
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def upload_failure(exc: Exception, backend: RAGBackend, session_id: str) -> HTTPException:
+    """The HTTP answer for an upload that did not happen: a plain reason, never a trace.
+
+    The batch route reports the same reason per file; it returned the raw
+    exception text, internal paths and library messages included.
+    """
+    from lasagna.api._document_pipeline import DocumentBusy, DocumentNotFound
+    from lasagna.core.database import DocumentIdTaken
+    from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_session
+
+    if isinstance(exc, HTTPException):
+        return exc
+    if isinstance(exc, ProcessingAtCapacity):
+        return HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "5"})
+    if isinstance(exc, QuotaExceededError):
+        return HTTPException(status_code=429, detail=str(exc))
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, DocumentIdTaken):
+        # Taken between the check above and this upload's row: 404 for
+        # another session's, as the check answers; 409 for this session's.
+        try:
+            _reject_foreign_document_id(backend, exc.document_id, session_id)
+        except HTTPException as foreign:
+            return foreign
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, DocumentBusy):
+        # A replacement of a document that is still processing.
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, DocumentNotFound):
+        # A replacement of a document deleted before or while it was processed.
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, ModelNotDownloaded):
+        return HTTPException(
+            status_code=503, detail=f"{exc} {fix_for_session(session_id, exc.model)}"
+        )
+    logger.error(f"Upload failed: {exc}")
+    return HTTPException(
+        status_code=500,
+        detail="The upload failed with an internal error; the server log has the cause.",
+    )
 
 
 @router.post(
@@ -303,20 +320,15 @@ async def upload_documents_batch(
                     chunks_count=getattr(doc, "chunks_count", 0),
                     duplicate_of=getattr(doc, "duplicate_of", None),
                 )
-            except QuotaExceededError as exc:
-                return BatchUploadItemResponse(
-                    document_id="",
-                    filename=upload_file.filename or safe_name,
-                    status="error",
-                    error=f"Quota exceeded: {exc}",
-                )
             except Exception as exc:
-                logger.error(f"Batch upload failed for {safe_name}: {exc}")
+                # The single route's reason: the raw exception text named
+                # internal paths and library errors.
+                reason = upload_failure(exc, backend, session_id).detail
                 return BatchUploadItemResponse(
                     document_id="",
                     filename=upload_file.filename or safe_name,
                     status="error",
-                    error=str(exc),
+                    error=reason,
                 )
             finally:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
