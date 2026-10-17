@@ -285,8 +285,10 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
 - **Docling's models are not under the download policy.** With the `docling`
   extra installed (the settings file turns Docling on), the first document it
   converts downloads Docling's layout models, inside the request on a server
-  that otherwise refuses downloads. Download them before serving, or turn
-  Docling off with `RAG_DOCLING_ENABLED=false`.
+  that otherwise refuses downloads. Download them before serving
+  (`docling-tools models download -o /path/to/models`, then set
+  `DOCLING_ARTIFACTS_PATH=/path/to/models` for the server), or turn Docling off
+  with `RAG_DOCLING_ENABLED=false`.
 - **Chunk boundaries depend on nltk's `punkt_tab`.** Lasagna never downloads
   it; without it sentences are split with a regular expression, so the same
   corpus can chunk differently on two machines (a run's bundle records the
