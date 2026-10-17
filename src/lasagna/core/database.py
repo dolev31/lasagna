@@ -310,7 +310,10 @@ class RAGDatabase:
 
             logger.info(f"Initializing RAG database: {self.db_path}")
 
-            with self._get_connection() as conn:
+            # One process at a time, as on PostgreSQL: two workers starting on
+            # a new file at once failed the second one's switch to WAL with
+            # "database is locked".
+            with self.exclusive("schema"), self._get_connection() as conn:
                 cursor = conn.cursor()
 
                 # Enable WAL mode for better concurrent performance
@@ -411,6 +414,20 @@ class RAGDatabase:
                 raise
             finally:
                 conn.close()
+
+    @contextmanager
+    def exclusive(self, name: str):
+        """Hold the lock ``name`` against every thread and process using this database.
+
+        A file lock in ``<database>.locks/`` (see `lasagna.core.store_locks`):
+        the processes that share a SQLite file are on one host. Replacing,
+        retrying and deleting a document, and the duplicate check of an upload,
+        take it.
+        """
+        from .store_locks import file_lock
+
+        with file_lock(f"{self.db_path}.locks", name):
+            yield
 
     def _run_migrations(self, cursor: sqlite3.Cursor, from_version: int):
         """Run schema migrations.

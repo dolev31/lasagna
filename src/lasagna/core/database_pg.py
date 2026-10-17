@@ -358,6 +358,61 @@ class PostgresRAGDatabase:
             finally:
                 conn.close()
 
+    def _lock_connection(self):
+        """A connection of its own, in autocommit, to hold one advisory lock.
+
+        Not from the pool: a reindex holds its document's lock while it runs,
+        and pooled connections held that long would starve every other query.
+        """
+        if self._driver == "psycopg3":
+            return _psycopg.connect(self._dsn, autocommit=True)
+        conn = _psycopg2.connect(self._dsn)
+        conn.autocommit = True
+        return conn
+
+    @contextmanager
+    def exclusive(self, name: str):
+        """Hold the lock ``name`` against every process using this database.
+
+        A session-level advisory lock (``pg_advisory_lock``) on a connection
+        held for the duration: every API pod, gunicorn worker, Celery worker
+        and MCP server shares it, and a process that dies releases it with its
+        connection. Replacing, retrying and deleting a document, and the
+        duplicate check of an upload, take it. A thread may take a lock it
+        already holds.
+        """
+        from .store_locks import HeldLocks, lock_key
+
+        if getattr(self, "_held_locks", None) is None:
+            with self._lock:
+                if getattr(self, "_held_locks", None) is None:
+                    self._held_locks = HeldLocks()
+        held = self._held_locks.held
+        key = lock_key(name)
+        if key in held:
+            held[key] += 1
+            try:
+                yield
+            finally:
+                held[key] -= 1
+            return
+        conn = self._lock_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_lock(%s)", (key,))
+            held[key] = 1
+            try:
+                yield
+            finally:
+                del held[key]
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT pg_advisory_unlock(%s)", (key,))
+                except Exception as exc:  # closing the connection releases it too
+                    logger.debug(f"Could not release advisory lock {name!r}: {exc}")
+        finally:
+            conn.close()
+
     def _create_schema(self):
         with self._conn() as conn:
             with conn.cursor() as cur:

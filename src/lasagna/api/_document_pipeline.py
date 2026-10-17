@@ -91,23 +91,50 @@ class DocumentBusy(RuntimeError):
     """The document is being processed or is archived, so it is not replaced now; REST 409."""
 
 
-#: Replacing a document and deleting it take the lock of its stripe, so two
-#: reindexes of one document do not each retire the other's chunks, and a
-#: delete during a reindex is not undone by the reindex finishing.
-_DOCUMENT_LOCKS = [threading.RLock() for _ in range(64)]
+class DocumentRemoved(DocumentNotFound):
+    """The document was deleted while it was being processed; REST answers 404 with why.
+
+    Its new chunks are removed before this is raised. The reindex used to
+    finish anyway: its chunks stayed in the vector store with no row, and the
+    request failed with a 500 once it read the row back.
+    """
 
 
-def _document_lock(document_id: str) -> threading.RLock:
-    return _DOCUMENT_LOCKS[hash(document_id) % len(_DOCUMENT_LOCKS)]
+#: For a metadata store without cross-process locks (a stand-in in a test).
+_LOCAL_LOCKS = [threading.RLock() for _ in range(64)]
 
 
-#: Identical uploads to one session's collection take the same lock from their
-#: dedupe check until the first one's row is saved.
-_CONTENT_LOCKS = [threading.Lock() for _ in range(64)]
+def _store_lock(name: str):
+    """The metadata store's lock ``name``, held across every process that shares the store.
+
+    These were ``threading`` locks, while the image runs four gunicorn workers,
+    Kubernetes two to ten API pods, and MCP and Celery processes of their own:
+    two identical uploads on two workers were both indexed, and a delete on
+    one pod during a reindex on another left the reindexed chunks in the
+    vector store with no row.
+    """
+    from lasagna.core.database import get_rag_database
+    from lasagna.core.store_locks import lock_key
+
+    exclusive = getattr(get_rag_database(), "exclusive", None)
+    if callable(exclusive):
+        return exclusive(name)
+    return _LOCAL_LOCKS[lock_key(name) % len(_LOCAL_LOCKS)]
 
 
-def _content_lock(session_id: str, collection: str, digest: str) -> threading.Lock:
-    return _CONTENT_LOCKS[hash((session_id, collection, digest)) % len(_CONTENT_LOCKS)]
+def _document_lock(document_id: str):
+    """Replacing, retrying and deleting a document hold its lock.
+
+    So two reindexes of one document do not each retire the other's chunks,
+    and a delete during a reindex is not undone by the reindex finishing.
+    """
+    return _store_lock(f"document:{document_id}")
+
+
+def _content_lock(session_id: str, collection: str, digest: str):
+    """Identical uploads to one session's collection hold it from their
+    duplicate check until the first one's row is saved."""
+    return _store_lock(f"content:{session_id}:{collection}:{digest}")
 
 
 def _digest(stream) -> str:
@@ -710,21 +737,24 @@ class DocumentPipeline:
                         f"Could not remove the replaced file of {document_id} "
                         f"({row['file_path']}): {exc}"
                     )
-
-        replaced = self._get_document_metadata(document_id)
+            replaced = self._get_document_metadata(document_id)
+        if replaced is None:
+            raise DocumentRemoved(
+                f"Document {document_id} was deleted while it was being reindexed."
+            )
         quota_mgr.record_replace(
             session_id,
             old_file_size=old_size,
             new_file_size=file_size,
             old_chunks=int(row.get("chunks_count") or 0),
-            new_chunks=replaced.chunks_count if replaced else 0,
+            new_chunks=replaced.chunks_count,
             counts_as_upload=counts_as_upload,
         )
         self._invalidate_search_cache(session_id)
         logger.info(
             f"Document {document_id} replaced: {row.get('chunks_count') or 0} chunks in "
             f"{row.get('collection_name')!r} became "
-            f"{replaced.chunks_count if replaced else 0} in {config.collection_name!r}"
+            f"{replaced.chunks_count} in {config.collection_name!r}"
         )
         return replaced
 
@@ -768,6 +798,36 @@ class DocumentPipeline:
                 filter_expr=FilterExpression.in_list("chunk_id", ids[start : start + 1000]),
                 partition_key=partition_key,
             )
+
+    def _discard_new_chunks(
+        self,
+        document: Document,
+        backend: Any,
+        collection: str,
+        ids: List[str],
+        partition_key: Optional[str],
+        *,
+        indexed_here: bool,
+    ) -> None:
+        """Remove chunks this processing inserted, best effort and logged.
+
+        Ids of their own, so the document's other chunks (the copy a reindex
+        replaces) are untouched. What cannot be removed here the orphan scan
+        finds: a document's chunks with no row, or chunks no row counts.
+        """
+        try:
+            self._delete_chunk_ids(backend, collection, ids, partition_key)
+        except Exception as exc:
+            logger.warning(
+                f"Could not remove the {len(ids)} new chunk(s) of {document.document_id} from "
+                f"{collection!r} ({type(exc).__name__}: {exc}); the weekly orphan scan, "
+                "or POST /api/v1/admin/gc/repair?dry_run=false, removes them."
+            )
+        if indexed_here:
+            try:
+                self.hybrid_searcher.remove_document(document.document_id, document.session_id)
+            except Exception as exc:
+                logger.debug(f"Keyword index kept {document.document_id}: {exc}")
 
     def _retire_replaced_chunks(
         self,
@@ -1362,7 +1422,7 @@ class DocumentPipeline:
         )
         if replacing:
             # One write: the row names the new file, collection and counts.
-            get_rag_database().update_document_fields(
+            recorded = get_rag_database().update_document_fields(
                 document.document_id,
                 {
                     "filename": document.filename,
@@ -1382,13 +1442,29 @@ class DocumentPipeline:
                 },
             )
         else:
-            self._update_document_status(
+            recorded = self._update_document_status(
                 document.document_id,
                 DocumentStatus.READY,
                 chunks_count=chunk_count,
                 processing_time=processing_time,
                 text_length=text_length,
                 preview_text=preview_text,
+            )
+        if recorded is False:
+            # Deleted while it was processed (by a path that does not wait for
+            # the document's lock): its new chunks would stay in the vector
+            # store with no row.
+            self._discard_new_chunks(
+                document,
+                backend,
+                config.collection_name,
+                [c["chunk_id"] for c in chunks_for_bm25],
+                partition_key,
+                indexed_here=config.enable_hybrid_search,
+            )
+            raise DocumentRemoved(
+                f"Document {document.document_id} was deleted while it was being processed, "
+                "so the chunks just made for it were removed."
             )
         METRICS.counter("lasagna_ingests", 1, tags={"outcome": "ready"})
 
@@ -1498,12 +1574,12 @@ class DocumentPipeline:
         text_length: Optional[int] = None,
         error_message: Optional[str] = None,
         preview_text: Optional[str] = None,
-    ):
-        """Update document status in SQLite."""
+    ) -> Optional[bool]:
+        """Update the document's status; False when it has no row any more."""
         from lasagna.core.database import get_rag_database
 
         rag_db = get_rag_database()
-        rag_db.update_document_status(
+        return rag_db.update_document_status(
             document_id=document_id,
             status=status.value,
             error_message=error_message,

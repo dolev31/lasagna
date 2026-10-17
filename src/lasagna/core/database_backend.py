@@ -17,7 +17,7 @@ the codebase does not know or care which one is in use.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, ContextManager, Dict, List, Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -82,6 +82,10 @@ class DatabaseBackend(Protocol):
 
     def delete_document(self, document_id: str) -> bool:
         """Delete a document (cascades to citations)."""
+        ...
+
+    def exclusive(self, name: str) -> ContextManager[None]:
+        """Hold the lock ``name`` against every process using this store (re-entrant)."""
         ...
 
     # ------------------------------------------------------------------

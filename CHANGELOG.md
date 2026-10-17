@@ -1428,6 +1428,14 @@ Servers and deployment:
   spiece.model"): its checkpoint ships only a SentencePiece tokenizer, and
   `sentencepiece` was not a dependency. It is now a core dependency, and CI's
   weights job runs monoT5 on its real checkpoint.
+- **Uploads, reindexes and deletes of one document wait for each other across
+  processes.** The duplicate check and the document lock were per process:
+  two identical uploads on two gunicorn workers were both indexed, and a
+  delete on one pod during a reindex on another left the new chunks with no
+  row and answered 500. They are now a PostgreSQL advisory lock, or a file
+  lock beside a SQLite store; a document deleted while it is processed has
+  its new chunks removed and answers 404 with the reason. Workers starting at
+  once on a new SQLite file no longer fail with "database is locked".
 
 ### Known issues
 
