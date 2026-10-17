@@ -82,7 +82,15 @@ from typing import Any, Dict, List, Optional
 #: ranks 1 to 5 reordered, and the judge sees them in ranked order (context
 #: precision weighs each passage by its rank). Query fusion fuses each
 #: variation's ranked list, where it read reordered positions as ranks.
-METRICS_VERSION = "1.6"
+#: 1.7: search removes a chunk id that repeats in its candidate list before the
+#: reranker and the cut to top_k; a repeat took a place in the cut, and the
+#: scored list of k distinct documents came back short. It moves numbers only
+#: where the store held a chunk twice (a corpus ingested on top of itself: by
+#: builds before 2026-10-09 when a stale corpus could not be deleted, and until
+#: 1.7 when the presence check failed), and only for arms whose candidates are
+#: the store's dense hits: every fusion (hybrid RRF, query fusion, BM25 and
+#: SPLADE top-k) already merged by chunk id.
+METRICS_VERSION = "1.7"
 
 #: Bundle schema version. Consumers accept >=1.0,<2.0.
 SCHEMA_VERSION = "1.0"

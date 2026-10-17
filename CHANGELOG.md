@@ -13,7 +13,7 @@ each one that implements a published method naming its paper; an evaluation
 harness with paired significance tests, interaction tests and checkable result
 bundles; and the same pipeline served over MCP, REST and a Docker Compose stack.
 
-Its metric definitions are `METRICS_VERSION` 1.6: NDCG with linear gain and
+Its metric definitions are `METRICS_VERSION` 1.7: NDCG with linear gain and
 zero gain for a negative grade (as `trec_eval`), cutoff metrics over `k`
 documents in ranked order, exact match and token F1 normalized in the official SQuAD order with
 `[n]` citation markers removed and abstention counted only when an answer opens
@@ -21,7 +21,7 @@ with one, and `factual_correctness` among the judged metrics
 ([metrics.md](src/lasagna/knowledge_evaluation_sdk/docs/metrics.md) defines
 each). The version is part of every comparability key, so results from the
 internal 0.1.0a1 pre-release (1.1) or from development builds since (1.2 to
-1.5) never share a leaderboard group with results from this release.
+1.6) never share a leaderboard group with results from this release.
 
 ### Added
 
@@ -266,7 +266,17 @@ Defaults and naming:
   `lasagna plugins list` load no model code, and `lasagna-mcp --help` takes
   under half a second (it took 8).
 
-Metric definitions and results (`METRICS_VERSION` 1.6):
+Metric definitions and results (`METRICS_VERSION` 1.7):
+
+- A chunk id that repeats in a search's candidate list takes one place before
+  the reranker and the cut to `top_k` (1.7). Numbers move only for a corpus
+  whose store held a chunk twice, one ingested on top of itself (builds before
+  2026-10-09 did that when a stale corpus could not be deleted, and the
+  harness did it when it could not read which documents were present; it now
+  removes them first), and only for dense-only arms: the speed profile,
+  `dense_minilm` and `dense_bge_small` in `beir_tier1.yaml`, the smoke and
+  demo sweeps. BM25, SPLADE, hybrid RRF and fused arms merge by chunk id and
+  cannot move.
 
 - The retrieval track scores the ranked list. Under a profile with context
   reordering on (standard, the default `base_profile`, balanced and
