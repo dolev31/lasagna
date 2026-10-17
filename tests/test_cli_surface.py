@@ -311,6 +311,8 @@ def test_an_experiment_ends_with_the_leaderboard(monkeypatch, tmp_path):
         output_dir=str(tmp_path / "out"),
         checkpoint_dir="",
         effective_output_dir=lambda: str(tmp_path / "out"),
+        # The Next line names results interaction after a factorial.
+        pipeline=SimpleNamespace(factorial=None),
     )
     fake = SimpleNamespace(config=config, generate_tasks=lambda: [], run=run)
     monkeypatch.setattr(experiment.Experiment, "from_file", classmethod(lambda cls, path: fake))
