@@ -33,7 +33,7 @@ from lasagna.core.registry import registry
 
 
 @registry.register("reranker", "my_reranker", paper="Someone et al. 2026",
-                   claims={"ndcg@10": 0.42})
+                   claims={"beir/scifact": {"ndcg@10": 0.42}})
 class MyReranker(BaseReranker):
     def rerank(self, query, documents, top_k=5, **kwargs):
         out = [copy.deepcopy(d) for d in documents]   # never mutate the input
@@ -49,7 +49,9 @@ Two things that are easy to get wrong and hard to notice:
 - **Return at most `top_k`.** The caller decides how many results it wants.
 
 `paper` and `claims` are optional but carried through to the listing API, so a
-results table can show the claimed number beside the reproduced one.
+results table can show the claimed number beside the reproduced one, on a run
+of the benchmark the claim names. Key claims by benchmark; a claim with no
+benchmark is refused at registration.
 
 ## 2. Validate the contract
 

@@ -227,8 +227,9 @@ stage's function signature.
 
 Registration is one decorator. The `paper` and `claims` arguments are optional
 but worth filling in: they are carried through to the listing API and recorded
-by every run, and the leaderboards and `results view` show a claimed number next
-to the one you reproduced.
+by every run, and on a run of the benchmark a claim names, the leaderboards and
+`results view` show the claimed number next to the one you reproduced. Claims
+are keyed by benchmark (with `"split"` inside if the paper names one).
 
 ```python
 from lasagna.core.base_components import BaseReranker
@@ -239,7 +240,7 @@ from lasagna.core.registry import registry
     "reranker",
     "length_demo",
     paper="Nobody et al. 2026",
-    claims={"ndcg@10": 0.42},
+    claims={"beir/scifact": {"ndcg@10": 0.42}},
 )
 class LengthDemoReranker(BaseReranker):
     def rerank(self, query, documents, top_k=5, **kwargs):

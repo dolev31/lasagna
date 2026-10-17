@@ -191,8 +191,11 @@ class _Registration:
         self.hidden = hidden
         self.cls = cls
         self.description = description
+        from .claims import normalize_claims
+
         self.paper = paper
-        self.claims = claims
+        # Keyed by benchmark; a claim that names none is refused here, at registration.
+        self.claims = normalize_claims(claims)
         self.version = version
         self._factory = _factory
         self.implements_contract = implements_contract
@@ -920,7 +923,8 @@ class ComponentRegistry:
                 "enhancer" is accepted as an alias for "query_enhancer".
             name: Unique name for this implementation.
             paper: Optional paper reference (e.g. "arxiv:2312.02969").
-            claims: Optional claimed metrics (e.g. {"ndcg@10": 0.456}).
+            claims: Optional numbers the paper reports, keyed by benchmark
+                (e.g. {"beir/scifact": {"ndcg@10": 0.456}}).
             version: Optional version string.
 
         Returns:
@@ -976,7 +980,7 @@ class ComponentRegistry:
             description: Human-readable description.
             override: Replace existing registration if True.
             paper: Optional paper reference.
-            claims: Optional claimed metrics.
+            claims: Optional numbers the paper reports, keyed by benchmark.
             version: Optional version string.
         """
         canonical = _resolve_category(component_type)

@@ -342,7 +342,7 @@ is, with no model download and no corpus:
 import lasagna
 
 
-@lasagna.reranker(paper="Doe et al. 2026", claims={"ndcg@10": 0.456})
+@lasagna.reranker(paper="Doe et al. 2026", claims={"beir/scifact": {"ndcg@10": 0.456}})
 def longer_first(query, text):
     return len(text.split())  # your technique: score one passage
 
@@ -370,15 +370,18 @@ if __name__ == "__main__":  # try it on three passages
 ```text
 retrieval order: ['d1', 'd2', 'd3']
 my reranker:     ['d2', 'd3', 'd1']
-claims recorded: {'ndcg@10': 0.456}
+claims recorded: {'beir/scifact': {'ndcg@10': 0.456}}
 interchangeable: True
 ```
 
 `paper` and `claims` travel with the component and come back out of the
-registry. A run records them (`components` in its metadata and its bundle),
-and the leaderboard `benchmark experiment` prints, `results leaderboard`
-(markdown and LaTeX) and `results view` put the claimed number and its paper
-beside the one you reproduced. Every stage but the agentic pipeline takes a function the same way:
+registry. A claim names the benchmark the paper measured it on (and its split,
+as `"split": "test"`, if the paper gives one). A run records them (`components`
+in its metadata and its bundle), and on a run of that benchmark the leaderboard
+`benchmark experiment` prints, `results leaderboard` (markdown and LaTeX) and
+`results view` put the claimed number and its paper beside the one you
+reproduced. The smoke sweep below shows no claim, since the paper did not
+measure smoke. Every stage but the agentic pipeline takes a function the same way:
 `@lasagna.query_enhancer` (`query -> [str]`), `@lasagna.chunker` (`text -> [str]`),
 `@lasagna.embedder` (`texts -> vectors`), `@lasagna.generator`
 (`query, contexts -> answer`), `@lasagna.retriever` and

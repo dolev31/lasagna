@@ -246,7 +246,7 @@ class TestResearchProvenance:
             "reranker",
             "_provenance_probe",
             paper="arxiv:1234.56789",
-            claims={"ndcg@10": 0.456},
+            claims={"beir/scifact": {"ndcg@10": 0.456}},
             version="1.2.3",
         )
         class _ProbeReranker(BaseReranker):
@@ -256,7 +256,7 @@ class TestResearchProvenance:
         try:
             entry = next(r for r in registry.list_rerankers() if r["name"] == "_provenance_probe")
             assert entry["paper"] == "arxiv:1234.56789"
-            assert entry["claims"] == {"ndcg@10": 0.456}
+            assert entry["claims"] == {"beir/scifact": {"ndcg@10": 0.456}}
             assert entry["version"] == "1.2.3"
         finally:
             registry._components["reranker"].pop("_provenance_probe", None)

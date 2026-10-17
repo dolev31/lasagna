@@ -620,6 +620,14 @@ Numbers that were wrong:
 
 Results tooling:
 
+- **A claim printed beside any benchmark.** Claims were keyed by metric
+  alone, so `benchmark run smoke --reranker my_ideas:keyword_overlap` printed
+  "claimed 0.4200 (Someone et al. 2026)" next to a 24-document smoke test, in
+  the LaTeX "Claimed" column too. A claim names its benchmark,
+  `claims={"beir/scifact": {"ndcg@10": 0.456}}` (with `"split"` inside if the
+  paper gives one), and tables show it only on a run of that benchmark and
+  split. The flat form needs an explicit `"benchmark"` key; without one,
+  registration fails with the form to use.
 - **A typo in `-m` got a verdict.** `results significance -m ndgc@10` (or a
   metric no task recorded) printed "No pair survives Holm correction" and
   exited 0, and `results leaderboard`, `compare`, `power` and `interaction`

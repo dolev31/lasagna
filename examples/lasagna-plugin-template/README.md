@@ -109,6 +109,19 @@ your number and theirs belong in the same table.
 `lasagna results validate` recomputes that key and the run id from the recorded
 fields, so an edited number no longer matches its own bundle.
 
+To show your paper's number beside the reproduced one, register the class with
+its paper and claims, keyed by the benchmark the paper measured them on:
+
+```python
+@registry.register(
+    "reranker", "template_length", paper="Doe et al. 2026",
+    claims={"beir/scifact": {"ndcg@10": 0.456, "split": "test"}},
+)
+class LengthReranker(BaseReranker): ...
+```
+
+A results table shows the claim only on a run of that benchmark and split.
+
 See [the guide](../../docs/guide.md) for the full workflow, and
 [CONTRIBUTING](../../CONTRIBUTING.md) if you want your component in Lasagna
 itself rather than in your own package.

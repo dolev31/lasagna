@@ -1322,17 +1322,19 @@ class BenchmarkResults:
     def claim_for(
         self, config: str, metric: str, benchmark: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """What the component in ``config`` claims for ``metric``, and its paper.
+        """What the component in ``config`` claims for ``metric`` on the
+        benchmark it ran, and its paper.
 
         From the run's ``components`` record (`run_provenance.component_provenance`)
-        and the config's stage manifest; None when nothing in it claims ``metric``.
+        and the config's stage manifest; None when nothing in it claims ``metric``
+        on that benchmark and split.
         """
         components = (self.experiment_config or {}).get("components")
         for task in self._results:
             if task.config_name == config and (
                 benchmark is None or task.benchmark_name == benchmark
             ):
-                return claimed(components, task.system, metric)
+                return claimed(components, task.system, metric, task.benchmark_name, task.split)
         return None
 
     def _no_context_notes(self) -> List[str]:
