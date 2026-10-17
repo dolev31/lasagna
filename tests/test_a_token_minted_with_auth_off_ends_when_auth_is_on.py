@@ -4,8 +4,9 @@ With ``RAG_REQUIRE_AUTH`` off, ``POST /api/v1/sessions`` mints a token that
 names no principal (no API key minted it). Switching auth on with the same
 ``RAG_JWT_SECRET`` left every such token valid for the rest of its lifetime,
 seven days by default: anyone who had one kept the session without a key.
-With auth on and keys configured, a token must name its key, or ``admin``
-for one minted with the admin token.
+With auth on, a token must name its key, or ``admin`` for one minted with the
+admin token; with only ``RAG_ADMIN_TOKEN`` set (no keys) the old token was
+still accepted.
 """
 
 from __future__ import annotations
@@ -59,3 +60,13 @@ def test_an_admin_token_is_accepted(secret, monkeypatch):
     _auth_on(monkeypatch)
     token = _mint(**{"X-Admin-Token": ADMIN})
     assert session_token.decode_session_claims(token)["prn"] == "admin"
+
+
+def test_a_token_from_before_auth_is_refused_with_only_an_admin_token(secret, monkeypatch):
+    token = _mint()
+    monkeypatch.setenv(auth_mode.REQUIRE_AUTH_ENV, "true")
+    monkeypatch.delenv(auth_mode.API_KEYS_ENV, raising=False)
+    monkeypatch.setenv("RAG_ADMIN_TOKEN", ADMIN)
+    assert session_token.decode_session_claims(token) is None
+    admin = _mint(**{"X-Admin-Token": ADMIN})
+    assert session_token.decode_session_claims(admin)["prn"] == "admin"

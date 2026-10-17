@@ -16,11 +16,11 @@ significance and interaction tests, power, a stage isolation check, checkable
 result bundles), and the same pipeline served to agents over MCP, to programs
 over REST and the Python SDK, and in a Docker Compose stack.
 
-Its metric definitions are `METRICS_VERSION` 1.6
+Its metric definitions are `METRICS_VERSION` 1.7
 ([metrics.md](src/lasagna/knowledge_evaluation_sdk/docs/metrics.md) defines
 each metric). The version is part of every comparability key, so results from
 the internal 0.1.0a1 pre-release (1.1) or from development builds since (1.2 to
-1.5) never share a leaderboard group with results from this release.
+1.6) never share a leaderboard group with results from this release.
 
 Users of 0.1.0a1: read [Changed for users of 0.1.0a1](#changed-for-users-of-010a1)
 below. Every fix made between 0.1.0a1 and this release is described in the git
@@ -127,6 +127,10 @@ Serving:
 - **Six vector stores** behind one interface: Milvus (and Milvus Lite),
   pgvector, Qdrant, Weaviate, Pinecone and OpenSearch.
 
+For contributors: the test suite keeps the Hugging Face hub offline unless
+`HF_HUB_OFFLINE=0`, and tests that load real weights skip when their model is
+not cached.
+
 Documentation and examples: the [guide](docs/guide.md),
 [configuration](docs/configuration.md) (which setting wins, profiles, where
 data lives), the generated [settings reference](docs/reference/settings.md),
@@ -136,7 +140,7 @@ and an offline acceptance demo (`examples/acceptance/offline_demo.py`).
 
 ### Changed for users of 0.1.0a1
 
-#### Metric definitions (`METRICS_VERSION` 1.1 to 1.6)
+#### Metric definitions (`METRICS_VERSION` 1.1 to 1.7)
 
 Each step changes what a number means, so each is part of the comparability
 key; `results bundle` refuses a `results.json` whose metrics version is missing
@@ -163,6 +167,11 @@ or not this build's, saying how to run it again.
   second-ranked document fell below the cut to `k`; the generator read ranks
   1, 3, 5, 7 and 9 of ten, and now reads the top five reordered. `speed`
   numbers do not move.
+- **1.7:** a chunk id that repeats in a search's candidate list takes one place
+  before the reranker and the cut to `top_k`. Numbers move only for a corpus
+  whose store held a chunk twice (earlier builds could ingest a corpus on top
+  of itself), and only for dense-only arms; BM25, SPLADE, hybrid and fused
+  arms merge by chunk id and cannot move.
 
 The key changed in three more ways, without a new version: a run on a corpus
 that failed partly to ingest gets a key of its own (`corpus_ingest_gap`);
@@ -238,22 +247,57 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   model.
 - **`lasagna component validate`** builds a registered component with the
   `speed` profile's model (`--profile` chooses another).
-- With `RAG_REQUIRE_AUTH` on, minting a session needs a key from
-  `RAG_API_KEYS`. Request bodies are limited before they are read (413), and a
-  REST search that runs past `RAG_SEARCH_TIMEOUT` (120 s) gets 504.
+- **With `RAG_REQUIRE_AUTH` on, quotas count per API key.** Minting a session
+  needs a key from `RAG_API_KEYS`, a key mints at most
+  `RAG_MAX_SESSIONS_PER_KEY` sessions (100), and its sessions' documents,
+  storage and chunks count toward its quota. The MCP `get_system_status` tool
+  needs a session token, and its paths and counts the admin token. Auth off:
+  unchanged.
+- Request bodies are limited before they are read (413), a REST search that
+  runs past `RAG_SEARCH_TIMEOUT` (120 s) gets 504, and every numeric session
+  setting has a maximum (`SESSION_MAXIMUMS`) that applies to REST, MCP and
+  imports, never to the evaluation harness.
+- A model a session names (`monot5_model`, `splade_model`, `colbert_model`,
+  `flashrank_model`, as the embedder and the cross-encoder already did) follows
+  the server's download policy instead of downloading inside a request.
+- Uploads, reindexes and deletes of one document wait for each other across
+  processes (a PostgreSQL advisory lock, or a file lock beside a SQLite store).
+  A document that fails to index leaves no chunks behind, search returns
+  chunks of ready documents only, and uploading a file again whose copies all
+  failed retries the newest one under its id.
+- The Compose stack no longer publishes Redis on the host
+  (`-f expose-redis.yml` publishes it on loopback for debugging).
 - The Docker image runs torch's CPU build (3.8 GB; `TORCH_VARIANT=cuda` builds
   the GPU one), and the Compose stack defaults to a Milvus server.
 - `sentencepiece` is a core dependency, for the `monot5` reranker's tokenizer.
 
 ### Known issues
 
-- **Quotas are counted per session, not per API key.** With auth on, rate
-  limits are counted per key, but the document, storage and chunk quotas are
-  per session, and one key can mint any number of sessions. Counting them per
-  key needs a durable record of which key made each session, readable by the
-  Celery worker and by garbage collection, which rebuild the counters per
-  session; it is planned. `src/lasagna/deploy/README.md` (Request limits) says
-  what to do meanwhile.
+- **Windows needs WSL.** The default store, Milvus Lite, does not install on
+  Windows, so `pip install lasagna-rag` succeeds and the first upload fails.
+  Use WSL, or point Lasagna at a Milvus server or another vector store
+  (`RAG_VECTOR_BACKEND`).
+- **mcp 2.x is not supported.** `mcp` is pinned below 2.0 (2.0 removed
+  `mcp.server.fastmcp`, which the MCP server imports), so an environment that
+  needs mcp 2.x cannot also install Lasagna. Install it in an environment of
+  its own (`pipx install lasagna-rag` or `uv tool install lasagna-rag`) and run
+  `lasagna-mcp` from there.
+- **Docling's models are not under the download policy.** With the `docling`
+  extra installed (the settings file turns Docling on), the first document it
+  converts downloads Docling's layout models, inside the request on a server
+  that otherwise refuses downloads. Download them before serving, or turn
+  Docling off with `RAG_DOCLING_ENABLED=false`.
+- **Chunk boundaries depend on nltk's `punkt_tab`.** Lasagna never downloads
+  it; without it sentences are split with a regular expression, so the same
+  corpus can chunk differently on two machines (a run's bundle records the
+  fallback). Run `python -m nltk.downloader punkt_tab` once on every machine
+  whose numbers you compare.
+- **A local Milvus Lite store opens in one process at a time.** While
+  `lasagna-mcp` (stdio) or a benchmark holds it, `lasagna status`, `search` and
+  `upload` stop with the fix; run `lasagna serve --mcp` so the CLI and agents
+  share it, or use a Milvus server.
+- **pip takes about two minutes to resolve `.[all]`.** uv resolves it in
+  seconds (`uv pip install "lasagna-rag[all]"`).
 
 ### Planned for 0.2.0
 

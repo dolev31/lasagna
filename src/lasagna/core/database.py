@@ -59,6 +59,17 @@ DOCUMENT_FIELDS = frozenset(
 )
 
 
+class DocumentIdTaken(RuntimeError):
+    """A new document's id is already in the store; REST answers 409 (or 404 for another session's)."""
+
+    def __init__(self, document_id: str):
+        self.document_id = document_id
+        super().__init__(
+            f"document_id {document_id!r} is already taken; choose another id, or upload "
+            "again to replace your document under it."
+        )
+
+
 class StoreVersionError(RuntimeError):
     """The store was written by a newer Lasagna than the one opening it."""
 
@@ -310,7 +321,10 @@ class RAGDatabase:
 
             logger.info(f"Initializing RAG database: {self.db_path}")
 
-            with self._get_connection() as conn:
+            # One process at a time, as on PostgreSQL: two workers starting on
+            # a new file at once failed the second one's switch to WAL with
+            # "database is locked".
+            with self.exclusive("schema"), self._get_connection() as conn:
                 cursor = conn.cursor()
 
                 # Enable WAL mode for better concurrent performance
@@ -412,6 +426,20 @@ class RAGDatabase:
             finally:
                 conn.close()
 
+    @contextmanager
+    def exclusive(self, name: str):
+        """Hold the lock ``name`` against every thread and process using this database.
+
+        A file lock in ``<database>.locks/`` (see `lasagna.core.store_locks`):
+        the processes that share a SQLite file are on one host. Replacing,
+        retrying and deleting a document, and the duplicate check of an upload,
+        take it.
+        """
+        from .store_locks import file_lock
+
+        with file_lock(f"{self.db_path}.locks", name):
+            yield
+
     def _run_migrations(self, cursor: sqlite3.Cursor, from_version: int):
         """Run schema migrations.
 
@@ -497,7 +525,12 @@ class RAGDatabase:
     # =========================================================================
 
     def save_document(
-        self, document: Dict[str, Any], file_path: str, collection_name: Optional[str] = None
+        self,
+        document: Dict[str, Any],
+        file_path: str,
+        collection_name: Optional[str] = None,
+        *,
+        replace: bool = True,
     ) -> bool:
         """Save document metadata.
 
@@ -505,41 +538,56 @@ class RAGDatabase:
             document: Document metadata dictionary
             file_path: Path to the stored file
             collection_name: Vector collection this document was written to (for orphan detection)
+            replace: Overwrite a row with the same id (the evaluation harness
+                registering its corpus again). False for a new upload: an id
+                taken meanwhile raises `DocumentIdTaken` instead of replacing
+                that row and its ``session_id``.
 
         Returns:
             True if saved successfully
         """
+        verb = "INSERT OR REPLACE" if replace else "INSERT"
         with self.transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO rag_documents
+            try:
+                self._insert_document(cursor, verb, document, file_path, collection_name)
+            except sqlite3.IntegrityError as exc:
+                if replace or "UNIQUE" not in str(exc).upper():
+                    raise
+                raise DocumentIdTaken(str(document.get("document_id"))) from None
+        return True
+
+    @staticmethod
+    def _insert_document(cursor, verb, document, file_path, collection_name) -> None:
+        cursor.execute(
+            f"""
+                {verb} INTO rag_documents
                 (document_id, session_id, filename, file_path, file_size,
                  file_type, status, chunks_count, upload_date, error_message,
                  processing_time, text_length, preview_text, vector_backend_name,
                  storage_backend_name, collection_name, expires_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    document.get("document_id"),
-                    document.get("session_id"),
-                    document.get("filename"),
-                    file_path,
-                    document.get("file_size"),
-                    document.get("file_type"),
-                    document.get("status", "processing"),
-                    document.get("chunks_count", 0),
-                    document.get("upload_date", datetime.now(timezone.utc).isoformat()),
-                    document.get("error_message"),
-                    document.get("processing_time"),
-                    document.get("text_length"),
-                    document.get("preview_text"),
-                    document.get("vector_backend_name", "milvus"),
-                    document.get("storage_backend_name", "local"),
-                    collection_name or document.get("collection_name"),
-                    document.get("expires_at"),
-                ),
-            )
+            (
+                document.get("document_id"),
+                document.get("session_id"),
+                document.get("filename"),
+                file_path,
+                document.get("file_size"),
+                document.get("file_type"),
+                document.get("status", "processing"),
+                document.get("chunks_count", 0),
+                document.get("upload_date", datetime.now(timezone.utc).isoformat()),
+                document.get("error_message"),
+                document.get("processing_time"),
+                document.get("text_length"),
+                document.get("preview_text"),
+                document.get("vector_backend_name", "milvus"),
+                document.get("storage_backend_name", "local"),
+                collection_name or document.get("collection_name"),
+                document.get("expires_at"),
+            ),
+        )
         return True
 
     def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:
@@ -1779,6 +1827,77 @@ class RAGDatabase:
                 conn.close()
 
     # =========================================================================
+    # SESSION PRINCIPALS (which API key minted a session)
+    # =========================================================================
+    #
+    # With auth on, quotas count per API key over all its sessions, and a key
+    # mints a bounded number of sessions. Every process that counts usage (API
+    # workers, the Celery worker, garbage collection) reads the record here.
+
+    def _session_principals_conn(self):
+        conn = self._get_connection()
+        if not getattr(self, "_session_principals_ready", False):
+            conn.execute(CREATE_SESSION_PRINCIPALS_TABLE)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_session_principals_principal "
+                "ON session_principals(principal, created_at);"
+            )
+            conn.commit()
+            self._session_principals_ready = True
+        return conn
+
+    def bind_session_principal(
+        self,
+        session_id: str,
+        principal: str,
+        *,
+        limit: Optional[int] = None,
+        since: Optional[datetime] = None,
+    ) -> bool:
+        """Record that ``principal`` minted ``session_id``; False when it already has ``limit``.
+
+        ``limit`` counts the principal's sessions minted at or after ``since``
+        (the ones whose tokens may still be valid). The count and the insert
+        hold the principal's lock, so two mints at once cannot both pass.
+        """
+        with self.exclusive(f"sessions:{principal}"), self._lock:
+            conn = self._session_principals_conn()
+            try:
+                if limit is not None:
+                    (count,) = conn.execute(
+                        "SELECT COUNT(*) FROM session_principals "
+                        "WHERE principal = ? AND created_at >= ?",
+                        (
+                            principal,
+                            (since or datetime.min.replace(tzinfo=timezone.utc)).isoformat(),
+                        ),
+                    ).fetchone()
+                    if count >= limit:
+                        return False
+                conn.execute(
+                    "INSERT INTO session_principals (session_id, principal, created_at) "
+                    "VALUES (?, ?, ?) ON CONFLICT(session_id) DO NOTHING",
+                    (session_id, principal, datetime.now(timezone.utc).isoformat()),
+                )
+                conn.commit()
+                return True
+            finally:
+                conn.close()
+
+    def session_principal(self, session_id: str) -> Optional[str]:
+        """The principal that minted ``session_id``; None when none is recorded."""
+        with self._lock:
+            conn = self._session_principals_conn()
+            try:
+                row = conn.execute(
+                    "SELECT principal FROM session_principals WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                return row[0] if row else None
+            finally:
+                conn.close()
+
+    # =========================================================================
     # CONTENT GENERATIONS (when a session's searchable chunks last changed)
     # =========================================================================
     #
@@ -1865,6 +1984,16 @@ CREATE_CONTENT_GENERATIONS_TABLE = """
 CREATE TABLE IF NOT EXISTS content_generations (
     session_id TEXT PRIMARY KEY,
     generation INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+#: One row per session minted with an API key: the key's principal (a digest,
+#: never the key) and when. Quotas count per principal with auth on.
+CREATE_SESSION_PRINCIPALS_TABLE = """
+CREATE TABLE IF NOT EXISTS session_principals (
+    session_id TEXT PRIMARY KEY,
+    principal TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL
 );
 """
 

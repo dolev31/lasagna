@@ -209,8 +209,8 @@ SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
         "REST API and authentication",
         "unset",
         "Comma-separated keys, each at least 32 characters, that may mint session tokens "
-        "when RAG_REQUIRE_AUTH is on. Rate limits are counted per key; storage quotas per "
-        "session.",
+        "when RAG_REQUIRE_AUTH is on. Rate limits and quotas are counted per key, over all "
+        "the sessions it minted.",
         (),
     ),
     "RAG_JWT_SECRET": (
@@ -294,6 +294,14 @@ SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
         "REST API and authentication",
         "120",
         "Seconds a REST search may run before it answers 504.",
+        (),
+    ),
+    "RAG_MAX_SESSIONS_PER_KEY": (
+        "REST API and authentication",
+        "100",
+        "With RAG_REQUIRE_AUTH on, how many sessions one API key may mint per token "
+        "lifetime (RAG_SESSION_TOKEN_TTL_SECONDS); one more answers 429. Raise it for an "
+        "application that makes a session per end user.",
         (),
     ),
     "RAG_EMBED_MCP": (

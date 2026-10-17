@@ -86,10 +86,15 @@ def test_the_bundle_has_one_entry_per_benchmark_and_config(tmp_path):
 
 
 def test_a_single_benchmark_run_keeps_its_key(tmp_path):
-    """The value public-main computed for this run."""
+    """The key a config had before: computed from its first result."""
+    from lasagna.knowledge_evaluation_sdk.bundle import held_fixed_from
+
     path = _results(tmp_path, _row("smoke", 12))
-    (entry,) = BenchmarkResults.load(path).to_bundle()["configs"]
-    assert entry["comparability_key"] == "7c49cc7a36dcb94c"  # pragma: allowlist secret
+    results = BenchmarkResults.load(path)
+    (entry,) = results.to_bundle()["configs"]
+    row = results._results[0].to_dict()
+    held = held_fixed_from(row, results.experiment_config, [row.get("config_overrides") or {}])
+    assert entry["comparability_key"] == comparability_key(held)
 
 
 def test_each_leaderboard_caption_names_its_own_benchmark(tmp_path):

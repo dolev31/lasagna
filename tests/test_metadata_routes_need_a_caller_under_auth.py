@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from lasagna.api.rest import session_token
 from lasagna.api.rest.dependencies import get_backend
+from tests._tokens import minted_token
 
 _ROUTES = [
     ("get", "/api/v1/stats", None),
@@ -50,7 +51,7 @@ def test_an_unauthenticated_caller_is_refused(app, method, path, body):
 
 @pytest.mark.parametrize("method, path, body", _ROUTES)
 def test_a_verified_caller_is_answered(app, method, path, body):
-    token, _ = session_token.create_session_token("s", "u")
+    token = minted_token("s", "u")
     response = getattr(app, method)(
         path, headers={"X-Session-Token": token}, **({"json": body} if body else {})
     )

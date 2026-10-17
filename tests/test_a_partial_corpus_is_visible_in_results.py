@@ -20,11 +20,7 @@ import lasagna.api.rag_backend as rag_backend_mod
 from lasagna.knowledge_evaluation_sdk import _fast_ingest as fast_ingest_mod
 from lasagna.knowledge_evaluation_sdk import experiment as exp
 from lasagna.knowledge_evaluation_sdk.benchmarks.adapters import smoke
-from lasagna.knowledge_evaluation_sdk.bundle import (
-    METRICS_VERSION,
-    comparability_key,
-    held_fixed_from,
-)
+from lasagna.knowledge_evaluation_sdk.bundle import comparability_key, held_fixed_from
 
 # The live-run fixtures of the ranked-order test: real profiles, the real
 # orchestrator, a stub retriever over the smoke corpus.
@@ -109,7 +105,9 @@ def _result(gap):
     }
 
 
-META = {"metrics_version": METRICS_VERSION, "judge_model": None, "similarity_model": None}
+#: The metrics version the pinned key below was computed with; the key of a
+#: complete corpus must not depend on corpus_ingest_gap, whatever the version.
+META = {"metrics_version": "1.6", "judge_model": None, "similarity_model": None}
 
 
 def test_a_complete_corpus_keeps_its_comparability_key():

@@ -129,10 +129,20 @@ def _allowed() -> bool:
 
 
 def refusal(
-    model: str, kind: str = "embedding model", filename: str = "config.json"
+    model: str,
+    kind: str = "embedding model",
+    filename: str = "config.json",
+    *,
+    cached: Optional[bool] = None,
 ) -> Optional[ModelNotDownloaded]:
-    """Why ``model`` cannot be loaded here without a download, or None when it can."""
-    if is_cached(model) if filename == "config.json" else is_cached(model, filename):
+    """Why ``model`` cannot be loaded here without a download, or None when it can.
+
+    ``cached`` is for a model that is not a Hugging Face repository (FlashRank
+    downloads its own files): whether it is on disk, as its loader tells.
+    """
+    if cached is None:
+        cached = is_cached(model) if filename == "config.json" else is_cached(model, filename)
+    if cached:
         return None
     if offline():
         return ModelNotDownloaded(model, offline=True, kind=kind)
@@ -141,11 +151,22 @@ def refusal(
     return None
 
 
-def check(model: str, kind: str = "embedding model", filename: str = "config.json") -> None:
-    """Raise :class:`ModelNotDownloaded` when a server would have to download ``model``."""
+def check(
+    model: str,
+    kind: str = "embedding model",
+    filename: str = "config.json",
+    *,
+    cached: Optional[bool] = None,
+) -> None:
+    """Raise :class:`ModelNotDownloaded` when a server would have to download ``model``.
+
+    Every loader of a model a session can name calls it before it loads:
+    the embedder, the cross-encoder, monoT5, FlashRank, ColBERT, SPLADE and
+    the chunk tokenizer.
+    """
     if not _refusing:
         return
-    problem = refusal(model, kind, filename)
+    problem = refusal(model, kind, filename, cached=cached)
     if problem is not None:
         raise problem
 

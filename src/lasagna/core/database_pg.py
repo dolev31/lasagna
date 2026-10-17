@@ -213,6 +213,19 @@ CREATE TABLE IF NOT EXISTS content_generations (
 );
 """
 
+_CREATE_SESSION_PRINCIPALS = """
+CREATE TABLE IF NOT EXISTS session_principals (
+    session_id TEXT PRIMARY KEY,
+    principal TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+"""
+
+_SESSION_PRINCIPALS_INDEX = (
+    "CREATE INDEX IF NOT EXISTS idx_session_principals_principal "
+    "ON session_principals(principal, created_at);"
+)
+
 _CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_documents_session_id ON rag_documents(session_id);",
     "CREATE INDEX IF NOT EXISTS idx_documents_status ON rag_documents(status);",
@@ -358,6 +371,61 @@ class PostgresRAGDatabase:
             finally:
                 conn.close()
 
+    def _lock_connection(self):
+        """A connection of its own, in autocommit, to hold one advisory lock.
+
+        Not from the pool: a reindex holds its document's lock while it runs,
+        and pooled connections held that long would starve every other query.
+        """
+        if self._driver == "psycopg3":
+            return _psycopg.connect(self._dsn, autocommit=True)
+        conn = _psycopg2.connect(self._dsn)
+        conn.autocommit = True
+        return conn
+
+    @contextmanager
+    def exclusive(self, name: str):
+        """Hold the lock ``name`` against every process using this database.
+
+        A session-level advisory lock (``pg_advisory_lock``) on a connection
+        held for the duration: every API pod, gunicorn worker, Celery worker
+        and MCP server shares it, and a process that dies releases it with its
+        connection. Replacing, retrying and deleting a document, and the
+        duplicate check of an upload, take it. A thread may take a lock it
+        already holds.
+        """
+        from .store_locks import HeldLocks, lock_key
+
+        if getattr(self, "_held_locks", None) is None:
+            with self._lock:
+                if getattr(self, "_held_locks", None) is None:
+                    self._held_locks = HeldLocks()
+        held = self._held_locks.held
+        key = lock_key(name)
+        if key in held:
+            held[key] += 1
+            try:
+                yield
+            finally:
+                held[key] -= 1
+            return
+        conn = self._lock_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_lock(%s)", (key,))
+            held[key] = 1
+            try:
+                yield
+            finally:
+                del held[key]
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT pg_advisory_unlock(%s)", (key,))
+                except Exception as exc:  # closing the connection releases it too
+                    logger.debug(f"Could not release advisory lock {name!r}: {exc}")
+        finally:
+            conn.close()
+
     def _create_schema(self):
         with self._conn() as conn:
             with conn.cursor() as cur:
@@ -373,6 +441,8 @@ class PostgresRAGDatabase:
                 cur.execute(_CREATE_GC_AUDIT_LOG)
                 cur.execute(_CREATE_GC_LOCK)
                 cur.execute(_CREATE_CONTENT_GENERATIONS)
+                cur.execute(_CREATE_SESSION_PRINCIPALS)
+                cur.execute(_SESSION_PRINCIPALS_INDEX)
                 for idx_sql in _CREATE_INDEXES:
                     cur.execute(idx_sql)
                 # Add storage_backend_name column if missing (v3->v4 migration)
@@ -433,19 +503,9 @@ class PostgresRAGDatabase:
     # Document operations
     # ------------------------------------------------------------------
 
-    def save_document(
-        self, document: Dict[str, Any], file_path: str, collection_name: Optional[str] = None
-    ) -> bool:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO rag_documents
-                    (document_id, session_id, filename, file_path, file_size,
-                     file_type, status, chunks_count, upload_date, error_message,
-                     processing_time, text_length, preview_text, vector_backend_name,
-                     storage_backend_name, collection_name, expires_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    #: How ``save_document`` resolves an id already stored: replace the row, or keep it.
+    _ON_CONFLICT_KEEP = "ON CONFLICT (document_id) DO NOTHING"
+    _ON_CONFLICT_REPLACE = """
                     ON CONFLICT (document_id) DO UPDATE SET
                         session_id=EXCLUDED.session_id, filename=EXCLUDED.filename,
                         file_path=EXCLUDED.file_path, file_size=EXCLUDED.file_size,
@@ -457,29 +517,61 @@ class PostgresRAGDatabase:
                         storage_backend_name=EXCLUDED.storage_backend_name,
                         collection_name=COALESCE(EXCLUDED.collection_name, rag_documents.collection_name),
                         expires_at=COALESCE(EXCLUDED.expires_at, rag_documents.expires_at)
-                    """,
-                    (
-                        document.get("document_id"),
-                        document.get("session_id"),
-                        document.get("filename"),
-                        file_path,
-                        document.get("file_size"),
-                        document.get("file_type"),
-                        document.get("status", "processing"),
-                        document.get("chunks_count", 0),
-                        document.get("upload_date", datetime.now(timezone.utc).isoformat()),
-                        document.get("error_message"),
-                        document.get("processing_time"),
-                        document.get("text_length"),
-                        document.get("preview_text"),
-                        document.get("vector_backend_name", "milvus"),
-                        document.get("storage_backend_name", "local"),
-                        collection_name or document.get("collection_name"),
-                        document.get("expires_at"),
-                    ),
+                    """
+
+    def save_document(
+        self,
+        document: Dict[str, Any],
+        file_path: str,
+        collection_name: Optional[str] = None,
+        *,
+        replace: bool = True,
+    ) -> bool:
+        """Save a document's row; see ``RAGDatabase.save_document`` for ``replace``."""
+        from lasagna.core.database import DocumentIdTaken
+
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO rag_documents
+                    (document_id, session_id, filename, file_path, file_size,
+                     file_type, status, chunks_count, upload_date, error_message,
+                     processing_time, text_length, preview_text, vector_backend_name,
+                     storage_backend_name, collection_name, expires_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """
+                    + (self._ON_CONFLICT_REPLACE if replace else self._ON_CONFLICT_KEEP),
+                    self._document_values(document, file_path, collection_name),
                 )
+                taken = not replace and cur.rowcount == 0
             conn.commit()
+        if taken:
+            # Kept: the upsert rewrote another session's row, session_id included.
+            raise DocumentIdTaken(str(document.get("document_id")))
         return True
+
+    @staticmethod
+    def _document_values(document: Dict[str, Any], file_path: str, collection_name):
+        return (
+            document.get("document_id"),
+            document.get("session_id"),
+            document.get("filename"),
+            file_path,
+            document.get("file_size"),
+            document.get("file_type"),
+            document.get("status", "processing"),
+            document.get("chunks_count", 0),
+            document.get("upload_date", datetime.now(timezone.utc).isoformat()),
+            document.get("error_message"),
+            document.get("processing_time"),
+            document.get("text_length"),
+            document.get("preview_text"),
+            document.get("vector_backend_name", "milvus"),
+            document.get("storage_backend_name", "local"),
+            collection_name or document.get("collection_name"),
+            document.get("expires_at"),
+        )
 
     def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:
         with self._conn() as conn:
@@ -1520,6 +1612,47 @@ class PostgresRAGDatabase:
     # ------------------------------------------------------------------
     # Content generations (mirrors RAGDatabase; created with the schema)
     # ------------------------------------------------------------------
+
+    def bind_session_principal(
+        self,
+        session_id: str,
+        principal: str,
+        *,
+        limit: Optional[int] = None,
+        since: Optional[datetime] = None,
+    ) -> bool:
+        """See ``RAGDatabase.bind_session_principal``; the principal's advisory lock
+        makes the count and the insert one step for every API pod."""
+        with self.exclusive(f"sessions:{principal}"), self._conn() as conn:
+            with conn.cursor() as cur:
+                if limit is not None:
+                    cur.execute(
+                        "SELECT COUNT(*) FROM session_principals "
+                        "WHERE principal = %s AND created_at >= %s",
+                        (principal, since or datetime.min.replace(tzinfo=timezone.utc)),
+                    )
+                    if cur.fetchone()[0] >= limit:
+                        conn.commit()
+                        return False
+                cur.execute(
+                    "INSERT INTO session_principals (session_id, principal) VALUES (%s, %s) "
+                    "ON CONFLICT (session_id) DO NOTHING",
+                    (session_id, principal),
+                )
+            conn.commit()
+        return True
+
+    def session_principal(self, session_id: str) -> Optional[str]:
+        """The principal that minted ``session_id``; None when none is recorded."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT principal FROM session_principals WHERE session_id = %s",
+                    (session_id,),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return row[0] if row else None
 
     def get_content_generation(self, session_id: str) -> int:
         """How many times the session's documents have changed; 0 before the first."""

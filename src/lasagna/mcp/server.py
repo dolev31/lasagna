@@ -1889,16 +1889,42 @@ def get_document_chunks(
 
 
 @mcp.tool()
-def get_system_status() -> str:
+def get_system_status(
+    session_id: str = "",
+    session_token: Optional[str] = None,
+    admin_token: Optional[str] = None,
+) -> str:
     """Get RAG system health and statistics.
 
-    Returns system status including Milvus connection, embedding model info,
-    collection statistics, and configuration summary.
+    Returns system status including the vector store connection, embedding
+    model info, collection statistics, and configuration summary. On a
+    networked transport with auth on it needs a session token like the other
+    tools, and the database and upload paths and the row count of the
+    collection, which every session on the model shares, need the admin token.
 
+    :param session_id: Session whose configuration is reported; the server's
+        session (RAG_SESSION_ID) when omitted.
+    :param session_token: Required on a networked transport with RAG_REQUIRE_AUTH.
+    :param admin_token: With auth on, adds the paths and the shared row count.
     :returns: System status in JSON format.
     """
     start_time = time.time()
-    _log_tool_call("get_system_status", {})
+    _log_tool_call("get_system_status", {"session_id": session_id})
+
+    if transport_guard.enforcement_active():
+        # It answered with no token, and named the database and upload paths
+        # and every tenant's row count to anyone who could reach the server.
+        operator = transport_guard.admin_token_matches(admin_token)
+        if admin_token and not operator:
+            raise transport_guard.MCPAuthError(
+                "get_system_status: the admin_token is not this server's RAG_ADMIN_TOKEN. "
+                "Leave it out to see the status your session token may see."
+            )
+        session_id, _user_id = _resolve_session(session_id, session_token, admin_verified=operator)
+    else:
+        # stdio, or loopback with auth off: one user, who runs the server.
+        session_id = session_id or os.environ.get("RAG_SESSION_ID", "").strip() or "default"
+        operator = True
 
     try:
         from lasagna.knowledge_evaluation_sdk.stages import (
@@ -1909,7 +1935,6 @@ def get_system_status() -> str:
         backend = _get_backend()
         # The session's own configuration: the global one named the default
         # collection, and a session with 76 chunks reported row_count 0.
-        session_id = os.environ.get("RAG_SESSION_ID", "").strip() or "default"
         try:
             config = backend.get_session_config(session_id)
         except Exception:
@@ -1994,13 +2019,18 @@ def get_system_status() -> str:
                 stats["components"]["embedding_cache"] = cache_stats
 
         # Try to get collection row count (using session-aware backend - BYOVDB support)
-        if has_collection:
+        if has_collection and operator:
             try:
                 collection_stats = vb.get_collection_stats(collection_name)
                 stats["components"]["milvus"]["row_count"] = collection_stats.get("row_count", 0)
             except Exception as e:
                 logger.warning(f"Could not get collection stats: {e}")
                 stats["components"]["milvus"]["row_count"] = "unknown"
+        if not operator:
+            # Where the server keeps its data, and how much the other
+            # tenants of the collection hold, are the operator's to see.
+            stats["components"].pop("sqlite", None)
+            stats.pop("storage", None)
 
         duration_ms = (time.time() - start_time) * 1000
         _log_tool_result("get_system_status", True, "Status retrieved", duration_ms)
@@ -3895,17 +3925,18 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
             if not tool_name:
                 return JSONResponse({"error": "Missing 'tool' parameter"}, status_code=400)
 
-            # `arguments` carries session_token for every session-scoped tool
-            # and admin_token for the five admin-scoped ones. Logged verbatim,
-            # both landed in the container log.
-            logger.info(
-                f"API call: tool={tool_name}, "
-                f"args={_redact_credentials(arguments if isinstance(arguments, dict) else {})}"
+            # Names only, at DEBUG: `arguments` carries the query of a search
+            # tool, a session_token and the admin_token, and the result is
+            # the text the tool returned; logged at INFO, they landed in the
+            # container log.
+            logger.debug(
+                f"API call: tool={tool_name}, argument names="
+                f"{sorted(arguments) if isinstance(arguments, dict) else []}"
             )
 
             # Call the tool directly
             result = await mcp_instance.call_tool(tool_name, arguments)
-            logger.debug(f"Tool result type: {type(result)}, value: {result}")
+            logger.debug(f"Tool result type: {type(result).__name__}")
 
             # Handle different result types - extract text from ContentBlocks
             if isinstance(result, list):
@@ -3920,7 +3951,7 @@ def _register_custom_routes(mcp_instance: FastMCP, host: str, port: int):
                     else:
                         # Try to convert to string
                         result_text += str(block)
-                logger.info(f"Extracted text ({len(result_text)} chars): {result_text[:100]}...")
+                logger.debug(f"Tool {tool_name} returned {len(result_text)} characters")
                 return JSONResponse({"result": result_text})
             elif isinstance(result, dict):
                 return JSONResponse({"result": result})

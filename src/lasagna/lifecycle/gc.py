@@ -366,15 +366,24 @@ class GarbageCollector:
             # sync_from_counters() writes unconditionally regardless of enabled state,
             # so counters are accurate if quota enforcement is turned on later.
             qm = get_quota_manager()
-            synced = 0
+            # Summed per owner: with auth on, the sessions of one API key share
+            # one quota, and writing each session's counts in turn left the
+            # key's counters at its last session's.
+            per_owner: dict = {}
             for sid, counters in per_session.items():
+                total = per_owner.setdefault(
+                    qm.owner_of(sid), {"documents": 0, "storage_bytes": 0, "chunks": 0}
+                )
+                for name in total:
+                    total[name] += counters[name]
+            for owner, counters in per_owner.items():
                 qm.sync_from_counters(
-                    sid,
+                    owner,
                     documents=counters["documents"],
                     storage_bytes=counters["storage_bytes"],
                     chunks=counters["chunks"],
                 )
-                synced += 1
+            synced = len(per_session)
 
             result.details["sessions_synced"] = synced
             result.details["quota_enabled"] = qm.is_enabled

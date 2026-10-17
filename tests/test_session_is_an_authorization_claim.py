@@ -102,11 +102,11 @@ class TestTheHeaderAttack:
 
     def test_a_verified_token_passes_the_dependency(self, monkeypatch):
         from lasagna.api.rest import dependencies
-        from lasagna.api.rest.session_token import create_session_token
+        from tests._tokens import minted_token
 
         monkeypatch.setenv("RAG_JWT_SECRET", "test-secret-not-a-real-one-0123456789abcdef")
         _enable(monkeypatch)
-        token, _expiry = create_session_token(session_id="tenant-a", user_id="u1")
+        token = minted_token("tenant-a")
 
         class _Req:
             state = type("S", (), {})()
@@ -122,11 +122,11 @@ class TestTheHeaderAttack:
         """Token wins, so a caller cannot present a valid token for their own
         session and a header naming someone else's."""
         from lasagna.api.rest import dependencies
-        from lasagna.api.rest.session_token import create_session_token
+        from tests._tokens import minted_token
 
         monkeypatch.setenv("RAG_JWT_SECRET", "test-secret-not-a-real-one-0123456789abcdef")
         _enable(monkeypatch)
-        token, _expiry = create_session_token(session_id="mine", user_id="u1")
+        token = minted_token("mine")
 
         class _Req:
             state = type("S", (), {})()
@@ -232,10 +232,9 @@ class TestOverRealHTTP:
         return testclient.TestClient(app)
 
     def _token(self, session_id="tenant-a"):
-        from lasagna.api.rest.session_token import create_session_token
+        from tests._tokens import minted_token
 
-        token, _expiry = create_session_token(session_id=session_id, user_id="u1")
-        return token
+        return minted_token(session_id)
 
     def test_the_header_attack_gets_401(self, client):
         """`DELETE /documents/{id} -H "X-Session-ID: victim"` -- the whole point."""

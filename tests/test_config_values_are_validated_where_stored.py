@@ -53,7 +53,8 @@ def test_an_import_with_invalid_values_is_refused_and_stores_nothing(manager, ov
     sid = "import-values"
     before = _state(manager, sid)
     data = {"schema_version": 2, "profiles": [], "session_overrides": overrides}
-    with pytest.raises(ValueError, match="Invalid configuration"):
+    # A number past a session's maximum is refused before validation runs.
+    with pytest.raises(ValueError, match="Invalid configuration|is at most"):
         manager.import_config(data, session_id=sid)
     assert _state(manager, sid) == before
 

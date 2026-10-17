@@ -609,6 +609,9 @@ def orchestrator(monkeypatch):
     from lasagna.vector_backends.milvus_backend import MilvusBackend
 
     monkeypatch.setattr(orch_mod, "SearchResult", lambda **kw: SimpleNamespace(**kw))
+    # Where the session's documents are is read from the suite's database,
+    # which other tests fill for these session ids; these tests name one stage.
+    monkeypatch.setattr(orch_mod, "_note_documents_elsewhere", lambda session_id, config: None)
     backend = MilvusBackend(db_path="never-opened.db")
     backend._client = _MilvusClient()
     o = orch_mod.SearchOrchestrator.__new__(orch_mod.SearchOrchestrator)

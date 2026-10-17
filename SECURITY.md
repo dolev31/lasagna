@@ -55,15 +55,17 @@ inputs on an instance you control.
   placeholders are ignored). With no usable key configured the endpoint returns
   503, so an exposed instance cannot be left open by omission. The key's
   principal (a digest of the key, never the key) is written into the token, and
-  rate limits are counted per principal, so minting more sessions buys no more
-  requests. Storage and document quotas are still counted per session.
+  rate limits and quotas are counted per principal, so minting more sessions
+  buys no more requests and no more storage: a key's sessions share one quota.
+  A key mints at most `RAG_MAX_SESSIONS_PER_KEY` (100) sessions per token
+  lifetime; one more answers 429.
   Removing a key from `RAG_API_KEYS` ends every session it minted: the
   principal is checked against the configured keys whenever a token is read,
   on REST and MCP. Tokens minted with `RAG_ADMIN_TOKEN` name no key (their
   principal is `admin`); changing `RAG_JWT_SECRET` ends those, and every other
   token. A token minted while auth was off names no principal at all, and is
-  refused once auth is on with keys configured, so switching auth on ends
-  those sessions without a new secret.
+  refused once auth is on, so switching auth on ends those sessions without a
+  new secret.
 
   `RAG_ADMIN_TOKEN` is a **narrower** thing and is not a password for the API.
   It guards the operations whose blast radius is the whole instance rather than

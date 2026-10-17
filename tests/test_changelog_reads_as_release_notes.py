@@ -30,7 +30,7 @@ RELEASE = _section("0.1.0")
 
 
 def test_the_release_entry_is_short_and_has_the_sections_a_reader_needs():
-    assert len(RELEASE.splitlines()) < 300
+    assert len(RELEASE.splitlines()) < 350
     for heading in (
         "### Added",
         "### Changed for users of 0.1.0a1",
@@ -39,6 +39,8 @@ def test_the_release_entry_is_short_and_has_the_sections_a_reader_needs():
     ):
         assert heading in RELEASE, heading
     assert "### Deprecated" not in RELEASE and "### Fixed" not in RELEASE
+    known = RELEASE[RELEASE.index("### Known issues") : RELEASE.index("### Planned for 0.2.0")]
+    assert "None." not in known and known.count("\n- **") >= 3
 
 
 def test_every_metric_definition_step_is_stated():

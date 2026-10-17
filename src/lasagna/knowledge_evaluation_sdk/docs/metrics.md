@@ -31,6 +31,12 @@ In live mode the harness scores each query's ranked list of `metric_k`
 distinct documents (default 10), and every per-query key carries that cutoff:
 `ndcg@10`, `map@10`, `mrr@10`, `r_precision@10` and so on.
 
+A chunk that repeats in the search's candidate list takes one place, at its
+best rank, before the reranker and the cut (`METRICS_VERSION` 1.7). Before, a
+repeat took a second place in the cut and the list came back short. Only a
+store that held a chunk twice (a corpus ingested on top of itself) produced
+repeats, and only dense-only arms read them: every fusion merges by chunk id.
+
 The ranked list is the retriever's order, or the reranker's when the pipeline
 reranks. Context reordering (`enable_context_reordering`, on in the standard,
 balanced and max_quality profiles) is off for the retrieval track: it puts the
