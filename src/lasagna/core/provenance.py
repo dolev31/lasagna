@@ -292,7 +292,10 @@ def redact_paths(value: Any) -> Any:
         return [redact_paths(v) for v in value]
     if not isinstance(value, str):
         return redact(value)
-    cwd = os.getcwd().rstrip("/") or "/"
+    try:
+        cwd = os.getcwd().rstrip("/") or "/"
+    except OSError:  # the working directory was removed
+        cwd = "/"
 
     def _relative(match: "re.Match[str]") -> str:
         path = match.group(0).rstrip(".")
