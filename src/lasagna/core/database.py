@@ -59,6 +59,17 @@ DOCUMENT_FIELDS = frozenset(
 )
 
 
+class DocumentIdTaken(RuntimeError):
+    """A new document's id is already in the store; REST answers 409 (or 404 for another session's)."""
+
+    def __init__(self, document_id: str):
+        self.document_id = document_id
+        super().__init__(
+            f"document_id {document_id!r} is already taken; choose another id, or upload "
+            "again to replace your document under it."
+        )
+
+
 class StoreVersionError(RuntimeError):
     """The store was written by a newer Lasagna than the one opening it."""
 
@@ -514,7 +525,12 @@ class RAGDatabase:
     # =========================================================================
 
     def save_document(
-        self, document: Dict[str, Any], file_path: str, collection_name: Optional[str] = None
+        self,
+        document: Dict[str, Any],
+        file_path: str,
+        collection_name: Optional[str] = None,
+        *,
+        replace: bool = True,
     ) -> bool:
         """Save document metadata.
 
@@ -522,41 +538,56 @@ class RAGDatabase:
             document: Document metadata dictionary
             file_path: Path to the stored file
             collection_name: Vector collection this document was written to (for orphan detection)
+            replace: Overwrite a row with the same id (the evaluation harness
+                registering its corpus again). False for a new upload: an id
+                taken meanwhile raises `DocumentIdTaken` instead of replacing
+                that row and its ``session_id``.
 
         Returns:
             True if saved successfully
         """
+        verb = "INSERT OR REPLACE" if replace else "INSERT"
         with self.transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO rag_documents
+            try:
+                self._insert_document(cursor, verb, document, file_path, collection_name)
+            except sqlite3.IntegrityError as exc:
+                if replace or "UNIQUE" not in str(exc).upper():
+                    raise
+                raise DocumentIdTaken(str(document.get("document_id"))) from None
+        return True
+
+    @staticmethod
+    def _insert_document(cursor, verb, document, file_path, collection_name) -> None:
+        cursor.execute(
+            f"""
+                {verb} INTO rag_documents
                 (document_id, session_id, filename, file_path, file_size,
                  file_type, status, chunks_count, upload_date, error_message,
                  processing_time, text_length, preview_text, vector_backend_name,
                  storage_backend_name, collection_name, expires_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    document.get("document_id"),
-                    document.get("session_id"),
-                    document.get("filename"),
-                    file_path,
-                    document.get("file_size"),
-                    document.get("file_type"),
-                    document.get("status", "processing"),
-                    document.get("chunks_count", 0),
-                    document.get("upload_date", datetime.now(timezone.utc).isoformat()),
-                    document.get("error_message"),
-                    document.get("processing_time"),
-                    document.get("text_length"),
-                    document.get("preview_text"),
-                    document.get("vector_backend_name", "milvus"),
-                    document.get("storage_backend_name", "local"),
-                    collection_name or document.get("collection_name"),
-                    document.get("expires_at"),
-                ),
-            )
+            (
+                document.get("document_id"),
+                document.get("session_id"),
+                document.get("filename"),
+                file_path,
+                document.get("file_size"),
+                document.get("file_type"),
+                document.get("status", "processing"),
+                document.get("chunks_count", 0),
+                document.get("upload_date", datetime.now(timezone.utc).isoformat()),
+                document.get("error_message"),
+                document.get("processing_time"),
+                document.get("text_length"),
+                document.get("preview_text"),
+                document.get("vector_backend_name", "milvus"),
+                document.get("storage_backend_name", "local"),
+                collection_name or document.get("collection_name"),
+                document.get("expires_at"),
+            ),
+        )
         return True
 
     def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:

@@ -242,11 +242,17 @@ class DocumentPipeline:
         Returns:
             Document metadata
         """
+        admission = contextlib.ExitStack()
         if document_id is not None:
             from lasagna.core.database import get_rag_database
 
+            # Held from the check until this upload's row is saved: two
+            # uploads under one new id both found it free, and the second's
+            # row replaced the first's, session included.
+            admission.enter_context(_document_lock(document_id))
             held = get_rag_database().get_document(document_id)
             if held is not None and held.get("session_id") != session_id:
+                admission.close()
                 raise ValueError(
                     f"document_id {document_id!r} belongs to another session; choose another id."
                 )
@@ -255,16 +261,16 @@ class DocumentPipeline:
                 # replaces it (chunks, file and quota), in this thread. The old
                 # copy's chunks used to stay: twice in Milvus, past the new
                 # count where the store upserts, and the quota counted both.
-                return self._replace_document(
-                    held,
-                    source_path=file_path,
-                    filename=filename,
-                    counts_as_upload=True,
-                    _chunker_override=_chunker_override,
-                    _document_processor_override=_document_processor_override,
-                )
+                with admission:
+                    return self._replace_document(
+                        held,
+                        source_path=file_path,
+                        filename=filename,
+                        counts_as_upload=True,
+                        _chunker_override=_chunker_override,
+                        _document_processor_override=_document_processor_override,
+                    )
 
-        admission = contextlib.ExitStack()
         if not (
             allow_duplicates
             or document_id is not None
@@ -975,6 +981,7 @@ class DocumentPipeline:
             pass  # TTL is optional; don't fail the upload if policy is unavailable
 
         rag_db = get_rag_database()
+        # A plain insert: an id taken meanwhile is refused, never overwritten.
         rag_db.save_document(
             {
                 "document_id": document.document_id,
@@ -993,6 +1000,7 @@ class DocumentPipeline:
             # Each embedding model has its own collection; deleting the
             # document later must find the one its vectors went to.
             collection_name=self._get_session_config(document.session_id).collection_name,
+            replace=False,
         )
 
     # =========================================================================

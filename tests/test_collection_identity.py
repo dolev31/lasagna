@@ -322,7 +322,7 @@ def test_an_upload_records_the_collection_its_vectors_go_to(monkeypatch):
     saved = {}
 
     class _DB:
-        def save_document(self, document, file_path, collection_name=None):
+        def save_document(self, document, file_path, collection_name=None, replace=True):
             saved["collection_name"] = collection_name
 
     monkeypatch.setattr(database, "get_rag_database", lambda: _DB())

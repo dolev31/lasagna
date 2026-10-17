@@ -110,6 +110,7 @@ def _refuse_when_the_embedder_cannot_load(backend: RAGBackend, session_id: str) 
     responses={
         400: {"model": ErrorResponse, "description": "The file could not be accepted"},
         404: {"model": ErrorResponse, "description": "document_id belongs to another session"},
+        409: {"model": ErrorResponse, "description": "document_id is being uploaded or processed"},
     },
 )
 async def upload_document(
@@ -193,8 +194,14 @@ async def upload_document(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         from lasagna.api._document_pipeline import DocumentBusy, DocumentNotFound
+        from lasagna.core.database import DocumentIdTaken
         from lasagna.core.model_downloads import ModelNotDownloaded, fix_for_session
 
+        if isinstance(exc, DocumentIdTaken):
+            # Taken between the check above and this upload's row: 404 for
+            # another session's, as the check answers; 409 for this session's.
+            _reject_foreign_document_id(backend, exc.document_id, session_id)
+            raise HTTPException(status_code=409, detail=str(exc))
         if isinstance(exc, DocumentBusy):
             # A replacement of a document that is still processing.
             raise HTTPException(status_code=409, detail=str(exc))

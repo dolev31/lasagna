@@ -5457,6 +5457,16 @@
             },
             "description": "document_id belongs to another session"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "document_id is being uploaded or processed"
+          },
           "413": {
             "content": {
               "application/json": {

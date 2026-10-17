@@ -1452,6 +1452,11 @@ Servers and deployment:
   three offline reruns of the quickstart left "Documents: 3", all failed.
   Deleting a failed document no longer lowers the quota counters of the
   others.
+- An upload under a new `document_id` saves its row with a plain insert, under
+  the document's lock: two uploads under one new id both found it free, and
+  the second's row replaced the first's (on PostgreSQL its `session_id` too),
+  so another session could take the document over. A taken id answers 409, or
+  404 when another session holds it.
 
 ### Known issues
 

@@ -33,9 +33,15 @@ class DatabaseBackend(Protocol):
     # ------------------------------------------------------------------
 
     def save_document(
-        self, document: Dict[str, Any], file_path: str, collection_name: Optional[str] = None
+        self,
+        document: Dict[str, Any],
+        file_path: str,
+        collection_name: Optional[str] = None,
+        *,
+        replace: bool = True,
     ) -> bool:
-        """Persist document metadata.  Upserts by document_id."""
+        """Persist document metadata. Upserts by document_id; with ``replace=False``
+        an id already stored raises ``DocumentIdTaken`` and its row is kept."""
         ...
 
     def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:

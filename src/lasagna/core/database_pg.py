@@ -488,19 +488,9 @@ class PostgresRAGDatabase:
     # Document operations
     # ------------------------------------------------------------------
 
-    def save_document(
-        self, document: Dict[str, Any], file_path: str, collection_name: Optional[str] = None
-    ) -> bool:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO rag_documents
-                    (document_id, session_id, filename, file_path, file_size,
-                     file_type, status, chunks_count, upload_date, error_message,
-                     processing_time, text_length, preview_text, vector_backend_name,
-                     storage_backend_name, collection_name, expires_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    #: How ``save_document`` resolves an id already stored: replace the row, or keep it.
+    _ON_CONFLICT_KEEP = "ON CONFLICT (document_id) DO NOTHING"
+    _ON_CONFLICT_REPLACE = """
                     ON CONFLICT (document_id) DO UPDATE SET
                         session_id=EXCLUDED.session_id, filename=EXCLUDED.filename,
                         file_path=EXCLUDED.file_path, file_size=EXCLUDED.file_size,
@@ -512,29 +502,61 @@ class PostgresRAGDatabase:
                         storage_backend_name=EXCLUDED.storage_backend_name,
                         collection_name=COALESCE(EXCLUDED.collection_name, rag_documents.collection_name),
                         expires_at=COALESCE(EXCLUDED.expires_at, rag_documents.expires_at)
-                    """,
-                    (
-                        document.get("document_id"),
-                        document.get("session_id"),
-                        document.get("filename"),
-                        file_path,
-                        document.get("file_size"),
-                        document.get("file_type"),
-                        document.get("status", "processing"),
-                        document.get("chunks_count", 0),
-                        document.get("upload_date", datetime.now(timezone.utc).isoformat()),
-                        document.get("error_message"),
-                        document.get("processing_time"),
-                        document.get("text_length"),
-                        document.get("preview_text"),
-                        document.get("vector_backend_name", "milvus"),
-                        document.get("storage_backend_name", "local"),
-                        collection_name or document.get("collection_name"),
-                        document.get("expires_at"),
-                    ),
+                    """
+
+    def save_document(
+        self,
+        document: Dict[str, Any],
+        file_path: str,
+        collection_name: Optional[str] = None,
+        *,
+        replace: bool = True,
+    ) -> bool:
+        """Save a document's row; see ``RAGDatabase.save_document`` for ``replace``."""
+        from lasagna.core.database import DocumentIdTaken
+
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO rag_documents
+                    (document_id, session_id, filename, file_path, file_size,
+                     file_type, status, chunks_count, upload_date, error_message,
+                     processing_time, text_length, preview_text, vector_backend_name,
+                     storage_backend_name, collection_name, expires_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """
+                    + (self._ON_CONFLICT_REPLACE if replace else self._ON_CONFLICT_KEEP),
+                    self._document_values(document, file_path, collection_name),
                 )
+                taken = not replace and cur.rowcount == 0
             conn.commit()
+        if taken:
+            # Kept: the upsert rewrote another session's row, session_id included.
+            raise DocumentIdTaken(str(document.get("document_id")))
         return True
+
+    @staticmethod
+    def _document_values(document: Dict[str, Any], file_path: str, collection_name):
+        return (
+            document.get("document_id"),
+            document.get("session_id"),
+            document.get("filename"),
+            file_path,
+            document.get("file_size"),
+            document.get("file_type"),
+            document.get("status", "processing"),
+            document.get("chunks_count", 0),
+            document.get("upload_date", datetime.now(timezone.utc).isoformat()),
+            document.get("error_message"),
+            document.get("processing_time"),
+            document.get("text_length"),
+            document.get("preview_text"),
+            document.get("vector_backend_name", "milvus"),
+            document.get("storage_backend_name", "local"),
+            collection_name or document.get("collection_name"),
+            document.get("expires_at"),
+        )
 
     def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:
         with self._conn() as conn:
