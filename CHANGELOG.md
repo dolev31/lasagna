@@ -94,6 +94,8 @@ Results:
 - **`lasagna results view`** writes a run as one offline HTML page:
   leaderboard, significance, every metric, the isolation check and a per-query
   diff with what each arm retrieved.
+- Every `lasagna results` command takes a run's folder (the one a run prints
+  after "Output:") or the `results.json` in it.
 - **Bundles** (`results bundle`, `results validate`) carry what a reader needs
   to decide whether two numbers may be compared, with one comparability key per
   benchmark and configuration; `results leaderboard` groups by it, as markdown

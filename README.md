@@ -423,7 +423,8 @@ queries and ends by confirming that the configuration reaching each stage
 differed only at the reranker, and that the reranker arm's ranked lists moved:
 an arm whose lists never moved is flagged inert, and so is a reranker that hands
 back its candidates in retrieval order on every query, with no reranker-free arm
-needed to compare against. Every listed built-in implements its stage's
+needed to compare against (on fewer than ten queries it says there were too few
+to tell). Every listed built-in implements its stage's
 interface, so any of them is a like-for-like control:
 
 ```python
