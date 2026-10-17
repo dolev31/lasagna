@@ -746,6 +746,15 @@ Results tooling:
 
 First run:
 
+- The log level had two names: `LASAGNA_LOG_LEVEL` set the CLI's and MCP's
+  console level and was not the `log_level` setting, which only
+  `RAG_LOG_LEVEL` set. `log_level` now reads both, `LASAGNA_` first, as every
+  setting does, and the CLI, MCP server and REST server all take their level
+  from it; a value it does not take warns and is ignored, so a typo never stops
+  `lasagna doctor`. `benchmark list` printed 32 benchmarks (33 with a plugin)
+  while the README said 31: it now says "31 benchmarks, plus smoke (a wiring
+  check, not a result)" and names what plugins add, and the README says what
+  it leaves out.
 - `docs/configuration.md`, the evaluation skill and the plugin template said
   `benchmark run` starts from `standard` (a 3.2 GB download); it starts from
   `speed`. They now say so, and that a sweep file without `base_profile:`

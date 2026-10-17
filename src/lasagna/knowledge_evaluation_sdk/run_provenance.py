@@ -72,14 +72,10 @@ def rag_overrides(environ: Optional[Mapping[str, str]] = None) -> Dict[str, Any]
     evaluation model variables. Credentials, hosts and connection strings show
     as ``<redacted>``: a results file is meant to be published.
     """
-    from lasagna.core.config import LASAGNA_RESERVED_ENV
-
     env = os.environ if environ is None else environ
     names = _setting_names()
     out: Dict[str, Any] = {}
     for var in sorted(env):
-        if var in LASAGNA_RESERVED_ENV:
-            continue
         for prefix in ("RAG_", "LASAGNA_"):
             if var.startswith(prefix) and var[len(prefix) :].lower() in names:
                 out[var] = _redact_value(var, env[var])

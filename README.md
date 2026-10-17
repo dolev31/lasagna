@@ -557,7 +557,8 @@ different profiles never mix vectors.
 ### RAG evaluation: 31 benchmarks, retrieval and generation metrics
 
 31 benchmark entries over about 22 datasets (BEIR, RAGBench and KILT subsets
-count separately): BEIR (NFCorpus, FiQA, SciFact, ArguAna, HotpotQA), HotpotQA,
+count separately; `lasagna benchmark list` also shows `smoke`, a 24-document
+wiring check that is not counted, and any benchmark a plugin adds): BEIR (NFCorpus, FiQA, SciFact, ArguAna, HotpotQA), HotpotQA,
 SQuAD v2, MuSiQue, TriviaQA, Natural Questions, MS MARCO, FEVER, PopQA,
 Bamboogle, MultiHop-RAG, RAGBench, KILT, 2WikiMultihop. Your own JSONL, CSV or
 BEIR folder runs with no adapter

@@ -332,8 +332,8 @@ of letters, digits and `._:-`, otherwise one is generated. It is returned in the
 `X-Request-ID` response header and attached to every log line written while handling the
 request: in the default text format as `[<id>]` before the message. `LASAGNA_LOG_FORMAT=json`
 makes the api and mcp services write one JSON object per line (loguru's serialized format,
-id under `record.extra.request_id`); both formats take their level from `RAG_LOG_LEVEL`,
-default `INFO`. Any value other than `json` or `text` stops the app at startup. Gunicorn's
+id under `record.extra.request_id`); both formats take their level from the `log_level`
+setting (`LASAGNA_LOG_LEVEL` or `RAG_LOG_LEVEL`), default `INFO`. Any value other than `json` or `text` stops the app at startup. Gunicorn's
 access log keeps its own text format.
 
 ### Prometheus

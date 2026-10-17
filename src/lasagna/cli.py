@@ -65,7 +65,11 @@ def _configure_cli_logging(
 
     from loguru import logger
 
-    level = "DEBUG" if verbose else (os.environ.get("LASAGNA_LOG_LEVEL", "").strip().upper())
+    from .core.paths import env_get
+
+    # The log_level setting, by either name (LASAGNA_LOG_LEVEL wins over
+    # RAG_LOG_LEVEL); a value it does not take is ignored, never fatal.
+    level = "DEBUG" if verbose else (env_get("LOG_LEVEL") or "").strip().upper()
     if level not in _LOG_LEVELS:
         level = default
 
@@ -164,6 +168,9 @@ def _cli(
     # Profiles and settings saved by one command must apply in the next process
     # (`configure` then `upload`, `search`, `serve`): keep sessions on disk.
     os.environ.setdefault("RAG_SESSION_BACKEND", "persistent")
+    # This process's sink shows DEBUG when log_level asks for it; the
+    # library's own DEBUG handler would print every line twice.
+    os.environ.setdefault("LASAGNA_SKIP_LOGGING", "1")
     _settings_file_from_dotenv()
     _configure_cli_logging(verbose, hide=_server_only_warning)
 
@@ -1504,7 +1511,24 @@ def benchmark_list(
             f"\n[dim]{shown} of {len(benchmarks)} benchmarks shown (filtered by {category})[/dim]"
         )
     else:
-        console.print(f"\n[dim]{len(benchmarks)} benchmarks available[/dim]")
+        console.print(f"\n[dim]{_benchmark_count_line(benchmark_registry, benchmarks)}[/dim]")
+
+
+def _benchmark_count_line(registry, benchmarks) -> str:
+    """``31 benchmarks, plus smoke (a wiring check) and 1 from plugins``.
+
+    The README counts the benchmarks that measure something: built in, not
+    ``smoke``. This printed every registered name (32, or 33 with a plugin)
+    while the README said 31.
+    """
+    builtin = [n for n in benchmarks if registry.is_builtin(n) and n != "smoke"]
+    others = [n for n in benchmarks if not registry.is_builtin(n)]
+    line = f"{_count(len(builtin), 'benchmark')}"
+    if "smoke" in benchmarks:
+        line += ", plus smoke (a wiring check, not a result)"
+    if others:
+        line += f"{' and' if 'smoke' in benchmarks else ', plus'} {len(others)} from plugins or your own files"
+    return line
 
 
 @benchmark_app.command("info")

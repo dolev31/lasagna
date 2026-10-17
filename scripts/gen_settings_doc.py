@@ -42,8 +42,7 @@ Where a setting comes from, lowest priority first:
 1. the default below;
 2. `settings.lasagna.toml`, `[rag]` table (`LASAGNA_SETTINGS_FILE` names another file);
 3. the environment variable: `LASAGNA_<NAME>`, or `RAG_<NAME>` (the older name, still
-   read; `LASAGNA_` wins when both are set). `LASAGNA_LOG_LEVEL` is the exception:
-   it sets the CLI's console log level, so `log_level` is `RAG_LOG_LEVEL` only;
+   read; `LASAGNA_` wins when both are set);
 4. the session (`lasagna configure --profile <name> -s <session>`, the REST API or MCP).
 
 The settings file and environment variables are the process defaults. A
@@ -51,7 +50,9 @@ session's profile and overrides are kept in the session database and win over
 both for that session only.
 
 An environment variable that does not parse, or is outside the allowed values,
-stops the process with an error naming it. A `RAG_` variable that is not a
+stops the process with an error naming it, except `log_level`, which warns and
+keeps its default: it is also the `lasagna` command's console level (`WARNING`
+unless set), and a typo in it must not stop `lasagna doctor`. A `RAG_` variable that is not a
 setting is ignored with a warning that suggests the closest one. Booleans take
 `true`/`false`, `1`/`0`, `yes`/`no` or `on`/`off`; lists and objects take JSON.
 
@@ -262,7 +263,6 @@ def render() -> str:
         if k not in known and k != "lifecycle"
     ]
     prop_only = _module_constant(tree, "_PROPERTY_ONLY_SETTINGS")
-    reserved = _module_constant(tree, "LASAGNA_RESERVED_ENV")
     extra += [
         {
             "key": k,
@@ -290,9 +290,7 @@ def render() -> str:
         description = _clean(
             docs.get(key) or row["note"] or schema.get(key) or _TABLE_NOTES.get(key, "")
         )
-        names = f"`RAG_{key.upper()}`"
-        if f"LASAGNA_{key.upper()}" not in reserved:
-            names = f"`LASAGNA_{key.upper()}`, {names}"
+        names = f"`LASAGNA_{key.upper()}`, `RAG_{key.upper()}`"
         out.append(
             f"| `{key}` | {kind} | {_fmt_default(row['default'], row['literal'])} "
             f"| {names} | {description} |"

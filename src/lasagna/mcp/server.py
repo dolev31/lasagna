@@ -4187,7 +4187,8 @@ def main():
         "--log-level",
         default=None,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Log level on stderr (default: WARNING on stdio, INFO on sse; or LASAGNA_LOG_LEVEL)",
+        help="Log level on stderr (default: WARNING on stdio, INFO on sse; or LASAGNA_LOG_LEVEL "
+        "or RAG_LOG_LEVEL)",
     )
     parser.add_argument(
         "--config-file",

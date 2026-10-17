@@ -68,9 +68,14 @@ value and what it takes. A `RAG_` name that is no setting prints one warning
 with the closest setting. An empty value counts as unset. `on`, `off`, `yes`,
 `no`, `1` and `0` are booleans.
 
+The log level is the `log_level` setting, `LASAGNA_LOG_LEVEL` or
+`RAG_LOG_LEVEL`: the console level of the `lasagna` command (`WARNING` unless
+set), the MCP server and the REST server. A value it does not take warns and
+is ignored, so a typo never stops `lasagna doctor`.
+
 A few `LASAGNA_` variables are not settings: `LASAGNA_DATA_DIR`,
 `LASAGNA_DB_DIR` and `LASAGNA_UPLOAD_DIR` (below), `LASAGNA_SETTINGS_FILE`,
-`LASAGNA_LOG_LEVEL`, `LASAGNA_LOG_FORMAT=json`, `LASAGNA_MCP_TOOLS`,
+`LASAGNA_LOG_FORMAT=json`, `LASAGNA_MCP_TOOLS`,
 `LASAGNA_LLM_CACHE=0` (turns the [experiment cache](guide.md#re-running-a-sweep-replays-llm-calls)
 off) and `LASAGNA_STRICT_PLUGINS=1`.
 
