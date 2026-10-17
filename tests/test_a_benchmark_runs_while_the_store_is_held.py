@@ -44,14 +44,23 @@ def data_dir(tmp_path, monkeypatch):
     """A data directory of its own, with no store chosen explicitly.
 
     The benchmark commands reset the configuration when they move to a store
-    of their own; the one found here is put back afterwards (the providers
-    are put back by conftest), so no later test reads this test's.
+    of their own, and what is built after that (the config manager, the
+    metadata database) points at this test's directory. Each is put back as it
+    was found (conftest puts back the providers): a manager left behind made
+    later tests write session settings to this test's store and read them
+    from the suite's.
     """
     import lasagna.core.config as config_module
+    import lasagna.core.database as database_module
+    import lasagna.core.session_config as session_config_module
     from lasagna import providers
     from lasagna.core.config import reset_rag_config
 
-    found = config_module._rag_config
+    found = (
+        config_module._rag_config,
+        session_config_module._knowledge_config_manager,
+        database_module._rag_database,
+    )
 
     for name in ("LASAGNA_DB_DIR", "RAG_DB_DIR"):
         monkeypatch.setenv(name, "unset")  # recorded, so teardown restores it
@@ -64,8 +73,11 @@ def data_dir(tmp_path, monkeypatch):
     providers.reset_providers()
     reset_rag_config()
     yield tmp_path / "data"
-    with config_module._rag_config_lock:
-        config_module._rag_config = found
+    (
+        config_module._rag_config,
+        session_config_module._knowledge_config_manager,
+        database_module._rag_database,
+    ) = found
 
 
 @pytest.fixture
