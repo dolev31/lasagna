@@ -269,8 +269,9 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   unchanged.
 - Request bodies are limited before they are read (413), a REST search that
   runs past `RAG_SEARCH_TIMEOUT` (120 s) gets 504, and every numeric session
-  setting has a maximum (`SESSION_MAXIMUMS`) that applies to REST, MCP and
-  imports, never to the evaluation harness.
+  setting has a maximum and every list setting a maximum length, with no name
+  twice (`SESSION_MAXIMUMS`; eight ensemble reranker members), that apply to
+  REST, MCP and imports, never to the evaluation harness.
 - A model a session names (`monot5_model`, `splade_model`, `colbert_model`,
   `flashrank_model`, as the embedder and the cross-encoder already did) follows
   the server's download policy instead of downloading inside a request.

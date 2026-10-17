@@ -68,12 +68,15 @@ class SessionSettingRefused(ValueError):
 
 
 #: The largest value a session may give each numeric setting it may set
-#: (``parent.child`` for a number inside a dict setting). Numbers had no upper
-#: bound: ``ircot_max_steps``, ``speculative_n_drafts``, ``rag_fusion_n_queries``
-#: or ``hybrid_fusion_depth`` at 10^6 made one search run a million LLM calls or
-#: fetch a million candidates. Each maximum is at least what any shipped profile,
-#: preset, example sweep or benchmark config uses, and no more than the
-#: configurator's own bound where it has one. Session writes only: the
+#: (``parent.child`` for a number inside a dict setting), and the longest list
+#: it may give each list setting. Numbers had no upper bound:
+#: ``ircot_max_steps``, ``speculative_n_drafts``, ``rag_fusion_n_queries`` or
+#: ``hybrid_fusion_depth`` at 10^6 made one search run a million LLM calls or
+#: fetch a million candidates; lists had none either, and the ensemble reranker
+#: scores every member on every search. Each maximum is at least what any
+#: shipped profile, preset, example sweep or benchmark config uses, and no more
+#: than the configurator's own bound where it has one. A list for a key not
+#: named here has at most ``LIST_MAXIMUM`` members. Session writes only: the
 #: evaluation harness writes its arms in-process (``trusted``), and the server's
 #: settings file and environment are not bounded here.
 SESSION_MAXIMUMS: Dict[str, float] = {
@@ -106,10 +109,13 @@ SESSION_MAXIMUMS: Dict[str, float] = {
     "document_awareness.summary_max_tokens": 4096,
     "embedding_dim": 8192,
     "embedding_truncate_dim": 8192,
+    "ensemble_reranker_models": 8,
+    "ensemble_reranker_weights": 8,
     "flare_docs_per_retrieval": 50,
     "flare_mask_threshold": 1.0,
     "flare_max_sentences": 64,
     "flare_retrieval_threshold": 1.0,
+    "graph_entity_types": 50,
     "graph_max_hops": 5,
     "hybrid_alpha": 1.0,
     "hybrid_fusion_depth": 10_000,
@@ -129,6 +135,7 @@ SESSION_MAXIMUMS: Dict[str, float] = {
     "min_chunk_size": 100_000,
     "mmr_lambda": 1.0,
     "ocr_confidence_threshold": 1.0,
+    "ocr_languages": 10,
     "parent_chunk_size": 100_000,
     "proposition_passage_size": 10_000,
     "query2doc_max_tokens": 2048,
@@ -161,6 +168,12 @@ SESSION_MAXIMUMS: Dict[str, float] = {
 #: Numbers inside ``search_params``: the vector store's own, with no default.
 _SEARCH_PARAM_NUMBERS = ("ef", "hnsw_ef", "nprobe", "search_list")
 
+#: List settings with no default: the ensemble reranker's members and weights.
+_LIST_KEYS_WITHOUT_DEFAULT = ("ensemble_reranker_models", "ensemble_reranker_weights")
+
+#: The longest list a session may give a list setting ``SESSION_MAXIMUMS`` does not name.
+LIST_MAXIMUM = 20
+
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -182,8 +195,31 @@ def numeric_session_keys() -> List[str]:
     return sorted(set(names))
 
 
+def list_session_keys() -> List[str]:
+    """Every list setting a session may set, as ``SESSION_MAXIMUMS`` names them."""
+    from lasagna.core.config import get_rag_config
+
+    names = list(_LIST_KEYS_WITHOUT_DEFAULT)
+    for key, value in get_rag_config()._config.items():
+        if (
+            isinstance(value, (list, tuple))
+            and session_key_problem(key, value, bounded=False) is None
+        ):
+            names.append(key)
+    return sorted(set(names))
+
+
 def _past_maximum(key: str, value: Any) -> Optional[str]:
     """Why ``value`` is too large for a session's ``key``, or None."""
+    if isinstance(value, (list, tuple)):
+        cap = int(SESSION_MAXIMUMS.get(key, LIST_MAXIMUM))
+        if len(value) > cap:
+            return f"has at most {cap} members for a session ({len(value)} given)"
+        names = [item for item in value if isinstance(item, str)]
+        twice = next((n for i, n in enumerate(names) if n in names[:i]), None)
+        if twice is not None:
+            return f"names {twice} twice"
+        return None
     if _is_number(value):
         cap = SESSION_MAXIMUMS.get(key)
         if cap is not None and value > cap:
