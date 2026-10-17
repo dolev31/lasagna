@@ -135,7 +135,8 @@ Serving:
   `session_id`), is refused in one sentence naming the one it takes.
 - **REST API** (`lasagna serve`, or the Compose stack) under `/api/v1`,
   covered by the deprecation policy in [GOVERNANCE.md](GOVERNANCE.md); search
-  responses name the stages that fell back in `degraded_stages`.
+  responses name the stages that fell back in `degraded_stages` (a reranker
+  that is not downloaded: results in retrieval order, with the download).
 - **`lasagna upload`** takes files, globs and folders (a folder's readable
   files, subfolders included, saying what it skipped).
 - **Profiles** `speed` (92 MB, no LLM), `standard`, `balanced` and

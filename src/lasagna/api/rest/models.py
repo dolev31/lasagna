@@ -77,7 +77,7 @@ _DEGRADED_STAGES = Field(
     default_factory=list,
     description=(
         "Pipeline stages that failed and fell back to a lesser result during this "
-        "search (hyde, graphrag, hybrid, query_expansion, agentic, routing). Empty "
+        "search (hyde, graphrag, hybrid, reranker, query_expansion, agentic, routing). Empty "
         "when every configured stage ran."
     ),
 )
