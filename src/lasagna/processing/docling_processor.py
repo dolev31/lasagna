@@ -17,6 +17,9 @@ from loguru import logger
 
 from lasagna.core.config import RAGConfig, rag_config
 
+#: The tokenizer Docling's chunker counts tokens with.
+_DOCLING_TOKENIZER = "sentence-transformers/all-MiniLM-L6-v2"
+
 # ---------------------------------------------------------------------------
 # Availability check (cached)
 # ---------------------------------------------------------------------------
@@ -215,8 +218,15 @@ class DoclingProcessor:
                         HuggingFaceTokenizer,
                     )
 
+                    from lasagna.core import model_downloads
+
+                    model_downloads.check(
+                        _DOCLING_TOKENIZER,
+                        kind="Docling chunk tokenizer",
+                        filename="tokenizer_config.json",
+                    )
                     tokenizer = HuggingFaceTokenizer.from_pretrained(
-                        model_name="sentence-transformers/all-MiniLM-L6-v2",
+                        model_name=_DOCLING_TOKENIZER,
                         max_tokens=max_tokens,
                     )
                     self._chunker_cache[max_tokens] = HybridChunker(

@@ -1470,6 +1470,10 @@ Servers and deployment:
 - A session token minted while auth was off kept working after auth was
   switched on with only `RAG_ADMIN_TOKEN` set (no `RAG_API_KEYS`). With auth on,
   a token must name its API key or the admin token.
+- `monot5_model`, `splade_model`, `colbert_model` and `flashrank_model`, all
+  session settings, loaded without the server's download policy: a session
+  naming any repository started a download inside a request. Every model
+  loader now checks it first, as the embedder and the cross-encoder did.
 
 ### Known issues
 

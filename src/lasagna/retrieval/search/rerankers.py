@@ -24,6 +24,7 @@ from loguru import logger
 from lasagna.core.accelerator import device_guard
 from lasagna.core.base_components import BaseReranker, ScoredDocument
 from lasagna.core.config import rag_config
+from lasagna.core import model_downloads
 from lasagna.core.model_downloads import one_weights_copy
 from lasagna.core.model_licenses import warn_if_restricted
 
@@ -92,6 +93,7 @@ class _MonoT5:
             raise ImportError("monot5 needs transformers: pip install transformers") from exc
         from .ranker import _detect_device
 
+        model_downloads.check(name, kind="monoT5 reranker model")
         warn_if_restricted(name, component="monoT5 reranker")
         self.tokenizer = AutoTokenizer.from_pretrained(name)
         self.device = _detect_device()
@@ -308,6 +310,12 @@ class FlashRankReranker(BaseReranker):
         with cls._lock:
             if name not in cls._rankers:
                 cache = os.path.join(os.path.expanduser("~"), ".cache", "flashrank")
+                # FlashRank downloads its own files, not from the Hugging Face hub.
+                model_downloads.check(
+                    name,
+                    kind="FlashRank model",
+                    cached=os.path.isdir(os.path.join(cache, name)),
+                )
                 try:
                     cls._rankers[name] = Ranker(model_name=name, cache_dir=cache)
                 except Exception as exc:

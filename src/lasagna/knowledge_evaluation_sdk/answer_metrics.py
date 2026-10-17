@@ -348,10 +348,12 @@ def load_similarity_encoder(model_name: Optional[str] = None) -> Encoder:
     """
     from sentence_transformers import SentenceTransformer
 
-    from lasagna.core.model_downloads import one_weights_copy
+    from lasagna.core import model_downloads
 
-    with one_weights_copy():
-        model = SentenceTransformer(model_name or similarity_model_name(), device="cpu")
+    name = model_name or similarity_model_name()
+    model_downloads.check(name, kind="answer similarity model")
+    with model_downloads.one_weights_copy():
+        model = SentenceTransformer(name, device="cpu")
 
     def encode(texts: List[str]) -> Sequence[Sequence[float]]:
         return model.encode(texts, convert_to_numpy=True).tolist()
