@@ -23,7 +23,7 @@ Example:
     # Or use presets
     config = config_for_quality()  # All features enabled
     config = config_for_speed()    # Minimal processing
-    config = config_for_balanced() # Recommended default
+    config = config_for_balanced() # Standard plus hierarchical chunking
     ```
 """
 
@@ -758,7 +758,8 @@ def config_for_standard() -> KnowledgeConfig:
 
     Enables the core retrieval features (hybrid search, cross-encoder reranking, MMR,
     agentic RAG, context reordering, Docling parsing) with the BGE-M3 model.
-    Recommended starter configuration for production quality.
+    For quality, once :func:`config_for_speed` works: it downloads 3.2 GB (BGE-M3
+    and its reranker) and sends complex queries to an LLM.
     Target latency: ~200-400ms.
 
     Returns:

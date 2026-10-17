@@ -9,12 +9,12 @@
 # -------------------------------------------------------------------
 # This file defines the "default" profile. 4 built-in profiles are also available:
 #
-# 1. SPEED (Pure Vector Search):
+# 1. SPEED (start here: a 92 MB download, no LLM):
 #    - Disables reranking, hybrid search, MMR, HyDE, agentic RAG
 #    - Uses all-MiniLM-L6-v2 (384d, 92 MB)
 #    - Target latency: ~50-100ms
 #
-# 2. STANDARD (Recommended Starter):
+# 2. STANDARD (for quality: a 3.2 GB download, and an LLM for complex queries):
 #    - Enables reranking, hybrid search, MMR, agentic RAG
 #    - Uses BAAI/bge-m3 (1024d, 2.3 GB, dense+sparse+ColBERT, 100+ languages)
 #    - Target latency: ~200-400ms
