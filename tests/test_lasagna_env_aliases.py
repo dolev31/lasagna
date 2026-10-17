@@ -113,9 +113,9 @@ class TestSessionTokens:
         assert decode_session_token(self._token("someone-else")) is None
 
 
-def test_lasagna_log_level_keeps_its_meaning_as_the_cli_console_level(monkeypatch):
-    """It was the CLI's console threshold before settings took the prefix, and
-    is pinned as tolerant of a typo; the log_level setting stays RAG_LOG_LEVEL."""
+def test_a_typo_in_lasagna_log_level_leaves_the_default(monkeypatch):
+    """`LASAGNA_LOG_LEVEL` is the `log_level` setting's name, and the CLI's
+    console level, so a typo in it is ignored rather than fatal."""
     monkeypatch.setenv("LASAGNA_LOG_LEVEL", "NOPE")
     monkeypatch.delenv("RAG_LOG_LEVEL", raising=False)
     assert RAGConfig().log_level == "INFO"

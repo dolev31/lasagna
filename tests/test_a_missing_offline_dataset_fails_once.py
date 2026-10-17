@@ -52,12 +52,15 @@ def test_online_nothing_is_checked(monkeypatch):
     assert datasets.missing_offline_datasets({"beir/scifact": ["mteb/scifact"]}) is None
 
 
-def test_a_datasets_cache_folder_counts_as_cached(monkeypatch, tmp_path):
+def test_a_datasets_cache_folder_with_a_complete_build_counts_as_cached(monkeypatch, tmp_path):
+    """An empty folder no longer does: see test_a_partial_dataset_cache_reads_as_missing.py."""
     import datasets.config as datasets_config
 
     monkeypatch.setattr(datasets_config, "HF_DATASETS_CACHE", str(tmp_path))
     assert not datasets.dataset_cached("mteb/scifact")
-    (tmp_path / "mteb___scifact").mkdir()
+    build = tmp_path / "mteb___scifact" / "corpus" / "0.0.0" / "abc"
+    build.mkdir(parents=True)
+    (build / "dataset_info.json").write_text("{}")
     assert datasets.dataset_cached("mteb/scifact")
 
 
@@ -83,7 +86,7 @@ def test_the_sweep_stops_with_one_error_before_any_task(tmp_path):
     out = run.stdout + run.stderr
     assert run.returncode == 1, out[-3000:]
     assert out.count("not in the Hugging Face cache") == 1, out[-3000:]
-    assert "beir/scifact is not in the Hugging Face cache and offline mode is on" in out
+    assert "beir/scifact is not in the Hugging Face cache, or only partly, and offline mode" in out
     assert "dataset_info.json" not in out and "Couldn't reach" not in out
     assert "Experiment Complete" not in out and "Next:" not in out
 

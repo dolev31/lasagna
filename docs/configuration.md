@@ -68,9 +68,14 @@ value and what it takes. A `RAG_` name that is no setting prints one warning
 with the closest setting. An empty value counts as unset. `on`, `off`, `yes`,
 `no`, `1` and `0` are booleans.
 
+The log level is the `log_level` setting, `LASAGNA_LOG_LEVEL` or
+`RAG_LOG_LEVEL`: the console level of the `lasagna` command (`WARNING` unless
+set), the MCP server and the REST server. A value it does not take warns and
+is ignored, so a typo never stops `lasagna doctor`.
+
 A few `LASAGNA_` variables are not settings: `LASAGNA_DATA_DIR`,
 `LASAGNA_DB_DIR` and `LASAGNA_UPLOAD_DIR` (below), `LASAGNA_SETTINGS_FILE`,
-`LASAGNA_LOG_LEVEL`, `LASAGNA_LOG_FORMAT=json`, `LASAGNA_MCP_TOOLS`,
+`LASAGNA_LOG_FORMAT=json`, `LASAGNA_MCP_TOOLS`,
 `LASAGNA_LLM_CACHE=0` (turns the [experiment cache](guide.md#re-running-a-sweep-replays-llm-calls)
 off) and `LASAGNA_STRICT_PLUGINS=1`.
 
@@ -104,8 +109,9 @@ profile's pipeline instead, and the result names `agentic` in
 every query to the agentic loop. `speed` is the
 profile that never calls an LLM and downloads no large model. A benchmark run
 picks its profile with
-`lasagna benchmark run --profile`, or `base_profile:` in a sweep file, and
-`lasagna benchmark run` starts from `standard` unless told otherwise.
+`lasagna benchmark run --profile`, or `base_profile:` in a sweep file.
+`lasagna benchmark run` starts from `speed` unless told otherwise, and a sweep
+file without `base_profile:` starts from `standard`.
 
 ## Where data lives
 
@@ -152,9 +158,13 @@ each model writes to a collection of its own, named
 - Sessions on the same model share its collection, and each session sees only
   its own documents in it.
 - Switching a session to a profile with another model makes it search that
-  model's collection. Documents uploaded before the switch stay where they
-  were, and a session on the old model still finds them. To search them with
-  the new model, upload them again.
+  model's collection, so a session that holds documents is refused the switch,
+  even at the same embedding size: none of its documents would be found.
+  Use a new session for the new model, or switch with
+  `lasagna configure --profile <name> -s <session> --force` and reindex the
+  documents with the new model (`client.documents.reindex(document_id)` in
+  the SDK, or the MCP tool `reindex_document`). Until then they stay where
+  they were, and a session on the old model still finds them.
 - A `collection_name` you set yourself (in the settings file or as
   `RAG_COLLECTION_NAME`) is used as given. The evaluation
   harness names one per sweep arm this way, so sweeps are unaffected.

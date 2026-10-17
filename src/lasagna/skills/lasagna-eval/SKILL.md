@@ -16,9 +16,10 @@ lasagna benchmark run smoke --profile speed  # 24 docs, no download beyond a 92 
 ```
 
 `smoke` is a wiring check. A green run means the stack works end to end; it is
-deliberately easy, so the score never means "this is good". Without
-`--profile speed`, `benchmark run` starts from the `standard` profile, which
-downloads about 3.2 GB of models.
+deliberately easy, so the score never means "this is good". `benchmark run`
+starts from the `speed` profile unless told otherwise (`--profile standard`
+downloads about 3.2 GB of models), and a sweep file without `base_profile:`
+starts from `standard`, so name it in every sweep.
 
 ## Run a real comparison
 

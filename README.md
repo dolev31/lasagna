@@ -108,7 +108,7 @@ in neither the docs nor a code search, not that it is proven absent.
 | Significance tests | Paired sign-flip test, Holm, power | Not found | Not found | Paired permutation, no correction | Not found | Yes, IR runs only |
 | Interaction between components | 2×2 test with CI | Not found | Not found | Not found | Greedy search assumes none | Not found |
 | Result provenance | Bundles with a validator | Saved configs and scores | Experiment folders | Not found | Trial folders | Not found |
-| Published methods | 55 components | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
+| Published methods | 30 of 55 components cite the paper they implement | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
 | Ready corpora and indexes | Benchmark loaders, no prebuilt index | Wikipedia + prebuilt index | KILT + prebuilt index | Not found | Not found | Via ir_datasets |
 | License | Apache-2.0 | MIT | CC BY-NC-SA 4.0 | Apache-2.0 | MIT (badge) | MPL-2.0 / MIT |
 
@@ -196,8 +196,9 @@ lasagna serve                      # REST API and configuration page on 127.0.0.
 > included. On release-gate runs the first search result took 3–40 minutes on
 > a cold cache; the spread is the connection. After that, a warm
 > search on the `speed` profile takes tens of milliseconds (median 32 ms over
-> 18,442 chunks on Milvus Lite). Run `python -m e2e.run` to measure on your own
-> machine.
+> 18,442 chunks on Milvus Lite). From a source checkout, `python -m e2e.run`
+> measures this on your own machine (the `e2e` package is not in the wheel); with
+> pip, `lasagna doctor` checks what is installed and cached.
 >
 > The `speed` profile downloads 92 MB and never calls an LLM: choose it in
 > `lasagna init`, run `lasagna configure --profile speed`, or from Python pass
@@ -220,9 +221,11 @@ not be indexed. Rerunning the script uploads nothing new: a file the session
 already holds comes back as that document, with `duplicate_of` set
 (`allow_duplicates=True`, or `lasagna upload --force`, indexes it again).
 
-**Nothing to download at all?** The [component comparison](#compare-a-component)
-below runs as is, with no model, corpus or key. It is the fastest way to see
-what this library is for.
+**The smallest first run.** In the [component comparison](#compare-a-component)
+below, `python my_ideas.py` downloads nothing, and the sweep downloads 183 MB
+once: the `speed` profile's embedder and the cross-encoder it is compared
+against, 92 MB each. Neither needs a dataset or an API key. It is the fastest
+way to see what this library is for.
 
 ---
 
@@ -343,7 +346,7 @@ is, with no model download and no corpus:
 import lasagna
 
 
-@lasagna.reranker(paper="Doe et al. 2026", claims={"ndcg@10": 0.456})
+@lasagna.reranker(paper="Doe et al. 2026", claims={"beir/scifact": {"ndcg@10": 0.456}})
 def longer_first(query, text):
     return len(text.split())  # your technique: score one passage
 
@@ -371,15 +374,18 @@ if __name__ == "__main__":  # try it on three passages
 ```text
 retrieval order: ['d1', 'd2', 'd3']
 my reranker:     ['d2', 'd3', 'd1']
-claims recorded: {'ndcg@10': 0.456}
+claims recorded: {'beir/scifact': {'ndcg@10': 0.456}}
 interchangeable: True
 ```
 
 `paper` and `claims` travel with the component and come back out of the
-registry. A run records them (`components` in its metadata and its bundle),
-and the leaderboard `benchmark experiment` prints, `results leaderboard`
-(markdown and LaTeX) and `results view` put the claimed number and its paper
-beside the one you reproduced. Every stage but the agentic pipeline takes a function the same way:
+registry. A claim names the benchmark the paper measured it on (and its split,
+as `"split": "test"`, if the paper gives one). A run records them (`components`
+in its metadata and its bundle), and on a run of that benchmark the leaderboard
+`benchmark experiment` prints, `results leaderboard` (markdown and LaTeX) and
+`results view` put the claimed number and its paper beside the one you
+reproduced. The smoke sweep below shows no claim, since the paper did not
+measure smoke. Every stage but the agentic pipeline takes a function the same way:
 `@lasagna.query_enhancer` (`query -> [str]`), `@lasagna.chunker` (`text -> [str]`),
 `@lasagna.embedder` (`texts -> vectors`), `@lasagna.generator`
 (`query, contexts -> answer`), `@lasagna.retriever` and
@@ -405,7 +411,7 @@ n_runs: 1     # retrieval does not sample; repeat runs when an LLM stage is in t
 ```
 
 ```bash
-lasagna benchmark experiment sweep.yaml
+lasagna benchmark experiment sweep.yaml   # downloads 183 MB of models the first time
 lasagna results significance "<output>/results.json" -m ndcg@10 --all
 ```
 
@@ -492,7 +498,7 @@ interaction below reflects that rather than an overlap between the techniques.
   expected if additive : -0.0081
   actually observed    : -0.0062
   interaction          : +0.0019  95% CI [-0.0318, +0.0355]  p=0.9141
-  composition efficiency: 77.0% (of the additive prediction actually delivered)
+  composition efficiency: not reported because the interaction is not significant (p=0.9141), so the ratio would describe noise
 
   additive (no detectable interaction)
 ```
@@ -551,7 +557,8 @@ different profiles never mix vectors.
 ### RAG evaluation: 31 benchmarks, retrieval and generation metrics
 
 31 benchmark entries over about 22 datasets (BEIR, RAGBench and KILT subsets
-count separately): BEIR (NFCorpus, FiQA, SciFact, ArguAna, HotpotQA), HotpotQA,
+count separately; `lasagna benchmark list` also shows `smoke`, a 24-document
+wiring check that is not counted, and any benchmark a plugin adds): BEIR (NFCorpus, FiQA, SciFact, ArguAna, HotpotQA), HotpotQA,
 SQuAD v2, MuSiQue, TriviaQA, Natural Questions, MS MARCO, FEVER, PopQA,
 Bamboogle, MultiHop-RAG, RAGBench, KILT, 2WikiMultihop. Your own JSONL, CSV or
 BEIR folder runs with no adapter

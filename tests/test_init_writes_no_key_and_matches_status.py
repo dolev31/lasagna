@@ -81,22 +81,22 @@ def _status_embedding(run, **env) -> str:
 
 
 def test_init_writes_no_key_and_tells_which_to_export(run, tmp_path):
-    init = run("drive.py", "milvus", "openai", "speed")
+    init = run("drive.py", "milvus", "speed")
     assert init.returncode == 0, init.stdout + init.stderr[-2000:]
     env_file = (tmp_path / ".env").read_text()
     assert "API_KEY" not in env_file and "sk-typed" not in env_file
     assert env_file.startswith("RAG_SETTINGS_FILE=")
     assert "export OPENAI_API_KEY=<your key>" in init.stdout
-    assert f"OpenAI, {SimpleLLMProvider.SUPPORTED_PLATFORMS['openai']}" in init.stdout
     assert "GPT-4o" not in init.stdout
     assert "Embeddings: all-MiniLM-L6-v2" in init.stdout
     assert _status_embedding(run) == "all-MiniLM-L6-v2"
 
 
 def test_with_the_key_exported_init_and_doctor_both_see_it(run):
-    init = run("drive.py", "milvus", "openai", "standard", OPENAI_API_KEY="sk-from-the-shell")
+    init = run("drive.py", "milvus", "standard", OPENAI_API_KEY="sk-from-the-shell")
     assert init.returncode == 0, init.stdout + init.stderr[-2000:]
-    assert "OPENAI_API_KEY is set in this shell." in init.stdout
+    model = SimpleLLMProvider.SUPPORTED_PLATFORMS["openai"]
+    assert f"openai, {model} (OPENAI_API_KEY is set in this shell)" in init.stdout
     assert "Embeddings: BAAI/bge-m3" in init.stdout
     assert _status_embedding(run) == "BAAI/bge-m3"
     doctor = run("-m", "lasagna", "doctor", "--json", OPENAI_API_KEY="sk-from-the-shell")

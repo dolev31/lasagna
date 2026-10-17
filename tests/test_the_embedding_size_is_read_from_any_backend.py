@@ -19,6 +19,9 @@ class _Backend:
     def __init__(self, fields):
         self.fields = fields
 
+    def has_collection(self, collection_name):
+        return True
+
     def describe_fields(self, collection_name):
         return self.fields
 

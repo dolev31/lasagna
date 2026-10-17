@@ -33,7 +33,9 @@ One decorator on a plain function. Put this in `my_ideas.py`:
 import lasagna
 
 
-@lasagna.reranker("keyword_overlap", paper="Someone et al. 2026", claims={"ndcg@10": 0.42})
+@lasagna.reranker(
+    "keyword_overlap", paper="Someone et al. 2026", claims={"beir/scifact": {"ndcg@10": 0.42}}
+)
 def keyword_overlap(query, text):
     """Count the query words that appear in the passage."""
     return len(set(query.lower().split()) & set(text.lower().split()))
@@ -57,9 +59,12 @@ The agentic pipeline is the one stage with no one-line form: a loop is a class
 (below).
 
 `paper` and `claims` are optional and worth filling in: they come back out of
-the registry, a run records them, and its leaderboards and `results view` show
-the claimed number beside the one you reproduced. That comparison is the most useful thing a reader of your result
-can see.
+the registry, a run records them, and on a run of the benchmark a claim names,
+its leaderboards and `results view` show the claimed number beside the one you
+reproduced. That comparison is the most useful thing a reader of your result
+can see. A claim is keyed by benchmark, `{"beir/scifact": {"ndcg@10": 0.42}}`,
+with `"split": "test"` inside if the paper names a split; a claim that names no
+benchmark is refused, since it would print beside a run of any benchmark.
 
 A technique with state or a model is a class instead: subclass the stage's
 interface (`BaseReranker` and so on), register it with

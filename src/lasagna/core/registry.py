@@ -191,8 +191,11 @@ class _Registration:
         self.hidden = hidden
         self.cls = cls
         self.description = description
+        from .claims import normalize_claims
+
         self.paper = paper
-        self.claims = claims
+        # Keyed by benchmark; a claim that names none is refused here, at registration.
+        self.claims = normalize_claims(claims)
         self.version = version
         self._factory = _factory
         self.implements_contract = implements_contract
@@ -290,7 +293,8 @@ class ComponentRegistry:
                 "cross_encoder",
                 _r + "CrossEncoderRerankerAdapter",
                 "Cross-encoder reranker (the configured reranker_model)",
-                None,
+                # Nogueira & Cho 2019, Passage Re-ranking with BERT (monoBERT).
+                "arxiv:1901.04085",
                 ["cross_encoder_adapted"],
             ),
             (
@@ -314,7 +318,9 @@ class ComponentRegistry:
                 "mmr",
                 _r + "MMRRerankerAdapter",
                 "MMR diversity reranking",
-                None,
+                # Carbonell & Goldstein 1998, The Use of MMR, Diversity-Based
+                # Reranking for Reordering Documents and Producing Summaries.
+                "doi:10.1145/290941.291025",
                 ["mmr_adapted"],
             ),
             (
@@ -706,6 +712,7 @@ class ComponentRegistry:
         )
         self._components["agentic_pipeline"]["legacy_react"] = _Registration(
             description="Legacy ReAct agent with monolithic search tool",
+            paper="arxiv:2210.03629",  # Yao et al. 2022, ReAct
             _factory="lasagna.agentic.agentic_rag:LegacyReActPipeline",
             implements_contract=True,
         )
@@ -920,7 +927,8 @@ class ComponentRegistry:
                 "enhancer" is accepted as an alias for "query_enhancer".
             name: Unique name for this implementation.
             paper: Optional paper reference (e.g. "arxiv:2312.02969").
-            claims: Optional claimed metrics (e.g. {"ndcg@10": 0.456}).
+            claims: Optional numbers the paper reports, keyed by benchmark
+                (e.g. {"beir/scifact": {"ndcg@10": 0.456}}).
             version: Optional version string.
 
         Returns:
@@ -976,7 +984,7 @@ class ComponentRegistry:
             description: Human-readable description.
             override: Replace existing registration if True.
             paper: Optional paper reference.
-            claims: Optional claimed metrics.
+            claims: Optional numbers the paper reports, keyed by benchmark.
             version: Optional version string.
         """
         canonical = _resolve_category(component_type)

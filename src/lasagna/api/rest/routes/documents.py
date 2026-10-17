@@ -89,6 +89,20 @@ def _reject_foreign_document_id(backend: RAGBackend, document_id: str, session_i
         )
 
 
+def _refuse_when_the_embedder_cannot_load(backend: RAGBackend, session_id: str) -> None:
+    """503, with the reason readiness gives, when the session's embedding model
+    cannot load here (not downloaded, and offline or downloads refused).
+
+    The upload answered 201 and the document failed in the worker, while
+    ``/health/ready`` already reported the model down.
+    """
+    from .health import embedding_problem
+
+    problem = embedding_problem(backend, session_id)
+    if problem is not None:
+        raise HTTPException(status_code=503, detail=problem)
+
+
 @router.post(
     "",
     response_model=UploadResponse,
@@ -113,6 +127,7 @@ async def upload_document(
     not uploaded again: the response names that document in
     ``duplicate_of``. ``allow_duplicates=true`` indexes it anyway.
     """
+    _refuse_when_the_embedder_cannot_load(backend, session_id)
     # Save uploaded file to a temp location.
     # Sanitize filename to prevent path-traversal attacks.
     safe_name = os.path.basename(file.filename) if file.filename else "upload"
@@ -211,6 +226,7 @@ async def upload_documents_batch(
     from lasagna.api.rest.limits import max_batch_files
     from lasagna.core.config import rag_config
 
+    _refuse_when_the_embedder_cannot_load(backend, session_id)
     limit = max_batch_files()
     if len(files) > limit:
         raise HTTPException(

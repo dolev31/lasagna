@@ -21,7 +21,7 @@ body:
       label: Your bundle
       description: >-
         Run `lasagna results compare theirs.json yours.json`. If it reports the
-        runs as not comparable, paste the field-level differences — that is
+        runs as not comparable, paste the field-level differences: that is
         usually the whole answer.
       render: shell
     validations:

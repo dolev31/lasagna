@@ -120,6 +120,7 @@ def test_bootstrap_still_works_for_one_release(monkeypatch, tmp_path):
                     for n in ("neither", "a", "b", "a+b")
                 ],
                 interaction_test=lambda *a, **k: fake_test(None, *a, **k),
+                require_metric=lambda *a, **k: None,
             )
         ),
     )

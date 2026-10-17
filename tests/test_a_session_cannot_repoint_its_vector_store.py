@@ -134,12 +134,12 @@ def test_mcp_patch_and_save_refuse_them(manager, case):
     from lasagna.mcp import server
 
     config, key = REFUSED[case]
-    reply = json.loads(server.patch_rag_config("mcp-tenant", json.dumps(config)))
+    reply = json.loads(server.patch_rag_config(json.dumps(config), session_id="mcp-tenant"))
     assert key in reply["error"]
-    reply = json.loads(server.save_rag_profile("mcp-tenant", "evil", json.dumps(config)))
+    reply = json.loads(server.save_rag_profile("evil", json.dumps(config), session_id="mcp-tenant"))
     assert key in reply["error"]
     assert key not in _search_sees("mcp-tenant")
-    ok = json.loads(server.patch_rag_config("mcp-tenant", json.dumps(ALLOWED)))
+    ok = json.loads(server.patch_rag_config(json.dumps(ALLOWED), session_id="mcp-tenant"))
     assert "error" not in ok
 
 

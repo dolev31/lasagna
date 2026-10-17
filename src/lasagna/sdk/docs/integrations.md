@@ -79,7 +79,7 @@ docs = await loader.aload()
 
 ### Standalone MCP Server (recommended)
 
-`lasagna-mcp` serves the knowledge base as MCP tools: search, documents, profiles, configuration, focus and system status. It has 31 tools. By default it serves the `safe` set, which leaves out the six that delete data or reset configuration; `--tools all` (or `LASAGNA_MCP_TOOLS=all`) adds them. The tool list is in the [MCP server README](../../mcp/README.md).
+`lasagna-mcp` serves the knowledge base as MCP tools: search, documents, profiles, configuration, focus and system status. It has 29 tools. By default it serves the `safe` set, 22 tools, which leaves out the seven that delete data, reset configuration or change the server-wide retention policy; `--tools all` (or `LASAGNA_MCP_TOOLS=all`) adds them. The tool list is in the [MCP server README](../../mcp/README.md).
 
 ```bash
 # Set any supported API key, then run it the way an MCP client launches it (stdio, the default)

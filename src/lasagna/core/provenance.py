@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import subprocess
 import sys
 from typing import Any, Dict, Optional
@@ -271,6 +272,45 @@ def redact_url(url: Any) -> str:
                 [(k, "***" if k.lower() in secret_keys else v) for k, v in pairs], safe="*"
             )
     return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
+
+
+#: An absolute POSIX path not already part of a URL or a ``<home>`` tag.
+_ABSOLUTE_PATH = re.compile(r"(?<![\w:/>.~<-])/[^\s'\"`,;:()<>|]+")
+
+
+def redact_paths(value: Any) -> Any:
+    """:func:`redact`, and then no absolute path left at all.
+
+    For what ``lasagna doctor`` prints, which promises "no absolute paths":
+    a project outside the home directory printed its settings file's full
+    path. A path under the working directory becomes ``./<relative>``, one
+    :func:`redact` does not cover ``<path>/<last part>``.
+    """
+    if isinstance(value, dict):
+        return {k: redact_paths(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact_paths(v) for v in value]
+    if not isinstance(value, str):
+        return redact(value)
+    try:
+        cwd = os.getcwd().rstrip("/") or "/"
+    except OSError:  # the working directory was removed
+        cwd = "/"
+
+    def _relative(match: "re.Match[str]") -> str:
+        path = match.group(0).rstrip(".")
+        tail = match.group(0)[len(path) :]
+        if path == cwd:
+            return "." + tail
+        if cwd != "/" and path.startswith(cwd + "/"):
+            return "./" + path[len(cwd) + 1 :] + tail
+        return match.group(0)
+
+    def _anywhere(match: "re.Match[str]") -> str:
+        path = match.group(0).rstrip(".")
+        return f"<path>/{os.path.basename(path.rstrip('/'))}" + match.group(0)[len(path) :]
+
+    return _ABSOLUTE_PATH.sub(_anywhere, redact(_ABSOLUTE_PATH.sub(_relative, value)))
 
 
 def redact(value: Any) -> Any:

@@ -96,7 +96,7 @@ def test_over_mcp_a_tenant_does_not_see_another_tenants_profiles(client, tenants
 
     monkeypatch.setattr(transport_guard, "_transport", "sse")
     (a,), (b,) = (t.values() for t in tenants)
-    saved = server.save_rag_profile("", "b_mcp", "{}", set_active=False, session_token=b)
+    saved = server.save_rag_profile("b_mcp", "{}", set_active=False, session_token=b)
     assert "saved successfully" in saved
     names = lambda token: {p["name"] for p in json.loads(server.list_profiles(session_token=token))}  # noqa: E731
     assert "b_mcp" in names(b)

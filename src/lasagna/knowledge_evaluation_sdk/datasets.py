@@ -72,18 +72,48 @@ def _offline() -> bool:
     return offline() or env_flag("HF_DATASETS_OFFLINE")
 
 
+def _complete_builds(folder: Path) -> Optional[bool]:
+    """Whether every build in a ``datasets`` cache folder is complete; None if none is there.
+
+    A build is ``<config>/<version>/<hash>/`` and is complete once it holds
+    ``dataset_info.json``. One without it, or a ``<hash>.incomplete`` folder
+    an interrupted download left, made `load_dataset` fail offline with a raw
+    "[Errno 2] ... dataset_info.json" in every task, while the folder existing
+    had counted as cached.
+    """
+    builds = [
+        build
+        for config in folder.iterdir()
+        if config.is_dir()
+        for version in config.iterdir()
+        if version.is_dir()
+        for build in version.iterdir()
+        if build.is_dir()
+    ]
+    if not builds:
+        return None
+    return all(
+        not build.name.endswith(".incomplete") and (build / "dataset_info.json").is_file()
+        for build in builds
+    )
+
+
 def dataset_cached(hf_name: str) -> bool:
     """Whether ``hf_name`` (``org/name``) loads from the local cache.
 
-    Either the ``datasets`` cache holds it (``<org>___<name>``), or the hub
-    cache has a snapshot whose files resolve.
+    Either the ``datasets`` cache holds complete builds of it
+    (``<org>___<name>``), or the hub cache has a snapshot whose files resolve.
+    A build only partly there counts as not cached.
     """
     org, _, name = hf_name.partition("/")
     try:
         import datasets.config as datasets_config
 
-        if (Path(datasets_config.HF_DATASETS_CACHE) / f"{org}___{name}").is_dir():
-            return True
+        folder = Path(datasets_config.HF_DATASETS_CACHE) / f"{org}___{name}"
+        if folder.is_dir():
+            complete = _complete_builds(folder)
+            if complete is not None:
+                return complete
     except Exception:  # noqa: BLE001 - no datasets library: only the hub cache counts
         pass
     try:
@@ -124,9 +154,9 @@ def missing_offline_datasets(
     named = ", ".join(missing)
     verb = "is" if len(missing) == 1 else "are"
     return DatasetNotCached(
-        f"{named} {verb} not in the Hugging Face cache and offline mode is on "
-        f"(HF_HUB_OFFLINE or HF_DATASETS_OFFLINE): run once online to download it, or "
-        f"unset HF_HUB_OFFLINE and HF_DATASETS_OFFLINE."
+        f"{named} {verb} not in the Hugging Face cache, or only partly, and offline mode "
+        f"is on (HF_HUB_OFFLINE or HF_DATASETS_OFFLINE): run once online to download it, "
+        f"or unset HF_HUB_OFFLINE and HF_DATASETS_OFFLINE."
     )
 
 

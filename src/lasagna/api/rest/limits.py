@@ -100,7 +100,9 @@ def apply_log_format(level: Optional[str] = None) -> bool:
     id, with `text_format`; a sink an entry point set up itself (``lasagna
     serve``, the MCP server) is left alone. Returns whether JSON was turned on.
     """
-    level = (level or os.environ.get("RAG_LOG_LEVEL") or "INFO").upper()
+    from lasagna.core.paths import env_get
+
+    level = (level or env_get("LOG_LEVEL") or "INFO").upper()
     if log_format() != "json":
         try:
             logger.remove(0)  # loguru's default handler, there unless replaced

@@ -488,11 +488,11 @@ NON_SETTING_ENV = frozenset(
 )
 NON_SETTING_ENV_PREFIXES = ("RAG_GC_", "RAG_STORAGE_", "RAG_EVAL_")
 
-#: ``LASAGNA_*`` names that already meant something else before settings took
-#: the prefix, and keep that meaning. ``LASAGNA_LOG_LEVEL`` is the CLI's console
-#: threshold (tolerant of a typo, so a bad value never stops ``doctor``); the
-#: ``log_level`` setting stays ``RAG_LOG_LEVEL``.
-LASAGNA_RESERVED_ENV = frozenset({"LASAGNA_LOG_LEVEL"})
+#: Settings whose bad value in the environment warns and is ignored instead of
+#: stopping the process. ``log_level`` (``LASAGNA_LOG_LEVEL`` or
+#: ``RAG_LOG_LEVEL``) is also the CLI's console threshold, and a typo in it
+#: must never stop ``doctor``, the command a user runs when something is wrong.
+_TOLERATED_ENV_SETTINGS = frozenset({"log_level"})
 
 _UNSET = object()
 _warned_unknown_env: set = set()
@@ -1319,7 +1319,7 @@ class RAGConfig:
         for env_key, env_value in sorted(os.environ.items()):
             if env_key.startswith("LASAGNA_"):
                 config_key = env_key[len("LASAGNA_") :].lower()
-                if config_key not in default_config or env_key in LASAGNA_RESERVED_ENV:
+                if config_key not in default_config:
                     continue  # LASAGNA_* also names things that are not settings
             elif env_key.startswith("RAG_"):
                 config_key = env_key[len("RAG_") :].lower()
@@ -1327,13 +1327,16 @@ class RAGConfig:
                     _warn_unknown_env(env_key, default_config)
                     continue
                 alias = f"LASAGNA_{env_key[len('RAG_') :]}"
-                if alias not in LASAGNA_RESERVED_ENV and os.environ.get(alias):
+                if os.environ.get(alias):
                     continue  # the LASAGNA_ name of the same setting wins
             else:
                 continue
             try:
                 parsed = _parse_env_value(config_key, env_value, default_config[config_key])
             except ConfigError as exc:
+                if config_key in _TOLERATED_ENV_SETTINGS:
+                    logger.warning(f"Ignoring {env_key}={env_value!r}: {exc}")
+                    continue
                 problems.append(f"{env_key}={env_value!r}: {exc}")
                 continue
             if parsed is not _UNSET:

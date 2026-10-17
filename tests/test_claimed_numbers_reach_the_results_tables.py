@@ -28,12 +28,14 @@ MY_IDEAS = """
 import lasagna
 
 
-@lasagna.reranker(paper="Doe et al. 2026", claims={"ndcg@10": 0.456})
+@lasagna.reranker(paper="Doe et al. 2026", claims={"smoke": {"ndcg@10": 0.456}})
 def longer_first(query, text):
     return len(text.split())
 """
 
-CLAIM = {"stage": "reranker", "paper": "Doe et al. 2026", "claims": {"ndcg@10": 0.456}}
+CLAIM = {"stage": "reranker", "paper": "Doe et al. 2026", "claims": {"bench": {"ndcg@10": 0.456}}}
+# What the README sweep records: the claim names the benchmark it runs.
+SMOKE_CLAIM = {**CLAIM, "claims": {"smoke": {"ndcg@10": 0.456}}}
 
 
 @pytest.fixture
@@ -49,17 +51,19 @@ def my_ideas(tmp_path):
 def test_a_reference_keeps_the_claims_its_decorator_declared(my_ideas):
     components.load("reranker", "my_ideas:longer_first", [my_ideas])
     declared = registry.provenance("reranker", "my_ideas:longer_first")
-    assert declared == {"paper": "Doe et al. 2026", "claims": {"ndcg@10": 0.456}}
+    assert declared == {"paper": "Doe et al. 2026", "claims": {"smoke": {"ndcg@10": 0.456}}}
     rows = [{"system": {"stages": {"reranker": {"component": "my_ideas:longer_first"}}}}]
-    assert component_provenance(rows) == {"my_ideas:longer_first": CLAIM}
+    assert component_provenance(rows) == {"my_ideas:longer_first": SMOKE_CLAIM}
 
 
-def test_a_claim_matches_its_metric_only():
+def test_a_claim_matches_its_metric_and_benchmark_only():
     record = {"mine": CLAIM}
     system = {"stages": {"reranker": {"component": "mine"}}}
-    assert claimed(record, system, "NDCG@10")["value"] == 0.456
-    assert claimed(record, system, "recall@10") is None
-    assert claimed(record, {"stages": {"reranker": {"component": "other"}}}, "ndcg@10") is None
+    assert claimed(record, system, "NDCG@10", "bench")["value"] == 0.456
+    assert claimed(record, system, "recall@10", "bench") is None
+    assert claimed(record, system, "ndcg@10", "smoke") is None
+    other = {"stages": {"reranker": {"component": "other"}}}
+    assert claimed(record, other, "ndcg@10", "bench") is None
 
 
 def _task(config: str, component: str, score: float) -> dict:
@@ -179,4 +183,5 @@ def test_the_readme_sweep_records_and_prints_the_claim(my_ideas):
     assert run.returncode == 0, run.stdout[-3000:] + run.stderr[-3000:]
     assert "claimed 0.4560 (Doe et al. 2026)" in run.stdout
     saved = json.loads(next((my_ideas / "out").rglob("results.json")).read_text())
-    assert saved["experiment_config"]["components"] == {"my_ideas:longer_first": CLAIM}
+    # The control's paper is recorded too: cross_encoder cites Nogueira & Cho 2019.
+    assert saved["experiment_config"]["components"]["my_ideas:longer_first"] == SMOKE_CLAIM
