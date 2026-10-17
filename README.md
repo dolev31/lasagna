@@ -347,7 +347,8 @@ config applies.
 > One notebook writes a reranker as a single function, sweeps it against a
 > built-in cross-encoder on 100 SciFact queries over the full corpus, and ends
 > with a paired significance test, the stage isolation check and a validated
-> results bundle. No API key.
+> results bundle. No API key. It is stored without outputs: run it on Colab, or
+> locally with Jupyter, to see them.
 
 Adding a technique is one decorator on a plain function. The function becomes
 a component of its stage, interchangeable with every built-in, and runs inside
@@ -360,8 +361,8 @@ import lasagna
 
 
 @lasagna.reranker(paper="Doe et al. 2026", claims={"beir/scifact": {"ndcg@10": 0.456}})
-def longer_first(query, text):
-    return len(text.split())  # your technique: score one passage
+def keyword_overlap(query, text):  # your technique: score one passage
+    return len(set(query.lower().split()) & set(text.lower().split()))
 
 
 if __name__ == "__main__":  # try it on three passages
@@ -376,8 +377,8 @@ if __name__ == "__main__":  # try it on three passages
                        document_id="d3", chunk_id="c3"),
     ]
 
-    mine = registry.get("reranker", "longer_first").rerank("q", candidates)
-    entry = next(e for e in registry.list_rerankers() if e["name"] == "longer_first")
+    mine = registry.get("reranker", "keyword_overlap").rerank("length of a passage", candidates)
+    entry = next(e for e in registry.list_rerankers() if e["name"] == "keyword_overlap")
     print("retrieval order:", [d.document_id for d in candidates])
     print("my reranker:    ", [d.document_id for d in mine])
     print("claims recorded:", entry["claims"])
@@ -410,16 +411,16 @@ agentic loop, subclass the stage's interface (`BaseReranker`,
 `@registry.register` instead.
 
 Then measure it. A sweep names the function by its import path,
-`my_ideas:longer_first`, with no registration call and no package:
+`my_ideas:keyword_overlap`, with no registration call and no package:
 
 ```yaml
 # sweep.yaml, next to my_ideas.py
-name: does longer_first help
+name: does keyword_overlap help
 benchmarks: [{name: smoke}]
 tracks: [retrieval]
 pipeline:
   base_profile: speed
-  rerankers: [cross_encoder, "my_ideas:longer_first"]
+  rerankers: [cross_encoder, "my_ideas:keyword_overlap"]
 n_runs: 1     # retrieval does not sample; repeat runs when an LLM stage is in the loop
 ```
 

@@ -1366,9 +1366,63 @@ def _refuse_unknown(keys: Iterable[str], known: Iterable[str], where: str) -> No
     )
 
 
+#: Keys whose value has one type, with the least a number may be. Checked
+#: while the file is read: ``n_runs: lots`` failed later with "'str' object
+#: cannot be interpreted as an integer", naming neither the file nor the key.
+_TYPED_KEYS: Dict[str, tuple] = {
+    "name": (str, None),
+    "description": (str, None),
+    "mode": (str, None),
+    "n_runs": (int, 1),
+    "n_samples": (int, 1),
+    "seed": (int, None),
+    "max_concurrency": (int, 1),
+    "max_corpus_docs": (int, 0),
+    "output_dir": (str, None),
+    "checkpoint_dir": (str, None),
+    "judge_model": (str, None),
+    "ingestion_per_config": (bool, None),
+    "benchmarks": (list, None),
+    "output_formats": (list, None),
+    "split": (str, None),
+}
+
+_TYPE_WORDS = {int: "a whole number", str: "a string", bool: "true or false", list: "a list"}
+
+
+def _check_types(data: Dict[str, Any], where: str) -> None:
+    """Raise ``ValueError`` for a key in ``data`` whose value has the wrong type or size."""
+    for key, (kind, least) in _TYPED_KEYS.items():
+        value = data.get(key)
+        if value is None:
+            continue
+        wrong = isinstance(value, bool) and kind is not bool or not isinstance(value, kind)
+        if wrong:
+            raise ValueError(
+                f"`{key}:` {where} takes {_TYPE_WORDS[kind]}, got {value!r}"
+                + (f" (at least {least})" if least is not None else "")
+                + "."
+            )
+        if least is not None and value < least:
+            raise ValueError(f"`{key}:` {where} must be at least {least}, got {value}.")
+
+
 def _parse_config(data: Dict[str, Any]) -> ExperimentConfig:
     """Parse a raw config dict into :class:`ExperimentConfig`."""
+    if not isinstance(data, dict):
+        # An empty file failed with "'NoneType' object is not iterable".
+        what = (
+            "the file is empty"
+            if data is None
+            else f"its top level is a {type(data).__name__}, not a mapping of keys"
+        )
+        raise ValueError(
+            f"{what}. A sweep names at least `benchmarks:` and `pipeline:`; "
+            "https://github.com/dolev31/lasagna/blob/main/examples/lasagna-plugin-template/sweep.yaml "
+            "is a complete one."
+        )
     _refuse_unknown(data, _TOP_LEVEL_KEYS, "the top level")
+    _check_types(data, "at the top level")
     pipeline_raw = data.get("pipeline") or {}
     if not isinstance(pipeline_raw, dict):
         raise ValueError(f"`pipeline:` must be a mapping, got {type(pipeline_raw).__name__}")
@@ -1390,6 +1444,7 @@ def _parse_config(data: Dict[str, Any]) -> ExperimentConfig:
                 )
             if "path" in b and not (isinstance(b["path"], str) and b["path"].strip()):
                 raise ValueError(f"A benchmark `path` must be a file or folder; got {b!r}")
+            _check_types(b, f"in benchmark {b.get('name') or b.get('path')!r}")
             benchmarks.append(
                 BenchmarkSpec(
                     name=b.get("name", ""),

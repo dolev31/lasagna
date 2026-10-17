@@ -74,7 +74,8 @@ Experiments:
   bad row and field. See [docs/own-data.md](docs/own-data.md).
 - **`lasagna benchmark synthesize`** writes factoid, multi-hop and unanswerable
   questions from your documents with the configured LLM, for development
-  rather than for reported results.
+  rather than for reported results. The plan warns when the documents are too
+  few for the number of questions asked.
 - **Benchmarks run beside `lasagna serve`.** While another process holds the
   local Milvus Lite store, `benchmark run` and `benchmark experiment` use one
   of their own in `~/.lasagna/bench/dbs` and say so
@@ -131,6 +132,8 @@ Serving:
 - **REST API** (`lasagna serve`, or the Compose stack) under `/api/v1`,
   covered by the deprecation policy in [GOVERNANCE.md](GOVERNANCE.md); search
   responses name the stages that fell back in `degraded_stages`.
+- **`lasagna upload`** takes files, globs and folders (a folder's readable
+  files, subfolders included, saying what it skipped).
 - **Profiles** `speed` (92 MB, no LLM), `standard`, `balanced` and
   `max_quality`, applied per session from any surface. A switch that moves a
   session's documents to another model (`lasagna configure --reindex`,

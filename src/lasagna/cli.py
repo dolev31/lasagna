@@ -2254,6 +2254,50 @@ def _exit_if_tasks_failed(results) -> None:
     raise typer.Exit(code=1)
 
 
+#: The sweep list that names each stage's arms.
+_SWEEP_LISTS = {
+    "reranker": "rerankers",
+    "embedder": "embedders",
+    "chunker": "chunkers",
+    "query_enhancer": "query_enhancers",
+    "generator": "generators",
+}
+
+#: Built-ins to compare a component with, first choice first.
+_CONTROLS = {
+    "reranker": ("cross_encoder", "flashrank"),
+    "embedder": ("sentence_transformers", "bge_m3"),
+    "chunker": ("fixed", "recursive"),
+    "query_enhancer": ("hyde", "rewrite"),
+    "generator": ("concise", "cited"),
+    "retriever": ("dense", "bm25"),
+}
+
+
+def _sweep_example(stage: Optional[str], name: str) -> str:
+    """The sweep lines that compare ``name`` with a built-in of its stage, or "".
+
+    `component validate cross_encoder` suggested `rerankers: [cross_encoder,
+    "cross_encoder"]`, an arm compared with itself. The control is another
+    built-in, and a plain name is left unquoted, as a sweep writes it. A
+    document processor has no sweep: benchmark corpora are loaded as text.
+    """
+    from .core.registry import registry
+
+    control = next(
+        (c for c in _CONTROLS.get(stage or "", ()) if c != name and registry.has(stage, c)), None
+    )
+    if control is None:
+        return ""
+    mine = f'"{name}"' if ":" in name else name
+    if stage in _SWEEP_LISTS:
+        return f"{_SWEEP_LISTS[stage]}: [{control}, {mine}]"
+    return (
+        f"config_overrides: [{{name: {control}, {stage}: {control}}}, "
+        f"{{name: {mine}, {stage}: {mine}}}]"
+    )
+
+
 def _deprecated_spelling(old: str, new: str) -> None:
     console.print(
         f"[yellow]`lasagna {old}` is deprecated and will be removed in 0.2.0; "
@@ -2523,6 +2567,9 @@ def benchmark_synthesize(
         f"4 characters per token)",
         soft_wrap=True,
     )
+    reuse = plan.reuse_warning()
+    if reuse:
+        console.print(f"[yellow]Warning: {escape(reuse)}[/yellow]", soft_wrap=True)
     if dry_run:
         console.print("Dry run: no LLM was called and nothing was written.")
         return
@@ -2806,17 +2853,14 @@ def component_validate(
         console.print("\n[green]Contract satisfied.[/green] This component is interchangeable.")
         # The README's flow: a sweep names the function by its import path, with
         # no registration call. "Next: register it" said otherwise.
-        example = (
-            f'rerankers: [cross_encoder, "{name}"]'
-            if report.component_type == "reranker"
-            else f'"{name}" in the stage\'s list'
-        )
-        console.print(
-            f"Next: name it in a sweep to compare it against a control, as {escape(example)}: "
-            f"https://github.com/dolev31/lasagna/blob/main/docs/guide.md"
-            f"#6-compare-it-against-a-baseline",
-            soft_wrap=True,
-        )
+        example = _sweep_example(report.component_type, name)
+        if example:
+            console.print(
+                f"Next: name it in a sweep to compare it against a control, as "
+                f"{escape(example)}: https://github.com/dolev31/lasagna/blob/main/docs/guide.md"
+                f"#6-compare-it-against-a-baseline",
+                soft_wrap=True,
+            )
     else:
         console.print(
             f"\n[red]{_count(len(report.failures), 'contract failure')}.[/red] "
@@ -4019,20 +4063,42 @@ pipelines_app = typer.Typer(
 app.add_typer(pipelines_app, name="pipelines")
 
 
+def _session_profile(session_id: str) -> str:
+    """The profile ``session_id`` is on (``default`` when it has none)."""
+    try:
+        from .core.session_config import get_knowledge_config_manager
+
+        manager = get_knowledge_config_manager(session_id=session_id)
+        return manager.get_active_profile(session_id=session_id) or "default"
+    except Exception:  # noqa: BLE001 - only names the profile
+        return "default"
+
+
 @pipelines_app.command("list")
-def pipelines_list():
+def pipelines_list(
+    session_id: str = typer.Option(
+        "default", "--session", "-s", help="Session whose pipeline to mark as the one that runs."
+    ),
+):
     """List all registered agentic pipelines.
 
-    Shows name, description, implementing class, and which pipeline is
-    active (from config). Use it to check that a pipeline you registered
-    with @registry.register("agentic_pipeline", ...) is there.
+    Shows name, description, implementing class, and which pipeline the
+    session runs when a query reaches the agentic tier (from its profile).
+    Use it to check that a pipeline you registered with
+    @registry.register("agentic_pipeline", ...) is there.
     """
     try:
         from .core.registry import registry
         from .core.config import rag_config
 
         pipelines = registry.list_pipelines()
-        active = rag_config.agentic_pipeline
+        # The session's, not the process's: `standard`, `balanced` and
+        # `max_quality` run `default`, while this marked `legacy_react`, the
+        # settings file's value, whatever the session's profile.
+        config = rag_config.with_session(session_id)
+        agentic = bool(config.use_agentic_rag)
+        active = config.agentic_pipeline if agentic else ""
+        profile = _session_profile(session_id)
     except Exception as exc:
         console.print(f"[red]Error loading pipeline registry: {exc}[/red]")
         raise typer.Exit(code=1)
@@ -4057,7 +4123,14 @@ def pipelines_list():
         table.add_row(p["name"], p.get("description", ""), p.get("class", "unknown"), marker)
 
     console.print(table)
-    console.print(f"\n[dim]Active pipeline: [cyan]{active}[/cyan][/dim]")
+    where = f"session {escape(session_id)} ({escape(profile)} profile)"
+    if agentic:
+        console.print(
+            f"\n[dim]Active in {where}: [cyan]{escape(active)}[/cyan], for queries the "
+            f"router sends to the agentic tier.[/dim]"
+        )
+    else:
+        console.print(f"\n[dim]Agentic retrieval is off in {where}, so no pipeline runs.[/dim]")
     console.print(f"[dim]{_count(len(pipelines), 'pipeline')} registered[/dim]")
 
 
