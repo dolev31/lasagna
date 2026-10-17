@@ -496,7 +496,7 @@ interaction below reflects that rather than an overlap between the techniques.
   expected if additive : -0.0081
   actually observed    : -0.0062
   interaction          : +0.0019  95% CI [-0.0318, +0.0355]  p=0.9141
-  composition efficiency: 77.0% (of the additive prediction actually delivered)
+  composition efficiency: not reported because the interaction is not significant (p=0.9141), so the ratio would describe noise
 
   additive (no detectable interaction)
 ```

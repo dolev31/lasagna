@@ -620,6 +620,12 @@ Numbers that were wrong:
 
 Results tooling:
 
+- `results interaction` printed "composition efficiency: 77.0% (of the
+  additive prediction actually delivered)" for expected and observed effects
+  that were both negative, at p = 0.91. The ratio is reported only when the
+  interaction is significant and the combination moved the metric the way the
+  additive prediction did; otherwise the report (`composition_efficiency_omitted`)
+  and the command say why it is left out.
 - **A sweep naming an unknown benchmark started anyway.** `benchmarks: [{name:
   smok}]` printed "Starting experiment", then failed every task with a quoted
   `KeyError` listing every benchmark; `--dry-run` printed the list three times

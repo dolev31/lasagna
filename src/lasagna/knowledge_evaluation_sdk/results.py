@@ -1198,10 +1198,24 @@ class BenchmarkResults:
         expected = main_a + main_b
 
         # How much of the additive prediction the combination actually
-        # delivered. Undefined when the two techniques predict no change at
-        # all, and reported as None rather than as 1.0 -- "they composed
-        # perfectly" is not what "neither did anything" means.
-        efficiency = (combined / expected) if abs(expected) > 1e-12 else None
+        # delivered. A ratio of two effects reads true only when the
+        # interaction is real and both effects point the same way: "77.0% of
+        # the additive prediction delivered" was printed for -0.0062 over
+        # -0.0081 at p = 0.91. Otherwise None, with the reason. None, not 1.0,
+        # when nothing was predicted: "they composed perfectly" is not what
+        # "neither did anything" means.
+        efficiency: Optional[float] = None
+        if abs(expected) <= 1e-12:
+            omitted: Optional[str] = "the two techniques together predict no change"
+        elif p_value >= alpha:
+            omitted = (
+                f"the interaction is not significant (p={format_p(p_value)}), so the ratio "
+                "would describe noise"
+            )
+        elif (combined > 0) != (expected > 0) or abs(combined) <= 1e-12:
+            omitted = "the combination moved the metric the other way from the additive prediction"
+        else:
+            efficiency, omitted = combined / expected, None
 
         if p_value >= alpha:
             verdict = "additive (no detectable interaction)"
@@ -1226,6 +1240,7 @@ class BenchmarkResults:
             "expected_if_additive": expected,
             "interaction": observed,
             "composition_efficiency": efficiency,
+            "composition_efficiency_omitted": omitted,
             "ci_lower": float(lo),
             "ci_upper": float(hi),
             "p_value": p_value,

@@ -3186,6 +3186,11 @@ def results_interaction(
             f"  composition efficiency: {report['composition_efficiency'] * 100:.1f}% "
             "[dim](of the additive prediction actually delivered)[/dim]"
         )
+    elif report.get("composition_efficiency_omitted"):
+        console.print(
+            "  composition efficiency: not reported "
+            f"[dim]because {escape(report['composition_efficiency_omitted'])}[/dim]"
+        )
     console.print()
     console.print(f"  [bold]{report['verdict']}[/bold]")
 
