@@ -297,8 +297,10 @@ services:
   # -------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
-    ports:
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    # Not published: it has no password and is the Celery broker, so any process
+    # on the host that reached it could queue a task, the orphan repair with
+    # dry_run=False among them. The services reach it on the compose network.
+    # To reach it from the host for debugging: -f expose-redis.yml.
     volumes:
       - redis-data:/data
     healthcheck:

@@ -1488,6 +1488,9 @@ Servers and deployment:
   the tool and argument names at DEBUG. The batch upload and the bulk reindex
   returned raw exception text per file; they return the reason the single
   routes give.
+- Compose no longer publishes Redis (the Celery broker, no password) on the
+  host, where any local process could queue tasks such as the orphan repair.
+  `-f expose-redis.yml` publishes it on loopback for debugging.
 
 ### Known issues
 

@@ -1,0 +1,11 @@
+# Publishes Redis on the host's loopback, for debugging (redis-cli -p 6379).
+#
+#   docker compose -f docker-compose.yml -f backends/<backend>.yml -f expose-redis.yml up -d
+#
+# Redis has no password and is the Celery broker: any process on this host that
+# reaches the port can queue a task, garbage collection and the orphan repair
+# included. Use it only on a machine you alone use, and leave it out otherwise.
+services:
+  redis:
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"

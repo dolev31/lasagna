@@ -114,7 +114,7 @@ make up VECTOR_BACKEND=milvus-lite COMPOSE_PROFILES=
 | --- | --- | --- |
 | `api` | always | REST API: gunicorn with `WEB_CONCURRENCY` uvicorn workers (4), host port `API_PORT` (8000) |
 | `postgres` | always | Metadata database (documents, citations, profiles, sessions), `postgres:16-alpine`, port `POSTGRES_PORT` (5432) |
-| `redis` | always | Cache, rate-limit buckets, Celery broker (db 0) and results (db 1), `redis:7-alpine`, port `REDIS_PORT` (6379) |
+| `redis` | always | Cache, rate-limit buckets, Celery broker (db 0) and results (db 1), `redis:7-alpine`; not published on the host (it has no password), `-f expose-redis.yml` publishes it on loopback port `REDIS_PORT` (6379) for debugging |
 | `celery-worker` | `celery` | Processes uploaded documents, `CELERY_CONCURRENCY` (4) at a time |
 | `celery-beat` | `celery` | Schedules the periodic garbage collection and orphan scans; run one per stack |
 | `mcp` | `mcp` | Standalone MCP server over SSE, port `MCP_PORT` (8005); see [MCP service](#mcp-service) |
