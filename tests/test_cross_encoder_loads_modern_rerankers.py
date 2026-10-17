@@ -64,11 +64,16 @@ class TestCrossEncoderLoadsModernRerankers:
         monkeypatch.setattr(ranker, "CROSS_ENCODER_AVAILABLE", True)
         _RecordingCrossEncoder.built.clear()
 
-    def test_remote_code_runs_only_when_the_setting_allows_it(self):
+    def test_remote_code_runs_only_when_the_setting_allows_it(self, monkeypatch):
+        # The server's setting, for its own model: a session's config cannot
+        # turn it on (tests/test_remote_code_runs_only_for_the_operators_reranker.py).
         rr = ranker.CrossEncoderReranker()
         hit = [{"id": "a", "content": "aa", "score": 1.0, "metadata": {}}]
+        server = SimpleNamespace(reranker_model="org/reranker", get=lambda key: None)
+        monkeypatch.setattr(ranker, "rag_config", server)
         rr.rerank("q", hit, top_k=1, config=_session())
-        rr.rerank("q", hit, top_k=1, config=_session(reranker_trust_remote_code=True))
+        server.reranker_trust_remote_code = True
+        rr.rerank("q", hit, top_k=1, config=_session())
         assert _RecordingCrossEncoder.built == [
             ("org/reranker", {}),
             ("org/reranker", {"trust_remote_code": True}),

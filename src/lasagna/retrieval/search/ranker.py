@@ -185,6 +185,28 @@ def _refuse_unscorable_reranker(name: str, trust_remote_code: bool) -> None:
         )
 
 
+def _operator_trusts_remote_code(name: str, config: Any = None) -> bool:
+    """Whether ``name`` may run modelling code shipped with its checkpoint.
+
+    For a model the operator named with ``reranker_trust_remote_code`` on: in
+    the process settings (the settings file, the environment), or in the
+    call's own per-query overrides, which code in this process sets (a sweep
+    arm, a ``KnowledgePipeline``) and a session cannot. The flag was read from
+    each call's config, where ``reranker_model`` is a session setting: with
+    trust on, any session could name any repository and the server ran its
+    code. A model a session chooses loads with trust off.
+    """
+    local = getattr(config, "_query_overrides", None) or {}
+    if "reranker_trust_remote_code" in local:
+        named = {local.get("reranker_model"), *(local.get("ensemble_reranker_models") or [])}
+        return bool(local["reranker_trust_remote_code"]) and name in named
+    server = rag_config  # the process settings, never a session's
+    if not getattr(server, "reranker_trust_remote_code", False):
+        return False
+    named = {server.reranker_model, *(_config_setting(server, "ensemble_reranker_models") or [])}
+    return name in named
+
+
 class CrossEncoderReranker:
     """Cross-encoder based reranker for improved precision.
 
@@ -327,10 +349,7 @@ class CrossEncoderReranker:
         # switched by another session between choosing a model and scoring.
         name = self.model_name if (self._pinned or config is None) else config.reranker_model
         batch_size = getattr(config, "reranker_batch_size", None) or self.batch_size
-        trust = getattr(
-            config if config is not None else rag_config, "reranker_trust_remote_code", False
-        )
-        model = self._model_for(name, bool(trust))
+        model = self._model_for(name, _operator_trusts_remote_code(name, config))
 
         # Prepare query-document pairs
         pairs = []

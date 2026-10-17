@@ -49,7 +49,8 @@ Components, by stage:
   `hybrid_fusion_depth` and `hybrid_convex_normalization`.
 - **Reranker:** `monot5`, `llm_pointwise`, `flashrank` and `cohere`.
   `cross_encoder` loads current Hugging Face rerankers by name, and
-  `reranker_trust_remote_code` allows checkpoints that ship their own code.
+  `reranker_trust_remote_code` allows checkpoints that ship their own code,
+  for the models the operator names with it.
 - **Query enhancer:** `step_back`, `query2doc`, `rewrite` and `multi_query`.
 - **Agentic pipeline:** `self_ask`, `ircot`, `flare`, `adaptive` and `self_rag`,
   each with its paper's defaults as settings (`self_ask_*`, `ircot_*`,
@@ -487,6 +488,14 @@ Server and deployment:
   `POST /api/v1/documents/{id}/reindex`); a failure raises `DocumentError`
   with the reason and leaves the document unchanged, and an unknown id raises
   `DocumentNotFoundError`.
+- **A session can no longer run a model repository's code.** With
+  `reranker_trust_remote_code` on, the reranker read the flag from each call's
+  config while `reranker_model` is a session setting, so any session could
+  name any Hugging Face repository as its reranker (or an ensemble member) and
+  the server ran its modelling code. Trust now applies to the models named in
+  the server's settings (`reranker_model`, `ensemble_reranker_models`) or in a
+  sweep arm's own overrides; a model a session chooses loads with trust off.
+  No other setting trusts remote code.
 - **A session can no longer point the server at another vector store.**
   Session settings (REST `/api/v1/config`, `/api/config/knowledge/profile` and
   `/import`, the MCP config tools, the config manager) accepted any key, and
