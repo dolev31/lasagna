@@ -190,6 +190,12 @@ class DatabaseBackend(Protocol):
         """Delete a user's custom profile.  Cannot delete built-in profiles."""
         ...
 
+    def count_searched_documents(
+        self, session_id: str, statuses: List[str]
+    ) -> Dict[Optional[str], int]:
+        """Documents of the session with one of ``statuses``, counted per collection."""
+        ...
+
     def get_saved_profiles(self) -> List[Dict[str, Any]]:
         """Every saved (not built-in) profile, of every owner."""
         ...

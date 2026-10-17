@@ -1109,6 +1109,19 @@ class PostgresRAGDatabase:
                     rows.append(d)
                 return rows
 
+    def count_searched_documents(
+        self, session_id: str, statuses: List[str]
+    ) -> Dict[Optional[str], int]:
+        """How many of the session's documents with one of ``statuses`` each collection holds."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT collection_name, COUNT(*) FROM rag_documents WHERE session_id = %s "
+                    "AND LOWER(status) = ANY(%s) GROUP BY collection_name",
+                    (session_id, list(statuses)),
+                )
+                return {row[0]: int(row[1]) for row in cur.fetchall()}
+
     def get_saved_profiles(self) -> List[Dict[str, Any]]:
         """Every saved (not built-in) profile, of every owner."""
         with self._conn() as conn:

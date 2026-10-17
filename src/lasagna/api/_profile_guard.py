@@ -130,10 +130,27 @@ class DocumentsElsewhereWarning(UserWarning):
     """A search missed the session's documents that sit in another model's collection."""
 
 
-#: ``(session, collection) -> (checked at, message)``: searches read this at
-#: most once every few seconds per session, from the metadata database.
+#: ``(session, collection) -> (checked at, content generation, message)``: a
+#: search reads the session's content generation at most once every few
+#: seconds, and counts its documents again only when that generation moved
+#: (every upload, reindex, delete, archive and restore moves it).
 _elsewhere: Dict[tuple, tuple] = {}
 _ELSEWHERE_TTL_SECONDS = 3.0
+
+
+def _searched_counts(session_id: str) -> Dict[Optional[str], int]:
+    """The session's documents with vectors, counted per collection, in one query."""
+    from lasagna.core.database import get_rag_database
+
+    db = get_rag_database()
+    count = getattr(db, "count_searched_documents", None)
+    if count is not None:
+        return dict(count(session_id, sorted(_SEARCHED_STATUSES)))
+    counts: Dict[Optional[str], int] = {}
+    for row in db.get_documents(session_id):  # a store without the count (a stand-in)
+        if str(row.get("status") or "").lower() in _SEARCHED_STATUSES:
+            counts[row.get("collection_name")] = counts.get(row.get("collection_name"), 0) + 1
+    return counts
 
 
 def model_of_collection(collection: str) -> tuple:
@@ -223,36 +240,38 @@ def documents_elsewhere(session_id: str, collection: str, model: str) -> Optiona
     now = time.monotonic()
     cached = _elsewhere.get(key)
     if cached is not None and now - cached[0] < _ELSEWHERE_TTL_SECONDS:
-        return cached[1]
-    from lasagna.core.database import get_rag_database
+        return cached[2]
+    from lasagna.core.database import content_generation
 
-    rows = [
-        row
-        for row in get_rag_database().get_documents(session_id)
-        if str(row.get("status") or "").lower() in _SEARCHED_STATUSES
-    ]
-    missed = [r for r in rows if r.get("collection_name") not in (None, "", collection)]
+    generation = content_generation(session_id)
+    if cached is not None and generation is not None and cached[1] == generation:
+        _elsewhere[key] = (now, generation, cached[2])
+        return cached[2]
+    counts = _searched_counts(session_id)
+    total = sum(counts.values())
+    missed = {c: n for c, n in counts.items() if c not in (None, "", collection)}
+    n_missed = sum(missed.values())
     message = None
     if missed:
-        others = sorted({str(r["collection_name"]) for r in missed})
+        others = sorted(str(c) for c in missed)
         named = [model_of_collection(c) for c in others]
         back = next((profile for _, profile in named if profile), None)
         reindex, switch_back = fixes_for_documents_elsewhere(session_id, back)
         where = ", ".join(_described(c, m, model) for c, (m, _) in zip(others, named))
         here = _described(collection, model, named[0][0]) if len(named) == 1 else f"{model}'s"
         message = (
-            f"{len(missed)} of {_plural(len(rows), 'document')} in session {session_id!r} "
-            f"{'is' if len(missed) == 1 else 'are'} in {where}, and this search uses "
-            f"{here}, so it cannot find {'it' if len(missed) == 1 else 'them'}. "
+            f"{n_missed} of {_plural(total, 'document')} in session {session_id!r} "
+            f"{'is' if n_missed == 1 else 'are'} in {where}, and this search uses "
+            f"{here}, so it cannot find {'it' if n_missed == 1 else 'them'}. "
             f"Reindex them with {model} ({reindex}, or client.documents.reindex(document_id) "
             f"from a client on that model), or search with the model that indexed them"
             + (f" ({switch_back})." if switch_back else ".")
         )
-    if message and (cached is None or cached[1] != message):
+    if message and (cached is None or cached[2] != message):
         from loguru import logger
 
         logger.warning(message)
-    _elsewhere[key] = (now, message)
+    _elsewhere[key] = (now, generation, message)
     return message
 
 

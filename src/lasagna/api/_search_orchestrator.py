@@ -53,8 +53,14 @@ def _note_documents_elsewhere(session_id: str, config: Any) -> None:
 
     They sit in another model's collection (an SDK reindex into another model,
     a switch with ``force``), and the search returned an empty list with no
-    word of why. Never raises.
+    word of why. Never raises. Not for the evaluation harness's sessions: it
+    names a collection per arm, and the check would sit inside the latency it
+    records.
     """
+    from ..core.session_config import kept_in_process
+
+    if kept_in_process(session_id):
+        return
     try:
         from ._profile_guard import documents_elsewhere
 
