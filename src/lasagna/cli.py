@@ -2835,14 +2835,7 @@ def results_validate(
     is a content hash, not a signature, and anyone who edits a number can
     recompute it.
     """
-    from .knowledge_evaluation_sdk.bundle import (
-        _content_hash,
-        aggregate_mismatches,
-        comparability_key,
-        config_label,
-        metrics_version_problems,
-        ranked_list_mismatches,
-    )
+    from .knowledge_evaluation_sdk.bundle import validation_problems
 
     given = Path(bundle_path).expanduser()
     if given.is_dir():
@@ -2856,53 +2849,8 @@ def results_validate(
         bundle = json.loads(given.read_text())
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         _error(f"{bundle_path} is not valid JSON ({exc}). Pass a bundle from results bundle.")
-    problems: List[str] = []
-
     schema = str(bundle.get("schema_version", ""))
-    if not schema.startswith("1."):
-        problems.append(f"unsupported schema_version {schema!r} (this build reads 1.x)")
-
-    for field in ("run_id", "experiment", "configs", "results", "integrity"):
-        if field not in bundle:
-            problems.append(f"missing required block: {field}")
-
-    if "run_id" in bundle and _content_hash(bundle) != bundle["run_id"]:
-        problems.append("run_id does not match the bundle contents: it was edited after generation")
-
-    for cfg in bundle.get("configs", []):
-        recomputed = comparability_key(cfg.get("held_fixed", {}))
-        if recomputed != cfg.get("comparability_key"):
-            problems.append(
-                f"config {config_label(cfg)}: comparability key does not match its "
-                f"held_fixed block ({cfg.get('comparability_key')} vs {recomputed})"
-            )
-        benchmark = cfg.get("benchmark")
-        held_benchmark = (cfg.get("held_fixed") or {}).get("benchmark")
-        if benchmark and held_benchmark != benchmark:
-            problems.append(
-                f"config {config_label(cfg)}: held_fixed.benchmark is {held_benchmark!r}, "
-                f"not the entry's benchmark"
-            )
-
-    problems.extend(metrics_version_problems(bundle))
-    problems.extend(
-        f"aggregate disagrees with per-query scores: {m}"
-        for m in aggregate_mismatches(bundle.get("results") or [])
-    )
-    problems.extend(
-        f"per-query score above what its ranked list supports: {m}"
-        for m in ranked_list_mismatches(bundle.get("results") or [])
-    )
-
-    env = (bundle.get("experiment") or {}).get("environment") or {}
-    for required in ("lasagna_version", "python", "platform"):
-        if not env.get(required):
-            problems.append(f"provenance incomplete: environment.{required} is missing")
-
-    blocking = (bundle.get("integrity") or {}).get("blocking") or []
-    problems.extend(f"integrity: {code}" for code in blocking)
-    for line in ((bundle.get("integrity") or {}).get("isolation") or {}).get("undeclared", []):
-        problems.append(f"  {line}")
+    problems = validation_problems(bundle, strict=strict)
 
     warnings = (bundle.get("integrity") or {}).get("warnings") or []
     # What each active fallback swapped in and what to install, so the
@@ -2912,8 +2860,6 @@ def results_validate(
         if "ACTIVE_FALLBACKS" in warnings
         else []
     )
-    if strict:
-        problems.extend(f"integrity (strict): {code}" for code in warnings)
 
     if problems:
         console.print(f"[red]INVALID[/red], {_count(len(problems), 'problem')}:")
@@ -2939,12 +2885,44 @@ def results_compare(
     b: str = typer.Argument(..., help="Second bundle or results.json"),
     metric: str = typer.Option("ndcg@10", "--metric", "-m", help="Metric to compare."),
 ):
-    """Compare two runs, reporting whether they are comparable at all."""
+    """Compare two runs, reporting whether they are comparable at all.
 
-    first, second = _load_results(a), _load_results(b)
+    Each side is a run's results.json (or its folder) or a bundle. A bundle is
+    checked first, as `results validate` checks it, and one that fails is
+    refused. Per benchmark, configs are comparable when their comparability
+    keys match: the keys `results bundle` prints and the leaderboard groups by.
+    """
+    first, second = _comparable_run(a), _comparable_run(b)
     for path, results in ((a, first), (b, second)):
         _require_metric(results, metric, where=Path(path).name)
-    console.print(first.compare(second, metric), markup=False, highlight=False)
+    console.print(
+        first.compare(second, metric, names=(a, b)), markup=False, highlight=False, soft_wrap=True
+    )
+
+
+def _comparable_run(path: str):
+    """The run at ``path``, refused when it is a bundle `results validate` calls INVALID.
+
+    An edited bundle was reported "Comparable: yes", beside numbers that no
+    longer matched their own per-query scores.
+    """
+    from .knowledge_evaluation_sdk.bundle import validation_problems
+    from .knowledge_evaluation_sdk.leaderboard import _is_bundle
+
+    file = _results_file(path)
+    try:
+        data = json.loads(file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        data = None  # _load_results says what is wrong with it
+    if _is_bundle(data):
+        problems = validation_problems(data)
+        if problems:
+            _error(
+                f"{path} is not a valid bundle, so its numbers cannot be compared "
+                f"({_count(len(problems), 'problem')}, the first: {problems[0].strip()}). "
+                f"`lasagna results validate {shlex.quote(path)}` lists them."
+            )
+    return _load_results(path)
 
 
 @results_app.command("power")

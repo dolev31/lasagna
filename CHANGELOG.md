@@ -99,7 +99,8 @@ Results:
 - **Bundles** (`results bundle`, `results validate`) carry what a reader needs
   to decide whether two numbers may be compared, with one comparability key per
   benchmark and configuration; `results leaderboard` groups by it, as markdown
-  pages or LaTeX tables (`--format latex`).
+  pages or LaTeX tables (`--format latex`), and `results compare` prints it
+  for each side, refusing a bundle that `results validate` rejects.
 - **Stage isolation.** Every run records a manifest of each stage's settings;
   arms that differ outside the stages they name block the bundle, and an arm
   whose named change never moved a ranking (on at least ten queries) is

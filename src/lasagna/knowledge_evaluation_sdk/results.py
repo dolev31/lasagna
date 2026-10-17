@@ -1690,79 +1690,124 @@ class BenchmarkResults:
 
     @classmethod
     def load(cls, path: str) -> "BenchmarkResults":
-        """Load results from JSON."""
+        """Load results from a run's JSON, or from a bundle (`results bundle`).
+
+        A bundle keeps the run's metadata under ``experiment``. Read without
+        it, the judge and similarity models fell out of the held-fixed block,
+        and `results compare` printed a key no other command showed.
+        """
         with open(path) as f:
             data = json.load(f)
         task_results = [TaskResult.from_dict(r) for r in data.get("results", [])]
-        meta = dict(data.get("experiment_config") or {})
+        bundle = isinstance(data.get("configs"), list) and isinstance(data.get("experiment"), dict)
+        meta = dict(data.get("experiment_config") or (data["experiment"] if bundle else {}) or {})
         for name in ("metrics_version", "package_version"):
             if meta.get(name) is None and data.get(name) is not None:
                 meta[name] = data[name]
         return cls(
             task_results=task_results,
-            experiment_name=data.get("experiment_name", ""),
+            experiment_name=data.get("experiment_name") or meta.get("experiment_name", ""),
             experiment_config=meta,
         )
 
-    def compare(self, other: "BenchmarkResults", metric: str = "ndcg@10") -> str:
+    def compare(
+        self,
+        other: "BenchmarkResults",
+        metric: str = "ndcg@10",
+        names: Optional[Tuple[str, str]] = None,
+    ) -> str:
         """Compare two experiment results side by side.
 
-        Reports whether the two are comparable at all before showing numbers.
-        Previously this unioned the benchmark names and printed both tables
-        whatever they measured — two runs on different embedding models, splits
-        or sample counts looked exactly like a like-for-like comparison.
+        Reports whether the two are comparable at all before showing numbers,
+        per benchmark, by the comparability key of each config: the key
+        `results bundle` writes and the leaderboard groups by
+        (:func:`bundle.config_entries`). Configs whose keys match are
+        comparable. ``names`` labels the two sides (the files they came from);
+        the experiment names are shown with them.
 
         A mismatch is shown as a field-level diff rather than a refusal: the
         first thing anyone does is compare their run against a published one
         that differs somewhere, and "incomparable" alone does not say which
         knob to turn.
         """
-        from .bundle import compare_keys, comparability_key, held_fixed_from
+        from .bundle import compare_keys, config_entries
 
-        lines = [f"Comparison: {self.experiment_name} vs {other.experiment_name}\n"]
-        lines.append(f"Metric: {metric}\n")
+        def _title(results: "BenchmarkResults", given: str) -> str:
+            name = results.experiment_name
+            experiment = f'experiment "{name}"' if name else "an unnamed experiment"
+            return f"{given}, {experiment}" if given else experiment
 
-        # Held-fixed configuration, per side and benchmark, from the first
-        # result of each, with the stages the side's arms vary left out as the
-        # bundle does. One per side used the first benchmark's for all.
-        def _held(results: "BenchmarkResults", bench: Optional[str]) -> Optional[Dict[str, Any]]:
-            rows = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results._results]
-            mine = [row for row in rows if bench is None or row.get("benchmark_name") == bench]
-            if not mine:
-                return None
-            across = list(
-                {row.get("config_name"): row.get("config_overrides") or {} for row in rows}.values()
+        given = names or ("", "")
+        sides = (("A", self, given[0]), ("B", other, given[1]))
+        sides_by_label = [(label, results) for label, results, _ in sides]
+        lines = [f"{label}: {_title(results, path)}" for label, results, path in sides]
+        lines.append(f"Metric: {metric}")
+        lines.append("")
+
+        # A run with no metrics_version has no key that means anything.
+        unversioned = [
+            label
+            for label, results, _ in sides
+            if not (results.experiment_config or {}).get("metrics_version")
+        ]
+        if unversioned:
+            who = " and ".join(unversioned)
+            lines.append(
+                f"Comparable: not known. {who} record{'s' if len(unversioned) == 1 else ''} "
+                "no metrics_version (results.json files from before 0.1.0 do not have one), "
+                "so it is not known which metric definitions produced the numbers. Run the "
+                "experiment again with this version of Lasagna to compare it."
             )
-            return held_fixed_from(mine[0], results.experiment_config or {}, across)
+            lines.append("")
 
-        # With no benchmark in common, the first results show what differs.
-        shared: List[Optional[str]] = [b for b in self.benchmarks if b in set(other.benchmarks)]
-        for bench in shared or [None]:
-            held_a, held_b = _held(self, bench), _held(other, bench)
-            if not (held_a and held_b):
-                continue
-            prefix = f"{bench}: " if len(shared) > 1 else ""
-            key_a, key_b = comparability_key(held_a), comparability_key(held_b)
-            if key_a == key_b:
-                lines.append(f"{prefix}Comparable: yes (key {key_a})\n")
-            else:
-                diffs = compare_keys(held_a, held_b)
+        # Keys only for the configs whose numbers are shown below.
+        scored = {label: results.aggregate_by_benchmark(metric) for label, results, _ in sides}
+        entries: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {}
+        for label, results, _ in sides:
+            entries[label] = defaultdict(dict)
+            for entry in config_entries(results):
+                if entry["name"] in scored[label].get(entry["benchmark"], {}):
+                    entries[label][entry["benchmark"]][entry["name"]] = entry
+
+        for bench in sorted(set(self.benchmarks) | set(other.benchmarks)):
+            a, b = entries["A"].get(bench, {}), entries["B"].get(bench, {})
+            keys_a = {e["comparability_key"] for e in a.values()}
+            keys_b = {e["comparability_key"] for e in b.values()}
+            show_keys = len(keys_a | keys_b) > 1
+            if not (a or b):
+                lines.append(f"{bench}: neither run scored {metric} here")
+            elif not (a and b):
+                ran, missing = ("A", "B") if a else ("B", "A")
+                absent = dict(sides_by_label)[missing]
+                why = "recorded no " + metric if bench in absent.benchmarks else "did not run it"
+                lines.append(f"{bench}: only in {ran} ({missing} {why})")
+            elif unversioned:
+                lines.append(f"{bench}:")
+            elif keys_a == keys_b and len(keys_a) == 1:
+                lines.append(f"{bench}: Comparable: yes (key {next(iter(keys_a))})")
+            elif not keys_a & keys_b:
+                first_a, first_b = a[sorted(a)[0]], b[sorted(b)[0]]
                 lines.append(
-                    f"{prefix}Comparable: NO. These runs did not hold the same things fixed.\n"
+                    f"{bench}: Comparable: NO. These runs did not hold the same things fixed. "
                     "Differences that make the numbers below incommensurable:"
                 )
-                lines.extend(f"    {d}" for d in diffs)
-                lines.append("")
+                lines.extend(
+                    f"    {d}" for d in compare_keys(first_a["held_fixed"], first_b["held_fixed"])
+                )
+            else:
+                lines.append(
+                    f"{bench}: Comparable in part: configs with the same key are comparable, "
+                    "and the key is shown beside each."
+                )
+            for label in ("A", "B"):
+                for config, m in scored[label].get(bench, {}).items():
+                    key = (entries[label].get(bench, {}).get(config) or {}).get("comparability_key")
+                    lines.append(
+                        f"    {label}/{config}: {m}" + (f"  key {key}" if show_keys else "")
+                    )
+            lines.append("")
 
-        all_benchmarks = sorted(set(self.benchmarks) | set(other.benchmarks))
-        for bench in all_benchmarks:
-            lines.append(f"\n  {bench}:")
-            for label, results in [("  A", self), ("  B", other)]:
-                agg = results.aggregate_by_benchmark(metric).get(bench, {})
-                for config, m in agg.items():
-                    lines.append(f"    {label}/{config}: {m}")
-
-        return "\n".join(lines)
+        return "\n".join(lines).rstrip() + "\n"
 
     def to_bundle(self, submitter: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """Assemble a self-contained, publishable record of this run."""
