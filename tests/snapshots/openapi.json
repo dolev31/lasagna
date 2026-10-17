@@ -331,7 +331,7 @@
             "anyOf": [
               {
                 "maximum": 1.0,
-                "minimum": 0.0,
+                "minimum": 0.1,
                 "type": "number"
               },
               {
@@ -343,8 +343,8 @@
           "child_chunk_size": {
             "anyOf": [
               {
-                "maximum": 50000.0,
-                "minimum": 50.0,
+                "maximum": 100000.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -382,7 +382,7 @@
             "anyOf": [
               {
                 "maximum": 100000.0,
-                "minimum": 50.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -443,7 +443,7 @@
           "default_top_k": {
             "anyOf": [
               {
-                "maximum": 100.0,
+                "maximum": 1000.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -736,8 +736,8 @@
           "first_tokens_count": {
             "anyOf": [
               {
-                "maximum": 500.0,
-                "minimum": 50.0,
+                "maximum": 10000.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -763,7 +763,7 @@
             "anyOf": [
               {
                 "maximum": 100000.0,
-                "minimum": 50.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -775,7 +775,7 @@
           "max_quality_check_attempts": {
             "anyOf": [
               {
-                "maximum": 10.0,
+                "maximum": 5.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -788,8 +788,8 @@
           "min_chunk_size": {
             "anyOf": [
               {
-                "maximum": 50000.0,
-                "minimum": 10.0,
+                "maximum": 100000.0,
+                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -827,7 +827,7 @@
             "anyOf": [
               {
                 "maximum": 100000.0,
-                "minimum": 100.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -861,7 +861,7 @@
           "rerank_top_k": {
             "anyOf": [
               {
-                "maximum": 100.0,
+                "maximum": 1000.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -911,7 +911,7 @@
           "rrf_k": {
             "anyOf": [
               {
-                "maximum": 200.0,
+                "maximum": 10000.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -938,7 +938,7 @@
             "anyOf": [
               {
                 "maximum": 1.0,
-                "minimum": -1.0,
+                "minimum": 0.0,
                 "type": "number"
               },
               {

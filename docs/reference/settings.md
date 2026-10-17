@@ -260,7 +260,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `docling_pdf_backend` | str | `"docling_parse"` | `LASAGNA_DOCLING_PDF_BACKEND`, `RAG_DOCLING_PDF_BACKEND` | Docling PDF backend: 'docling_parse' or 'pypdfium2'. |
 | `docling_ocr_enabled` | bool | `true` | `LASAGNA_DOCLING_OCR_ENABLED`, `RAG_DOCLING_OCR_ENABLED` | Enable OCR within Docling pipeline. |
 | `docling_table_structure` | bool | `true` | `LASAGNA_DOCLING_TABLE_STRUCTURE`, `RAG_DOCLING_TABLE_STRUCTURE` | Enable TableFormer table structure extraction. |
-| `docling_max_tokens` | int | `512` | `LASAGNA_DOCLING_MAX_TOKENS`, `RAG_DOCLING_MAX_TOKENS` | Max tokens per chunk for Docling HybridChunker. |
+| `docling_max_tokens` | int, 64 to 32768 | `512` | `LASAGNA_DOCLING_MAX_TOKENS`, `RAG_DOCLING_MAX_TOKENS` | Max tokens per chunk for Docling HybridChunker. |
 | `docling_timeout` | int | `300` | `LASAGNA_DOCLING_TIMEOUT`, `RAG_DOCLING_TIMEOUT` | Per-document processing timeout in seconds. |
 
 ## Caching
@@ -371,7 +371,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `use_structured_graph` | bool | `false` | `LASAGNA_USE_STRUCTURED_GRAPH`, `RAG_USE_STRUCTURED_GRAPH` | Use structured StateGraph instead of flat ReAct agent. |
 | `enable_hallucination_check` | bool | `false` | `LASAGNA_ENABLE_HALLUCINATION_CHECK`, `RAG_ENABLE_HALLUCINATION_CHECK` | Enable post-generation hallucination grounding check (ISSUP). |
 | `enable_answer_quality_check` | bool | `false` | `LASAGNA_ENABLE_ANSWER_QUALITY_CHECK`, `RAG_ENABLE_ANSWER_QUALITY_CHECK` | Enable post-generation answer quality check (ISUSE). |
-| `max_quality_check_attempts` | int | `2` | `LASAGNA_MAX_QUALITY_CHECK_ATTEMPTS`, `RAG_MAX_QUALITY_CHECK_ATTEMPTS` | Maximum retry attempts for quality gate failures. |
+| `max_quality_check_attempts` | int, 1 to 20 | `2` | `LASAGNA_MAX_QUALITY_CHECK_ATTEMPTS`, `RAG_MAX_QUALITY_CHECK_ATTEMPTS` | Maximum retry attempts for quality gate failures. |
 | `coverage_scorer_mode` | str | `"keyword"` | `LASAGNA_COVERAGE_SCORER_MODE`, `RAG_COVERAGE_SCORER_MODE` | Coverage assessment mode: 'keyword' (fast) or 'llm' (accurate). |
 | `final_search_mode` | str | `"merge"` | `LASAGNA_FINAL_SEARCH_MODE`, `RAG_FINAL_SEARCH_MODE` | Final search behavior: 'merge' (combine hop + final) or 'replace' (legacy). |
 | `chunk_cite_retrieval` | object | `{"strategy": "adaptive", "fixed_size": 5, "threshold_scor...` | `LASAGNA_CHUNK_CITE_RETRIEVAL`, `RAG_CHUNK_CITE_RETRIEVAL` | How many retrieved chunks are kept: a fixed count, or cut at a score gap. |

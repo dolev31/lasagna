@@ -294,7 +294,10 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   runs past `RAG_SEARCH_TIMEOUT` (120 s) gets 504, and every numeric session
   setting has a maximum and every list setting a maximum length, with no name
   twice (`SESSION_MAXIMUMS`; eight ensemble reranker members), that apply to
-  REST, MCP and imports, never to the evaluation harness.
+  REST, MCP and imports, never to the evaluation harness. `PATCH
+  /api/v1/config` takes its bounds from the same tables as the settings check
+  and the configurator (it refused `chunk_size` under 50 and `default_top_k`
+  over 100).
 - A model a session names (`monot5_model`, `splade_model`, `colbert_model`,
   `flashrank_model`, as the embedder and the cross-encoder already did) follows
   the server's download policy instead of downloading inside a request.

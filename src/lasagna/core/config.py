@@ -164,6 +164,8 @@ _VALID_RANGES: Dict[str, Tuple[float, float]] = {
     "connection_pool_size": (1, 500),
     "routing_confidence_threshold": (0.0, 1.0),
     "max_concurrent_uploads": (1, 20),
+    "max_quality_check_attempts": (1, 20),
+    "docling_max_tokens": (64, 32_768),
 }
 
 #: Settings whose value is one of a fixed set (compared without case).
