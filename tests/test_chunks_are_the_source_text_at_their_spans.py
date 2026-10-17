@@ -115,7 +115,7 @@ _SPLIT_TEXT = (
 #: What the chunkers produced before the change: the fixed chunks exactly, the
 #: semantic and structure-aware chunks with whitespace removed (the change
 #: restores the source's whitespace and nothing else).
-_BEFORE = {"fixed": "56a28313f3bfe509", "semantic": "282dd8a52821d42f"}
+_BEFORE = {"fixed": "56a28313f3bfe509", "semantic": "282dd8a52821d42f"}  # pragma: allowlist secret
 
 
 def _digest(contents, keep_whitespace=False):
