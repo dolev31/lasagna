@@ -24,6 +24,7 @@ compatibility with the retrieval registry API:
 
 import inspect
 import threading
+import warnings
 from typing import Any, Callable, Dict, List, Optional, Type
 
 import os
@@ -191,11 +192,16 @@ class _Registration:
         self.hidden = hidden
         self.cls = cls
         self.description = description
-        from .claims import normalize_claims
+        from .claims import normalize_claims, unregistered_benchmarks
 
         self.paper = paper
-        # Keyed by benchmark; a claim that names none is refused here, at registration.
+        # Keyed by benchmark; a claim that names none, or a metric no run
+        # records, is refused here, at registration.
         self.claims = normalize_claims(claims)
+        # A Python warning, not a log line: the library's log is off unless
+        # enabled, and this is for whoever wrote the decorator.
+        for warning in unregistered_benchmarks(self.claims):
+            warnings.warn(warning, UserWarning, stacklevel=2)
         self.version = version
         self._factory = _factory
         self.implements_contract = implements_contract

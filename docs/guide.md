@@ -230,7 +230,10 @@ Registration is one decorator. The `paper` and `claims` arguments are optional
 but worth filling in: they are carried through to the listing API and recorded
 by every run, and on a run of the benchmark a claim names, the leaderboards and
 `results view` show the claimed number next to the one you reproduced. Claims
-are keyed by benchmark (with `"split"` inside if the paper names one).
+are keyed by benchmark (with `"split"` inside if the paper names one). A metric
+name runs do not record (`ndgc@10`) is refused when the component registers,
+and a benchmark no registry has (`beir/scifcat`) is a warning naming the
+closest one.
 
 ```python
 from lasagna.core.base_components import BaseReranker
