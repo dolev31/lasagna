@@ -192,8 +192,13 @@ class TestSearchesHaveADeadline:
         from lasagna.api.rest.app import create_app
         from lasagna.api.rest.dependencies import get_backend
 
+        from lasagna.core import model_downloads
+
         monkeypatch.delenv("RAG_REQUIRE_AUTH", raising=False)
         monkeypatch.setattr(limits, "search_timeout", lambda: 0.05)
+        # The session has documents: a search of one with none is answered
+        # before the backend runs.
+        monkeypatch.setattr(model_downloads, "sessions_with_documents", lambda: {"default": 1})
 
         async def hangs(**kwargs):
             await asyncio.sleep(5)

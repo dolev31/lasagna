@@ -1334,7 +1334,8 @@ def serve(
         "127.0.0.1",
         "--host",
         help="Bind address. Default is loopback; --host 0.0.0.0 exposes the API "
-        "on every interface, and it is UNAUTHENTICATED (see SECURITY.md).",
+        "on every interface, and it is UNAUTHENTICATED (see "
+        "https://github.com/dolev31/lasagna/blob/main/SECURITY.md).",
     ),
     configurator: bool = typer.Option(
         True,
@@ -1538,6 +1539,21 @@ def configure(
             f"Resuming the switch of session {session_id} from profile "
             f"{record['previous_profile']} to {profile}.",
             err=True,
+        )
+
+    # Both flags qualify a switch: without --profile they listed the profiles
+    # and said nothing, and together the switch took --reindex and dropped --force.
+    if (force or reindex) and not profile:
+        flag = "--reindex" if reindex else "--force"
+        _error(
+            f"{flag} applies to a profile switch, and no --profile was given. Name the "
+            f"profile: lasagna configure --profile <name> -s {session_id} {flag}"
+        )
+    if force and reindex:
+        _error(
+            "--force and --reindex cannot be combined: --force switches without "
+            "reindexing (the session's documents stay unsearched until reindexed), and "
+            "--reindex reindexes them before it switches. Pass one of them."
         )
 
     if profile:

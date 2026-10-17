@@ -83,12 +83,23 @@ _DEGRADED_STAGES = Field(
 )
 
 
+#: Documented on every search response.
+_NOTE = Field(
+    default=None,
+    description=(
+        "Why nothing was searched, when the session has no documents: the sessions "
+        "that have some, or how to add one. Absent when the search ran."
+    ),
+)
+
+
 class SearchResponse(BaseModel):
     results: List[SearchResultResponse]
     query: str
     total_results: int
     routing: Optional[RoutingInfo] = None
     degraded_stages: List[str] = _DEGRADED_STAGES
+    note: Optional[str] = _NOTE
 
 
 class CitationResponse(BaseModel):
@@ -113,6 +124,7 @@ class SearchWithCitationsResponse(BaseModel):
     total_results: int
     routing: Optional[RoutingInfo] = None
     degraded_stages: List[str] = _DEGRADED_STAGES
+    note: Optional[str] = _NOTE
 
 
 # ---------------------------------------------------------------------------

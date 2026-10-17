@@ -40,6 +40,10 @@ from lasagna.core.config import TRUTHY as _TRUTHY
 #: Environment variable turning identity enforcement on.
 REQUIRE_AUTH_ENV = "RAG_REQUIRE_AUTH"
 
+#: The security policy, as a link: SECURITY.md is in the repository, not in the
+#: wheel, so "See SECURITY.md" pointed an installed user at no file.
+SECURITY_URL = "https://github.com/dolev31/lasagna/blob/main/SECURITY.md"
+
 
 def require_auth() -> bool:
     """Whether a verified credential is required to name a session.
@@ -126,7 +130,7 @@ def require_auth_or_refuse_to_start(host: str, *, surface: str = "API") -> None:
         f"the bind address is always 0.0.0.0 regardless of how the port is "
         f"published, so this process cannot check that for you.\n"
         f"\n"
-        f"See SECURITY.md."
+        f"See {SECURITY_URL}."
     )
 
 

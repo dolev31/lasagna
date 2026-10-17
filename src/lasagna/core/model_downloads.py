@@ -234,6 +234,40 @@ _NAME_A_SESSION = {
 }
 
 
+#: How each surface adds a document to a session.
+_ADD_A_DOCUMENT = {
+    "rest": "POST /api/v1/documents, sending the same session",
+    "mcp": "upload_document",
+    "cli": "lasagna upload <file> -s {session}",
+    "sdk": "client.upload_document(path)",
+}
+
+
+def no_documents_note(
+    session_id: str, *, surface: str = "rest", list_others: bool = True
+) -> Optional[str]:
+    """Why a search of ``session_id`` has nothing to search, or None when it has documents.
+
+    Read from the metadata database before any model loads: a misspelled
+    ``X-Session-ID`` was answered with 503 "BAAI/bge-m3 is not downloaded"
+    while the CLI said the session has no documents. ``list_others`` names the
+    sessions that have some (not where sessions belong to other callers).
+    """
+    populated = sessions_with_documents()
+    if populated is None or session_id in populated:
+        return None
+    add = _ADD_A_DOCUMENT.get(surface, _ADD_A_DOCUMENT["rest"]).format(session=session_id)
+    others = {s: n for s, n in populated.items() if s != session_id} if list_others else {}
+    if others:
+        listed = ", ".join(f"{s} ({n})" for s, n in sorted(others.items()))
+        name = _NAME_A_SESSION.get(surface, _NAME_A_SESSION["rest"])
+        return (
+            f"Session {session_id!r} has no documents, so nothing was searched. Sessions "
+            f"with documents: {listed}; name one with {name}, or add a document with {add}."
+        )
+    return f"Session {session_id!r} has no documents, so nothing was searched. Add one with {add}."
+
+
 def fix_for_session(session_id: str, model: str = "", *, surface: str = "rest") -> str:
     """What to run so that ``session_id`` can be searched, naming the sessions that can.
 
