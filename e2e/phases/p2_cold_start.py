@@ -14,8 +14,8 @@ That someone who has never run Lasagna before can, without reading the source:
    a cold machine: the bytes land where they were configured to land, the search
    finds the answer that is in the corpus, and the chunk count the user is shown
    agrees with what search can find. That includes downloading the default
-   embedding model, which is several GB. It is slow, and that slowness *is* the
-   user experience, so it is measured rather than engineered away.
+   embedding model and reranker, several GB. It is slow, and that slowness *is*
+   the user experience, so it is measured rather than engineered away.
 
 What this phase does NOT prove
 ------------------------------
@@ -119,7 +119,7 @@ SESSION_ID = "e2e-p2-cold-start"
 # Thresholds. All WARN: a loaded laptop or a slow link must not block a release.
 IMPORT_BUDGET_S = 1.5
 # A cold run measured 1340 s on an M-series laptop on a home connection, almost
-# all of it downloading ~5.3 GB of weights. The budget is set below that on
+# all of it downloading the default models. The budget is set below that on
 # purpose: the WARN is the honest signal that a first run takes twenty minutes,
 # not a threshold anyone has met.
 FIRST_SEARCH_BUDGET_S = 600.0
@@ -217,7 +217,7 @@ def _child_env(sandbox: Path) -> Dict[str, str]:
             #
             # Three cache variables, because the model stack has three
             # generations of cache convention and any one of them leaking writes
-            # ~5 GB into the developer's real cache.
+            # gigabytes into the developer's real cache.
             "HF_HOME": str(sandbox / "cache"),
             "HUGGINGFACE_HUB_CACHE": str(sandbox / "cache" / "hub"),
             "SENTENCE_TRANSFORMERS_HOME": str(sandbox / "cache"),
@@ -258,6 +258,16 @@ def _dir_bytes(path: Path) -> int:
 def _dir_mb(path: Path) -> float:
     """Recursive apparent size in MB. 0.0 for a missing directory."""
     return round(_dir_bytes(path) / 1e6, 1)
+
+
+def _in_cache(cache: Path, model: str) -> bool:
+    """Whether ``model`` was fetched into ``cache`` (as HF_HOME or its hub folder).
+
+    A bare sentence-transformers name ("all-MiniLM-L6-v2") is that org's model.
+    """
+    repo = model if "/" in model else f"sentence-transformers/{model}"
+    folder = "models--" + repo.replace("/", "--")
+    return any((root / folder / "snapshots").is_dir() for root in (cache, cache / "hub"))
 
 
 class Child(NamedTuple):
@@ -351,7 +361,7 @@ def _run(
         it does not exonerate.
 
         The directory walk and the ``ps`` call are throttled to once every 10s —
-        walking a 5 GB cache every 2s costs enough I/O to slow the very download
+        walking a multi-gigabyte cache every 2s costs enough I/O to slow the very download
         this phase is timing.
         """
         try:
@@ -531,6 +541,11 @@ SESSION = os.environ["E2E_SESSION"]
 POLL_S = float(os.environ["E2E_CHUNK_POLL_S"])
 QUERY = "What is the melting point of gallium?"
 EXPECT = "29.76"
+# The default configuration's query router sends a short factual question like
+# QUERY to its fast tier, which does not rerank, so the reranker is fetched by
+# the first query that is reranked. This one is, so the download measured
+# after the journey is the configuration's whole first run, not its embedder.
+RERANKED_QUERY = "Which semiconductors use gallium?"
 
 async def _count_for(client, document_id):
     listed = await client.list_documents()
@@ -601,6 +616,22 @@ async def journey(out):
             out["listed_status_final"] = status
         except BaseException as exc:
             out["list_error_final"] = "%s: %s" % (type(exc).__name__, exc)
+        out["first_search_elapsed"] = time.monotonic() - t0
+
+        t_rr = time.monotonic()
+        try:
+            reranked = await client.search_documents(RERANKED_QUERY, top_k=5)
+            out["reranked_n_results"] = len(reranked)
+        except BaseException as exc:
+            out["reranked_error"] = "%s: %s" % (type(exc).__name__, exc)
+        out["reranked_search_s"] = time.monotonic() - t_rr
+
+        from lasagna.core.config import rag_config
+
+        config = rag_config.with_session(SESSION)
+        out["models"] = [config.embedding_model] + (
+            [config.reranker_model] if config.enable_reranking else []
+        )
     finally:
         try:
             await client.close()
@@ -719,7 +750,7 @@ def _run_phase(p: PhaseResult) -> None:
         if sandbox is not None:
             shutil.rmtree(sandbox, ignore_errors=True)
             # rmtree(ignore_errors=True) fails silently, and a sandbox holding
-            # 5 GB of weights that silently survives every run is a real cost to
+            # gigabytes of weights that silently survives every run is a real cost to
             # whoever runs this. Assert the cleanup rather than trusting it.
             leftover = _dir_mb(sandbox)
             p.check(
@@ -1042,9 +1073,11 @@ def _first_search(
     """Time-to-first-search on a cold machine, model download included.
 
     This is the number that decides whether a first-time user stays. It is
-    dominated by the ~5 GB of embedding and reranking weights the default
-    configuration fetches, which is the point: an install that is fast only when
-    someone else already downloaded the models is not the install being shipped.
+    dominated by the embedding model the default configuration fetches, which
+    is the point: an install that is fast only when someone else already
+    downloaded the models is not the install being shipped. A second query, one
+    the router reranks, then fetches the reranker, so ``model_download`` is the
+    configuration's whole first-run download.
 
     Five things are asserted about the product here, in the order a reader wants
     them, and all five are CRITICAL because all five are correctness:
@@ -1082,7 +1115,9 @@ def _first_search(
     payload = _last_json(out)
 
     # -- measure first, unconditionally ------------------------------------
-    elapsed = float(payload.get("elapsed")) if payload and payload.get("elapsed") else wall
+    # Up to the first search's result, as before the reranked query was added.
+    first = payload and (payload.get("first_search_elapsed") or payload.get("elapsed"))
+    elapsed = float(first) if first else wall
     timed_out = rc is None
     p.measure(
         "time_to_first_search",
@@ -1097,7 +1132,8 @@ def _first_search(
         "model_download",
         _dir_mb(cache_dir),
         "MB",
-        note="weights fetched into an empty HF_HOME by the default configuration",
+        note="fetched into an empty HF_HOME by the default configuration: one upload, "
+        "the first search and the first reranked search",
     )
     p.measure(
         "data_dir_size",
@@ -1111,7 +1147,7 @@ def _first_search(
             round(float(payload["ingest_s"]), 1),
             "s",
             note="first upload() call: on a cold cache this is dominated by "
-            "fetching and loading ~5 GB of weights, not by the document",
+            "fetching and loading the embedding model, not by the document",
         )
     if payload and payload.get("search_s"):
         p.measure(
@@ -1119,6 +1155,14 @@ def _first_search(
             round(float(payload["search_s"]), 2),
             "s",
             note="the search itself, with models already resident",
+        )
+    if payload and payload.get("reranked_search_s"):
+        p.measure(
+            "first_reranked_query_time",
+            round(float(payload["reranked_search_s"]), 1),
+            "s",
+            note="the first query the router reranks; on a cold cache this includes "
+            "fetching the reranker",
         )
 
     # -- assert after -------------------------------------------------------
@@ -1345,6 +1389,27 @@ def _first_search(
         duration_s=elapsed,
     )
 
+    # model_download is what the docs' first-run size is checked against
+    # (tests/test_pypi_readme.py), so it has to include every model the
+    # configuration fetches. It measured the embedder alone, twice over, while
+    # the docs described the embedder and the reranker.
+    models = list(payload.get("models") or [])
+    missing = [m for m in models if not _in_cache(cache_dir, m)]
+    if models and not missing:
+        detail = f"cached after the journey: {', '.join(models)}"
+    else:
+        detail = f"not fetched: {', '.join(missing) or 'the child reported no models'}"
+        if payload.get("reranked_error"):
+            detail += f"; the reranked query failed: {payload['reranked_error']}"
+        detail += "; check that RERANKED_QUERY is still routed to a tier that reranks"
+    p.check(
+        "the download measured includes every model the configuration uses",
+        bool(models) and not missing,
+        severity=Severity.WARN,
+        detail=detail,
+        repro=repro,
+    )
+
 
 #: Every assertion the journey makes about the product, in report order. Kept in
 #: one place so the "we never got to run these" path cannot drift out of sync
@@ -1356,6 +1421,7 @@ _JOURNEY_CHECKS = (
     "first search returns a result",
     "top results contain the answer to the query",
     "upload reports the number of chunks it created",
+    "the download measured includes every model the configuration uses",
 )
 
 
@@ -1388,6 +1454,8 @@ def _journey_repro(py: str) -> str:
         f"d=$(mktemp -d) && cd \"$d\" && printf %s '{doc}' > gallium.txt && "
         f'env {envs} {py} -m lasagna upload "$d/gallium.txt" -s {SESSION_ID} && '
         f"env {envs} {py} -m lasagna search "
-        f"'What is the melting point of gallium?' -k 5 -s {SESSION_ID}"
-        f"  # downloads ~5 GB; raise E2E_P2_TIMEOUT_S if the gate ran out of patience"
+        f"'What is the melting point of gallium?' -k 5 -s {SESSION_ID} && "
+        f"env {envs} {py} -m lasagna search "
+        f"'Which semiconductors use gallium?' -k 5 -s {SESSION_ID}"
+        f"  # downloads the default models; raise E2E_P2_TIMEOUT_S if the gate ran out of patience"
     )

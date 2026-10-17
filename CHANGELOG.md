@@ -1180,6 +1180,13 @@ Servers and deployment:
   copy. Every model load now sets `DISABLE_SAFETENSORS_CONVERSION` while it
   runs (the default SPLADE and monoT5 checkpoints had the same copy). The
   weights loaded are unchanged.
+- The release gate's cold start never fetched the reranker. Its one query is a
+  short factual question, which query routing sends to the fast tier, and the
+  fast tier does not rerank, so `model_download` measured BGE-M3 alone while
+  the docs it is checked against described BGE-M3 and the mxbai reranker. The
+  journey now also runs a query that is reranked, reports
+  `first_reranked_query_time`, and checks that every model the configuration
+  uses was fetched. `time_to_first_search` still ends at the first result.
 - Release hygiene: the MCP server no longer registers the deprecated
   `search_knowledge` and `search_with_context` aliases in a first release (29
   tools; `--tools safe` still serves 22), `lasagna.TYPE_CHECKING` is no longer
