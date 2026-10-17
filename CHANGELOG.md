@@ -93,7 +93,8 @@ Results:
 - **`lasagna results significance`** (paired sign-flip test, Holm correction)
   ends in a verdict naming each pair that survives and who won;
   `results power` gives the minimum detectable effect; `results interaction`
-  tests a 2x2 design.
+  tests a 2x2 design. A sweep ends with the command to run next on its
+  results: one line per benchmark, and `results interaction` after a factorial.
 - **`lasagna results view`** writes a run as one offline HTML page:
   leaderboard, significance, every metric, the isolation check and a per-query
   diff with what each arm retrieved.

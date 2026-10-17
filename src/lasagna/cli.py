@@ -15,6 +15,7 @@ import asyncio
 import json
 import os
 import shlex
+from collections import defaultdict
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Optional
@@ -2010,13 +2011,18 @@ def benchmark_experiment(
             border_style="red" if all_failed else "none",
         )
     )
+    if results.failed_tasks and not all_failed:
+        console.print(
+            f"[red]{len(results.failed_tasks)} of {_count(results.total_tasks, 'task')} "
+            "failed[/red]: their numbers are left out above, and each is listed at the end."
+        )
     # Outside the panel, unwrapped, so the path and the command can be copied.
     results_file = shlex.quote(str(Path(output_dir) / "results.json"))
     console.print(f"Output: {escape(output_dir)}", soft_wrap=True)
     if not all_failed:
-        console.print(
-            f"Next:   lasagna results significance {escape(results_file)} --all", soft_wrap=True
-        )
+        steps = _next_steps(results, results_file, factorial=bool(exp.config.pipeline.factorial))
+        for i, step in enumerate(steps):
+            console.print(f"{'Next:' if i == 0 else '':<8}{escape(step)}", soft_wrap=True)
     if exp.config.n_runs > 1 and runs_were_identical(results._results):
         console.print(
             f"[dim]Note: all {exp.config.n_runs} runs of every arm were identical (nothing "
@@ -2026,6 +2032,33 @@ def benchmark_experiment(
         )
     _release_backend()
     _exit_if_tasks_failed(results)
+
+
+def _next_steps(results, results_file: str, *, factorial: bool) -> List[str]:
+    """The commands to run next, built from what the run produced.
+
+    Every run used to end with "Next: lasagna results significance <file>
+    --all". On a run of several benchmarks that command stops at "Pass
+    --benchmark"; after a factorial it is the wrong test (the design asks
+    whether two techniques compose, which `results interaction` answers); and
+    with fewer than two arms finished it has nothing to compare. Now: one line
+    per benchmark with two or more finished arms, `--benchmark` filled in when
+    there are several, `results interaction` where all four cells of a
+    factorial finished, and `results view` when nothing can be compared.
+    """
+    finished: Dict[str, set] = defaultdict(set)
+    for task in results._results:
+        if not task.error:
+            finished[task.benchmark_name].add(task.config_name)
+    steps = []
+    for benchmark in sorted(finished):
+        arms = finished[benchmark]
+        flag = f" --benchmark {shlex.quote(benchmark)}" if len(finished) > 1 else ""
+        if factorial and len(arms) == 4:
+            steps.append(f"lasagna results interaction {results_file}{flag}")
+        elif len(arms) >= 2:
+            steps.append(f"lasagna results significance {results_file} --all{flag}")
+    return steps or [f"lasagna results view {results_file}"]
 
 
 def _print_isolation(results) -> None:
