@@ -468,16 +468,19 @@ def refuse_leaving_documents(
     from lasagna.core.database import get_rag_database
 
     db = get_rag_database()
+    target = collection_name_for_settings(after)
+    current = collection_name_for_settings(before)
+    if target == current:
+        return
+    archived = archived_left_behind(session_id, target, change, kept)
+    if archived:
+        raise DocumentsLeftBehind(archived)
     rows = [
         row
         for row in db.get_documents(session_id)
         if str(row.get("status") or "").lower() in _SEARCHED_STATUSES
     ]
     if not rows:
-        return
-    target = collection_name_for_settings(after)
-    current = collection_name_for_settings(before)
-    if target == current:
         return
     # Only the documents the session searches now: those already in another
     # collection stay as unsearched as they were, and refusing a change that
@@ -538,6 +541,41 @@ def refuse_leaving_documents(
         f"{'was' if one else 'were'} embedded with {old}, in that model's collection, so "
         f"no search would find {them}. Nothing was changed; profile {kept!r} is still "
         f"active. {fixes}"
+    )
+
+
+def archived_left_behind(session_id: str, collection: str, change: str, kept: str) -> Optional[str]:
+    """Why ``change``, to search ``collection``, would strand the session's archived documents.
+
+    None when every archived document of the session is in ``collection``. A
+    switch moves only the documents searched (an archived one cannot be
+    reindexed), and restoring one later put it back as ready in the old
+    model's collection, where the session no longer searched.
+    """
+    from lasagna.core.database import get_rag_database
+
+    try:
+        rows = get_rag_database().get_documents(session_id, status="soft_deleted")
+    except TypeError:  # a stand-in store
+        return None
+    left = sorted(
+        str(r["document_id"])
+        for r in rows
+        if (r.get("collection_name") or collection) != collection
+    )
+    if not left:
+        return None
+    one = len(left) == 1
+    shown = ", ".join(left[:5]) + (f" and {len(left) - 5} more" if len(left) > 5 else "")
+    return (
+        f"{change} would search another collection than the one holding "
+        f"{_plural(len(left), 'archived document')} of session {session_id!r} ({shown}). An "
+        f"archived document is not reindexed, so a later restore would put "
+        f"{'it' if one else 'them'} back where the session no longer searches. Nothing was "
+        f"changed; profile {kept!r} is still active. Restore {'it' if one else 'them'} first "
+        f"(client.documents.restore(document_id), POST /api/v1/documents/<id>/restore, or the "
+        f"MCP tool restore_document), so the switch moves {'it' if one else 'them'} too, or "
+        f"delete {'it' if one else 'them'} for good, then switch again."
     )
 
 

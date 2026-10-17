@@ -24,10 +24,12 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.concurrency import run_in_threadpool
 from loguru import logger
 
+from lasagna.api._profile_guard import EmbeddingSizeConflict
 from lasagna.api.rag_backend import RAGBackend
 from lasagna.core.quota import QuotaExceededError
 from lasagna.infrastructure.tasks.document_tasks import ProcessingAtCapacity
 from ..dependencies import get_backend, get_session_id
+from .knowledge_config import STORE_UNAVAILABLE
 from ..models import (
     BatchUploadItemResponse,
     BatchUploadResponse,
@@ -467,6 +469,12 @@ async def archive_document(
         )
     except HTTPException:
         raise
+    except EmbeddingSizeConflict as conflict:
+        # During a switch of the session, or a restore into a collection the
+        # session no longer searches: a ValueError, which answered 404.
+        raise HTTPException(status_code=409, detail=str(conflict))
+    except STORE_UNAVAILABLE:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
@@ -502,6 +510,12 @@ async def restore_document(
             error_message=doc_dict.get("error_message"),
         )
     except HTTPException:
+        raise
+    except EmbeddingSizeConflict as conflict:
+        # During a switch of the session, or a restore into a collection the
+        # session no longer searches: a ValueError, which answered 404.
+        raise HTTPException(status_code=409, detail=str(conflict))
+    except STORE_UNAVAILABLE:
         raise
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

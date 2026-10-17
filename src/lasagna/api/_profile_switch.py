@@ -313,6 +313,14 @@ def _switch_with_reindex(
 
         backend = get_rag_backend()
     target = get_rag_config().with_session_settings(session_id, chosen)
+    if target.collection_name != get_rag_config().with_session(session_id).collection_name:
+        from lasagna.api._profile_guard import DocumentsLeftBehind, archived_left_behind
+
+        archived = archived_left_behind(
+            session_id, target.collection_name, f"Profile {profile!r}", report.previous
+        )
+        if archived:
+            raise DocumentsLeftBehind(archived)
     # A switch that stopped before it ended (its process died) left documents
     # in its own target's collection: this switch moves them too, and back if
     # it fails.

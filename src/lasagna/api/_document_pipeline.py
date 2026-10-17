@@ -1665,6 +1665,17 @@ class DocumentPipeline:
         """
         from lasagna.core.database import get_rag_database
 
+        # An archive made while this ran (by a process that did not wait for
+        # the document's lock) is kept: READY was written over it.
+        try:
+            now = get_rag_database().get_document(document.document_id) or {}
+        except Exception:  # noqa: BLE001 - the write below says what the store can do
+            now = {}
+        status = (
+            DocumentStatus.SOFT_DELETED.value
+            if str(now.get("status") or "").lower() == "soft_deleted"
+            else DocumentStatus.READY.value
+        )
         try:
             recorded = get_rag_database().update_document_fields(
                 document.document_id,
@@ -1674,7 +1685,7 @@ class DocumentPipeline:
                     "file_size": document.file_size,
                     "file_type": document.file_type,
                     "upload_date": document.upload_date.isoformat(),
-                    "status": DocumentStatus.READY.value,
+                    "status": status,
                     "error_message": None,
                     "chunks_count": chunk_count,
                     "processing_time": processing_time,
