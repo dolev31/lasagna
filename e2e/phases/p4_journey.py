@@ -45,7 +45,7 @@ compressor, dry-run, sweep the baseline arms, replay from the LLM cache,
 bundle, view, LaTeX, MCP), with a stub LLM and a stub judge, in the same
 sandbox. Unlike the journey it loads a real embedder, all-MiniLM-L6-v2, from the
 Hugging Face cache the gate itself uses. When that model is not cached and the
-gate is online, it is downloaded first (about 90 MB) in a separate process, so
+gate is online, it is downloaded first (92 MB) in a separate process, so
 the demo still runs with the hub offline; offline and uncached, the demo's
 steps are SKIPPED, never passed. Each demo step is its own CRITICAL check.
 """

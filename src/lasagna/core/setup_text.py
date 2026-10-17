@@ -10,39 +10,51 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-#: Size in bytes of each model's weights (``model.safetensors``), read from a
-#: Hugging Face cache on 2026-10-15. Tokenizer and config files add a few MB.
-MODEL_WEIGHT_BYTES = {
-    "all-MiniLM-L6-v2": 90_868_376,
-    "sentence-transformers/all-MiniLM-L6-v2": 90_868_376,
-    "cross-encoder/ms-marco-MiniLM-L-6-v2": 90_870_598,
-    "BAAI/bge-large-en-v1.5": 1_340_616_616,
-    "BAAI/bge-m3": 2_271_064_456,
-    "mixedbread-ai/mxbai-rerank-large-v1": 870_174_306,
+#: Bytes the first load of each model downloads: every file sentence-transformers
+#: fetches (weights, tokenizer, configs and, for an embedder, the model card),
+#: measured in an empty HF_HOME on 2026-10-17 with sentence-transformers 6.1 and
+#: transformers 5.19. These figures are what the release gate's cold start
+#: measures (``model_download`` in ``e2e/phases/p2_cold_start.py``).
+MODEL_DOWNLOAD_BYTES = {
+    "all-MiniLM-L6-v2": 91_578_415,
+    "sentence-transformers/all-MiniLM-L6-v2": 91_578_415,
+    "cross-encoder/ms-marco-MiniLM-L-6-v2": 91_815_758,
+    "BAAI/bge-large-en-v1.5": 1_341_656_113,
+    # pytorch_model.bin (2,271,145,830), tokenizer.json, sentencepiece.bpe.model
+    "BAAI/bge-m3": 2_293_331_623,
+    "mixedbread-ai/mxbai-rerank-large-v1": 881_291_471,
 }
 
 #: What FlagEmbedding adds for BAAI/bge-m3 (the ``flag-embedding`` extra, which
-#: ``all`` includes): it downloads the model's whole repository, ONNX export
-#: included (``onnx/model.onnx_data`` and ``onnx/model.onnx``, read from the Hub
-#: on 2026-10-17). Without it sentence-transformers fetches the PyTorch weights only.
-BGE_M3_ONNX_BYTES = 2_266_820_608 + 724_923
+#: ``all`` includes): it downloads the model's whole repository, so on top of
+#: the files above it fetches the ONNX export (``onnx/model.onnx_data``, 2.27 GB,
+#: and its own tokenizer copy), the ColBERT and sparse heads and the model card's
+#: images. The rest of the repository at revision 5617a9f, read from the Hub on
+#: 2026-10-17.
+FLAG_EMBEDDING_EXTRA_BYTES = 2_293_985_781
 
 
 def human_size(n_bytes: int) -> str:
-    """``91 MB``, ``2.3 GB``: decimal units, as download pages show them."""
+    """``92 MB``, ``2.3 GB``: decimal units, as download pages show them."""
     if n_bytes >= 1_000_000_000:
         return f"{n_bytes / 1e9:.1f} GB"
     return f"{round(n_bytes / 1e6)} MB"
 
 
-def profile_models(profile: str) -> List[str]:
-    """The models a built-in profile downloads: its embedder, and its reranker if on."""
+def profile_models(profile: Optional[str]) -> List[str]:
+    """The models a built-in profile downloads (None: the settings file's).
+
+    Its embedder, on the first upload or search, and its reranker when
+    reranking is on, on the first search that reranks. The fallback embedder is
+    fetched only when the embedder cannot load, so it is not counted.
+    """
     from lasagna.core.session_config._profiles import ProfileMixin
 
-    spec = ProfileMixin._PROFILE_SPECS.get(profile, {})
-    models = [spec.get("embedding_model")]
-    if spec.get("enable_reranking"):
-        models.append(spec.get("reranker_model"))
+    if profile is not None and profile not in ProfileMixin._PROFILE_SPECS:
+        return []
+    models = [_setting(profile, "embedding_model")]
+    if _setting(profile, "enable_reranking"):
+        models.append(_setting(profile, "reranker_model"))
     return [m for m in models if m]
 
 
@@ -138,7 +150,7 @@ def model_cache_hint(models: Optional[List[str]] = None, session_id: str = "defa
         if rag_config.enable_reranking:
             models.append(rag_config.reranker_model)
     where = DEFAULT_CONFIGURATION if session_id == "default" else f"session {session_id!r}"
-    hint = f"The first search on {where} {download_text(models)}."
+    hint = f"The first run on {where} {download_text(models)}."
     light = keyless_profiles()
     if light:
         hint += (
@@ -148,18 +160,23 @@ def model_cache_hint(models: Optional[List[str]] = None, session_id: str = "defa
     return hint
 
 
-def profile_download_text(profile: str) -> str:
-    """``downloads 3.1 GB: BAAI/bge-m3 (2.3 GB), ... (870 MB)`` for ``profile``."""
+def profile_download_text(profile: Optional[str]) -> str:
+    """``downloads 3.2 GB: BAAI/bge-m3 (2.3 GB), ... (881 MB)`` for ``profile``."""
     return download_text(profile_models(profile))
 
 
+def profile_download_size(profile: Optional[str]) -> str:
+    """``3.2 GB``: everything ``profile`` (None: the settings file) downloads."""
+    return human_size(sum(MODEL_DOWNLOAD_BYTES.get(m, 0) for m in profile_models(profile)))
+
+
 def download_text(models: List[str]) -> str:
-    """``downloads 91 MB: all-MiniLM-L6-v2 (91 MB)`` for these models."""
+    """``downloads 92 MB: all-MiniLM-L6-v2 (92 MB)`` for these models."""
     if not models:
         return "downloads nothing beyond the settings file's models"
-    known = [(m, MODEL_WEIGHT_BYTES[m]) for m in models if m in MODEL_WEIGHT_BYTES]
+    known = [(m, MODEL_DOWNLOAD_BYTES[m]) for m in models if m in MODEL_DOWNLOAD_BYTES]
     parts = ", ".join(f"{m} ({human_size(b)})" for m, b in known)
-    unknown = [m for m in models if m not in MODEL_WEIGHT_BYTES]
+    unknown = [m for m in models if m not in MODEL_DOWNLOAD_BYTES]
     text = f"downloads {human_size(sum(b for _, b in known))}: {parts}" if known else "downloads"
     if unknown:
         text += ("; " if known else " ") + ", ".join(unknown) + " (size not recorded)"

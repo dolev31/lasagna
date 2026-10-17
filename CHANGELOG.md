@@ -709,7 +709,7 @@ Results tooling:
 First run:
 
 - `lasagna doctor` said the first search downloads "~5 GB" and the speed
-  profile "an 80 MB model" (measured: 3.1 GB and 91 MB), and that retrieval
+  profile "an 80 MB model" (measured: 3.2 GB and 92 MB), and that retrieval
   works without an API key, while the default configuration sends complex
   queries through agentic retrieval. Both hints are computed from the
   profiles and the measured sizes, and name the speed profile as the one
@@ -751,8 +751,8 @@ First run:
   printed invalid JSON when piped: long lines were folded inside strings.
 - `lasagna status` names a pre-0.1.0 collection that no configured model
   reads, and how to search it again.
-- `lasagna init` states what each profile downloads (91 MB for `speed`,
-  3.1 GB for `standard`), and no longer cuts its title box off.
+- `lasagna init` states what each profile downloads (92 MB for `speed`,
+  3.2 GB for `standard`), and no longer cuts its title box off.
 - **Another project's credentials leaked in.** pymilvus loads the nearest
   `.env` when imported: from a virtualenv inside a project, that project's
   keys appeared in `os.environ` and provider auto-detection used them. Lasagna
@@ -1165,13 +1165,33 @@ Servers and deployment:
   for a corpus moved between them, and how to align them.
 - The docs disagreed: the default first-run download was 4.5 GB in the
   README and the guide, 3.1 GB in docs/configuration.md and `lasagna init`,
-  and 5.4 GB in code comments. Every page states 3.1 GB, the default
-  profile's weights as `core/setup_text.py` records them, and the README and
-  guide add the 2.3 GB the `flag-embedding` extra adds (FlagEmbedding also
-  fetches BGE-M3's ONNX copy). CONTRIBUTING no longer cites a CHANGELOG
-  "Known issues" entry that does not exist, and gives the guide's measured
-  pip time. The SDK's getting-started page no longer makes an LLM key a
+  and 5.4 GB in code comments. Every page, `init`, `doctor` and the help
+  now state what the code downloads, as `core/setup_text.py` records it from
+  cold runs (weights, tokenizer and config files): 3.2 GB for the default
+  configuration and the BGE-M3 profiles (BGE-M3 2.3 GB, the mxbai reranker
+  881 MB) and 92 MB for `speed`. The README and guide add the 2.3 GB the
+  `flag-embedding` extra adds (FlagEmbedding fetches BGE-M3's whole
+  repository, ONNX export included). The README's figure is checked against
+  the newest release-gate report rather than the largest one ever recorded,
+  which kept a measurement of fixed code as the target. CONTRIBUTING no
+  longer cites a CHANGELOG "Known issues" entry that does not exist, and
+  gives the guide's measured pip time. The SDK's getting-started page no longer makes an LLM key a
   prerequisite, and the RAG skill says a keyless complex query falls back.
+- The first run downloaded BGE-M3 twice. transformers loaded its
+  `pytorch_model.bin` and then, in a background thread, fetched a 2.3 GB
+  `model.safetensors` from the repository's conversion pull request, which no
+  load reads, and `lasagna search` did not exit until that copy finished. The
+  release gate measured 4.6 GB for the default configuration, half of it this
+  copy. Every model load now sets `DISABLE_SAFETENSORS_CONVERSION` while it
+  runs (the default SPLADE and monoT5 checkpoints had the same copy). The
+  weights loaded are unchanged.
+- The release gate's cold start never fetched the reranker. Its one query is a
+  short factual question, which query routing sends to the fast tier, and the
+  fast tier does not rerank, so `model_download` measured BGE-M3 alone while
+  the docs it is checked against described BGE-M3 and the mxbai reranker. The
+  journey now also runs a query that is reranked, reports
+  `first_reranked_query_time`, and checks that every model the configuration
+  uses was fetched. `time_to_first_search` still ends at the first result.
 - Release hygiene: the MCP server no longer registers the deprecated
   `search_knowledge` and `search_with_context` aliases in a first release (29
   tools; `--tools safe` still serves 22), `lasagna.TYPE_CHECKING` is no longer

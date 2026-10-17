@@ -24,6 +24,7 @@ from loguru import logger
 from lasagna.core.accelerator import device_guard
 from lasagna.core.base_components import BaseReranker, ScoredDocument
 from lasagna.core.config import rag_config
+from lasagna.core.model_downloads import one_weights_copy
 from lasagna.core.model_licenses import warn_if_restricted
 
 
@@ -94,7 +95,7 @@ class _MonoT5:
         warn_if_restricted(name, component="monoT5 reranker")
         self.tokenizer = AutoTokenizer.from_pretrained(name)
         self.device = _detect_device()
-        with device_guard(self.device):
+        with device_guard(self.device), one_weights_copy():
             self.model = AutoModelForSeq2SeqLM.from_pretrained(name).to(self.device).eval()
         # The tokens monoT5 was trained to emit, as pygaggle reads them.
         self.false_id, self.true_id = self.tokenizer.convert_tokens_to_ids(["▁false", "▁true"])

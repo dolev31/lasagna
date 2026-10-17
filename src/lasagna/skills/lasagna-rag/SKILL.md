@@ -22,7 +22,7 @@ are the first-run model download, which this names explicitly.
 
 ```bash
 pip install lasagna-rag
-lasagna configure --profile speed -s my-corpus   # 91 MB model, no API key
+lasagna configure --profile speed -s my-corpus   # 92 MB model, no API key
 lasagna upload ./docs/*.md -s my-corpus
 ```
 
@@ -90,8 +90,8 @@ documents. Use one per tenant, per user, or per experiment.
 
 | Profile | What it does | Needs an LLM key |
 |---|---|---|
-| `speed` | dense vector search only, 91 MB model | no |
-| `standard` | hybrid search, reranking, MMR and agentic retrieval, BGE-M3 (3.1 GB) | yes |
+| `speed` | dense vector search only, 92 MB model | no |
+| `standard` | hybrid search, reranking, MMR and agentic retrieval, BGE-M3 and its reranker (3.2 GB) | yes |
 | `balanced` | `standard` plus hierarchical chunking, the structured agentic graph and adaptive routing | yes |
 | `max_quality` | `balanced` plus HyDE, query expansion, RAG fusion, CRAG and contextual retrieval | yes |
 
@@ -121,7 +121,7 @@ Work in this order; the first two explain most cases:
 - **Never** put an API key in `.mcp.json` or any committed file. Use the
   environment.
 - The first search downloads a model. On the default profile that is about
-  3.1 GB and 7 to 40 minutes. Say so before a user thinks it has hung.
+  3.2 GB and 3 to 40 minutes. Say so before a user thinks it has hung.
 - **Retrieval itself needs no LLM key, but the shipped default can call one.**
   `use_agentic_rag = true` by default, and the router sends a query it judges
   complex to the agentic path, which calls an LLM; without a key that search

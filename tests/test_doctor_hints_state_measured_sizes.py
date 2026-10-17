@@ -1,9 +1,9 @@
 """``lasagna doctor`` states the measured download sizes and which profiles need a key.
 
 With no Hugging Face cache it said the first search downloads "~5 GB on the
-default profile" and that the speed profile is "an 80 MB model"; the weights
-measured in ``core/setup_text.py`` are 3.1 GB (bge-m3 and the mxbai reranker)
-and 91 MB. With no API key it said "Retrieval works without one", but the
+default profile" and that the speed profile is "an 80 MB model"; the
+downloads measured in ``core/setup_text.py`` are 3.2 GB (bge-m3 and the mxbai
+reranker) and 92 MB. With no API key it said "Retrieval works without one", but the
 default configuration sends complex queries through agentic retrieval, which
 calls an LLM; only the speed profile retrieves without a key. Both hints are
 now computed from the profiles and the measured sizes.
@@ -16,13 +16,13 @@ import pytest
 from lasagna.core import diagnostics, setup_text
 from lasagna.core.config import rag_config
 from lasagna.core.session_config._profiles import ProfileMixin
-from lasagna.core.setup_text import MODEL_WEIGHT_BYTES, human_size
+from lasagna.core.setup_text import MODEL_DOWNLOAD_BYTES, human_size
 
-STALE = ("~5 GB", "80 MB", "80MB", "4.5 GB")
+STALE = ("~5 GB", "80 MB", "80MB", "4.5 GB", "3.1 GB", "91 MB")
 
 
 def _size(model: str) -> str:
-    return human_size(MODEL_WEIGHT_BYTES[model])
+    return human_size(MODEL_DOWNLOAD_BYTES[model])
 
 
 def test_the_cache_hint_states_the_measured_sizes(tmp_path, monkeypatch):
@@ -32,7 +32,7 @@ def test_the_cache_hint_states_the_measured_sizes(tmp_path, monkeypatch):
 
     default = [rag_config.embedding_model, rag_config.reranker_model]
     assert all(_size(m) in check.advice and m in check.advice for m in default), check.advice
-    total = human_size(sum(MODEL_WEIGHT_BYTES[m] for m in default))
+    total = human_size(sum(MODEL_DOWNLOAD_BYTES[m] for m in default))
     assert f"downloads {total}" in check.advice
     speed = ProfileMixin._PROFILE_SPECS["speed"]["embedding_model"]
     assert f"--profile speed`) downloads {_size(speed)}" in check.advice

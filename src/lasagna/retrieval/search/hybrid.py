@@ -59,6 +59,7 @@ except ImportError:
     logger.info("Milvus hybrid search components not available.")
 
 from lasagna.core.model_licenses import warn_if_restricted
+from lasagna.core.model_downloads import one_weights_copy
 from lasagna.core.config import rag_config
 
 if TYPE_CHECKING:
@@ -107,9 +108,10 @@ class SPLADESparseEncoder:
             warn_if_restricted(self._model_name, component="SPLADE sparse encoder")
             try:
                 tokenizer = AutoTokenizer.from_pretrained(self._model_name)
-                model, info = AutoModelForMaskedLM.from_pretrained(
-                    self._model_name, output_loading_info=True
-                )
+                with one_weights_copy():
+                    model, info = AutoModelForMaskedLM.from_pretrained(
+                        self._model_name, output_loading_info=True
+                    )
             except Exception as exc:
                 self._failed = f"Cannot load SPLADE model {self._model_name!r}: {exc}"
                 raise RuntimeError(self._failed) from exc
