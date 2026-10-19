@@ -36,10 +36,10 @@ def _dead_pid() -> int:
     return proc.pid
 
 
-def test_a_recorded_server_is_found_while_it_runs(data_dir):
+def test_a_recorded_server_is_found_while_it_runs(data_dir, live_pid):
     (data_dir).mkdir(parents=True)
     record = data_dir / "serve.json"
-    record.write_text(json.dumps({"pid": os.getppid(), "url": "http://127.0.0.1:8765"}))
+    record.write_text(json.dumps({"pid": live_pid, "url": "http://127.0.0.1:8765"}))
     assert local_server.running_server() == "http://127.0.0.1:8765"
     record.write_text(json.dumps({"pid": _dead_pid(), "url": "http://127.0.0.1:8765"}))
     assert local_server.running_server() is None

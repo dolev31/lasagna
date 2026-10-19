@@ -18,6 +18,7 @@ test module:
 import atexit
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -209,6 +210,21 @@ def pytest_collection_modifyitems(config, items):
                 reason=reason + "no cached copy was found (HF_HUB_OFFLINE=0 downloads it)"
             )
         )
+
+
+@pytest.fixture(scope="session")
+def live_pid():
+    """The pid of a running process of this user that is not the test process.
+
+    Tests that stand in for a running ``lasagna serve`` wrote the parent's pid.
+    When the run starts in the background and its shell exits, the parent is
+    pid 1 (launchd on macOS), which this user cannot signal, so the record read
+    as a server that had exited and five tests failed in that run.
+    """
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3600)"])
+    yield proc.pid
+    proc.kill()
+    proc.wait()
 
 
 @pytest.fixture(autouse=True)

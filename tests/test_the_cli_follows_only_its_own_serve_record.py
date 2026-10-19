@@ -21,13 +21,13 @@ from lasagna.core import local_server
 
 
 @pytest.fixture
-def record(tmp_path, monkeypatch):
+def record(tmp_path, monkeypatch, live_pid):
     monkeypatch.setenv("LASAGNA_DATA_DIR", str(tmp_path / "data"))
     (tmp_path / "data").mkdir()
     path = tmp_path / "data" / "serve.json"
 
     def write(url="http://127.0.0.1:8765", pid=None, mode=0o600):
-        path.write_text(json.dumps({"pid": os.getppid() if pid is None else pid, "url": url}))
+        path.write_text(json.dumps({"pid": live_pid if pid is None else pid, "url": url}))
         os.chmod(path, mode)
         return path
 
@@ -89,9 +89,9 @@ def test_a_record_others_can_write_is_ignored(record):
 
 
 @pytest.mark.skipif(not hasattr(os, "getuid"), reason="POSIX links")
-def test_a_symlinked_record_is_ignored(record, tmp_path):
+def test_a_symlinked_record_is_ignored(record, tmp_path, live_pid):
     target = tmp_path / "elsewhere.json"
-    target.write_text(json.dumps({"pid": os.getppid(), "url": "http://127.0.0.1:8765"}))
+    target.write_text(json.dumps({"pid": live_pid, "url": "http://127.0.0.1:8765"}))
     path = record()
     path.unlink()
     path.symlink_to(target)

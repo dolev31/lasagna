@@ -10,7 +10,6 @@ which session it searched and the command that searches the other.
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 from typer.testing import CliRunner
@@ -28,14 +27,14 @@ class _Remote:
 
 
 @pytest.fixture
-def served(tmp_path, monkeypatch):
-    """A server (this test's parent process) started with ``-s my-corpus``."""
+def served(tmp_path, monkeypatch, live_pid):
+    """A server (another live process) started with ``-s my-corpus``."""
     data = tmp_path / "data"
     data.mkdir()
     monkeypatch.setenv("LASAGNA_DATA_DIR", str(data))
     record = data / "serve.json"
     record.write_text(
-        json.dumps({"pid": os.getppid(), "url": "http://127.0.0.1:8765", "session": "my-corpus"})
+        json.dumps({"pid": live_pid, "url": "http://127.0.0.1:8765", "session": "my-corpus"})
     )
     record.chmod(0o600)
     monkeypatch.setattr(local_server, "local_store_held", lambda: True)
@@ -73,9 +72,9 @@ def test_a_search_that_names_a_session_says_nothing_extra(served):
         assert "the server answers for" not in out
 
 
-def test_a_server_that_answers_for_default_says_nothing_extra(served):
+def test_a_server_that_answers_for_default_says_nothing_extra(served, live_pid):
     served.write_text(
-        json.dumps({"pid": os.getppid(), "url": "http://127.0.0.1:8765", "session": "default"})
+        json.dumps({"pid": live_pid, "url": "http://127.0.0.1:8765", "session": "default"})
     )
     result, out = _search()
     assert result.exit_code == 0, out
