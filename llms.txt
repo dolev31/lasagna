@@ -89,10 +89,10 @@ Retrieval Augmented Generation (RAG) grounds large language models in external k
 ## Citation
 
 ```bibtex
-@article{levy2026retrieval,
-  title   = {Retrieval Augmented Generation Compositionality},
-  author  = {Levy, Ido and Shlomov, Segev and Choshen, Leshem},
-  journal = {arXiv preprint},
-  year    = {2026}
+@misc{levy2026retrieval,
+  title  = {Retrieval Augmented Generation Compositionality},
+  author = {Levy, Ido and Shlomov, Segev and Choshen, Leshem},
+  year   = {2026},
+  note   = {Preprint}
 }
 ```
