@@ -448,7 +448,7 @@ The first standalone release of Lasagna; this is everything it brings.
   listing API so results tables can show claimed against reproduced numbers.
 - Six vector backends (Milvus, pgvector, Qdrant, Weaviate, Pinecone, OpenSearch)
   behind one interface with a shared contract test suite.
-- Evaluation harness: 31 benchmark datasets, RAGAS metrics, NDCG/EM/F1, latency
+- Evaluation harness: 31 benchmark entries over about 22 datasets, RAGAS metrics, NDCG/EM/F1, latency
   and cost accounting, multi-objective tradeoff analysis.
 - Python SDK, REST API, MCP server, CLI, and a schema-driven configuration UI.
 - `lasagna.core.model_licenses`: license metadata for every selectable model,
