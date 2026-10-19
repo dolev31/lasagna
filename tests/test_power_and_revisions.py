@@ -250,13 +250,19 @@ class TestSampleSizeHelper:
 
 
 class TestDatasetRevisions:
-    def test_nothing_is_pinned_by_default(self):
+    def test_only_revisions_resolved_against_the_hub_are_pinned_by_default(self):
         """Deliberate. A SHA written in without being resolved against the Hub
-        would be a fabricated provenance record -- it would satisfy `--strict`
-        while proving nothing, which is worse than an honest blank."""
-        from lasagna.knowledge_evaluation_sdk.datasets import resolve_dataset_revision
+        would be a fabricated provenance record: it would satisfy `--strict`
+        while proving nothing, which is worse than an honest blank. Only the
+        two datasets whose snapshot was loaded and checked are pinned."""
+        from lasagna.knowledge_evaluation_sdk.datasets import _BENCHMARKS, resolve_dataset_revision
 
-        assert resolve_dataset_revision("beir/scifact") == ""
+        pinned = {name for name, meta in _BENCHMARKS.items() if meta.get("hf_revision")}
+        assert pinned == {"beir/scifact", "beir/hotpotqa"}
+        assert (
+            resolve_dataset_revision("beir/scifact") == _BENCHMARKS["beir/scifact"]["hf_revision"]
+        )
+        assert resolve_dataset_revision("beir/nfcorpus") == ""
 
     def test_a_pin_is_honoured(self):
         from lasagna.knowledge_evaluation_sdk.datasets import (
