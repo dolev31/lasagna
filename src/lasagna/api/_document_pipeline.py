@@ -252,7 +252,9 @@ class DocumentPipeline:
         # saved, so a profile switch that moves the session's documents sees
         # it or runs before it. One that started after this upload's settings
         # were read left it in the old model's collection.
-        admission.enter_context(session_lock(session_id))
+        session = contextlib.ExitStack()
+        session.enter_context(session_lock(session_id))
+        admission.callback(session.close)
         try:
             refuse_during_switch(session_id, "The upload")
         except BaseException:
@@ -276,9 +278,19 @@ class DocumentPipeline:
                 # replaces it (chunks, file and quota), in this thread. The old
                 # copy's chunks used to stay: twice in Milvus, past the new
                 # count where the store upserts, and the quota counted both.
+                # The session's lock is held for the settings this reads and
+                # no longer: a replacement runs for as long as the file takes
+                # to index, and every other write to the session waited for it.
+                # A profile switch that starts now reindexes this document
+                # after the replacement, under its lock.
+                try:
+                    config = self._get_session_config(session_id)
+                finally:
+                    session.close()
                 with admission:
                     return self._replace_document(
                         held,
+                        config=config,
                         source_path=file_path,
                         filename=filename,
                         counts_as_upload=True,
