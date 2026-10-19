@@ -47,11 +47,13 @@ _CACHE_VERSION = 3  # Bumped: BEIR output now includes expected_docs from qrels
 # results file would say so -- two people reporting numbers on "the same
 # benchmark" may have measured different corpora.
 #
-# No revisions are shipped pinned. A SHA written here without being resolved
-# against the Hub would be a fabricated provenance record, which is worse than
-# an honest blank: it would satisfy `--strict` while proving nothing. What ships
-# is the *mechanism*, so a run that cares can pin, and `hf_revision` on the
-# results then records what was actually loaded.
+# The catalogue pins a revision only where it was resolved against the Hub and
+# the snapshot loaded (`beir/scifact`, the README demo, and `beir/hotpotqa`).
+# A SHA written here without being resolved would be a fabricated provenance
+# record, which is worse than an honest blank: it would satisfy `--strict` while
+# proving nothing. The rest stay unpinned, and a run that cares can pin them
+# with the mechanism below; `hf_revision` on the results then records what was
+# actually loaded.
 
 #: benchmark name -> git revision (a commit SHA, tag or branch on the Hub).
 _PINNED_REVISIONS: Dict[str, str] = {}
@@ -214,6 +216,7 @@ _BENCHMARKS: Dict[str, Dict[str, Any]] = {
     "beir/scifact": {
         "hf_dataset": "mteb/scifact",
         "hf_qrels": "mteb/scifact",
+        "hf_revision": "cf10ab6856b15b0e670ef8ae5dae4e266c12d035",
         "description": "SciFact: scientific claim verification (1.1K claims, 5K docs)",
         "format": "beir",
     },
@@ -226,6 +229,7 @@ _BENCHMARKS: Dict[str, Dict[str, Any]] = {
     "beir/hotpotqa": {
         "hf_dataset": "mteb/hotpotqa",
         "hf_qrels": "mteb/hotpotqa",
+        "hf_revision": "60b39fafe9b0b81ce6be80c295de49ace5b7a14e",
         "description": "HotpotQA: multi-hop reasoning (7.4K queries, 5.2M docs)",
         "format": "beir",
     },

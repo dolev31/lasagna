@@ -61,12 +61,22 @@ def test_the_script_accepts_the_verdict_whatever_survives(survivors):
 
 
 def test_a_retrieval_only_single_run_raises_neither_warning_the_notebook_named():
+    """The revision comes from the catalogue the runner reads, not a made-up one.
+
+    The row used to carry `"hf_revision": "abc123"`, so it passed while a real
+    SciFact run recorded `hf_revision: ""` and raised UNPINNED_DATASET.
+    """
+    from lasagna.knowledge_evaluation_sdk.benchmarks import benchmark_registry
+    from lasagna.knowledge_evaluation_sdk.runner import _resolved_revision
+
+    revision = _resolved_revision(benchmark_registry.get("beir/scifact"), "beir/scifact")
+    assert revision, "beir/scifact, the README demo, records no dataset revision"
     rows = [
         {
             "benchmark_name": "beir/scifact",
             "config_name": arm,
             "resolved_mode": "live",
-            "hf_revision": "abc123",
+            "hf_revision": revision,
             "split": "test",
         }
         for arm in ("control", "mine")
