@@ -50,11 +50,39 @@ def _convert_with_timeout(converter: Any, file_path: str, timeout: float) -> Any
     if worker.is_alive():
         raise TimeoutError(
             f"Docling did not convert {os.path.basename(file_path)} within "
-            f"{timeout:.0f}s (docling_timeout)"
+            f"{timeout:.0f}s (docling_timeout). If this is the first PDF on this "
+            "machine, Docling may still have been downloading its layout models: "
+            "run 'docling-tools models download' once and set "
+            "DOCLING_ARTIFACTS_PATH to that folder, or raise docling_timeout."
         )
     if "error" in box:
         raise box["error"]
     return box["result"]
+
+
+def _load_pdf_models(converter: Any) -> None:
+    """Load the PDF models now, so ``docling_timeout`` times only the conversion.
+
+    A new converter loads its layout and table models on the first
+    ``convert()``, and the first run also downloads them. That one-time cost
+    (over two minutes on a 4-CPU container) used to count against
+    ``docling_timeout``, so the first PDF could time out for no fault of its
+    own. A failure here is logged and left for ``convert()`` to raise.
+    """
+    initialize = getattr(converter, "initialize_pipeline", None)
+    if initialize is None:
+        return
+    try:
+        from docling.datamodel.base_models import InputFormat
+
+        logger.info("Loading Docling's PDF models (the first run downloads them)")
+        initialize(InputFormat.PDF)
+    except Exception as exc:
+        logger.warning(
+            f"Docling's PDF models did not load ({type(exc).__name__}: {exc}); "
+            "the next conversion will try again. To fetch them ahead of time, "
+            "run: docling-tools models download"
+        )
 
 
 def is_docling_available() -> bool:
@@ -129,7 +157,9 @@ class DoclingProcessor:
         if self._converter is None:
             with self._init_lock:
                 if self._converter is None:
-                    self._converter = self._build_converter()
+                    converter = self._build_converter()
+                    _load_pdf_models(converter)
+                    self._converter = converter
         return self._converter
 
     def _build_converter(self):
