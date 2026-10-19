@@ -1053,6 +1053,32 @@ def _say_which_session_was_searched(ctx: typer.Context, session_id: str, query: 
         )
 
 
+def _configure_refusal(exc: Exception, profile: str, session_id: str, reset: bool) -> str:
+    """What `configure` prints for a switch refused for the session's documents.
+
+    One line per option, each with the command as typed here. The refusal's own
+    text (``exc.problem``) is kept apart from the fixes it names for REST, MCP
+    and the SDK, so "To switch anyway" appears once.
+    """
+    again = f"lasagna configure --profile {profile}{' --reset' if reset else ''} -s {session_id}"
+    problem = getattr(exc, "problem", None)
+    if problem is None:  # a size conflict: its text has no fixes of its own to repeat
+        return (
+            f"{exc} To switch and reindex them now: {again} --reindex. "
+            f"To switch anyway: {again} --force."
+        )
+    lines = [
+        problem,
+        f"  To reindex and switch: {again} --reindex",
+        f"  To switch anyway (searches find none of the documents until they are reindexed): "
+        f"{again} --force",
+        "  Or use a new session and upload there: lasagna upload <file> -s <name>",
+    ]
+    if exc.profile_model_differs and not reset:
+        lines.append(f"  To use the profile's own model: {again} --reset")
+    return "\n".join(lines)
+
+
 def _warn_documents_elsewhere(session_id: str, warned: List[Any]) -> None:
     """Say why the search could not see some of the session's documents.
 
@@ -1658,11 +1684,7 @@ def configure(
         except ProfileSwitchInProgress as exc:
             _error(str(exc))
         except EmbeddingSizeConflict as exc:
-            again = f"lasagna configure --profile {profile}{' --reset' if reset else ''}"
-            _error(
-                f"{exc} To switch and reindex them now: {again} -s {session_id} --reindex. "
-                f"To switch anyway: {again} -s {session_id} --force."
-            )
+            _error(_configure_refusal(exc, profile, session_id, reset))
         except (ProfileCannotLoad, ReindexFailed, ValueError) as exc:
             _error(str(exc))
         finally:

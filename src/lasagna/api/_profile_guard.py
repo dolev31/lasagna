@@ -521,30 +521,36 @@ def refuse_leaving_documents(
         remedy.format(new_model=new_model, them=them)
         if remedy
         else (
-            f"Either use a new session for {new_model} and upload there, or switch and "
-            f"reindex {them} in one step (lasagna configure --reindex, or reindex=true over "
-            f"REST and MCP), which reindexes every document with {new_model} first and keeps "
-            f"the session as it is if one fails. To switch anyway: lasagna configure --force, "
-            f"or force=true over REST and MCP; until each document is reindexed "
-            f"(client.documents.reindex(document_id) in the SDK, POST "
-            f"/api/v1/documents/<id>/reindex or POST /api/knowledge/reindex over REST, or the "
-            f"MCP tool reindex_document), searches return nothing from {them}."
+            f"Use a new session for {new_model} and upload there, or:\n"
+            f"  Reindex first: lasagna configure --reindex (reindex=true over REST and MCP) "
+            f"reindexes every document with {new_model} and keeps the session as it is if "
+            f"one fails.\n"
+            f"  To switch anyway: lasagna configure --force (force=true over REST and MCP); "
+            f"searches return nothing from {them} until each is reindexed "
+            f"(client.documents.reindex(document_id), POST /api/v1/documents/<id>/reindex, "
+            f"POST /api/knowledge/reindex, or the MCP tool reindex_document)."
         )
     )
     if why:
         fixes += (
-            " To use the profile's own model instead, switch with --reset (lasagna configure "
-            "--reset, or reset=true on PUT /api/config/knowledge/active), which drops the "
-            "session's own settings, or reset them first (client.config_manager.reset() in "
-            "the SDK, or the MCP tool reset_rag_config)."
+            "\n  To use the profile's own model instead, switch with --reset (lasagna "
+            "configure --reset, or reset=true on PUT /api/config/knowledge/active), which "
+            "drops the session's own settings, or reset them first "
+            "(client.config_manager.reset() in the SDK, or the MCP tool reset_rag_config)."
         )
-    raise DocumentsLeftBehind(
+    problem = (
         f"{change} would search with {new}{why}, but the "
         f"{_plural(len(left), 'document')} in session {session_id!r} "
         f"{'was' if one else 'were'} embedded with {old}, in that model's collection, so "
         f"no search would find {them}. Nothing was changed; profile {kept!r} is still "
-        f"active. {fixes}"
+        f"active."
     )
+    refusal = DocumentsLeftBehind(f"{problem}\n{fixes}")
+    # The part that is the same on every surface; the CLI adds its own commands.
+    refusal.problem = problem
+    refusal.new_model = new_model
+    refusal.profile_model_differs = bool(why)
+    raise refusal
 
 
 def _archived_rows(session_id: str) -> list:
