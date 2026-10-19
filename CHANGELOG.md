@@ -456,6 +456,11 @@ The first standalone release of Lasagna; this is everything it brings.
   See `docs/model-licenses.md`.
 
 ### Fixed
+- **The first PDF Docling converted could time out.** Docling loads (and on the
+  first run downloads) its layout models inside the first conversion, and that
+  time counted against `docling_timeout` (300 seconds). The models now load when
+  the converter is built, before the timer starts, and a timeout names
+  `docling-tools models download` and `DOCLING_ARTIFACTS_PATH`.
 - **The first document of a benchmark corpus could fail with no reason given.**
   Ingest gave each document 120 seconds to chunk, counted from the first wait,
   and the first document of a semantic or structure-aware corpus loaded the
