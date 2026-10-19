@@ -26,6 +26,9 @@ TAG = f"v{VERSION}"
 def _copy_tree(tmp_path: Path) -> Path:
     for name in ("pyproject.toml", "CHANGELOG.md", "CITATION.cff", "README.md"):
         shutil.copy(REPO_ROOT / name, tmp_path / name)
+    for name in check_release.NOTEBOOK_FILES:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(REPO_ROOT / name, tmp_path / name)
     (tmp_path / "constraints").mkdir()
     shutil.copy(REPO_ROOT / "constraints" / f"{VERSION}.txt", tmp_path / "constraints")
     return tmp_path
@@ -77,3 +80,24 @@ def test_changelog_and_citation_dates_must_agree(tmp_path):
 
     _stamp(root, "2026-11-02", "2026-11-02")
     assert check_release.problems(TAG, root=root) == []
+
+
+def test_the_notebook_installs_the_release_it_documents(tmp_path):
+    """The notebook installed whatever PyPI had newest, so its pinned output
+    ("check bundle": "VALID") would have stopped matching with the next release."""
+    for name in check_release.NOTEBOOK_FILES:
+        text = (REPO_ROOT / name).read_text(encoding="utf-8")
+        assert f"lasagna-rag[eval]=={VERSION}" in text, name
+
+    root = _copy_tree(tmp_path)
+    script = root / check_release.NOTEBOOK_FILES[1]
+    script.write_text(
+        script.read_text(encoding="utf-8").replace(
+            f"lasagna-rag[eval]=={VERSION}", "lasagna-rag[eval]"
+        ),
+        encoding="utf-8",
+    )
+    found = check_release.problems(TAG, root=root, allow_placeholder=True)
+    assert found == [
+        f"{check_release.NOTEBOOK_FILES[1]} does not install lasagna-rag[eval]=={VERSION}"
+    ], found

@@ -13,7 +13,9 @@ Checks, against the tree it runs in:
 - the tag is `v` + `[project] version` in pyproject.toml;
 - CHANGELOG.md has a `## [<version>] - <date>` section with a real date;
 - CITATION.cff has the same `version` and `date-released` as that date;
-- `constraints/<version>.txt` exists, and README.md installs that version with it.
+- `constraints/<version>.txt` exists, and README.md installs that version with it;
+- the Colab notebook and its script install that same version, because the
+  output the notebook documents belongs to one release.
 
 `--allow-placeholder` accepts the placeholder date. The test suite uses it, so
 the tree can carry the next release's notes before its date is known.
@@ -33,6 +35,11 @@ except ModuleNotFoundError:  # Python 3.10; tomli is a core dependency there
     import tomli as tomllib
 
 PLACEHOLDER = "YYYY-MM-DD"
+#: Files that install the package at the release they document.
+NOTEBOOK_FILES = (
+    "examples/notebooks/compare_your_reranker.ipynb",
+    "examples/notebooks/compare_your_reranker.py",
+)
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -80,6 +87,9 @@ def problems(tag: str, root: Path = REPO_ROOT, allow_placeholder: bool = False) 
     readme = (root / "README.md").read_text(encoding="utf-8")
     if f'"lasagna-rag[eval]=={version}"' not in readme or constraints not in readme:
         found.append(f"README.md does not install lasagna-rag[eval]=={version} with {constraints}")
+    for name in NOTEBOOK_FILES:
+        if f"lasagna-rag[eval]=={version}" not in (root / name).read_text(encoding="utf-8"):
+            found.append(f"{name} does not install lasagna-rag[eval]=={version}")
     return found
 
 

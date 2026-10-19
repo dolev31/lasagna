@@ -66,3 +66,57 @@ def test_an_interrupted_download_is_missing(cache):
 def test_an_empty_folder_is_missing(cache):
     (cache / "mteb___scifact").mkdir(parents=True)
     assert not datasets.dataset_cached("mteb/scifact")
+
+
+def _snapshot(tmp_path: Path, files: dict, blobs: bool = True) -> None:
+    """A hub-cache snapshot of mteb/scifact; each file is a symlink into blobs/, as the hub writes it."""
+    repo = tmp_path / "hub" / "datasets--mteb--scifact"
+    revision = "cf10ab6856b15b0e670ef8ae5dae4e266c12d035"  # pragma: allowlist secret
+    snapshot = repo / "snapshots" / revision
+    for name in files:
+        link = snapshot / name
+        link.parent.mkdir(parents=True, exist_ok=True)
+        blob = repo / "blobs" / name.replace("/", "_")
+        blob.parent.mkdir(parents=True, exist_ok=True)
+        if blobs:
+            blob.write_text("{}")
+        link.symlink_to(blob)
+
+
+def test_a_snapshot_holding_only_a_readme_is_missing(cache, tmp_path):
+    """The hub-cache branch counted any file, so a README alone read as cached and
+    the offline load then failed in every task."""
+    _snapshot(tmp_path, {"README.md": 1})
+    assert not datasets.dataset_cached("mteb/scifact")
+    problem = datasets.missing_offline_datasets({"beir/scifact": ["mteb/scifact"]})
+    assert problem is not None and "beir/scifact" in str(problem)
+
+
+def test_a_snapshot_with_a_loading_script_and_no_data_is_missing(cache, tmp_path):
+    _snapshot(tmp_path, {"README.md": 1, "scifact.py": 1, "dataset_infos.json": 1})
+    assert not datasets.dataset_cached("mteb/scifact")
+
+
+def test_a_snapshot_whose_data_was_never_downloaded_is_missing(cache, tmp_path):
+    _snapshot(tmp_path, {"README.md": 1, "corpus.jsonl": 1}, blobs=False)
+    (tmp_path / "hub" / "datasets--mteb--scifact" / "blobs" / "README.md").write_text("x")
+    assert not datasets.dataset_cached("mteb/scifact")
+
+
+def test_a_snapshot_with_its_data_files_is_cached(cache, tmp_path):
+    _snapshot(
+        tmp_path,
+        {
+            "README.md": 1,
+            "corpus.jsonl": 1,
+            "queries.jsonl": 1,
+            "qrels/test.jsonl": 1,
+        },
+    )
+    assert datasets.dataset_cached("mteb/scifact")
+    assert datasets.missing_offline_datasets({"beir/scifact": ["mteb/scifact"]}) is None
+
+
+def test_a_parquet_snapshot_is_cached(cache, tmp_path):
+    _snapshot(tmp_path, {"README.md": 1, "corpus/test-00000-of-00001.parquet": 1})
+    assert datasets.dataset_cached("mteb/scifact")
