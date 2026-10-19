@@ -113,7 +113,7 @@ def _load(source: Source, allow_invalid: bool = False) -> _Run:
         raise ValueError(
             f"{name or 'This file'} is neither a results.json nor a bundle: it has no "
             f"'results' list. Pass the results.json a run wrote, or a bundle from "
-            f"`lasagna results bundle`."
+            f"`lasagna results bundle <results.json>`."
         )
     rows = [dict(r) for r in data["results"]]
     tasks = [TaskResult.from_dict(r) for r in rows]
@@ -434,7 +434,9 @@ def _metric_table(results: BenchmarkResults, bench: str, metric: str) -> str:
     )
 
 
-def _significance(results: BenchmarkResults, bench: str, metric: str) -> str:
+def _significance(
+    results: BenchmarkResults, bench: str, metric: str, file: str = "", several: bool = False
+) -> str:
     title = "<h3>Significance</h3>"
     try:
         rows = results.pairwise_significance(metric, bench, correction="holm", alpha=_ALPHA)
@@ -466,7 +468,7 @@ def _significance(results: BenchmarkResults, bench: str, metric: str) -> str:
     table = _table(["Pair (A vs B)", "#Diff (A − B)", "#d_z", "#p", "#p (Holm)", "#n", ""], body)
     opened = " open" if n <= _PAIRS_OPEN else ""
     return (
-        f"{title}{_verdict_html(verdict_lines(rows, metric, bench, _ALPHA))}"
+        f"{title}{_verdict_html(verdict_lines(rows, metric, bench, _ALPHA, file or 'results.json', several))}"
         f"<details{opened}><summary>All {n} {'pair' if n == 1 else 'pairs'}, "
         f"paired sign-flip test, Holm-corrected at family-wise alpha={_ALPHA}</summary>"
         f"{table}</details>"
@@ -766,7 +768,7 @@ def render_html(
         chip = f' <span class="chip bad">{_e(mark)}</span>' if mark else ""
         sections.append(
             f'<section id="{_anchor(bench)}"><h2>{_e(bench)}{chip}</h2>'
-            f"{_leaderboard(ranking, metric)}{_significance(res, bench, metric)}"
+            f"{_leaderboard(ranking, metric)}{_significance(res, bench, metric, run.meta.get('file') or '', len(benchmarks) > 1)}"
             f"{_metric_table(res, bench, metric)}{per_query}</section>"
         )
 

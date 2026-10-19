@@ -18,7 +18,7 @@ import shlex
 from collections import defaultdict
 from pathlib import Path
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import typer
 from rich.console import Console
@@ -3483,7 +3483,13 @@ def results_significance(
     survivors = sum(1 for r in rows if r.get("significant"))
     console.print()
     if correction == "holm":
-        console.print(_significance_verdict(rows, metric, benchmark, alpha))
+        several = len({r.benchmark_name for r in results._results if not r.error}) > 1
+        panel, commands = _significance_verdict(
+            rows, metric, benchmark, alpha, results_path, several_benchmarks=several
+        )
+        console.print(panel)
+        for command in commands:
+            console.print(f"  {escape(command)}", soft_wrap=True, style="bold")
     else:
         console.print(
             f"  {survivors} of {_count(len(rows), 'pair')} "
@@ -3512,31 +3518,47 @@ def results_significance(
         console.print(f"  {pairs} {'is' if hidden == 1 else 'are'} not shown; --all shows them.")
 
 
-def _significance_verdict(rows: list, metric: str, benchmark: str, alpha: float) -> Panel:
-    """The answer the table supports, in one box.
+def _significance_verdict(
+    rows: list,
+    metric: str,
+    benchmark: str,
+    alpha: float,
+    results_path: str = "results.json",
+    several_benchmarks: bool = False,
+) -> Tuple[Panel, List[str]]:
+    """The answer the table supports, in one box, and the commands to print under it.
 
     A green box names each pair that survives Holm correction, which side won and
-    by how much. When nothing survives, the box says so and points at
-    `results power`, because "not significant" has two readings (no difference,
-    or too few queries to see one) that call for opposite next steps. The words
-    come from `results.verdict_lines`, which `results view` renders too.
+    by how much. When nothing survives, the box says so and introduces the
+    `results power` command for the closest pair, filled in so it runs as
+    printed, because "not significant" has two readings (no difference, or too
+    few queries to see one) that call for opposite next steps. The command is
+    returned apart from the box, to print unwrapped so it can be copied. The
+    words come from `results.verdict_lines`, which `results view` renders too.
     """
     from .knowledge_evaluation_sdk.results import verdict_lines
 
-    verdict = verdict_lines(rows, metric, benchmark, alpha)
+    verdict = verdict_lines(rows, metric, benchmark, alpha, results_path, several_benchmarks)
     markup = {"text": "{}", "winner": "[bold green]{}[/bold green]", "command": "[bold]{}[/bold]"}
+    commands = [
+        line.text
+        for line in verdict.lines
+        if line.spans and all(r == "command" for r, _ in line.spans)
+    ]
     body = "\n".join(
         "".join(markup[role].format(escape(text)) for role, text in line.spans)
         for line in verdict.lines
+        if line.text not in commands
     )
     significant = verdict.style == "significant"
-    return Panel(
+    panel = Panel(
         body,
         title=f"[bold]{verdict.title}[/bold]" if significant else verdict.title,
         title_align="left",
         border_style="green" if significant else "yellow",
         expand=False,
     )
+    return panel, commands
 
 
 def _format_p(p: float) -> str:
