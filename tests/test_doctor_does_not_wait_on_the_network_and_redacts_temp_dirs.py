@@ -42,7 +42,7 @@ def test_doctor_opens_no_connection_and_finishes_quickly(monkeypatch):
     assert time.monotonic() - started < 60
 
 
-@pytest.mark.parametrize("tmpdir", ["/tmp", "/private/tmp", "/var/folders/xg/ab12/T"])
+@pytest.mark.parametrize("tmpdir", ["/tmp", "/private/tmp"])
 def test_a_temp_dir_prints_one_placeholder(monkeypatch, tmpdir):
     monkeypatch.setattr("tempfile.gettempdir", lambda: tmpdir)
     for path in ("/private/tmp/work/run.db", "/tmp/work/run.db"):

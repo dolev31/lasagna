@@ -332,11 +332,6 @@ def redact(value: Any) -> Any:
     home = os.path.expanduser("~")
     tmp = tempfile.gettempdir().rstrip("/")
     out = value
-    # macOS per-user temp roots embed a token that identifies the user even
-    # when TMPDIR is unset. Done first, and with /tmp, so that a TMPDIR of
-    # /tmp does not cut the middle out of "/private/tmp/x" or "/T/tmpab12".
-    out = re.sub(r"(?:/private)?/var/folders/[^/\s]+/[^/\s]+/[A-Za-z]+", "<tmp>", out)
-    out = re.sub(r"(?<![\w.~-])(?:/private)?/tmp(?![\w-])", "<tmp>", out)
     for path, tag in sorted(
         ((sys.executable, "python"), (home, "<home>"), (tmp, "<tmp>")),
         key=lambda kv: len(kv[0]),
@@ -345,10 +340,15 @@ def redact(value: Any) -> Any:
         if not path:
             continue
         if tag == "<tmp>":
-            # A whole path component only: "/tmp" is not the start of "/tmpab12".
-            out = re.sub(rf"(?<![\w.~-]){re.escape(path)}(?![\w-])", tag, out)
+            # A whole path component only ("/tmp" does not start "/tmpab12"), and
+            # with its /private spelling, so TMPDIR=/tmp leaves no "/private<tmp>".
+            root = r"(?:/private)?/tmp" if path in ("/tmp", "/private/tmp") else re.escape(path)
+            out = re.sub(rf"(?<![\w.~-]){root}(?![\w-])", tag, out)
         else:
             out = out.replace(path, tag)
+    # macOS per-user temp roots embed a token that identifies the user even
+    # when TMPDIR is unset.
+    out = re.sub(r"(?:/private)?/var/folders/[^/\s]+/[^/\s]+/[A-Za-z]+", "<tmp>", out)
     for part in tmp.strip("/").split("/"):
         if len(part) >= 12:
             out = out.replace(part, "<tmp-id>")
