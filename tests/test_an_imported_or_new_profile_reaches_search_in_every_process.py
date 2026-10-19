@@ -36,7 +36,9 @@ def _env(tmp_path: Path) -> dict:
     env = {k: v for k, v in os.environ.items() if not k.startswith(("RAG_", "LASAGNA_"))}
     (tmp_path / "home").mkdir(exist_ok=True)
     env.update(
-        PYTHONPATH=os.pathsep.join([env.get("PYTHONPATH", ""), str(REPO / "src")]).lstrip(os.pathsep),
+        PYTHONPATH=os.pathsep.join([env.get("PYTHONPATH", ""), str(REPO / "src")]).lstrip(
+            os.pathsep
+        ),
         RAG_DB_DIR=str(tmp_path / "dbs"),
         RAG_UPLOAD_DIR=str(tmp_path / "uploads"),
         HOME=str(tmp_path / "home"),
@@ -45,7 +47,9 @@ def _env(tmp_path: Path) -> dict:
 
 
 def _run(env: dict, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, *args], env=env, capture_output=True, text=True, timeout=180)
+    return subprocess.run(
+        [sys.executable, *args], env=env, capture_output=True, text=True, timeout=180
+    )
 
 
 def _other_process_reads(env: dict, session: str) -> list:
