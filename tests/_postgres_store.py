@@ -73,13 +73,12 @@ class FakePostgres:
         return self.profiles.pop((user_id, profile_name), None) is not None
 
 
-def manager_class_on(monkeypatch, store, cache=None):
-    """``KnowledgeConfigManager`` with the PostgreSQL persistence over ``store`` (and ``cache``)."""
+def manager_class_on(monkeypatch, store):
+    """``KnowledgeConfigManager`` with the PostgreSQL persistence over ``store``."""
     from lasagna.core.session_config import KnowledgeConfigManager, _persistence_db
     from lasagna.core.session_config._persistence_db import DatabasePersistenceMixin
 
     monkeypatch.setattr(_persistence_db, "_get_pg_db", lambda: store)
-    monkeypatch.setattr(_persistence_db, "_get_cache", lambda: cache)
 
     class OnPostgres(DatabasePersistenceMixin, KnowledgeConfigManager):
         """Its persistence methods come first, over the SQLite ones."""

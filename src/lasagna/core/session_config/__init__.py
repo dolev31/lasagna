@@ -11,17 +11,16 @@ Architecture (Dual-Mode):
     Profiles and sessions stored in ``rag_profiles`` and ``rag_sessions`` tables.
     Optimised for local single-user deployment where simplicity is preferred.
 
-**PostgreSQL + Redis (RAG_DATABASE_BACKEND=postgresql)**:
+**PostgreSQL (RAG_DATABASE_BACKEND=postgresql)**:
     Request-scoped ``KnowledgeConfigManager`` instances.  Each request gets a
-    lightweight manager that reads from Redis (L1, <1 ms) → PostgreSQL (L2, ~5 ms).
+    lightweight manager that reads its session from PostgreSQL.
     Supports horizontal scaling across N Gunicorn/uvicorn workers with shared
     state, per-user profile namespacing, and TTL-based session cleanup.
 
-    Workers share state via:
-        - **PostgreSQL**: durable storage for profiles (``rag_profiles``),
-          sessions (``rag_sessions``), and quotas (``rag_quotas``)
-        - **Redis**: write-through cache for sub-millisecond reads, also used
-          for distributed rate limiting and quota enforcement
+    Workers share state via **PostgreSQL**: durable storage for profiles
+    (``rag_profiles``), sessions (``rag_sessions``), and quotas
+    (``rag_quotas``). Session settings have no Redis copy (see
+    ``_persistence_db``); Redis, when configured, holds rate limits and quotas.
 """
 
 import os
@@ -53,7 +52,7 @@ from ._backend_config import BackendConfigMixin
 from ._validation_mixin import ValidationMixin
 
 # Dynamic persistence mixin selection based on database backend.
-# PostgreSQL path uses database + Redis cache; SQLite path uses rag.db tables.
+# PostgreSQL path uses the database alone; SQLite path uses rag.db tables.
 _db_backend = os.environ.get("RAG_DATABASE_BACKEND", "sqlite")
 if _db_backend == "postgresql":
     from ._persistence_db import DatabasePersistenceMixin as _PersistenceBase
@@ -194,12 +193,12 @@ def get_knowledge_config_manager(
 
     **PostgreSQL backend** (``RAG_DATABASE_BACKEND=postgresql``):
         Returns a request-scoped instance scoped to the given user/session.
-        Each instance reads from Redis (L1) → PostgreSQL (L2) and only loads
-        the data it needs, enabling horizontal scaling across N workers.
+        Each instance reads from PostgreSQL and only loads the data it needs,
+        enabling horizontal scaling across N workers.
     """
     if _db_backend == "postgresql":
         # Request-scoped: each request gets a fresh, lightweight manager
-        # that reads only the target session from Redis → PostgreSQL.
+        # that reads only the target session from PostgreSQL.
         return KnowledgeConfigManager(user_id=user_id, session_id=session_id)
     else:
         # Legacy singleton for local/single-user mode
