@@ -18,6 +18,7 @@ class FakePostgres:
     def __init__(self):
         self.sessions, self.profiles, self.fail = {}, {}, False
         self.reads = 0
+        self.profile_owners_read = []
 
     def get_session(self, sid):
         self.reads += 1
@@ -57,10 +58,12 @@ class FakePostgres:
             if row.get("active_profile") == profile_name
         ]
 
-    def get_saved_profiles(self):
+    def get_saved_profiles(self, owners=None):
+        self.profile_owners_read.append(None if owners is None else sorted(owners))
         return [
             {"user_id": o, "profile_name": n, "description": "", "config": copy.deepcopy(c)}
             for (o, n), c in self.profiles.items()
+            if owners is None or o in owners
         ]
 
     def save_profile(self, user_id, profile_name, config, description="", is_builtin=False):

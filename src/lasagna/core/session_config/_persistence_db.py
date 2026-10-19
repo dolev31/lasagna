@@ -86,12 +86,36 @@ class DatabasePersistenceMixin:
         """No-op for PostgreSQL backend (no legacy JSON files to migrate)."""
         pass
 
+    def _profile_owners(self) -> List[str]:
+        """Whose saved profiles this manager reads: the caller's, the shared ones, and any
+        owner of a session it holds that is on one of that owner's profiles."""
+        mine = getattr(self, "_user_id", ANONYMOUS)
+        return sorted({mine, ANONYMOUS, *getattr(self, "_extra_profile_owners", ())})
+
+    def _read_profiles_of(self, owner: str) -> None:
+        """Also read ``owner``'s saved profiles (the first time ``owner`` is asked about)."""
+        if owner in self._profile_owners():
+            return
+        extra = getattr(self, "_extra_profile_owners", None)
+        if extra is None or len(extra) >= MAX_CACHED_SESSIONS:
+            extra = self._extra_profile_owners = set()  # the process's long-lived manager
+        extra.add(owner)
+        self._refresh_saved_profiles(force=True)
+
     def _read_saved_profiles(self) -> Optional[List[RAGProfile]]:
-        """Every saved profile in PostgreSQL, of every owner; None when it cannot be read."""
+        """The saved profiles of the owners this manager serves; None when unreadable.
+
+        Not every owner's: each request built a manager that read every
+        tenant's profiles, however many there were.
+        """
         try:
             db = _get_pg_db()
             reader = getattr(db, "get_saved_profiles", None)
-            rows = reader() if reader else db.get_profiles(getattr(self, "_user_id", ANONYMOUS))
+            rows = (
+                reader(self._profile_owners())
+                if reader
+                else db.get_profiles(getattr(self, "_user_id", ANONYMOUS))
+            )
         except Exception as exc:
             logger.warning(f"Failed to load profiles from PostgreSQL: {exc}")
             return None

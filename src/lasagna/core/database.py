@@ -1285,8 +1285,8 @@ class RAGDatabase:
             ).fetchall()
         return {row[0]: int(row[1]) for row in rows}
 
-    def get_saved_profiles(self) -> List[Dict[str, Any]]:
-        """Every saved (not built-in) profile, of every owner."""
+    def get_saved_profiles(self, owners: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """Saved (not built-in) profiles of ``owners`` (every owner when omitted)."""
         import json as _json
 
         with self.connection() as conn:
@@ -1300,8 +1300,11 @@ class RAGDatabase:
                 """
             )
             rows = []
+            owned = set(owners) if owners is not None else None
             for row in cursor.fetchall():
                 d = dict(row)
+                if owned is not None and d.get("user_id") not in owned:
+                    continue
                 if isinstance(d.get("config"), str):
                     try:
                         d["config"] = _json.loads(d["config"])

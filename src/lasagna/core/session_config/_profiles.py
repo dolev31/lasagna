@@ -610,6 +610,12 @@ class ProfileMixin:
         owner = profile.get("user_id") if isinstance(profile, dict) else profile.user_id
         return user_id == ANONYMOUS or (owner or ANONYMOUS) in (user_id, ANONYMOUS)
 
+    def _also_read_profiles_of(self, owner: str) -> None:
+        """Make sure ``owner``'s saved profiles are loaded (PostgreSQL loads only some owners')."""
+        read = getattr(self, "_read_profiles_of", None)
+        if read is not None:
+            read(owner)
+
     def _saved(self, name: str, owner: str) -> Optional[RAGProfile]:
         """The saved profile ``name`` of ``owner``, exactly."""
         return next(
@@ -624,11 +630,11 @@ class ProfileMixin:
     def _saved_for(self, name: str, user_id: str, *, besides: Any = None) -> Optional[RAGProfile]:
         """The saved profile ``name`` that ``user_id`` gets (``besides`` one excluded).
 
-        Its own, else the shared one (saved without a login). Anonymous, the
-        single user, gets another owner's when it has none of its own (the
-        first by owner). Profiles were looked up by name alone, so a tenant on
-        the shared profile of a name was handed another tenant's of that name.
+        Its own, else the shared one (saved without a login), never another
+        owner's: anonymous used to be handed the first tenant's profile of the
+        name, and profiles were once looked up by name alone.
         """
+        self._also_read_profiles_of(user_id)
         candidates = [
             p for p in self._global_custom_profiles if p.name == name and p is not besides
         ]
@@ -636,8 +642,6 @@ class ProfileMixin:
             mine = next((p for p in candidates if (p.user_id or ANONYMOUS) == owner), None)
             if mine is not None:
                 return mine
-        if user_id == ANONYMOUS and candidates:
-            return min(candidates, key=lambda p: p.user_id or "")
         return None
 
     @staticmethod
@@ -647,6 +651,7 @@ class ProfileMixin:
 
     def _refuse_past_limit(self, names: List[str], user_id: str) -> None:
         """Raise when saving ``names`` as ``user_id``'s passes its limit of saved profiles."""
+        self._also_read_profiles_of(user_id)
         new = [n for n in dict.fromkeys(names) if self._saved(n, user_id) is None]
         # Counted per owner. One shared count let a tenant fill it and lock
         # every other tenant out of saving any profile at all.

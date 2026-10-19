@@ -75,7 +75,7 @@ async def get_knowledge_config(
     UI calls on load.
     """
     try:
-        mgr = get_knowledge_config_manager(session_id=session_id)
+        mgr = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
         return _to_response(mgr.get_config(session_id, user_id=user_id))
     except STORE_UNAVAILABLE:
         raise
@@ -98,7 +98,7 @@ async def set_active_profile(
     from lasagna.api._profile_switch import ProfileCannotLoad, ReindexFailed, switch_profile
 
     try:
-        mgr = get_knowledge_config_manager(session_id=session_id)
+        mgr = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
         report = await asyncio.to_thread(
             switch_profile,
             mgr,
@@ -133,7 +133,7 @@ async def save_profile(
 ):
     """Save or update a named profile globally."""
     try:
-        mgr = get_knowledge_config_manager(session_id=session_id)
+        mgr = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
         mgr.save_profile(
             profile_name=body.profile_name,
             config=body.config,
@@ -161,7 +161,7 @@ async def delete_profile(
 ):
     """Delete a custom profile (built-in profiles are protected)."""
     try:
-        mgr = get_knowledge_config_manager(session_id=session_id)
+        mgr = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
         mgr.delete_profile(
             profile_name=body.profile_name,
             session_id=session_id,
@@ -187,7 +187,7 @@ async def rename_profile(
 ):
     """Rename a custom profile (built-in profiles are protected)."""
     try:
-        mgr = get_knowledge_config_manager(session_id=session_id)
+        mgr = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
         mgr.rename_profile(
             old_name=body.old_name,
             new_name=body.new_name,
@@ -218,7 +218,7 @@ async def reset_config(
     Scope ``"all"`` resets profiles and active profile too.
     """
     try:
-        mgr = get_knowledge_config_manager(session_id=session_id)
+        mgr = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
         mgr.reset_config(scope=body.scope, session_id=session_id)
         return _to_response(mgr.get_config(session_id, user_id=user_id))
     except EmbeddingSizeConflict as conflict:
@@ -239,7 +239,7 @@ async def export_config(
 ):
     """Export the session configuration as JSON (for download)."""
     try:
-        mgr = get_knowledge_config_manager(session_id=session_id)
+        mgr = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
         return _to_response(mgr.export_config(session_id, user_id=user_id))
     except STORE_UNAVAILABLE:
         raise
@@ -256,7 +256,7 @@ async def import_config(
 ):
     """Import configuration from uploaded JSON."""
     try:
-        mgr = get_knowledge_config_manager(session_id=session_id)
+        mgr = get_knowledge_config_manager(user_id=user_id, session_id=session_id)
         mgr.import_config(
             import_data=data.model_dump(exclude_none=True), session_id=session_id, user_id=user_id
         )

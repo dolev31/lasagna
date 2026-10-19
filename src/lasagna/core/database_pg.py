@@ -1210,17 +1210,21 @@ class PostgresRAGDatabase:
                 )
                 return {row[0]: int(row[1]) for row in cur.fetchall()}
 
-    def get_saved_profiles(self) -> List[Dict[str, Any]]:
-        """Every saved (not built-in) profile, of every owner."""
+    def get_saved_profiles(self, owners: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """Saved (not built-in) profiles of ``owners`` (every owner when omitted)."""
         with self._conn() as conn:
             with conn.cursor() as cur:
+                where, args = (
+                    ("AND user_id = ANY(%s)", (list(owners),)) if owners is not None else ("", ())
+                )
                 cur.execute(
-                    """
+                    f"""
                     SELECT user_id, profile_name, description, config
                     FROM rag_profiles
-                    WHERE is_builtin = false
+                    WHERE is_builtin = false {where}
                     ORDER BY profile_name, user_id
-                    """
+                    """,
+                    args,
                 )
                 cols = [d[0] for d in cur.description]
                 rows = []

@@ -216,7 +216,12 @@ async def create_session(
         )
 
     session_id = body.session_id or f"sess_{uuid.uuid4().hex[:12]}"
-    user_id = body.user_id or f"user_{uuid.uuid4().hex[:12]}"
+    # With auth on, a key's sessions are one user: the profiles they save are the
+    # key's (one limit of saved profiles per key, not per session).
+    from lasagna.api.rest.auth_mode import KEY_PRINCIPAL_PREFIX
+
+    own_user = principal if principal and principal.startswith(KEY_PRINCIPAL_PREFIX) else None
+    user_id = body.user_id or own_user or f"user_{uuid.uuid4().hex[:12]}"
     _record_the_key(session_id, principal)
 
     from ..session_token import create_session_token
