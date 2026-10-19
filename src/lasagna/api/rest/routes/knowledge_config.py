@@ -257,7 +257,9 @@ async def import_config(
     """Import configuration from uploaded JSON."""
     try:
         mgr = get_knowledge_config_manager(session_id=session_id)
-        mgr.import_config(import_data=data.model_dump(exclude_none=True), session_id=session_id)
+        mgr.import_config(
+            import_data=data.model_dump(exclude_none=True), session_id=session_id, user_id=user_id
+        )
         return _to_response(mgr.get_config(session_id, user_id=user_id))
     except EmbeddingSizeConflict as conflict:
         raise HTTPException(status_code=409, detail=str(conflict))

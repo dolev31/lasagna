@@ -16,10 +16,12 @@ from ._data_models import (
     SCHEMA_VERSION,
     RAGProfile,
     KnowledgeConfigState,
+    SettingsNotSaved,
     _check_profile_size,
     _deep_merge,
     _resolve,
     kept_in_process,
+    partly_saved,
 )
 
 
@@ -78,6 +80,18 @@ def _persisted_view(state: Any) -> tuple:
         bool(get("rag_enabled", True)),
         list(get("focused_document_ids", []) or []),
         get("user_id", ANONYMOUS) or ANONYMOUS,
+    )
+
+
+def _builtin_import_refused(name: str, keys: List[str]) -> str:
+    """Why an import may not give the built-in profile ``name`` other settings (``keys``)."""
+    shown = ", ".join(keys[:5]) + (f" and {len(keys) - 5} more" if len(keys) > 5 else "")
+    return (
+        f"The file gives the built-in profile {name!r} other settings ({shown}). Search "
+        f"always runs a built-in profile's own settings, so they would be shown and not "
+        f"used. Nothing was imported. Rename that profile in the file (for example to "
+        f"{name + '-custom'!r}) to import it as a profile of your own, or move those "
+        f"settings to session_overrides."
     )
 
 
@@ -303,6 +317,10 @@ class SessionStateMixin:
                     for name, value in before.items():
                         setattr(state, name, value)
                     self._global_custom_profiles, self._global_profile_names = saved
+                    # A row may have been written before the failure (see
+                    # ``partly_saved``): the next read takes the store's.
+                    self._profiles_checked_at = float("-inf")
+                    self._session_checked_at.pop(sid, None)
                     raise
                 finally:
                     _writes_here[sid] = _writes_here.get(sid, 0) + 1
@@ -510,13 +528,22 @@ class SessionStateMixin:
         self,
         import_data: Dict[str, Any],
         session_id: Optional[str] = None,
+        *,
+        user_id: str = ANONYMOUS,
     ) -> Dict[str, Any]:
-        """Import configuration from uploaded JSON.
+        """Import configuration from uploaded JSON; its profiles become ``user_id``'s saved ones.
 
         Everything is checked before anything is applied: every value, and
         what the session would embed with afterwards. Session overrides used
         to be stored as they came, so ``{"chunk_size": "lots"}`` answered 200
         and every later read of the session's config failed with a 500.
+
+        Each profile of the file is saved, with the checks `save_profile`
+        makes, before the session uses it: kept only in this manager's copy
+        of the session, an imported profile was "imported" and shown as
+        active while every other process (and on PostgreSQL every later
+        request) searched with ``default``. A built-in profile's name with
+        other settings is refused: search runs a built-in profile's own.
         """
         schema_version = import_data.get("schema_version")
         if not schema_version:
@@ -555,13 +582,17 @@ class SessionStateMixin:
                 builtin=builtin.config if builtin else None,
             )
             if builtin is not None:
-                # A built-in profile keeps the server's settings; an import
-                # changes only what a session may change in it.
-                profile_config = {**copy.deepcopy(builtin.config), **profile_config}
+                # An export carries every built-in profile as the server has it.
+                differs = sorted(k for k, v in profile_config.items() if builtin.config.get(k) != v)
+                if differs:
+                    raise ValueError(_builtin_import_refused(builtin.name, differs))
+                continue
             _check_profile_size(profile_config)
             if profile_config:
                 self._validate_or_raise(profile_config)
-            imported_profiles.append(RAGProfile.from_dict({**p_data, "config": profile_config}))
+            imported_profiles.append(
+                RAGProfile.from_dict({**p_data, "config": profile_config, "user_id": user_id})
+            )
 
         overrides = import_data.get("session_overrides")
         if overrides is not None and not isinstance(overrides, dict):
@@ -573,11 +604,32 @@ class SessionStateMixin:
         if active_profile is not None and not isinstance(active_profile, str):
             raise ValueError("'active_profile' must be a string")
 
+        sid = session_id or "default"
         with self._session_write(session_id) as state:
-            profiles = [copy.deepcopy(p) for p in state.profiles]
+            self._refresh_saved_profiles(force=True)
+            # The caller's, whatever owner the file names: one it can already
+            # use with these settings is used as it is, the rest are saved.
+            arriving, to_save = [], []
             for imported in imported_profiles:
-                # The session's own, whatever owner the file names.
-                imported.user_id = state.user_id or ANONYMOUS
+                existing = self._saved_for(imported.name, user_id)
+                if existing is not None and existing.config == imported.config:
+                    arriving.append(copy.deepcopy(existing))
+                else:
+                    arriving.append(imported)
+                    to_save.append(imported)
+            self._refuse_past_limit([p.name for p in to_save], user_id)
+            for imported in to_save:
+                mine = self._saved(imported.name, user_id)
+                if mine is not None:
+                    self._refuse_moving_others(
+                        mine,
+                        imported.config,
+                        change=f"Importing profile {imported.name!r}",
+                        exclude=sid,
+                        force=False,
+                    )
+            profiles = [copy.deepcopy(p) for p in state.profiles]
+            for imported in arriving:
                 for i, p in enumerate(profiles):
                     if p.name == imported.name:
                         profiles[i] = imported
@@ -600,10 +652,26 @@ class SessionStateMixin:
                 state, after, change="The imported configuration", session_id=session_id
             )
 
+            previous = state.active_profile
             state.profiles = profiles
             state.active_profile = active
             state.session_overrides = new_overrides
-            self._persist_single_session(session_id or "default")
+            if target is not None:
+                state.user_id = target.user_id or ANONYMOUS
+            for imported in to_save:
+                self._keep_saved(imported)
+            try:
+                self._persist_single_session(sid)
+            except SettingsNotSaved as exc:
+                if not to_save:
+                    raise
+                names = ", ".join(repr(p.name) for p in to_save)
+                raise partly_saved(
+                    exc,
+                    f"Profile{'s' if len(to_save) > 1 else ''} {names} "
+                    f"{'were' if len(to_save) > 1 else 'was'} saved; session {sid!r} is still "
+                    f"on profile {previous!r} with its own settings as they were",
+                ) from exc.__cause__
 
         # Without this an import was recorded and search kept the old settings.
         self._publish_to_search(session_id)
