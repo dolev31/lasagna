@@ -456,6 +456,13 @@ The first standalone release of Lasagna; this is everything it brings.
   See `docs/model-licenses.md`.
 
 ### Fixed
+- **The first document of a benchmark corpus could fail with no reason given.**
+  Ingest gave each document 120 seconds to chunk, counted from the first wait,
+  and the first document of a semantic or structure-aware corpus loaded the
+  embedding model inside that time. On a busy machine or a first run the
+  document failed with `Chunking failed for doc_...:` and an empty reason. The
+  model now loads before any document is timed, and a chunking failure always
+  names its exception type (a timeout also says which limit was hit).
 - **HyDE, query expansion, RAG Fusion and CRAG silently degraded to plain
   retrieval.** Each bridged to async work via `asyncio.run()`, which builds a
   fresh event loop per call. A cached LLM client holding an `asyncio.Lock` bound

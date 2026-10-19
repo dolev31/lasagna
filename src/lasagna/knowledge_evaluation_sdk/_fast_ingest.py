@@ -24,6 +24,7 @@ import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -39,6 +40,44 @@ from loguru import logger
 #: More failed documents than this share stops the ingest instead of
 #: evaluating on what is left.
 _MAX_CHUNK_FAILURE_RATE = 0.1
+
+#: How long one document's chunking may take before it is counted as failed.
+#: A guard against a chunker that hangs, not a budget: it runs from when the
+#: result is first waited for, so it must never include a model load.
+_CHUNK_TIMEOUT_SECONDS = 120
+
+
+def _load_chunking_model(embedding_manager) -> None:
+    """Load the model the chunker will embed with, before any document is timed.
+
+    The first document to reach a semantic chunker used to load the model
+    (a download on a first run, a multi-gigabyte read for bge-m3) inside its
+    own time limit, so on a slow connection or a busy machine the first
+    document of every corpus failed with no reason. A load that fails is left
+    for the chunker to report: the manager remembers the error and each
+    document fails with it, which is reported once.
+    """
+    if embedding_manager is None or getattr(embedding_manager, "is_loaded", True):
+        return
+    try:
+        logger.info("Loading the embedding model for chunking")
+        embedding_manager.model
+    except Exception as exc:
+        logger.debug(f"Embedding model did not load before chunking: {exc}")
+
+
+def _describe_chunk_failure(exc: BaseException) -> str:
+    """``ExcType: message``, and for a timeout which limit was hit.
+
+    A timeout's message is empty, so the log used to read "Chunking failed for
+    doc_...: " with nothing after the colon.
+    """
+    if isinstance(exc, (TimeoutError, FutureTimeoutError)):
+        return (
+            f"{type(exc).__name__}: chunking took longer than {_CHUNK_TIMEOUT_SECONDS} s "
+            "for this one document (the machine may be busy, or the chunker is stuck)"
+        )
+    return f"{type(exc).__name__}: {exc}"
 
 
 def _chunk_one_doc(
@@ -702,6 +741,8 @@ async def fast_ingest_corpus(
         insert_thread.start()
 
         # Stage A: parallel chunking
+        if _uses_semantic or _uses_llm_features:
+            _load_chunking_model(embedding_manager)
         t0 = time.perf_counter()
         first_chunk_error = ""
         chunk_errors_seen: Dict[str, int] = {}
@@ -724,7 +765,7 @@ async def fast_ingest_corpus(
 
             for i, (valid_id, text, fut) in enumerate(futures):
                 try:
-                    doc_id, chunks, parent_chunks = fut.result(timeout=120)
+                    doc_id, chunks, parent_chunks = fut.result(timeout=_CHUNK_TIMEOUT_SECONDS)
                     # Accumulate parent chunks
                     if parent_chunks:
                         with parent_chunks_lock:
@@ -736,9 +777,9 @@ async def fast_ingest_corpus(
                     # One line per distinct error: a model that cannot load
                     # fails every document the same way, and the same message
                     # printed once per document buried everything else.
-                    reason = f"{type(exc).__name__}: {exc}"
+                    reason = _describe_chunk_failure(exc)
                     if reason not in chunk_errors_seen:
-                        logger.warning(f"Chunking failed for {valid_id}: {exc}")
+                        logger.warning(f"Chunking failed for {valid_id}: {reason}")
                     chunk_errors_seen[reason] = chunk_errors_seen.get(reason, 0) + 1
                     first_chunk_error = first_chunk_error or reason
                     error_doc_ids.add(valid_id)
