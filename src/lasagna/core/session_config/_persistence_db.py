@@ -239,7 +239,7 @@ class DatabasePersistenceMixin:
     def _read_persisted_session(
         self, session_id: str, *, fresh: bool = False
     ) -> Optional[Dict[str, Any]]:
-        """The session as stored in PostgreSQL; None when absent or unreadable.
+        """The session as stored in PostgreSQL; ``{}`` when no row is stored, None when unreadable.
 
         Every read is ``fresh``: no copy sits in front of PostgreSQL. A
         manager that outlives a request re-reads its sessions through this
@@ -254,6 +254,8 @@ class DatabasePersistenceMixin:
         except Exception as exc:  # noqa: BLE001 - the cached copy is kept
             logger.debug(f"Could not read session {session_id} from PostgreSQL: {exc}")
             return None
+        if row is None:
+            return {}  # not stored: deleted, or never written
         return self._row_to_state_data(row) if isinstance(row, dict) and row else None
 
     def _sessions_on_profile(self, profile_name: str) -> Optional[List[Dict[str, Any]]]:

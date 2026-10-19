@@ -37,7 +37,7 @@ def _mixin(monkeypatch):
 
 def test_a_session_changed_elsewhere_is_read_from_postgres(monkeypatch):
     mixin, postgres = _mixin(monkeypatch)
-    assert mixin._read_persisted_session("s2") is None
+    assert mixin._read_persisted_session("s2") == {}
     postgres.rows["s2"] = {
         "active_profile": "speed",
         "session_overrides": {"rerank_top_k": 7},

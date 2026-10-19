@@ -272,6 +272,17 @@ class SessionStateMixin:
         stored = self._read_persisted_session(session_id, fresh=fresh)
         if stored is None:
             return
+        if not stored:
+            # No row: the session was deleted (by another process, or the SDK
+            # beside this server). Its copy here is dropped, not kept to be
+            # written back by the next change. A session never written still
+            # holds the default settings, which the copy is kept for (its
+            # per-request citations).
+            if cached is not None and _persisted_view(cached) != _persisted_view(
+                self._new_session_state()
+            ):
+                del self._session_states[session_id]
+            return
         if cached is not None and _persisted_view(cached) == _persisted_view(stored):
             return
         state = self._state_from_dict(stored)
@@ -749,15 +760,26 @@ class SessionStateMixin:
     def delete_session_state(self, session_id: str) -> bool:
         """Completely remove a session from config state: this process's copy and the stored row.
 
-        The stored row went only when this process had the session cached, so
-        a session another worker had read, or one evicted from the cache, kept
-        its settings and came back.
+        Done under the session's lock, as every change to a session is, and
+        refused (``ProfileSwitchInProgress``) while a switch of its documents
+        runs. A deletion the store did not take raises ``SettingsNotSaved``.
+        Another process holding a copy drops it at its next look, which finds
+        no row (``_adopt_persisted_session``), so it is not written back.
         """
+        from lasagna.api._profile_guard import refuse_during_switch
+
+        if kept_in_process(session_id):
+            with self._lock:
+                return _in_process_states.pop(session_id, None) is not None
+        refuse_during_switch(session_id, "This deletion")
+        with session_lock(session_id):
+            refuse_during_switch(session_id, "This deletion")
+            return self._delete_session_state_locked(session_id)
+
+    def _delete_session_state_locked(self, session_id: str) -> bool:
         deleted = False
 
         with self._lock:
-            if _in_process_states.pop(session_id, None) is not None:
-                deleted = True
             if session_id in self._session_states:
                 del self._session_states[session_id]
                 deleted = True
