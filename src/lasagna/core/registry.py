@@ -23,6 +23,7 @@ compatibility with the retrieval registry API:
 """
 
 import inspect
+import re
 import threading
 import warnings
 from typing import Any, Callable, Dict, List, Optional, Type
@@ -55,6 +56,19 @@ COMPONENT_TYPES = frozenset(
 _CATEGORY_ALIASES: Dict[str, str] = {
     "enhancer": "query_enhancer",
 }
+
+
+#: A citation of a published method: an arXiv id, a DOI, or "Author et al. YEAR".
+_PAPER_CITATION = re.compile(r"^(arxiv:|doi:)|\bet al\. \d{4}|& \w+ \d{4}")
+
+
+def is_paper_citation(source: Optional[str]) -> bool:
+    """Whether a component's ``paper`` is a published paper rather than a docs page.
+
+    ``component list`` and the README count of components that cite the paper
+    they implement both use this, so the two cannot disagree.
+    """
+    return bool(source and _PAPER_CITATION.search(str(source)))
 
 
 def _resolve_category(name: str) -> str:

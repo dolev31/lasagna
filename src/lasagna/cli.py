@@ -2786,10 +2786,10 @@ def component_list(
     """List the components a sweep can name, by stage.
 
     Built-in components and those of installed plugins, with the paper each
-    one implements. A component of your own module is named as module:function
+    one implements, or the docs page of a method that has none. A component of your own module is named as module:function
     and does not appear here.
     """
-    from lasagna.core.registry import COMPONENT_TYPES, registry
+    from lasagna.core.registry import COMPONENT_TYPES, is_paper_citation, registry
 
     if stage is not None and stage != "enhancer":
         _require_known(
@@ -2813,13 +2813,16 @@ def component_list(
         table.add_column("Name", style="bold", no_wrap=True)
         table.add_column("Description", ratio=3)
         table.add_column("Paper", style="dim", ratio=1, overflow="fold")
+        table.add_column("Docs", style="dim", ratio=1, overflow="fold")
         for entry in rows:
             description = next(
                 (ln.strip() for ln in (entry.get("description") or "").splitlines() if ln.strip()),
                 "",
             )
             name = entry["name"] if entry["builtin"] else f"{entry['name']} (plugin)"
-            table.add_row(escape(name), escape(description), escape(entry.get("paper") or ""))
+            source = entry.get("paper") or ""
+            paper, docs = (source, "") if is_paper_citation(source) else ("", source)
+            table.add_row(escape(name), escape(description), escape(paper), escape(docs))
         console.print(table)
     console.print(
         f"[dim]{_count(len(entries), 'component')}. Name one in a sweep's pipeline "
