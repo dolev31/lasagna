@@ -29,7 +29,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
-_EXPERIMENTS_DIR = Path(__file__).parent / "experiments"
+# The experiment files the wheel ships; the same folder the command line defaults to.
+_EXPERIMENTS_DIR = Path(__file__).parent.parent / "research" / "experiments"
 
 
 # ---------------------------------------------------------------------------
