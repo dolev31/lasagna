@@ -7,7 +7,9 @@ is stored anywhere.
 
 ## One-time setup
 
-Do these once, in this order, after the repository is public.
+Do these once. Steps 1, 2 and 4 can be done on any day before the release.
+Step 3 comes right after `gh repo edit dolev31/lasagna --visibility public`,
+because deployment tag rules on a private repository need a paid plan.
 
 1. **GitHub Actions runs.** <https://github.com/settings/billing> must show no
    failed payment or spending-limit block, or no job starts. No workflow has
@@ -16,7 +18,8 @@ Do these once, in this order, after the repository is public.
    hand and watch them to the end before anything else.
    `gh workflow run tests.yml --repo dolev31/lasagna --ref main` runs every
    job, including the E2E gate and the live compose stack. The Release dry run
-   builds, checks and smoke-tests but never publishes:
+   builds, checks and smoke-tests but never publishes, because its publish
+   job runs only when the event is a published release:
    `gh workflow run release.yml --repo dolev31/lasagna --ref main`. Follow each
    with `gh run watch --repo dolev31/lasagna`. Every job runs on
    `ubuntu-24.04`, named in the workflows rather than `ubuntu-latest`, so a new
@@ -100,7 +103,9 @@ Write the three header lines of the current file, with the new version, above
 run the suite again. The file pins the `[eval]` closure, but users combine it
 with other extras, so check that every extra still resolves against it:
 `uv pip compile pyproject.toml --all-extras --python-version 3.12 -c constraints/<version>.txt`.
-0.1.0 pins typer 0.26.8, not the newest, because docling-core requires typer<0.27. Update the version in `pyproject.toml`, `CITATION.cff`,
+0.1.0 pins typer 0.26.8, not the newest, because docling-core requires typer<0.27.
+
+Update the version in `pyproject.toml`, `CITATION.cff`,
 the README install line and the two `ARG CONSTRAINTS=` lines of
 `src/lasagna/deploy/Dockerfile` (the image installs the same versions), add a
 `## [<version>] - YYYY-MM-DD` section to CHANGELOG.md, and remove the old
