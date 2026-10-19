@@ -31,8 +31,11 @@ def _server_file() -> Path:
     return paths.data_dir() / "serve.json"
 
 
-def announce(url: str) -> None:
+def announce(url: str, session: Optional[str] = None) -> None:
     """Record that this process serves the local store at ``url``.
+
+    ``session`` is the session the server answers for when a request names
+    none (``serve -s``); other commands name it when they used another.
 
     Written afresh with mode 0600: `running_server` follows only a record its
     own user owns and nobody else can write, since other commands send
@@ -44,7 +47,7 @@ def announce(url: str) -> None:
         path.unlink(missing_ok=True)
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
         with os.fdopen(os.open(path, flags, 0o600), "w") as f:
-            f.write(json.dumps({"pid": os.getpid(), "url": url}))
+            f.write(json.dumps({"pid": os.getpid(), "url": url, "session": session}))
     except OSError:
         pass
 
@@ -126,6 +129,14 @@ def running_server() -> Optional[str]:
     if type(pid) is not int or pid <= 0 or url is None:
         return None
     return url if pid != os.getpid() and _alive(pid) else None
+
+
+def running_session() -> Optional[str]:
+    """The session the running ``lasagna serve`` answers for by default, if it recorded one."""
+    if running_server() is None:
+        return None
+    session = (_read_record() or {}).get("session")
+    return session if isinstance(session, str) and session else None
 
 
 def lite_store_locked(db_path: str) -> bool:

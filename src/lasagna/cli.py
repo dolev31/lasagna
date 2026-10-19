@@ -947,6 +947,7 @@ def _report_uploads(outcomes, session_id: str) -> None:
 
 @app.command()
 def search(
+    ctx: typer.Context,
     query: str = typer.Argument(..., help="Search query"),
     top_k: int = typer.Option(5, "--top-k", "-k", help="Number of results"),
     session_id: str = typer.Option("default", "--session", "-s", help="Session ID"),
@@ -974,6 +975,8 @@ def search(
         )
 
     url = _serving_url()
+    if url:
+        _say_which_session_was_searched(ctx, session_id, query)
 
     async def _search():
         client = _client_for(session_id, url)
@@ -1026,6 +1029,28 @@ def search(
     console.print(f"[dim]{_count(len(result), 'result')}[/dim]")
     if elsewhere:
         _warn_documents_elsewhere(session_id, warned)
+
+
+def _say_which_session_was_searched(ctx: typer.Context, session_id: str, query: str) -> None:
+    """One line when no -s was given and the server it goes through answers for another session.
+
+    `lasagna serve -s my-corpus` answers requests that name no session with
+    my-corpus, but this command searches 'default' unless told otherwise, as
+    `status` shows 'default'. Said, not changed, so both commands agree.
+    """
+    from lasagna.core import local_server
+
+    # By name: typer vendors click, so its ParameterSource is not click's.
+    source = ctx.get_parameter_source("session_id")
+    if source is not None and source.name != "DEFAULT":
+        return
+    served = local_server.running_session()
+    if served and served != session_id:
+        typer.echo(
+            f"Searching session {session_id!r}; the server answers for {served!r}. "
+            f"To search that one: lasagna search {shlex.quote(query)} -s {shlex.quote(served)}",
+            err=True,
+        )
 
 
 def _warn_documents_elsewhere(session_id: str, warned: List[Any]) -> None:
@@ -1480,7 +1505,7 @@ def serve(
     # proxy on this host and a client on it are indistinguishable by address.
     trusted_proxies = os.environ.get("RAG_FORWARDED_ALLOW_IPS", "").strip()
     # Other commands find this server here and go through it (core.local_server).
-    local_server.announce(base)
+    local_server.announce(base, session=default_session)
     try:
         uvicorn.run(
             "lasagna.api.rest.app:app",
