@@ -52,7 +52,7 @@ def test_serve_dash_s_names_the_session_in_the_banner(monkeypatch):
     started = {}
     monkeypatch.setattr(uvicorn, "run", lambda *a, **kw: started.update(kw))
     monkeypatch.setattr(local_server, "local_store_held", lambda: False)
-    monkeypatch.setattr(local_server, "announce", lambda base: None)
+    monkeypatch.setattr(local_server, "announce", lambda base, session=None: None)
     monkeypatch.setattr(local_server, "withdraw", lambda: None)
     monkeypatch.setattr(cli, "_port_problem", lambda host, port: None)
     result = CliRunner().invoke(
