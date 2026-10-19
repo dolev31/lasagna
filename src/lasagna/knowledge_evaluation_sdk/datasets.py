@@ -100,12 +100,41 @@ def _complete_builds(folder: Path) -> Optional[bool]:
     )
 
 
+#: File types a load reads. A README, a license, a loading script (``.py``) or
+#: a dotfile is in a snapshot without being data.
+_DATA_SUFFIXES = frozenset(
+    {".parquet", ".jsonl", ".json", ".csv", ".tsv", ".arrow"}
+    | {".gz", ".zst", ".bz2", ".xz", ".zip", ".tar"}
+)
+
+
+#: JSON files that describe a dataset rather than hold it.
+_METADATA_FILES = frozenset({"dataset_infos.json", "dataset_info.json", "config.json"})
+
+
+def _snapshot_has_data(snapshots: Path) -> bool:
+    """Whether a hub-cache snapshot holds a data file that resolves.
+
+    ``is_file`` follows the symlink into ``blobs/``, so a link whose blob was
+    never downloaded does not count.
+    """
+    return any(
+        f.suffix.lower() in _DATA_SUFFIXES
+        and not f.name.startswith(".")
+        and f.name not in _METADATA_FILES
+        and f.is_file()
+        for f in snapshots.rglob("*")
+    )
+
+
 def dataset_cached(hf_name: str) -> bool:
     """Whether ``hf_name`` (``org/name``) loads from the local cache.
 
     Either the ``datasets`` cache holds complete builds of it
-    (``<org>___<name>``), or the hub cache has a snapshot whose files resolve.
-    A build only partly there counts as not cached.
+    (``<org>___<name>``), or the hub cache has a snapshot with data files that
+    resolve. A build only partly there counts as not cached, and so does a
+    snapshot that holds only a README or a loading script: `load_dataset` has
+    nothing to read in it.
     """
     org, _, name = hf_name.partition("/")
     try:
@@ -124,7 +153,7 @@ def dataset_cached(hf_name: str) -> bool:
         snapshots = Path(constants.HF_HUB_CACHE) / f"datasets--{org}--{name}" / "snapshots"
     except Exception:  # noqa: BLE001
         return False
-    return snapshots.is_dir() and any(f.is_file() for f in snapshots.rglob("*"))
+    return snapshots.is_dir() and _snapshot_has_data(snapshots)
 
 
 def hf_repos(benchmark: str, adapter: Any = None) -> List[str]:
