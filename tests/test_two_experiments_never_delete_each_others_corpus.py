@@ -194,3 +194,90 @@ def test_a_task_whose_corpus_changed_records_no_numbers(tmp_path, monkeypatch):
     result = _run(tmp_path, "speed")
     assert result.error == changed
     assert not result.metrics
+
+
+class _SharedStore:
+    """A vector store two backends in one process use, as two processes share a server."""
+
+    def __init__(self):
+        self.rows = []
+
+    def query(self, collection_name, filter_expr, output_fields, limit):
+        return [{"document_id": d} for d in self.rows]
+
+
+def _register(db, session, documents, stamp):
+    for doc in documents:
+        db.save_document(
+            {
+                "document_id": doc,
+                "session_id": session,
+                "filename": f"{doc}.txt",
+                "file_size": 0,
+                "file_type": "txt",
+                "status": "ready",
+                "upload_date": stamp,
+            },
+            file_path="",
+            collection_name="c",
+        )
+
+
+def test_a_corpus_deleted_and_ingested_again_under_a_run_is_noticed(tmp_path, monkeypatch):
+    """Same documents, same chunk counts, but another process ingested them again.
+
+    The end-of-task census compared counts only, so a corpus that another
+    process deleted and ingested again looked unchanged once it was back, and
+    the searches that ran while it was missing or half there were recorded.
+    Every ingest stamps its documents with a new time; the census compares it.
+    """
+    import lasagna.core.database as database
+    from lasagna.core.database import RAGDatabase
+    from lasagna.knowledge_evaluation_sdk import experiment as exp
+
+    db = RAGDatabase(str(tmp_path / "rag.db"))
+    monkeypatch.setattr(database, "get_rag_database", lambda: db)
+    store = _SharedStore()
+    store.rows = ["d1", "d1", "d2", "d2", "d2"]
+    _register(db, "s", ["d1", "d2"], "2026-10-19T10:00:00+00:00")
+    census = exp._corpus_census(store, "c", "s", ["d1", "d2"])
+    slot = {"session_id": "s", "corpus_census": census, "_census_store": lambda: store}
+    assert exp._corpus_changed(slot) is None
+
+    # The other process deletes the corpus, ingests it again, and finishes.
+    store.rows = []
+    store.rows = ["d1", "d1", "d2", "d2", "d2"]
+    _register(db, "s", ["d1", "d2"], "2026-10-19T10:30:00+00:00")
+    changed = exp._corpus_changed(slot)
+    assert changed and "ingested again" in changed
+    assert "numbers are not recorded" in changed and "run this one again" in changed
+
+
+def test_a_count_that_fails_once_is_asked_again(monkeypatch):
+    """One failed count (a dropped connection) no longer discards the task's numbers."""
+    from lasagna.knowledge_evaluation_sdk import experiment as exp
+
+    monkeypatch.setattr(exp, "_RECOUNT_PAUSE", 0.0)
+    store = _SharedStore()
+    store.rows = ["d1", "d2"]
+    census = exp._corpus_census(store, "c", "s", ["d1", "d2"])
+    calls = {"n": 0}
+    answer = store.query
+
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionError("reset by peer")
+        return answer(*a, **k)
+
+    store.query = flaky
+    slot = {"session_id": "s", "corpus_census": census, "_census_store": lambda: store}
+    assert exp._corpus_changed(slot) is None
+    assert calls["n"] == 2
+
+    def broken(*a, **k):
+        raise ConnectionError("reset by peer")
+
+    store.query = broken
+    unknown = exp._corpus_changed(slot)
+    assert unknown and "could not be counted" in unknown
