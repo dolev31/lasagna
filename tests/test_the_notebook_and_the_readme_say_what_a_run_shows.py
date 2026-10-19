@@ -19,12 +19,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import re
 from pathlib import Path
 
 import pytest
 
-from lasagna.core.registry import registry
+from lasagna.core.registry import is_paper_citation, registry
 from lasagna.knowledge_evaluation_sdk.bundle import _integrity
 from lasagna.knowledge_evaluation_sdk.results import verdict_lines
 
@@ -92,10 +91,6 @@ def test_the_notebook_says_this_run_prints_no_warnings():
     assert "prints VALID with no warnings" in text
 
 
-#: A citation of a published method: an arXiv id, a DOI, or "Author et al. YEAR".
-_CITATION = re.compile(r"^(arxiv:|doi:)|\bet al\. \d{4}|& \w+ \d{4}")
-
-
 def _builtins():
     return [
         (stage, name)
@@ -113,9 +108,7 @@ def test_the_methods_named_in_the_audit_cite_their_papers():
 
 def test_the_readme_table_states_how_many_components_cite_a_paper():
     cited = [
-        key
-        for key in _builtins()
-        if _CITATION.search(str(registry.provenance(*key).get("paper") or ""))
+        key for key in _builtins() if is_paper_citation(registry.provenance(*key).get("paper"))
     ]
     row = next(
         line

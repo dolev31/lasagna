@@ -1374,8 +1374,8 @@ class BenchmarkResults:
             lines += unranked
             if not ranked and len(entries) > 1:
                 lines.append(
-                    "  No config scored every query. `lasagna results significance` "
-                    "compares two configs on the queries both scored."
+                    "  No config scored every query. `lasagna results significance "
+                    "<results.json>` compares two configs on the queries both scored."
                 )
         notes = self._no_context_notes()
         if notes:
@@ -1997,12 +1997,51 @@ class Verdict:
 _VERDICT_SHOWN = 5
 
 
-def verdict_lines(rows: List[Dict[str, Any]], metric: str, benchmark: str, alpha: float) -> Verdict:
+def power_command(
+    rows: List[Dict[str, Any]],
+    metric: str,
+    benchmark: str,
+    results_path: str = "results.json",
+    several_benchmarks: bool = False,
+) -> str:
+    """The `lasagna results power` command that runs as written for this table.
+
+    `results power` needs the file and two arms; the verdict used to name the
+    command alone, which fails with "Missing argument 'config_a'". The arms are
+    the closest pair to significance (lowest raw p), in the order the table
+    prints them. ``--benchmark`` and ``-m`` are added only when the defaults
+    would test something else.
+    """
+    import shlex
+
+    tested = [r for r in rows if r.get("p_value") is not None]
+    parts = ["lasagna", "results", "power", results_path]
+    if tested:
+        closest = min(tested, key=lambda r: r["p_value"])
+        parts += [str(closest["config_a"]), str(closest["config_b"])]
+    else:
+        parts += ["BASELINE", "CANDIDATE"]
+    if several_benchmarks:
+        parts += ["--benchmark", benchmark]
+    if metric != "ndcg@10":
+        parts += ["-m", metric]
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def verdict_lines(
+    rows: List[Dict[str, Any]],
+    metric: str,
+    benchmark: str,
+    alpha: float,
+    results_path: str = "results.json",
+    several_benchmarks: bool = False,
+) -> Verdict:
     """The answer a :meth:`BenchmarkResults.pairwise_significance` table supports.
 
     Names each pair that survives Holm correction, which side won (the lower
     side for a lower-is-better metric) and by how much. When nothing survives,
-    says so and points at ``lasagna results power``, because "not significant"
+    says so and names the ``lasagna results power`` command for the closest pair
+    (:func:`power_command`), because "not significant"
     has two readings (no difference, or too few queries to see one) that call
     for opposite next steps. ``lasagna results significance`` prints this as a
     box and ``lasagna results view`` as a panel, so they cannot disagree.
@@ -2031,10 +2070,18 @@ def verdict_lines(rows: List[Dict[str, Any]], metric: str, benchmark: str, alpha
                         (
                             "text",
                             "Either the arms perform alike or this run has too few queries "
-                            "to tell; ",
+                            "to tell. This command says which:",
                         ),
-                        ("command", "lasagna results power"),
-                        ("text", " says which."),
+                    )
+                ),
+                VerdictLine(
+                    (
+                        (
+                            "command",
+                            power_command(
+                                rows, metric, benchmark, results_path, several_benchmarks
+                            ),
+                        ),
                     )
                 ),
             ),

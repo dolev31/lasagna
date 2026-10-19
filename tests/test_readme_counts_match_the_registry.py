@@ -63,3 +63,10 @@ def test_the_benchmark_count_matches_the_public_catalogue(readme):
     ]
     stated = {int(n) for n in re.findall(r"\b(\d+) benchmarks\b", readme)}
     assert stated == {len(public)}, f"README states {stated}; the catalogue has {len(public)}"
+
+
+def test_the_changelog_does_not_call_the_entries_datasets():
+    """The changelog said "31 benchmark datasets" while the README said 31
+    entries over about 22 datasets."""
+    changelog = (README.parent / "CHANGELOG.md").read_text()
+    assert not re.search(r"\b\d+ benchmark datasets\b", changelog)

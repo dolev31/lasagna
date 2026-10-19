@@ -548,12 +548,28 @@ def _llm_configured() -> bool:
     return True
 
 
+def _is_refusal(exc: BaseException) -> bool:
+    """Whether ``exc`` is a refusal: an answer whose text names the fix.
+
+    The refusals (``SessionSettingRefused``, ``EmbeddingSizeConflict`` and its
+    ``DocumentsLeftBehind``, ``ProfileCannotLoad``) are configuration errors
+    that are also ``ValueError``. A configuration error that wraps a failure
+    is not a ``ValueError``, so it is still logged as one.
+    """
+    from lasagna.sdk.exceptions import ConfigurationError
+
+    return isinstance(exc, (_StoreHeld, ModelNotDownloaded)) or (
+        isinstance(exc, ConfigurationError) and isinstance(exc, ValueError)
+    )
+
+
 def _log_tool_failure(what: str, exc: BaseException) -> None:
     """Log a tool's failure at ERROR, with its traceback.
 
-    Except a store another process holds (a running `lasagna serve`): the
-    tool's reply already says so and how to fix it, and an ERROR line with a
-    traceback on every call buried that sentence, so it is logged at DEBUG.
+    Except a refusal, or a store another process holds (a running `lasagna
+    serve`): the tool's reply already says what happened and how to fix it,
+    and an ERROR line with a traceback on every call buried that sentence, so
+    it is logged at DEBUG.
     """
     try:
         from lasagna.api.rag_backend import _is_data_dir_locked
@@ -561,7 +577,7 @@ def _log_tool_failure(what: str, exc: BaseException) -> None:
         held = _is_data_dir_locked(exc)
     except Exception:  # the backend module itself failed to import
         held = False
-    if held or isinstance(exc, (_StoreHeld, ModelNotDownloaded)):
+    if held or _is_refusal(exc):
         logger.debug("{}: {}", what, exc)
     else:
         logger.opt(exception=exc).error("{}: {}", what, exc)
@@ -1000,15 +1016,17 @@ def _prepare_search(
 
     Performs:
     1. RAG-enabled check
-    2. Backend + session config init
-    3. Document ID parsing
-    4. Focused-document enforcement
+    2. Empty-session check, before any model loads
+    3. Backend + session config init
+    4. Document ID parsing
+    5. Focused-document enforcement
 
     Returns:
         (backend, config, doc_id_filter)
 
     Raises:
         _RAGDisabledError: if RAG is disabled for the session
+        _EmptySession: if the session has no documents
     """
     # Check if RAG is enabled for this session
     config_manager = None
@@ -1023,6 +1041,17 @@ def _prepare_search(
         raise
     except Exception as e:
         logger.warning(f"Could not check rag_enabled state: {e}")
+
+    # Before any model loads, as the CLI and REST do: a session with no
+    # documents was answered "The embedding model ... is not downloaded".
+    from lasagna.core.model_downloads import no_documents_note
+
+    _refuse_a_held_store()  # the database it reads is the held store's
+    empty = no_documents_note(
+        session_id, surface="mcp", list_others=not transport_guard.enforcement_active()
+    )
+    if empty:
+        raise _EmptySession(empty)
 
     backend = _get_backend()
     config = backend.get_session_config(session_id)
@@ -1055,6 +1084,10 @@ def _prepare_search(
             raise
 
     return backend, config, doc_id_filter
+
+
+class _EmptySession(Exception):
+    """The session has no documents; the message says so and how to add one."""
 
 
 class _RAGDisabledError(Exception):
@@ -1475,6 +1508,9 @@ CONTENT:
 
     except _RAGDisabledError:
         return _RAG_DISABLED_MSG
+    except _EmptySession as e:
+        _log_tool_result("search", True, "No documents", (time.time() - start_time) * 1000)
+        return f"No results. {e}"
     except ModelNotDownloaded as e:
         _log_tool_result("search", False, str(e), (time.time() - start_time) * 1000)
         return f"Search failed: {e} {fix_for_session(session_id, e.model, surface='mcp')}"
@@ -2355,6 +2391,11 @@ def reindex_document(
         # current collection without recording it. The shared default
         # embedder is left alone: other sessions' requests read it.
         updated_doc = backend.reindex_document(document_id, session_id)
+        # The next search must look at where the documents are now, not at what
+        # the last one remembered for 3 s: it still warned "in another collection".
+        from lasagna.api._profile_guard import forget_documents_elsewhere
+
+        forget_documents_elsewhere(session_id)
 
         duration_ms = (time.time() - start_time) * 1000
 

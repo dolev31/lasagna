@@ -359,7 +359,9 @@ def plan_synthesis(
     if counts["multihop"] and len(with_passages) < 2:
         raise ValueError(
             f"multihop questions need passages from two documents; {corpus_dir} has "
-            f"{len(with_passages)}. Leave multihop out of --mix."
+            f"{len(documents)} {'document' if len(documents) == 1 else 'documents'}, "
+            f"{len(with_passages)} with a passage of {MIN_PASSAGE_WORDS}+ words. "
+            f"Add longer documents, or leave multihop out of --mix."
         )
 
     supported_n = 0

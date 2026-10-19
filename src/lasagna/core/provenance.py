@@ -337,7 +337,14 @@ def redact(value: Any) -> Any:
         key=lambda kv: len(kv[0]),
         reverse=True,
     ):
-        if path:
+        if not path:
+            continue
+        if tag == "<tmp>":
+            # A whole path component only ("/tmp" does not start "/tmpab12"), and
+            # with its /private spelling, so TMPDIR=/tmp leaves no "/private<tmp>".
+            root = r"(?:/private)?/tmp" if path in ("/tmp", "/private/tmp") else re.escape(path)
+            out = re.sub(rf"(?<![\w.~-]){root}(?![\w-])", tag, out)
+        else:
             out = out.replace(path, tag)
     # macOS per-user temp roots embed a token that identifies the user even
     # when TMPDIR is unset.

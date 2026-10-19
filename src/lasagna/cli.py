@@ -18,7 +18,7 @@ import shlex
 from collections import defaultdict
 from pathlib import Path
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import typer
 from rich.console import Console
@@ -947,6 +947,7 @@ def _report_uploads(outcomes, session_id: str) -> None:
 
 @app.command()
 def search(
+    ctx: typer.Context,
     query: str = typer.Argument(..., help="Search query"),
     top_k: int = typer.Option(5, "--top-k", "-k", help="Number of results"),
     session_id: str = typer.Option("default", "--session", "-s", help="Session ID"),
@@ -974,6 +975,8 @@ def search(
         )
 
     url = _serving_url()
+    if url:
+        _say_which_session_was_searched(ctx, session_id, query)
 
     async def _search():
         client = _client_for(session_id, url)
@@ -1026,6 +1029,54 @@ def search(
     console.print(f"[dim]{_count(len(result), 'result')}[/dim]")
     if elsewhere:
         _warn_documents_elsewhere(session_id, warned)
+
+
+def _say_which_session_was_searched(ctx: typer.Context, session_id: str, query: str) -> None:
+    """One line when no -s was given and the server it goes through answers for another session.
+
+    `lasagna serve -s my-corpus` answers requests that name no session with
+    my-corpus, but this command searches 'default' unless told otherwise, as
+    `status` shows 'default'. Said, not changed, so both commands agree.
+    """
+    from lasagna.core import local_server
+
+    # By name: typer vendors click, so its ParameterSource is not click's.
+    source = ctx.get_parameter_source("session_id")
+    if source is not None and source.name != "DEFAULT":
+        return
+    served = local_server.running_session()
+    if served and served != session_id:
+        typer.echo(
+            f"Searching session {session_id!r}; the server answers for {served!r}. "
+            f"To search that one: lasagna search {shlex.quote(query)} -s {shlex.quote(served)}",
+            err=True,
+        )
+
+
+def _configure_refusal(exc: Exception, profile: str, session_id: str, reset: bool) -> str:
+    """What `configure` prints for a switch refused for the session's documents.
+
+    One line per option, each with the command as typed here. The refusal's own
+    text (``exc.problem``) is kept apart from the fixes it names for REST, MCP
+    and the SDK, so "To switch anyway" appears once.
+    """
+    again = f"lasagna configure --profile {profile}{' --reset' if reset else ''} -s {session_id}"
+    problem = getattr(exc, "problem", None)
+    if problem is None:  # a size conflict: its text has no fixes of its own to repeat
+        return (
+            f"{exc} To switch and reindex them now: {again} --reindex. "
+            f"To switch anyway: {again} --force."
+        )
+    lines = [
+        problem,
+        f"  To reindex and switch: {again} --reindex",
+        f"  To switch anyway (searches find none of the documents until they are reindexed): "
+        f"{again} --force",
+        "  Or use a new session and upload there: lasagna upload <file> -s <name>",
+    ]
+    if exc.profile_model_differs and not reset:
+        lines.append(f"  To use the profile's own model: {again} --reset")
+    return "\n".join(lines)
 
 
 def _warn_documents_elsewhere(session_id: str, warned: List[Any]) -> None:
@@ -1480,7 +1531,7 @@ def serve(
     # proxy on this host and a client on it are indistinguishable by address.
     trusted_proxies = os.environ.get("RAG_FORWARDED_ALLOW_IPS", "").strip()
     # Other commands find this server here and go through it (core.local_server).
-    local_server.announce(base)
+    local_server.announce(base, session=default_session)
     try:
         uvicorn.run(
             "lasagna.api.rest.app:app",
@@ -1633,11 +1684,7 @@ def configure(
         except ProfileSwitchInProgress as exc:
             _error(str(exc))
         except EmbeddingSizeConflict as exc:
-            again = f"lasagna configure --profile {profile}{' --reset' if reset else ''}"
-            _error(
-                f"{exc} To switch and reindex them now: {again} -s {session_id} --reindex. "
-                f"To switch anyway: {again} -s {session_id} --force."
-            )
+            _error(_configure_refusal(exc, profile, session_id, reset))
         except (ProfileCannotLoad, ReindexFailed, ValueError) as exc:
             _error(str(exc))
         finally:
@@ -2786,10 +2833,10 @@ def component_list(
     """List the components a sweep can name, by stage.
 
     Built-in components and those of installed plugins, with the paper each
-    one implements. A component of your own module is named as module:function
+    one implements, or the docs page of a method that has none. A component of your own module is named as module:function
     and does not appear here.
     """
-    from lasagna.core.registry import COMPONENT_TYPES, registry
+    from lasagna.core.registry import COMPONENT_TYPES, is_paper_citation, registry
 
     if stage is not None and stage != "enhancer":
         _require_known(
@@ -2813,13 +2860,16 @@ def component_list(
         table.add_column("Name", style="bold", no_wrap=True)
         table.add_column("Description", ratio=3)
         table.add_column("Paper", style="dim", ratio=1, overflow="fold")
+        table.add_column("Docs", style="dim", ratio=1, overflow="fold")
         for entry in rows:
             description = next(
                 (ln.strip() for ln in (entry.get("description") or "").splitlines() if ln.strip()),
                 "",
             )
             name = entry["name"] if entry["builtin"] else f"{entry['name']} (plugin)"
-            table.add_row(escape(name), escape(description), escape(entry.get("paper") or ""))
+            source = entry.get("paper") or ""
+            paper, docs = (source, "") if is_paper_citation(source) else ("", source)
+            table.add_row(escape(name), escape(description), escape(paper), escape(docs))
         console.print(table)
     console.print(
         f"[dim]{_count(len(entries), 'component')}. Name one in a sweep's pipeline "
@@ -3483,7 +3533,13 @@ def results_significance(
     survivors = sum(1 for r in rows if r.get("significant"))
     console.print()
     if correction == "holm":
-        console.print(_significance_verdict(rows, metric, benchmark, alpha))
+        several = len({r.benchmark_name for r in results._results if not r.error}) > 1
+        panel, commands = _significance_verdict(
+            rows, metric, benchmark, alpha, results_path, several_benchmarks=several
+        )
+        console.print(panel)
+        for command in commands:
+            console.print(f"  {escape(command)}", soft_wrap=True, style="bold")
     else:
         console.print(
             f"  {survivors} of {_count(len(rows), 'pair')} "
@@ -3512,31 +3568,47 @@ def results_significance(
         console.print(f"  {pairs} {'is' if hidden == 1 else 'are'} not shown; --all shows them.")
 
 
-def _significance_verdict(rows: list, metric: str, benchmark: str, alpha: float) -> Panel:
-    """The answer the table supports, in one box.
+def _significance_verdict(
+    rows: list,
+    metric: str,
+    benchmark: str,
+    alpha: float,
+    results_path: str = "results.json",
+    several_benchmarks: bool = False,
+) -> Tuple[Panel, List[str]]:
+    """The answer the table supports, in one box, and the commands to print under it.
 
     A green box names each pair that survives Holm correction, which side won and
-    by how much. When nothing survives, the box says so and points at
-    `results power`, because "not significant" has two readings (no difference,
-    or too few queries to see one) that call for opposite next steps. The words
-    come from `results.verdict_lines`, which `results view` renders too.
+    by how much. When nothing survives, the box says so and introduces the
+    `results power` command for the closest pair, filled in so it runs as
+    printed, because "not significant" has two readings (no difference, or too
+    few queries to see one) that call for opposite next steps. The command is
+    returned apart from the box, to print unwrapped so it can be copied. The
+    words come from `results.verdict_lines`, which `results view` renders too.
     """
     from .knowledge_evaluation_sdk.results import verdict_lines
 
-    verdict = verdict_lines(rows, metric, benchmark, alpha)
+    verdict = verdict_lines(rows, metric, benchmark, alpha, results_path, several_benchmarks)
     markup = {"text": "{}", "winner": "[bold green]{}[/bold green]", "command": "[bold]{}[/bold]"}
+    commands = [
+        line.text
+        for line in verdict.lines
+        if line.spans and all(r == "command" for r, _ in line.spans)
+    ]
     body = "\n".join(
         "".join(markup[role].format(escape(text)) for role, text in line.spans)
         for line in verdict.lines
+        if line.text not in commands
     )
     significant = verdict.style == "significant"
-    return Panel(
+    panel = Panel(
         body,
         title=f"[bold]{verdict.title}[/bold]" if significant else verdict.title,
         title_align="left",
         border_style="green" if significant else "yellow",
         expand=False,
     )
+    return panel, commands
 
 
 def _format_p(p: float) -> str:

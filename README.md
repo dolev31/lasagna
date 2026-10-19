@@ -733,7 +733,7 @@ If you publish work that uses Lasagna, please cite it: see
 To cite the paper:
 
 ```bibtex
-@misc{levy2026compositionality,
+@misc{levy2026retrieval,
   title  = {Retrieval Augmented Generation Compositionality},
   author = {Levy, Ido and Shlomov, Segev and Choshen, Leshem},
   year   = {2026},
