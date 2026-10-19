@@ -46,6 +46,9 @@ def _reindex_sync(backend: RAGBackend, session_id: str):
             reason = reindex_failure(exc, doc.document_id, session_id).detail
             errors.append(f"{doc.document_id}: {reason}")
 
+    from lasagna.api._profile_guard import forget_documents_elsewhere
+
+    forget_documents_elsewhere(session_id)  # the next search looks again, not at the last 3 s
     return {
         "status": "completed" if not errors else "partial",
         "documents_reindexed": reindexed,

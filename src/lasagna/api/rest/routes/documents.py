@@ -580,6 +580,9 @@ async def reindex_document(
         new_doc = await run_in_threadpool(backend.reindex_document, document_id, session_id)
     except Exception as exc:
         raise reindex_failure(exc, document_id, session_id) from exc
+    from lasagna.api._profile_guard import forget_documents_elsewhere
+
+    forget_documents_elsewhere(session_id)  # the next search looks again, not at the last 3 s
     return UploadResponse(
         document_id=new_doc.document_id,
         filename=new_doc.filename,

@@ -2391,6 +2391,11 @@ def reindex_document(
         # current collection without recording it. The shared default
         # embedder is left alone: other sessions' requests read it.
         updated_doc = backend.reindex_document(document_id, session_id)
+        # The next search must look at where the documents are now, not at what
+        # the last one remembered for 3 s: it still warned "in another collection".
+        from lasagna.api._profile_guard import forget_documents_elsewhere
+
+        forget_documents_elsewhere(session_id)
 
         duration_ms = (time.time() - start_time) * 1000
 

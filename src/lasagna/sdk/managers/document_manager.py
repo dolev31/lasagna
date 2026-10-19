@@ -896,6 +896,9 @@ class DocumentManager:
                 f"Reindex of {document_id} failed, and the document is unchanged: {e}"
             ) from e
 
+        from ...api._profile_guard import forget_documents_elsewhere
+
+        forget_documents_elsewhere(session_id)  # the next search looks again, not at the last 3 s
         try:
             self._client._record_reindexed_model()
         except Exception as e:  # noqa: BLE001 - the reindex itself succeeded
