@@ -4,9 +4,9 @@ Each offline rerun of the README quickstart added another failed copy of
 paper.pdf: `lasagna status` said "Documents: 3" after three runs, while the
 README says a rerun uploads nothing new. The duplicate check skipped failed
 documents, which is how a failure is retried, and every retry was a new
-document. A file whose only copies in the session's collection have failed
-now replaces the newest of them under the same id, on every surface (SDK,
-CLI, REST and MCP all upload through the same pipeline).
+document. A file whose only copies in the session have failed now replaces
+the newest of them under the same id, whichever model it was tried with, on
+every surface (SDK, CLI, REST and MCP all upload through the same pipeline).
 """
 
 from __future__ import annotations
@@ -86,8 +86,15 @@ def test_other_content_is_a_new_document(h, tmp_path):
     assert len(_ids(h)) == 2 and doc.document_id in _ids(h)
 
 
-def test_a_failed_copy_in_another_models_collection_stays(h, tmp_path):
-    """After a model switch the failed copy is in the old collection; it is not reused."""
+def test_a_failed_copy_from_another_model_is_replaced_by_the_retry(h, tmp_path):
+    """The retry after a profile switch replaces the failed copy.
+
+    The README quickstart fails offline with the default profile (its model is
+    not cached), and `lasagna configure --profile speed` makes the rerun
+    succeed. The failed copy was in the first model's collection, so it was
+    not found, and `lasagna status` listed it with 0 chunks next to the ready
+    copy. A failed document stored no vectors: the model does not matter.
+    """
     path = h.write(tmp_path, "paper.txt", TEXT)
     h.fail_chunking = RuntimeError("the extractor crashed")
     _upload_failing(h, path)
@@ -96,8 +103,20 @@ def test_a_failed_copy_in_another_models_collection_stays(h, tmp_path):
     h.settings = dict(MODEL_B)
 
     doc = h.upload(path)
-    assert doc.document_id != failed
-    assert sorted(_ids(h)) == sorted([failed, doc.document_id])
+    assert doc.document_id == failed
+    assert _ids(h) == [failed]
+    assert h.searchable(failed)
+
+
+def test_a_ready_copy_from_another_model_is_still_not_a_duplicate(h, tmp_path):
+    """Only failed copies are found across models: a ready one is not searchable with the new model."""
+    path = h.write(tmp_path, "paper.txt", TEXT)
+    first = h.upload(path)
+    h.settings = dict(MODEL_B)
+
+    doc = h.upload(path)
+    assert doc.document_id != first.document_id
+    assert sorted(_ids(h)) == sorted([first.document_id, doc.document_id])
 
 
 def test_allow_duplicates_still_makes_a_new_document(h, tmp_path):

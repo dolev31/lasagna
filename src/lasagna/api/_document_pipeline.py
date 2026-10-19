@@ -218,8 +218,8 @@ class DocumentPipeline:
         processing, is not uploaded again: the existing document comes back
         with ``duplicate_of`` set. Rerunning the README's quickstart uploaded
         its paper once per run, and search returned the same passage once per
-        copy. A file whose only copies in the session's collection failed is
-        uploaded again under the newest failed copy's id, which it replaces:
+        copy. A file whose only copies in the session failed (under any
+        model) is uploaded again under the newest failed copy's id, which it replaces:
         each rerun of a failing upload used to add another failed document.
         ``allow_duplicates`` indexes it again anyway. An explicit
         ``document_id`` or a component override is never deduplicated: the
@@ -319,7 +319,7 @@ class DocumentPipeline:
                     f"{existing.document_id} in session {session_id}; not uploaded again"
                 )
                 return existing.model_copy(update={"duplicate_of": existing.document_id})
-            failed = self._find_failed_copy(file_path, session_id, collection, digest)
+            failed = self._find_failed_copy(file_path, session_id, digest)
             if failed is not None:
                 # Retried in place: the failed copy (row, file, any chunks it
                 # left) goes, and this upload takes its id.
@@ -606,19 +606,20 @@ class DocumentPipeline:
         self,
         file_path: str,
         session_id: str,
-        collection_name: Optional[str] = None,
         digest: Optional[str] = None,
     ) -> Optional[str]:
         """The id of the newest failed document in the session with these bytes, if any.
 
-        In ``collection_name`` only: after a model switch the failed copy
-        belongs to the old model's collection.
+        In any collection: a failed document stored no vectors, so the model
+        it was tried with does not matter. Restricted to the current one, the
+        retry after ``lasagna configure --profile speed`` left the failed
+        copy listed next to the new one.
         """
 
         def failed(row: Dict[str, Any]) -> bool:
             return row.get("status") == DocumentStatus.ERROR.value
 
-        for row in self._same_content(file_path, session_id, collection_name, digest, failed):
+        for row in self._same_content(file_path, session_id, None, digest, failed):
             return row["document_id"]  # rows come newest first
         return None
 
