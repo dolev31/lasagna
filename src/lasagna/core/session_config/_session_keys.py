@@ -227,21 +227,30 @@ def list_session_keys() -> List[str]:
 def number_problems(config: Mapping[str, Any]) -> List[Tuple[str, str]]:
     """``(key, why)`` for each number in ``config`` that is NaN, infinite or a negative count.
 
-    Nested ones too (``search_params.ef``). Every comparison with NaN is
-    false, so a maximum alone let it through: ``hybrid_alpha`` and
-    ``similarity_threshold`` stored NaN (and PostgreSQL then refused the row,
-    JSONB has no NaN), and ``hybrid_fusion_depth`` and ``search_params.ef``
-    stored negative counts. No setting has a negative count.
+    Nested ones too (``search_params.ef``, ``ensemble_reranker_weights[0]``): a
+    NaN in a list or a dict inside a dict is as unusable as a top-level one.
+    Every comparison with NaN is false, so a maximum alone let it through:
+    ``hybrid_alpha`` and ``similarity_threshold`` stored NaN (and PostgreSQL
+    then refused the row, JSONB has no NaN), and ``hybrid_fusion_depth`` and
+    ``search_params.ef`` stored negative counts. No setting has a negative
+    count; a list's members are only checked for finiteness.
     """
-    found = []
+    found: List[Tuple[str, str]] = []
+
+    def walk(name: str, item: Any, counts: bool) -> None:
+        if isinstance(item, dict):
+            for child, member in item.items():
+                walk(f"{name}.{child}", member, counts)
+        elif isinstance(item, (list, tuple)):
+            for i, member in enumerate(item):
+                walk(f"{name}[{i}]", member, False)
+        elif isinstance(item, float) and not math.isfinite(item):
+            found.append((name, f"is {item}; numbers are finite"))
+        elif counts and isinstance(item, int) and not isinstance(item, bool) and item < 0:
+            found.append((name, f"is {item}; a count is not negative"))
+
     for key, value in config.items():
-        items = value.items() if isinstance(value, dict) else [(None, value)]
-        for child, item in items:
-            name = f"{key}.{child}" if child is not None else key
-            if isinstance(item, float) and not math.isfinite(item):
-                found.append((name, f"is {item}; numbers are finite"))
-            elif isinstance(item, int) and not isinstance(item, bool) and item < 0:
-                found.append((name, f"is {item}; a count is not negative"))
+        walk(str(key), value, True)
     return found
 
 

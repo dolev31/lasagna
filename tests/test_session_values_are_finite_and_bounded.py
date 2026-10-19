@@ -86,3 +86,26 @@ def test_an_import_or_a_trusted_write_with_nan_is_refused_too():
     with pytest.raises(ValueError, match="hybrid_alpha: is nan"):
         manager.patch_config({"hybrid_alpha": float("nan")}, session_id=sid, trusted=True)
     assert "hybrid_alpha" not in manager.get_session_state(sid).session_overrides
+
+
+@pytest.mark.parametrize(
+    "key, value, named",
+    [
+        ("ensemble_reranker_weights", [float("nan"), 1.0], "ensemble_reranker_weights[0]"),
+        ("ensemble_reranker_weights", [0.5, float("inf")], "ensemble_reranker_weights[1]"),
+        ("search_params", {"nested": {"ef": float("nan")}}, "search_params.nested.ef"),
+        ("agentic_prompts", {"a": [1.0, float("-inf")]}, "agentic_prompts.a[1]"),
+    ],
+)
+def test_a_nan_inside_a_list_or_a_nested_dict_is_refused_too(key, value, named):
+    """The check looked one dict level deep and skipped lists: ``[NaN, 1]`` was stored."""
+    assert [name for name, _ in number_problems({key: value})] == [named]
+    manager = KnowledgeConfigManager()
+    sid = f"deep-{uuid.uuid4().hex[:8]}"
+    with pytest.raises(ValueError, match="finite"):
+        manager.patch_config({key: value}, session_id=sid)
+    assert key not in manager.get_session_state(sid).session_overrides
+
+
+def test_a_list_of_finite_numbers_is_a_value():
+    assert number_problems({"ensemble_reranker_weights": [0.0, -0.5, 1]}) == []
