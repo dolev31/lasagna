@@ -548,12 +548,28 @@ def _llm_configured() -> bool:
     return True
 
 
+def _is_refusal(exc: BaseException) -> bool:
+    """Whether ``exc`` is a refusal: an answer whose text names the fix.
+
+    The refusals (``SessionSettingRefused``, ``EmbeddingSizeConflict`` and its
+    ``DocumentsLeftBehind``, ``ProfileCannotLoad``) are configuration errors
+    that are also ``ValueError``. A configuration error that wraps a failure
+    is not a ``ValueError``, so it is still logged as one.
+    """
+    from lasagna.sdk.exceptions import ConfigurationError
+
+    return isinstance(exc, (_StoreHeld, ModelNotDownloaded)) or (
+        isinstance(exc, ConfigurationError) and isinstance(exc, ValueError)
+    )
+
+
 def _log_tool_failure(what: str, exc: BaseException) -> None:
     """Log a tool's failure at ERROR, with its traceback.
 
-    Except a store another process holds (a running `lasagna serve`): the
-    tool's reply already says so and how to fix it, and an ERROR line with a
-    traceback on every call buried that sentence, so it is logged at DEBUG.
+    Except a refusal, or a store another process holds (a running `lasagna
+    serve`): the tool's reply already says what happened and how to fix it,
+    and an ERROR line with a traceback on every call buried that sentence, so
+    it is logged at DEBUG.
     """
     try:
         from lasagna.api.rag_backend import _is_data_dir_locked
@@ -561,7 +577,7 @@ def _log_tool_failure(what: str, exc: BaseException) -> None:
         held = _is_data_dir_locked(exc)
     except Exception:  # the backend module itself failed to import
         held = False
-    if held or isinstance(exc, (_StoreHeld, ModelNotDownloaded)):
+    if held or _is_refusal(exc):
         logger.debug("{}: {}", what, exc)
     else:
         logger.opt(exception=exc).error("{}: {}", what, exc)
