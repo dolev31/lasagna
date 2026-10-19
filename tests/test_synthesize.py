@@ -373,3 +373,13 @@ def test_a_synthetic_set_runs_a_retrieval_sweep(docs, tmp_path, monkeypatch):
     assert row.n_samples == 9, "the unanswerable question has nothing relevant to retrieve"
     assert row.corpus_provenance == "pooled_gold"
     assert 0.0 < row.metrics["ndcg@10"] <= 1.0
+
+
+def test_the_multihop_refusal_counts_documents_and_usable_documents_apart(tmp_path):
+    """It said "./mydocs has 1" for a folder of 4 documents where 3 were short."""
+    for i in range(3):
+        (tmp_path / f"note{i}.md").write_text(f"short note {i}")
+    (tmp_path / "long.md").write_text(" ".join(["word"] * 60))
+    with pytest.raises(ValueError) as info:
+        synth.plan_synthesis(tmp_path, 3, "multihop=1")
+    assert "4 documents, 1 with a passage of 20+ words" in str(info.value)
