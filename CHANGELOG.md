@@ -277,9 +277,7 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   generation, and starts from the `speed` profile.
 - **`lasagna-mcp`** speaks stdio and serves the `safe` tool set; `lasagna
   serve` logs warnings only and opens no browser unless `--open`.
-- **`lasagna search` names the session it searched** when a running server
-  answers for another one; refusals the MCP tools return (a refused setting, a
-  switch that would leave documents behind) are logged at DEBUG, not ERROR.
+- **`lasagna search` says which session it searched** when a server answers for another.
 - **A bad environment setting stops the process** with `ConfigError` naming the
   variable, its value and what it takes; a misspelled `RAG_` or `LASAGNA_`
   name warns with the setting it is close to.
@@ -310,8 +308,7 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   A document that fails to index leaves no chunks behind, search returns
   chunks of ready documents only, and uploading a file again whose copies all
   failed retries the newest one under its id.
-- The Compose stack no longer publishes Redis on the host
-  (`-f expose-redis.yml` publishes it on loopback for debugging).
+- The Compose stack no longer publishes Redis (`-f expose-redis.yml` does, on loopback).
 - The Docker image runs torch's CPU build (3.8 GB; `TORCH_VARIANT=cuda` builds
   the GPU one), and the Compose stack defaults to a Milvus server.
 - `sentencepiece` is a core dependency, for the `monot5` reranker's tokenizer.
