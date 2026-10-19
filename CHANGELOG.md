@@ -277,6 +277,9 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   generation, and starts from the `speed` profile.
 - **`lasagna-mcp`** speaks stdio and serves the `safe` tool set; `lasagna
   serve` logs warnings only and opens no browser unless `--open`.
+- **`lasagna search` names the session it searched** when a running server
+  answers for another one; refusals the MCP tools return (a refused setting, a
+  switch that would leave documents behind) are logged at DEBUG, not ERROR.
 - **A bad environment setting stops the process** with `ConfigError` naming the
   variable, its value and what it takes; a misspelled `RAG_` or `LASAGNA_`
   name warns with the setting it is close to.
