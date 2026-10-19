@@ -844,6 +844,9 @@ def _present_document_ids(
         )
 
 
+#: Seconds before a census count that failed is asked once more.
+_RECOUNT_PAUSE = 2.0
+
 #: Documents a corpus census reads at the end of each task (all, up to this).
 _CENSUS_DOCUMENTS = 2_000
 
@@ -867,7 +870,35 @@ def _corpus_census(
         "documents": ids,
         "present": present,
         "chunks": chunks,
+        "ingest": _ingest_stamp(ids),
     }
+
+
+def _ingest_stamp(ids: List[str]) -> Optional[str]:
+    """A digest of when each of ``ids`` was registered, or None when it cannot be read.
+
+    Ingesting registers every document with the time of that ingest
+    (``upload_date``, in the metadata store the run already uses), so a corpus
+    deleted and ingested again carries other times with the same counts. A
+    store whose metadata another host keeps does not show an ingest on that
+    host; the counts are all that is compared there.
+    """
+    import hashlib
+
+    try:
+        from lasagna.core.database import get_rag_database
+
+        db = get_rag_database()
+        stamps: Dict[str, Any] = {}
+        for i in range(0, len(ids), 400):
+            for row in db.get_documents_batch(ids[i : i + 400], include_soft_deleted=True):
+                stamps[row["document_id"]] = row.get("upload_date")
+    except Exception as exc:  # noqa: BLE001 - the counts still guard the result
+        logger.debug(f"Could not read when the corpus was registered: {exc}")
+        return None
+    if not stamps:
+        return None
+    return hashlib.sha256(repr(sorted(stamps.items())).encode()).hexdigest()
 
 
 def _count_present(backend: Any, collection_name: str, session_id: str, ids: List[str]) -> tuple:
@@ -909,28 +940,43 @@ def _corpus_changed(corpus_info: Dict[str, Any]) -> Optional[str]:
     store = corpus_info.get("_census_store")
     if not census or store is None:
         return None
-    try:
-        present, chunks = _count_present(
-            store(), census["collection"], corpus_info["session_id"], census["documents"]
-        )
-    except NotImplementedError:
-        return None  # a store that cannot be asked; nothing was counted at the start either
-    except Exception as exc:  # noqa: BLE001 - unknown is not "unchanged"
-        return (
-            f"The corpus of session {corpus_info['session_id']} could not be counted at the "
-            f"end of this task ({type(exc).__name__}: {exc}), so whether it changed while "
-            f"this run used it is unknown; its numbers are not recorded."
-        )
-    if (present, chunks) == (census["present"], census["chunks"]):
-        return None
-    return (
-        f"The corpus of session {corpus_info['session_id']} changed while this run used it: "
-        f"{present} of {len(census['documents'])} documents checked have chunks now "
-        f"({chunks} chunks), against {census['present']} ({census['chunks']} chunks) when it "
-        f"was published. Another process on the same vector store deleted it or ingested "
-        f"it again, so this task's numbers are not recorded. Run one experiment on a "
-        f"corpus at a time per vector store, then run this one again."
+    session = corpus_info["session_id"]
+    for attempt in (1, 2):
+        try:
+            present, chunks = _count_present(
+                store(), census["collection"], session, census["documents"]
+            )
+            break
+        except NotImplementedError:
+            return None  # a store that cannot be asked; nothing was counted at the start either
+        except Exception as exc:  # noqa: BLE001 - unknown is not "unchanged"
+            if attempt == 1:
+                time.sleep(_RECOUNT_PAUSE)  # one dropped connection is not a changed corpus
+                continue
+            return (
+                f"The corpus of session {session} could not be counted at the end of this "
+                f"task ({type(exc).__name__}: {exc}), so whether it changed while this run "
+                f"used it is unknown; its numbers are not recorded. Run this one again."
+            )
+    rerun = (
+        "Another process on the same vector store deleted it or ingested it again, so this "
+        "task's numbers are not recorded. Run one experiment on a corpus at a time per "
+        "vector store, then run this one again."
     )
+    if (present, chunks) != (census["present"], census["chunks"]):
+        return (
+            f"The corpus of session {session} changed while this run used it: {present} of "
+            f"{len(census['documents'])} documents checked have chunks now ({chunks} chunks), "
+            f"against {census['present']} ({census['chunks']} chunks) when it was published. "
+            f"{rerun}"
+        )
+    if census.get("ingest") and _ingest_stamp(census["documents"]) != census["ingest"]:
+        return (
+            f"The corpus of session {session} was ingested again while this run used it: it "
+            f"holds the same counts ({present} documents, {chunks} chunks), but its documents "
+            f"were registered at another time than when it was published. {rerun}"
+        )
+    return None
 
 
 class _CorpusLock:
