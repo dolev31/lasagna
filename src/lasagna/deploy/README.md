@@ -8,6 +8,9 @@ here apply it.
 
 ## Quick start
 
+Requires Docker with Compose v2, `make`, `openssl` and `git`. No Docker? `lasagna serve`
+runs the same REST API in one process; see [REST API](../../../README.md#rest-api).
+
 The stack builds its image from a clone of the repository (the pip package does not
 carry the build context):
 

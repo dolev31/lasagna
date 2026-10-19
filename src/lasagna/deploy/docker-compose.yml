@@ -27,7 +27,7 @@ x-env: &common-env
   # a password here would silently override it: the database would be created
   # with the operator's password while the app kept connecting as rag:rag, and
   # the quickest way out of the resulting auth error is to weaken
-  # POSTGRES_PASSWORD back to "rag" -- exactly what requiring it prevents.
+  # POSTGRES_PASSWORD back to "rag", which is exactly what requiring it prevents.
   RAG_DATABASE_DSN: postgresql://rag:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/rag
   RAG_REDIS_URL: redis://redis:6379
   # The api stores an upload at <upload dir>/<document_id>/<file> and hands
@@ -70,7 +70,7 @@ x-env: &common-env
   RAG_CONNECTION_POOL_SIZE: "${RAG_CONNECTION_POOL_SIZE:-10}"
   RAG_JWT_SECRET: "${RAG_JWT_SECRET:?Set RAG_JWT_SECRET in .env}"
   # Off by default because this file publishes the API on loopback. Turn it on
-  # together with API_BIND -- see the note on the api service's `ports`. With it
+  # together with API_BIND (see the note on the api service's `ports`). With it
   # on, `X-Session-ID` stops being accepted as identity and callers must present
   # a token from POST /api/v1/sessions.
   RAG_REQUIRE_AUTH: "${RAG_REQUIRE_AUTH:-false}"
@@ -80,8 +80,8 @@ x-env: &common-env
   # With RAG_REQUIRE_AUTH on, POST /api/v1/sessions needs one of these in
   # X-API-Key (comma-separated, each at least 32 characters).
   RAG_API_KEYS: "${RAG_API_KEYS:-}"
-  # Every service here binds 0.0.0.0 on the container network -- it has no other
-  # option -- and is published on 127.0.0.1 by the `ports:` entries below. The
+  # Every service here binds 0.0.0.0 on the container network (it has no other
+  # option) and is published on 127.0.0.1 by the `ports:` entries below. The
   # process cannot see the publish address, so it would otherwise refuse to
   # start; this asserts what the ports section already arranges.
   #
@@ -141,7 +141,7 @@ services:
     ports:
       # Loopback by default, like every other service in this file. Docker's
       # port publishing writes its own iptables DNAT rules, so an unqualified
-      # "8000:8000" reaches the LAN past most host firewalls -- and this is the
+      # "8000:8000" reaches the LAN past most host firewalls, and this is the
       # one service here that can delete documents.
       #
       # To expose it, set API_BIND=0.0.0.0 *and* RAG_REQUIRE_AUTH=true in .env.
