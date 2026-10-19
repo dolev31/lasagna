@@ -4,7 +4,7 @@ It runs the notebook's steps in order, in a working directory of its own, and
 stops at the first one that fails. It is how the notebook is tested end to end
 without Jupyter:
 
-    pip install "lasagna-rag[eval]"
+    pip install "lasagna-rag[eval]==0.1.0"
     python -c "import nltk; nltk.download('punkt_tab', quiet=True)"
     python examples/notebooks/compare_your_reranker.py [workdir]
 
