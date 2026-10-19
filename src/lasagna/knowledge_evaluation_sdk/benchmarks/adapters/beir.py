@@ -38,7 +38,7 @@ _BEIR_BENCHMARKS: Dict[str, Dict[str, Any]] = {
         "hf_qrels": "mteb/scifact",
         # The Hub commit of mteb/scifact the README demo and the reference
         # numbers were produced on. Keep in step with `datasets._BENCHMARKS`.
-        "hf_revision": "cf10ab6856b15b0e670ef8ae5dae4e266c12d035",
+        "hf_revision": "cf10ab6856b15b0e670ef8ae5dae4e266c12d035",  # pragma: allowlist secret
         "description": "SciFact: scientific claim verification (1.1K claims, 5.2K docs)",
         "num_queries": 1109,
         "num_documents": 5183,
@@ -54,7 +54,7 @@ _BEIR_BENCHMARKS: Dict[str, Dict[str, Any]] = {
     "beir/hotpotqa": {
         "hf_dataset": "mteb/hotpotqa",
         "hf_qrels": "mteb/hotpotqa",
-        "hf_revision": "60b39fafe9b0b81ce6be80c295de49ace5b7a14e",
+        "hf_revision": "60b39fafe9b0b81ce6be80c295de49ace5b7a14e",  # pragma: allowlist secret
         "description": "HotpotQA (BEIR): multi-hop reasoning (7.4K queries, 5.2M docs)",
         "num_queries": 7400,
         "num_documents": 5_200_000,

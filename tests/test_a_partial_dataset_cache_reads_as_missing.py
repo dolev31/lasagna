@@ -71,7 +71,8 @@ def test_an_empty_folder_is_missing(cache):
 def _snapshot(tmp_path: Path, files: dict, blobs: bool = True) -> None:
     """A hub-cache snapshot of mteb/scifact; each file is a symlink into blobs/, as the hub writes it."""
     repo = tmp_path / "hub" / "datasets--mteb--scifact"
-    snapshot = repo / "snapshots" / "cf10ab6856b15b0e670ef8ae5dae4e266c12d035"
+    revision = "cf10ab6856b15b0e670ef8ae5dae4e266c12d035"  # pragma: allowlist secret
+    snapshot = repo / "snapshots" / revision
     for name in files:
         link = snapshot / name
         link.parent.mkdir(parents=True, exist_ok=True)

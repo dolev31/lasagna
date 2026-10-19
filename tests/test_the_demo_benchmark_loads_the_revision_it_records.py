@@ -14,7 +14,7 @@ from lasagna.knowledge_evaluation_sdk import datasets
 from lasagna.knowledge_evaluation_sdk.benchmarks import benchmark_registry
 from lasagna.knowledge_evaluation_sdk.runner import _resolved_revision
 
-SCIFACT = "cf10ab6856b15b0e670ef8ae5dae4e266c12d035"
+SCIFACT = "cf10ab6856b15b0e670ef8ae5dae4e266c12d035"  # pragma: allowlist secret
 
 
 def test_the_demo_benchmark_records_its_revision():

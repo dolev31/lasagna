@@ -245,7 +245,7 @@ _BENCHMARKS: Dict[str, Dict[str, Any]] = {
     "beir/scifact": {
         "hf_dataset": "mteb/scifact",
         "hf_qrels": "mteb/scifact",
-        "hf_revision": "cf10ab6856b15b0e670ef8ae5dae4e266c12d035",
+        "hf_revision": "cf10ab6856b15b0e670ef8ae5dae4e266c12d035",  # pragma: allowlist secret
         "description": "SciFact: scientific claim verification (1.1K claims, 5K docs)",
         "format": "beir",
     },
@@ -258,7 +258,7 @@ _BENCHMARKS: Dict[str, Dict[str, Any]] = {
     "beir/hotpotqa": {
         "hf_dataset": "mteb/hotpotqa",
         "hf_qrels": "mteb/hotpotqa",
-        "hf_revision": "60b39fafe9b0b81ce6be80c295de49ace5b7a14e",
+        "hf_revision": "60b39fafe9b0b81ce6be80c295de49ace5b7a14e",  # pragma: allowlist secret
         "description": "HotpotQA: multi-hop reasoning (7.4K queries, 5.2M docs)",
         "format": "beir",
     },
