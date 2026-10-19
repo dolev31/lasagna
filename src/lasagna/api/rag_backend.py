@@ -777,14 +777,22 @@ class RAGBackend:
             except Exception as e:
                 logger.warning(f"Cache invalidation failed for session {session_id}: {e}")
 
-        # 3. Clear session config state
+        # 3. Clear session config state. A deletion the store did not take, or
+        # one refused during a switch, is raised after the rest is cleared.
+        refused: Optional[Exception] = None
         try:
             from ..core.session_config import get_knowledge_config_manager
+            from ..core.session_config._data_models import SettingsNotSaved
+            from ._profile_guard import ProfileSwitchInProgress
 
             config_manager = get_knowledge_config_manager()
-            config_manager.delete_session_state(session_id)
-            result["session_cleared"] = True
-            logger.debug(f"Session config state cleared: {session_id}")
+            try:
+                config_manager.delete_session_state(session_id)
+            except (SettingsNotSaved, ProfileSwitchInProgress) as e:
+                refused = e
+            else:
+                result["session_cleared"] = True
+                logger.debug(f"Session config state cleared: {session_id}")
         except Exception as e:
             logger.warning(f"Session config clear failed for session {session_id}: {e}")
 
@@ -798,6 +806,8 @@ class RAGBackend:
             logger.warning(f"Document awareness cache clear failed for session {session_id}: {e}")
 
         logger.info(f"Session state cleared: {session_id} - {result}")
+        if refused is not None:
+            raise refused
         return result
 
     def _get_document_metadata(self, document_id: str) -> Optional[Document]:

@@ -49,12 +49,12 @@ Selected at import time via the `RAG_DATABASE_BACKEND` env var (read under that 
 - Citations: `{data_dir}/citations_{session_id}.json` (per-session files, atomic write via tempfile + os.replace)
 - Cleanup: throttled to once per 60 seconds
 
-### PostgreSQL + Redis mode
+### PostgreSQL mode
 
 - Profiles: `rag_profiles` table (user_id + profile_name unique)
 - Sessions: `rag_sessions` table (session_id primary key)
-- Read path: Redis (L1, <1ms) → PostgreSQL (L2, ~5ms)
-- Write path: PostgreSQL → Redis cache update
+- Read path: PostgreSQL, at most once a second per session per process (about 1 ms a read). Session settings have no Redis copy: a Redis restored from an older snapshot, or one that dropped during a write, served older settings to every worker until the session's next write.
+- Write path: PostgreSQL, under the session's lock
 - Request-scoped: Only loads the target session, not all sessions
 - Cleanup: Throttled to once per 60 seconds per worker
 

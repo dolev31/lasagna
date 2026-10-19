@@ -108,19 +108,38 @@ class SettingsNotSaved(BackendError):
 
 
 def not_saved(
-    what: str, exc: BaseException, *, verb: str = "saved", why: str = ""
+    what: str, exc: BaseException, *, verb: str = "saved", why: str = "", done: str = ""
 ) -> SettingsNotSaved:
     """``SettingsNotSaved`` for ``what`` (``the settings of session 'r1'``), naming why.
 
-    ``verb``: what could not be done to it; ``why``: what that leaves unknown.
+    ``verb``: what could not be done to it; ``why``: what that leaves unknown;
+    ``done``: what the change had already stored (else nothing was changed).
     """
     from lasagna.core.provenance import redact_paths
 
     reason = (redact_paths(str(exc)).strip().splitlines() or [""])[0][:300]
-    return SettingsNotSaved(
+    outcome = f". {done}" if done else ", so nothing was changed"
+    error = SettingsNotSaved(
         f"{what[0].upper()}{what[1:]} could not be {verb} ({type(exc).__name__}"
-        f"{': ' + reason if reason else ''}){why}, so nothing was changed. Retry once the "
+        f"{': ' + reason if reason else ''}){why}{outcome}. Retry once the "
         f"metadata store answers (lasagna doctor and GET /api/v1/health/ready name it)."
+    )
+    error.what, error.verb, error.why = what, verb, why
+    return error
+
+
+def partly_saved(error: SettingsNotSaved, done: str) -> SettingsNotSaved:
+    """``error`` (a write the store refused) for a change that had already stored ``done``.
+
+    A profile change writes the profile's row and the session's row one after
+    the other; when the second failed, the message said nothing was changed.
+    """
+    return not_saved(
+        getattr(error, "what", "the change"),
+        error.__cause__ or error,
+        verb=getattr(error, "verb", "saved"),
+        why=getattr(error, "why", ""),
+        done=done,
     )
 
 

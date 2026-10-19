@@ -33,7 +33,9 @@ from ._data_models import (
     _check_profile_size,
     _deep_merge,
     _resolve,
+    SettingsNotSaved,
     kept_in_process,
+    partly_saved,
     session_idle_seconds,
 )
 
@@ -608,6 +610,12 @@ class ProfileMixin:
         owner = profile.get("user_id") if isinstance(profile, dict) else profile.user_id
         return user_id == ANONYMOUS or (owner or ANONYMOUS) in (user_id, ANONYMOUS)
 
+    def _also_read_profiles_of(self, owner: str) -> None:
+        """Make sure ``owner``'s saved profiles are loaded (PostgreSQL loads only some owners')."""
+        read = getattr(self, "_read_profiles_of", None)
+        if read is not None:
+            read(owner)
+
     def _saved(self, name: str, owner: str) -> Optional[RAGProfile]:
         """The saved profile ``name`` of ``owner``, exactly."""
         return next(
@@ -622,11 +630,11 @@ class ProfileMixin:
     def _saved_for(self, name: str, user_id: str, *, besides: Any = None) -> Optional[RAGProfile]:
         """The saved profile ``name`` that ``user_id`` gets (``besides`` one excluded).
 
-        Its own, else the shared one (saved without a login). Anonymous, the
-        single user, gets another owner's when it has none of its own (the
-        first by owner). Profiles were looked up by name alone, so a tenant on
-        the shared profile of a name was handed another tenant's of that name.
+        Its own, else the shared one (saved without a login), never another
+        owner's: anonymous used to be handed the first tenant's profile of the
+        name, and profiles were once looked up by name alone.
         """
+        self._also_read_profiles_of(user_id)
         candidates = [
             p for p in self._global_custom_profiles if p.name == name and p is not besides
         ]
@@ -634,14 +642,55 @@ class ProfileMixin:
             mine = next((p for p in candidates if (p.user_id or ANONYMOUS) == owner), None)
             if mine is not None:
                 return mine
-        if user_id == ANONYMOUS and candidates:
-            return min(candidates, key=lambda p: p.user_id or "")
         return None
 
     @staticmethod
     def _put_profile(state: Any, profile: RAGProfile) -> None:
         """Make ``profile`` the session's profile of its name (one per name)."""
         state.profiles = [p for p in state.profiles if p.name != profile.name] + [profile]
+
+    def _refuse_past_limit(self, names: List[str], user_id: str) -> None:
+        """Raise when saving ``names`` as ``user_id``'s passes its limit of saved profiles."""
+        self._also_read_profiles_of(user_id)
+        new = [n for n in dict.fromkeys(names) if self._saved(n, user_id) is None]
+        # Counted per owner. One shared count let a tenant fill it and lock
+        # every other tenant out of saving any profile at all.
+        owned = sum(1 for p in self._global_custom_profiles if (p.user_id or ANONYMOUS) == user_id)
+        if new and owned + len(new) > MAX_GLOBAL_PROFILES:
+            raise ValueError(
+                f"Maximum number of profiles ({MAX_GLOBAL_PROFILES}) reached. "
+                "Delete unused profiles before creating new ones."
+            )
+
+    def _keep_saved(self, profile: RAGProfile) -> None:
+        """Store ``profile`` as its owner's saved profile of its name. Call in ``_session_write``.
+
+        A profile only a session's copy held (an imported one, or one a switch
+        made from settings) was lost to every other manager: the session row
+        keeps the active profile's name and owner, not its settings, so each
+        other process, and on PostgreSQL each other request, put the session
+        back on ``default``.
+        """
+        owner = profile.user_id or ANONYMOUS
+        mine = self._saved(profile.name, owner)
+        self._save_global_profile(profile)
+        if mine is not None:
+            at = self._global_custom_profiles.index(mine)
+            self._global_custom_profiles[at] = copy.deepcopy(profile)
+        else:
+            self._global_custom_profiles.append(copy.deepcopy(profile))
+            self._global_profile_names.add(profile.name)
+        self._saved_profiles_changed()
+
+    def _refuse_builtin_name(self, profile_name: str, verb: str = "overwritten") -> None:
+        """Raise for a built-in profile's name: search runs its own settings, whatever is saved."""
+        if self._is_protected_profile_name(profile_name):
+            raise ValueError(
+                f"Built-in profile {profile_name!r} cannot be {verb}: search always runs a "
+                f"built-in profile's own settings, so other settings saved under its name "
+                f"would be shown and not used. Nothing was changed. Use another name (for "
+                f"example {profile_name + '-custom'!r})."
+            )
 
     def _not_yours(self, name: str, verb: str) -> ValueError:
         """Why a caller may not ``verb`` the saved profile ``name`` someone else owns."""
@@ -705,12 +754,14 @@ class ProfileMixin:
         Refused, with nothing changed, when the switch would embed at another
         size than the stored documents (``force`` skips that check). ``reset``
         drops the session's own settings (its overrides), so the profile's
-        apply as they are.
+        apply as they are. A name no profile has, with ``config``, is saved as
+        ``user_id``'s profile first, with the checks `save_profile` makes.
         """
         if config:
             config = self._session_settings(config, document=True)
             self._validate_or_raise(config, session_id)
 
+        sid = session_id or "default"
         with self._session_write(session_id) as state:
             profile, profile_config, overrides = self._switch_plan(
                 state, profile_name, config, user_id, reset=reset
@@ -724,13 +775,19 @@ class ProfileMixin:
                 profile_config=profile_config,
             )
 
-            if profile is None:
+            previous = state.active_profile
+            created = profile is None
+            if created:
+                _check_profile_size(config)
+                self._refuse_past_limit([profile_name], user_id)
                 profile = RAGProfile(
                     name=profile_name,
-                    description=f"Custom profile: {profile_name}",
+                    description=f"Saved profile: {profile_name}",
                     config=config,
+                    user_id=user_id,
                 )
-                self._put_profile(state, profile)
+                self._keep_saved(profile)
+                self._put_profile(state, copy.deepcopy(profile))
             elif profile not in state.profiles:
                 self._put_profile(state, copy.deepcopy(profile))
             state.session_overrides = overrides
@@ -738,7 +795,16 @@ class ProfileMixin:
             # Whose profile of that name the session is on, so every process
             # reads the same one back.
             state.user_id = profile.user_id or ANONYMOUS
-            self._persist_single_session(session_id or "default")
+            try:
+                self._persist_single_session(sid)
+            except SettingsNotSaved as exc:
+                if not created:
+                    raise
+                raise partly_saved(
+                    exc,
+                    f"Profile {profile_name!r} was saved; session {sid!r} is still on "
+                    f"profile {previous!r}",
+                ) from exc.__cause__
 
         # Without this the profile switch is recorded and never applied:
         # search resolves through the session provider, not this manager.
@@ -842,8 +908,7 @@ class ProfileMixin:
         documents' collection; ``force`` (the server's operator, in Python)
         applies it anyway, as it skips the check for this session.
         """
-        if profile_name == "default":
-            raise ValueError("The default profile cannot be overwritten.")
+        self._refuse_builtin_name(profile_name)
 
         if not isinstance(config, dict):
             raise ValueError("Profile config must be an object.")
@@ -860,16 +925,7 @@ class ProfileMixin:
         with self._session_write(session_id) as state:
             self._refresh_saved_profiles(force=True)
             mine = self._saved(profile_name, user_id)
-            # Counted per owner. One shared count let a tenant fill it and lock
-            # every other tenant out of saving any profile at all.
-            owned = sum(
-                1 for p in self._global_custom_profiles if (p.user_id or ANONYMOUS) == user_id
-            )
-            if mine is None and owned >= MAX_GLOBAL_PROFILES:
-                raise ValueError(
-                    f"Maximum number of profiles ({MAX_GLOBAL_PROFILES}) reached. "
-                    "Delete unused profiles before creating new ones."
-                )
+            self._refuse_past_limit([profile_name], user_id)
             if mine is not None:
                 self._refuse_moving_others(
                     mine,
@@ -903,15 +959,9 @@ class ProfileMixin:
                 config=config,
                 user_id=user_id,
             )
+            previous = state.active_profile
             if set_active or on_it:
                 self._put_profile(state, copy.deepcopy(new_profile))
-            if mine is not None:
-                at = self._global_custom_profiles.index(mine)
-                self._global_custom_profiles[at] = copy.deepcopy(new_profile)
-            else:
-                self._global_custom_profiles.append(copy.deepcopy(new_profile))
-                self._global_profile_names.add(profile_name)
-
             if set_active:
                 state.active_profile = profile_name
                 state.session_overrides = {}
@@ -919,10 +969,18 @@ class ProfileMixin:
 
             state.profiles = self._ensure_default_profile(state.profiles)
 
-            self._save_global_profile(new_profile)
-            self._saved_profiles_changed()
+            # The profile first: a session row naming a profile not saved yet
+            # puts the session on default for every other process.
+            self._keep_saved(new_profile)
             if set_active:
-                self._persist_single_session(sid)
+                try:
+                    self._persist_single_session(sid)
+                except SettingsNotSaved as exc:
+                    raise partly_saved(
+                        exc,
+                        f"Profile {profile_name!r} was saved; session {sid!r} is still on "
+                        f"profile {previous!r}",
+                    ) from exc.__cause__
 
             logger.info(
                 f"Saved profile '{profile_name}' globally "
@@ -1048,7 +1106,7 @@ class ProfileMixin:
                     mine, None, change=f"Renaming profile {old_name!r}", exclude=sid, force=force
                 )
 
-            renamed = None
+            renamed, previous = None, state.active_profile
             if mine is not None:
                 renamed = copy.deepcopy(mine)
                 renamed.name = new_name
@@ -1064,14 +1122,35 @@ class ProfileMixin:
                     state.active_profile = new_name
 
             state.profiles = self._ensure_default_profile(state.profiles)
+            # The new row, then the session, then the old row: stopped at any
+            # point, the session names a profile that exists. The old row went
+            # before the session was saved, and a failed save left the session
+            # on a name with no profile (default, for every other process).
             if renamed is not None:
-                # The new row first: stopped in between, both names are kept.
                 self._save_global_profile(renamed)
-                self._delete_global_profile(
-                    RAGProfile(name=old_name, description="", config={}, user_id=owner)
-                )
                 self._saved_profiles_changed()
-            self._persist_single_session(sid)
+            try:
+                self._persist_single_session(sid)
+            except SettingsNotSaved as exc:
+                if renamed is None:
+                    raise
+                raise partly_saved(
+                    exc,
+                    f"Profile {new_name!r} was saved as a copy of {old_name!r}, which is "
+                    f"kept, and session {sid!r} is still on profile {previous!r}",
+                ) from exc.__cause__
+            if renamed is not None:
+                try:
+                    self._delete_global_profile(
+                        RAGProfile(name=old_name, description="", config={}, user_id=owner)
+                    )
+                except SettingsNotSaved as exc:
+                    raise partly_saved(
+                        exc,
+                        f"Profile {old_name!r} was saved as {new_name!r} and session {sid!r} "
+                        f"uses the new name; the old name is kept until it is deleted "
+                        f"(delete profile {old_name!r})",
+                    ) from exc.__cause__
 
             logger.info(f"Renamed profile '{old_name}' to '{new_name}' globally")
 
@@ -1142,10 +1221,19 @@ class ProfileMixin:
                 self._global_profile_names = {p.name for p in self._global_custom_profiles}
 
             state.profiles = self._ensure_default_profile(state.profiles)
-            if mine is not None:
-                self._delete_global_profile(mine)
-                self._saved_profiles_changed()
+            # The session first: deleted first, a failed save of the session
+            # left it naming a profile that no longer exists.
             self._persist_single_session(sid)
+            if mine is not None:
+                try:
+                    self._delete_global_profile(mine)
+                except SettingsNotSaved as exc:
+                    if not on_it:
+                        raise
+                    raise partly_saved(
+                        exc, f"Session {sid!r} was moved to profile 'default'"
+                    ) from exc.__cause__
+                self._saved_profiles_changed()
 
             logger.info(f"Deleted profile '{profile_name}' globally")
 
@@ -1174,15 +1262,11 @@ class ProfileMixin:
 
             if profile is not None and (profile.user_id or ANONYMOUS) == user_id:
                 profile.description = description
+            state.profiles = self._ensure_default_profile(state.profiles)
             if mine is not None:
                 gp = copy.deepcopy(mine)
                 gp.description = description
-                self._global_custom_profiles[self._global_custom_profiles.index(mine)] = gp
-                self._save_global_profile(gp)
-                self._saved_profiles_changed()
-
-            state.profiles = self._ensure_default_profile(state.profiles)
-            self._persist_single_session(session_id or "default")
+                self._keep_saved(gp)
 
         return state.to_dict()
 

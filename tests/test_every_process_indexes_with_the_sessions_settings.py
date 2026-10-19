@@ -21,17 +21,6 @@ from lasagna.core.session_config import _persistence_db as pg
 from lasagna.infrastructure.tasks import document_tasks
 
 
-class _Redis:
-    def __init__(self):
-        self.data = {}
-
-    def load(self, key):
-        return self.data.get(key)
-
-    def save(self, key, value):
-        self.data[key] = value
-
-
 class _Postgres:
     def __init__(self):
         self.rows = {}
@@ -41,27 +30,14 @@ class _Postgres:
 
 
 def _mixin(monkeypatch):
-    redis, postgres = _Redis(), _Postgres()
-    monkeypatch.setattr(pg, "_get_cache", lambda: redis)
+    postgres = _Postgres()
     monkeypatch.setattr(pg, "_get_pg_db", lambda: postgres)
-    return pg.DatabasePersistenceMixin.__new__(pg.DatabasePersistenceMixin), redis, postgres
+    return pg.DatabasePersistenceMixin.__new__(pg.DatabasePersistenceMixin), postgres
 
 
-def test_a_session_changed_elsewhere_is_read_from_redis(monkeypatch):
-    mixin, redis, _ = _mixin(monkeypatch)
-    assert mixin._read_persisted_session("s1") is None
-
-    # Another process applies a profile: it writes Postgres, then Redis.
-    redis.save(
-        f"{mixin._CACHE_PREFIX_SESSION}s1",
-        {"active_profile": "speed", "session_overrides": {}, "rag_enabled": True},
-    )
-
-    assert mixin._read_persisted_session("s1")["active_profile"] == "speed"
-
-
-def test_without_redis_the_session_is_read_from_postgres(monkeypatch):
-    mixin, _, postgres = _mixin(monkeypatch)
+def test_a_session_changed_elsewhere_is_read_from_postgres(monkeypatch):
+    mixin, postgres = _mixin(monkeypatch)
+    assert mixin._read_persisted_session("s2") == {}
     postgres.rows["s2"] = {
         "active_profile": "speed",
         "session_overrides": {"rerank_top_k": 7},

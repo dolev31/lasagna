@@ -1,11 +1,16 @@
-"""PostgreSQL + Redis persistence mixin for session configuration.
+"""PostgreSQL persistence mixin for session configuration.
 
 Drop-in replacement for ``PersistenceMixin`` when ``RAG_DATABASE_BACKEND=postgresql``.
-Stores profiles and session state in PostgreSQL with optional Redis write-through
-caching for sub-millisecond reads across workers.
+Stores profiles and session state in PostgreSQL, the one copy every worker reads.
 
-Read path:  Redis (hot, <1ms) → PostgreSQL (cold, ~5ms)
-Write path: PostgreSQL (durable) → Redis update (cache invalidation/refresh)
+Session settings had a Redis copy in front (``RAG_CACHE_BACKEND=redis``, the
+compose default), which readers took first and every read kept alive. A Redis
+restored from an older snapshot, or one that dropped during a write (its errors
+were logged and the write answered as saved), served the older settings to
+every worker, the Celery worker and MCP until the session's next write: the old
+profile or model, uploads ingested into the old collection. PostgreSQL is read
+at most once a second per session per process (``_adopt_persisted_session``),
+which costs about a millisecond.
 """
 
 import threading
@@ -19,7 +24,6 @@ from ._data_models import (
     MAX_CACHED_SESSIONS,
     SESSION_TTL_SECONDS,
     RAGProfile,
-    KnowledgeConfigState,
     kept_in_process,
     not_saved,
     session_idle_seconds,
@@ -66,29 +70,8 @@ def _get_pg_db():
     return _get_pg_db._instance
 
 
-def _get_cache():
-    """The session cache every worker shares (Redis), or None.
-
-    Not a store of this process alone (``RAG_CACHE_BACKEND=memory``, the
-    default): nothing tells it that another worker changed a session, so a
-    worker that had served a session kept that copy for the life of the
-    process. PostgreSQL is read instead, at most once a second per session
-    (``_adopt_persisted_session``).
-    """
-    try:
-        from lasagna.infrastructure.session_store import InMemorySessionStore, get_session_store
-
-        store = get_session_store()
-    except Exception:
-        return None
-    return None if isinstance(store, InMemorySessionStore) else store
-
-
 class DatabasePersistenceMixin:
     """Mixin for PostgreSQL-backed persistence of profiles and session states.
-
-    Uses the existing ``RedisSessionStore`` (from ``session_store.py``) as an
-    L1 write-through cache when ``RAG_CACHE_BACKEND=redis``.
 
     Expects the host class to provide the same attributes as ``PersistenceMixin``:
     - self._lock: RLock
@@ -99,20 +82,40 @@ class DatabasePersistenceMixin:
     - self._state_from_dict(): method
     """
 
-    # Cache key prefixes for Redis
-    _CACHE_PREFIX_SESSION = "rag:config:session:"
-    _CACHE_PREFIX_PROFILES = "rag:config:profiles:"
-
     def _migrate_legacy_data(self) -> None:
         """No-op for PostgreSQL backend (no legacy JSON files to migrate)."""
         pass
 
+    def _profile_owners(self) -> List[str]:
+        """Whose saved profiles this manager reads: the caller's, the shared ones, and any
+        owner of a session it holds that is on one of that owner's profiles."""
+        mine = getattr(self, "_user_id", ANONYMOUS)
+        return sorted({mine, ANONYMOUS, *getattr(self, "_extra_profile_owners", ())})
+
+    def _read_profiles_of(self, owner: str) -> None:
+        """Also read ``owner``'s saved profiles (the first time ``owner`` is asked about)."""
+        if owner in self._profile_owners():
+            return
+        extra = getattr(self, "_extra_profile_owners", None)
+        if extra is None or len(extra) >= MAX_CACHED_SESSIONS:
+            extra = self._extra_profile_owners = set()  # the process's long-lived manager
+        extra.add(owner)
+        self._refresh_saved_profiles(force=True)
+
     def _read_saved_profiles(self) -> Optional[List[RAGProfile]]:
-        """Every saved profile in PostgreSQL, of every owner; None when it cannot be read."""
+        """The saved profiles of the owners this manager serves; None when unreadable.
+
+        Not every owner's: each request built a manager that read every
+        tenant's profiles, however many there were.
+        """
         try:
             db = _get_pg_db()
             reader = getattr(db, "get_saved_profiles", None)
-            rows = reader() if reader else db.get_profiles(getattr(self, "_user_id", ANONYMOUS))
+            rows = (
+                reader(self._profile_owners())
+                if reader
+                else db.get_profiles(getattr(self, "_user_id", ANONYMOUS))
+            )
         except Exception as exc:
             logger.warning(f"Failed to load profiles from PostgreSQL: {exc}")
             return None
@@ -151,7 +154,6 @@ class DatabasePersistenceMixin:
                 description=profile.description,
                 is_builtin=False,
             )
-            self._cache_profiles(profile.user_id or ANONYMOUS)
         except Exception as exc:
             raise not_saved(f"profile {profile.name!r}", exc) from exc
 
@@ -159,7 +161,6 @@ class DatabasePersistenceMixin:
         """Delete one saved profile's row."""
         try:
             _get_pg_db().delete_profile(profile.user_id or ANONYMOUS, profile.name)
-            self._cache_profiles(profile.user_id or ANONYMOUS)
         except Exception as exc:
             raise not_saved(f"the deletion of profile {profile.name!r}", exc) from exc
 
@@ -167,8 +168,8 @@ class DatabasePersistenceMixin:
         """Load session states from PostgreSQL.
 
         When ``self._session_id`` is set (request-scoped mode), only loads that
-        single session — first from Redis cache, then PostgreSQL.  This avoids
-        pulling all sessions into memory on every request.
+        single session. This avoids pulling all sessions into memory on every
+        request.
 
         Without one (the process's own manager, which the session provider
         keeps) nothing is read now: each session is read when it is first
@@ -180,26 +181,13 @@ class DatabasePersistenceMixin:
             self._load_single_session(target_session)
 
     def _load_single_session(self, session_id: str) -> None:
-        """Load a single session from Redis cache → PostgreSQL."""
-        # L1: Try Redis cache first
-        cached = self._load_session_from_cache(session_id)
-        if cached:
-            self._session_states[session_id] = self._state_from_dict(cached)
-            return
-
-        # L2: Fall back to PostgreSQL
+        """Load a single session from PostgreSQL."""
         try:
-            db = _get_pg_db()
-            row = db.get_session(session_id)
+            row = _get_pg_db().get_session(session_id)
             if row:
-                state_data = self._row_to_state_data(row)
-                state = self._state_from_dict(state_data)
-                self._session_states[session_id] = state
-                # Only where Redis holds nothing: a worker that saved a change
-                # since this row was read has written Redis after PostgreSQL,
-                # and this older row put over it stayed there, the TTL sliding
-                # on every read.
-                self._cache_session(session_id, state, only_if_absent=True)
+                self._session_states[session_id] = self._state_from_dict(
+                    self._row_to_state_data(row)
+                )
         except Exception as exc:
             logger.debug(f"Failed to load session {session_id} from PostgreSQL: {exc}")
 
@@ -220,24 +208,18 @@ class DatabasePersistenceMixin:
         }
 
     def _reload_if_changed(self) -> None:
-        """No-op for PostgreSQL backend.
-
-        Unlike file-based persistence, PostgreSQL reads are always fresh.
-        Redis caching handles the read-hot path.
-        """
+        """No-op for PostgreSQL backend: PostgreSQL reads are always fresh."""
         pass
 
     def _delete_persisted_session(self, session_id: str) -> bool:
-        """Delete a single session from PostgreSQL and Redis; whether a row was there."""
+        """Delete a single session from PostgreSQL; whether a row was there."""
         try:
-            deleted = bool(_get_pg_db().delete_session(session_id))
+            return bool(_get_pg_db().delete_session(session_id))
         except Exception as exc:
             raise not_saved(f"the deletion of session {session_id!r}'s settings", exc) from exc
-        self._forget_cached_session(session_id)
-        return deleted
 
     def _persist_session_states(self) -> None:
-        """Persist session states to PostgreSQL + Redis cache."""
+        """Persist session states to PostgreSQL."""
         try:
             db = _get_pg_db()
 
@@ -251,32 +233,29 @@ class DatabasePersistenceMixin:
                 }
                 db.save_session(session_id, state_dict)
 
-                # Update Redis cache for this session
-                self._cache_session(session_id, state)
-
         except Exception as exc:
             logger.warning(f"Failed to persist session states to PostgreSQL: {exc}")
 
     def _read_persisted_session(
         self, session_id: str, *, fresh: bool = False
     ) -> Optional[Dict[str, Any]]:
-        """The session as stored, Redis first (unless ``fresh``), then PostgreSQL; None when absent.
+        """The session as stored in PostgreSQL; ``{}`` when no row is stored, None when unreadable.
 
-        A manager that outlives a request re-reads its sessions through this
+        Every read is ``fresh``: no copy sits in front of PostgreSQL. A
+        manager that outlives a request re-reads its sessions through this
         once a second: the one ``PersistentSessionProvider`` holds for the
         whole process does. Returning None here (on the theory that every
         manager is request-scoped) left each process with the first copy of a
         session it read, so a profile applied through one api worker never
         reached the other workers, the Celery worker or the MCP server.
         """
-        cached = None if fresh else self._load_session_from_cache(session_id)
-        if isinstance(cached, dict) and cached:
-            return cached
         try:
             row = _get_pg_db().get_session(session_id)
         except Exception as exc:  # noqa: BLE001 - the cached copy is kept
             logger.debug(f"Could not read session {session_id} from PostgreSQL: {exc}")
             return None
+        if row is None:
+            return {}  # not stored: deleted, or never written
         return self._row_to_state_data(row) if isinstance(row, dict) and row else None
 
     def _sessions_on_profile(self, profile_name: str) -> Optional[List[Dict[str, Any]]]:
@@ -304,9 +283,6 @@ class DatabasePersistenceMixin:
         state = self._session_states.get(session_id)
         if state is None:
             return
-        # Redis's copy goes first: if writing the new one fails after the
-        # PostgreSQL write, readers read PostgreSQL rather than the old copy.
-        self._forget_cached_session(session_id)
         try:
             db = _get_pg_db()
             state_dict = {
@@ -320,7 +296,6 @@ class DatabasePersistenceMixin:
             db.save_session(session_id, state_dict)
         except Exception as exc:
             raise not_saved(f"the settings of session {session_id!r}", exc) from exc
-        self._cache_session(session_id, state)
 
     def _cleanup_old_sessions(self) -> None:
         """Remove expired sessions from PostgreSQL.
@@ -374,65 +349,3 @@ class DatabasePersistenceMixin:
                 )
         except Exception as exc:
             logger.warning(f"Session cleanup failed: {exc}")
-
-    # ------------------------------------------------------------------
-    # Redis cache helpers
-    # ------------------------------------------------------------------
-
-    def _cache_session(
-        self, session_id: str, state: KnowledgeConfigState, *, only_if_absent: bool = False
-    ) -> None:
-        """Write session state to Redis; ``only_if_absent`` (a refill) never replaces a copy."""
-        cache = _get_cache()
-        if cache is None:
-            return
-        try:
-            cache_data = {
-                "active_profile": state.active_profile,
-                "session_overrides": state.session_overrides,
-                "rag_enabled": state.rag_enabled,
-                "focused_document_ids": state.focused_document_ids,
-                "user_id": getattr(state, "user_id", None) or ANONYMOUS,
-                "last_accessed": state.last_accessed,
-            }
-            key = f"{self._CACHE_PREFIX_SESSION}{session_id}"
-            if not only_if_absent:
-                cache.save(key, cache_data)
-            elif hasattr(cache, "save_if_absent"):
-                cache.save_if_absent(key, cache_data)
-        except Exception as exc:
-            logger.debug(f"Failed to cache session {session_id}: {exc}")
-
-    def _forget_cached_session(self, session_id: str) -> None:
-        """Drop Redis's copy of the session, if there is a Redis."""
-        cache = _get_cache()
-        if cache is None:
-            return
-        try:
-            cache.delete(f"{self._CACHE_PREFIX_SESSION}{session_id}")
-        except Exception as exc:
-            logger.debug(f"Failed to drop the cached session {session_id}: {exc}")
-
-    def _cache_profiles(self, user_id: str) -> None:
-        """Write profile list to Redis cache."""
-        cache = _get_cache()
-        if cache is None:
-            return
-        try:
-            profiles_data = {
-                "profiles": [p.to_dict() for p in self._global_custom_profiles],
-                "cached_at": time.time(),
-            }
-            cache.save(f"{self._CACHE_PREFIX_PROFILES}{user_id}", profiles_data)
-        except Exception as exc:
-            logger.debug(f"Failed to cache profiles for {user_id}: {exc}")
-
-    def _load_session_from_cache(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """Try to load session state from Redis cache."""
-        cache = _get_cache()
-        if cache is None:
-            return None
-        try:
-            return cache.load(f"{self._CACHE_PREFIX_SESSION}{session_id}")
-        except Exception:
-            return None

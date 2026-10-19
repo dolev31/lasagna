@@ -269,7 +269,7 @@ class PersistenceMixin:
     def _read_persisted_session(
         self, session_id: str, *, fresh: bool = False
     ) -> Optional[Dict[str, Any]]:
-        """The session as stored, or None when it is not stored or cannot be read.
+        """The session as stored; ``{}`` when no row is stored, None when it cannot be read.
 
         SQLite has no cache in front of it, so every read is ``fresh``.
         """
@@ -278,8 +278,10 @@ class PersistenceMixin:
         except Exception as exc:
             logger.debug(f"Could not read session {session_id} from database: {exc}")
             return None
+        if row is None:
+            return {}  # not stored: deleted, or never written
         if not isinstance(row, dict) or not row:
-            return None  # none stored (or a stand-in store, which has no rows)
+            return None  # a stand-in store, which has no rows
         return {
             "active_profile": row.get("active_profile", "default"),
             "session_overrides": row.get("session_overrides", {}),

@@ -174,23 +174,6 @@ class RedisSessionStore:
         except Exception as exc:
             logger.warning(f"Redis session save failed for {session_id}: {exc}")
 
-    def save_if_absent(self, session_id: str, state: Dict[str, Any]) -> bool:
-        """Store ``state`` only when nothing is stored (``SET NX``); False when something was.
-
-        For a cache refill, which must never put a row it read over a newer
-        copy another worker wrote meanwhile.
-        """
-        try:
-            state["last_accessed"] = time.time()
-            return bool(
-                self._client.set(
-                    self._key(session_id), json.dumps(state, default=str), ex=self._ttl, nx=True
-                )
-            )
-        except Exception as exc:
-            logger.warning(f"Redis session save failed for {session_id}: {exc}")
-            return False
-
     def delete(self, session_id: str) -> bool:
         try:
             return self._client.delete(self._key(session_id)) > 0

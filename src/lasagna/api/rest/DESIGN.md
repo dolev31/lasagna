@@ -28,7 +28,7 @@ RAGBackend (lasagna.api.rag_backend), KnowledgeConfigManager, rate limiter
 `POST /api/v1/sessions` returns a JWT signed with HS256 that carries `(session_id, user_id)`.
 The server verifies it on each request with no database lookup.
 
-- Omitted ids are generated as `sess_<12 hex>` and `user_<12 hex>`. Naming a `session_id` or
+- Omitted ids are generated as `sess_<12 hex>` and `user_<12 hex>`; with auth on, `user_id` is the API key's digest (`key_<12 hex>`), so one key's sessions share one set of saved profiles. Naming a `session_id` or
   `user_id` in the body requires `X-Admin-Token` matching `RAG_ADMIN_TOKEN`, else 403: sessions
   are the isolation boundary, so choosing one is impersonation.
 - Claims: `sub` (user), `sid` (session), `typ: "session"`, `iat`, `exp`, `iss: "lasagna"`, and

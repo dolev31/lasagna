@@ -109,7 +109,7 @@ Creates a self-contained JWT session token encoding `(session_id, user_id)`. The
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `session_id` | string | No | Desired session ID. Generated (`sess_<hex>`) if omitted. Max 128 chars. Naming one needs `X-Admin-Token`. |
-| `user_id` | string | No | Desired user ID. Generated (`user_<hex>`) if omitted. Max 128 chars. Naming one needs `X-Admin-Token`. |
+| `user_id` | string | No | Desired user ID. Generated (`user_<hex>`) if omitted; with auth on, the key's digest (`key_<hex>`), shared by the key's sessions. Max 128 chars. Naming one needs `X-Admin-Token`. |
 
 **Headers:**
 

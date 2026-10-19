@@ -196,8 +196,8 @@ class DatabaseBackend(Protocol):
         """Documents of the session with one of ``statuses``, counted per collection."""
         ...
 
-    def get_saved_profiles(self) -> List[Dict[str, Any]]:
-        """Every saved (not built-in) profile, of every owner."""
+    def get_saved_profiles(self, owners: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """Saved (not built-in) profiles of ``owners`` (every owner when omitted)."""
         ...
 
     def delete_all_user_profiles(self, user_id: str) -> int:
