@@ -151,6 +151,19 @@ sup { font-size: 0.66em; line-height: 0; vertical-align: super; }
   display: flex; align-items: center; gap: 12px;
 }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--accent); text-decoration: none; flex: none; }
+.brand-mark { flex: none; display: block; }
+.brand-mark .bm-l0 { fill: #5F8446; } .brand-mark .bm-l1 { fill: #EBD49A; } .brand-mark .bm-l2 { fill: #A23F2B; }
+.brand-mark .bm-l7 { fill: #D9923A; } .brand-mark .bm-p { fill: #DDAE4A; } .brand-mark .bm-s { stroke: var(--accent); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .brand-mark .bm-l0 { fill: #7FA463; }
+  :root:not([data-theme="light"]) .brand-mark .bm-l2 { fill: #C4563B; }
+  :root:not([data-theme="light"]) .brand-mark .bm-l7 { fill: #E0A04A; }
+  :root:not([data-theme="light"]) .brand-mark .bm-p { fill: #E3B95A; }
+}
+:root[data-theme="dark"] .brand-mark .bm-l0 { fill: #7FA463; }
+:root[data-theme="dark"] .brand-mark .bm-l2 { fill: #C4563B; }
+:root[data-theme="dark"] .brand-mark .bm-l7 { fill: #E0A04A; }
+:root[data-theme="dark"] .brand-mark .bm-p { fill: #E3B95A; }
 .brand-name { color: var(--ink); font: 700 0.95rem/1 var(--sans); letter-spacing: 0.08em; }
 .nav-links {
   flex: 1 1 auto; min-width: 0;
