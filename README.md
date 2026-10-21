@@ -7,13 +7,17 @@
 
 **Test your RAG components against a real stack, not a toy baseline. Then give that stack to your agent.**
 
+Code for the paper **[Retrieval Augmented Generation Compositionality](https://dolev31.github.io/lasagna/)**<br>
+Ido Levy, Segev Shlomov and Leshem Choshen (IBM, Weizmann Institute of Science), 2026
+<!-- After the arXiv listing: point the title link at the arXiv abstract page and add an arXiv badge below. -->
+
 [![Project page](https://img.shields.io/badge/project-page-1f6feb.svg)](https://dolev31.github.io/lasagna/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/dolev31/lasagna/blob/main/LICENSE)
 [![Python 3.10 to 3.13](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12%20|%203.13-blue.svg)](https://www.python.org/downloads/)
 [![Tests](https://github.com/dolev31/lasagna/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/dolev31/lasagna/actions/workflows/tests.yml)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dolev31/lasagna/blob/main/examples/notebooks/compare_your_reranker.ipynb)
 
-[Guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md) · [How it compares](#how-lasagna-compares) · [Quickstart](#quickstart) · [Give your agent RAG](#give-your-agent-rag-mcp-rest-docker) · [Compare a component](#compare-a-component) · [What's inside](#whats-inside) · [Docs](#documentation)
+[The paper](#the-paper) · [Guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md) · [How it compares](#how-lasagna-compares) · [Quickstart](#quickstart) · [Give your agent RAG](#give-your-agent-rag-mcp-rest-docker) · [Compare a component](#compare-a-component) · [What's inside](#whats-inside) · [Docs](#documentation)
 
 </div>
 
@@ -34,10 +38,8 @@
   <sub>A real run with the idle waits cut: write a reranker, sweep it against a built-in, and get a Holm-corrected verdict.</sub>
 </p>
 
-Lasagna is the framework behind *Retrieval Augmented Generation
-Compositionality* (Levy, Shlomov and Choshen, 2026), a study of whether RAG
-gains measured one component at a time survive when the components are
-combined. [What it found](#the-paper).
+The paper asks whether RAG gains measured one component at a time survive
+when the components are combined. [What it found](#the-paper).
 
 ---
 
