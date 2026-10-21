@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/dolev31/lasagna/raw/main/docs/assets/hero-dark.png">
-  <img src="https://github.com/dolev31/lasagna/raw/main/docs/assets/hero-light.png" width="100%" alt="Lasagna: swap one RAG stage, hold the rest fixed, and measure what actually changed.">
+  <img src="https://github.com/dolev31/lasagna/raw/main/docs/assets/hero-light.png" width="100%" alt="Lasagna: a lasagna slice whose eight layers are the RAG stages, with the line: swap one RAG stage, hold the rest fixed, and measure what actually changed. Eight stage chips run from document_processor to generator, with reranker highlighted as your component.">
 </picture>
 
 **Test your RAG components against a real stack, not a toy baseline. Then give that stack to your agent.**
