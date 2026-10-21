@@ -23,8 +23,7 @@ the internal 0.1.0a1 pre-release (1.1) or from development builds since (1.2 to
 1.6) never share a leaderboard group with results from this release.
 
 Users of 0.1.0a1: read [Changed for users of 0.1.0a1](#changed-for-users-of-010a1)
-below. Every fix made between 0.1.0a1 and this release is described in the git
-history.
+below. The fixes made since 0.1.0a1 are described in the git history.
 
 ### Added
 
@@ -315,10 +314,9 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
 
 ### Known issues
 
-- **Windows needs WSL.** The default store, Milvus Lite, does not install on
-  Windows, so `pip install lasagna-rag` succeeds and the first upload fails.
-  Use WSL, or point Lasagna at a Milvus server or another vector store
-  (`RAG_VECTOR_BACKEND`).
+- **Windows needs WSL.** Milvus Lite, the default store, does not install on
+  Windows: `pip install lasagna-rag` succeeds and the first upload fails. Use
+  WSL, a Milvus server or another vector store (`RAG_VECTOR_BACKEND`).
 - **mcp 2.x is not supported.** `mcp` is pinned below 2.0 (2.0 removed
   `mcp.server.fastmcp`, which the MCP server imports), so an environment that
   needs mcp 2.x cannot also install Lasagna. Install it in an environment of
@@ -342,6 +340,9 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
   share it, or use a Milvus server.
 - **pip takes about two minutes to resolve `.[all]`.** uv resolves it in
   seconds (`uv pip install "lasagna-rag[all]"`).
+- **`beir/nfcorpus` is not pinned to a data revision** (`beir/scifact` is), so
+  its runs record a moving reference. Pin one with `LASAGNA_DATASET_REVISIONS`,
+  a JSON map from benchmark name to Hugging Face commit.
 
 ### Planned for 0.2.0
 
@@ -353,8 +354,7 @@ other callers use `/api/v1/config`, and they move under `/api/v1` in 0.2.0.
 - Weights & Biases and MLflow logging hooks.
 - Claim-level diagnostics of generated answers.
 - Calibration of the LLM judge against human labels.
-- Removal of the old names in "Renamed: the old name works through 0.1.x"
-  above.
+- Removal of the old names listed under "Renamed" above.
 
 ## [0.1.0a1] - 2026-08-18
 

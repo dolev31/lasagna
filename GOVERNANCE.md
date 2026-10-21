@@ -5,8 +5,8 @@ than saying so.
 
 ## Who decides
 
-Lasagna is currently maintained by a single maintainer, who has final say on
-what merges. That is not a permanent structure; it is a description of where
+Lasagna is currently maintained by a single maintainer, Ido Levy
+([@dolev31](https://github.com/dolev31)), who has final say on what merges. That is not a permanent structure; it is a description of where
 the project is. If a second person is reviewing regularly and their judgment
 is good, they get commit rights, and this file changes.
 
