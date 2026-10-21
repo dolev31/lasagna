@@ -92,6 +92,11 @@ os.environ["HOME"] = os.path.join(_ISOLATED_DATA_DIR, "home")
 os.makedirs(os.environ["HOME"], exist_ok=True)
 os.environ["RAGAS_DO_NOT_TRACK"] = "true"
 
+# GitHub Actions sets GITHUB_ACTIONS, and Typer then forces a color terminal
+# (read once, when typer.rich_utils is imported). CliRunner's help output would
+# carry ANSI codes, and the plain-text help checks would fail in CI only.
+os.environ["_TYPER_FORCE_DISABLE_TERMINAL"] = "1"
+
 # Starlette's TestClient sends ``Host: testserver``, and with auth off the API
 # answers only to loopback names and those in RAG_ALLOWED_HOSTS
 # (tests/test_loopback_servers_refuse_a_foreign_host.py). Name the test client
