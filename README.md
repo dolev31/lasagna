@@ -203,7 +203,7 @@ lasagna serve                      # REST API and configuration page on 127.0.0.
 > search that reranks (BGE-M3, 2.3 GB, and the reranker, 881 MB), and
 > 2.3 GB more with the `flag-embedding` extra (which `[all]` includes), since
 > FlagEmbedding fetches BGE-M3's whole repository, ONNX export included. On
-> release-gate runs its first search result took 3–40 minutes on a cold cache;
+> release-gate runs its first search result took 2–40 minutes on a cold cache;
 > the spread is the connection. Warm, a search took 117 ms (median) on the same
 > M1 Max using its GPU, and 3.1 seconds on two CPU threads. The default,
 > `standard`, `balanced` and `max_quality` profiles send queries they judge

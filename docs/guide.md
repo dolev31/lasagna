@@ -58,7 +58,7 @@ bundles record that as the `sentence_split_without_punkt` fallback.
 on the first upload or search *and* a reranker on the first search that
 reranks: about **3.2 GB** (BGE-M3, 2.3 GB, and the mxbai reranker, 881 MB;
 2.3 GB more with the `flag-embedding` extra, which fetches BGE-M3's whole
-repository, ONNX export included), and between 3 and 40 minutes to your first
+repository, ONNX export included), and between 2 and 40 minutes to your first
 search result on release-gate runs, depending on the connection. After that, a warm search on the speed profile takes tens of
 milliseconds (median 32 ms over 18,442 chunks on Milvus Lite). The default
 profile takes 7 to 9 s on two CPU threads, because its large reranker scores
