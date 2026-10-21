@@ -52,9 +52,13 @@ python3.12 scripts/check_release.py v0.1.0
 git commit -am "Release 0.1.0" && git push origin HEAD:main
 
 # 2. The one action that publishes: create the release on that exact commit.
+#    CHANGELOG.md links are relative to the repository; a release page needs
+#    them absolute, so they are pointed at the tagged tree.
 { awk '/^## \[0\.1\.0\] /{f=1; next} /^## \[/{f=0} f' CHANGELOG.md
   echo "Earlier changes: https://github.com/dolev31/lasagna/blob/v0.1.0/CHANGELOG.md"
-} > /tmp/notes-0.1.0.md
+} | perl -pe 's{\]\(#}{](CHANGELOG.md#}g;
+              s{\]\((?!https?://)}{](https://github.com/dolev31/lasagna/blob/v0.1.0/}g' \
+  > /tmp/notes-0.1.0.md
 gh release create v0.1.0 --repo dolev31/lasagna --target "$(git rev-parse HEAD)" \
   --title "Lasagna 0.1.0" --notes-file /tmp/notes-0.1.0.md
 gh run watch --repo dolev31/lasagna
