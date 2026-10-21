@@ -270,7 +270,7 @@ Issues = "https://github.com/dolev31/lasagna/issues"
 # PyPI renders these with their own sidebar icons. Documentation is the single
 # highest-value link on that page: a visitor who arrived from search has no
 # other signposted route to the guide.
-Documentation = "https://github.com/dolev31/lasagna/blob/main/docs/guide.md"
+Documentation = "https://dolev31.github.io/lasagna/docs/"
 Changelog = "https://github.com/dolev31/lasagna/blob/main/CHANGELOG.md"
 
 [project.scripts]
@@ -314,6 +314,18 @@ dev = [
     # Registers every metric with the real client (it is in `production`):
     # the no-op backend accepted a name with two label sets, Prometheus does not.
     "prometheus-client>=0.20,<1",
+]
+# The documentation site (mkdocs.yml). Exact versions: a theme or plugin minor
+# release has changed markup and broken `mkdocs build --strict` with no commit
+# here to point at. Build with `uv run --group docs mkdocs build --strict`.
+docs = [
+    "mkdocs==1.6.1",
+    "mkdocs-material==9.7.7",
+    "mkdocstrings==1.0.8",
+    "mkdocstrings-python==2.0.10",
+    "griffe==2.4.0",
+    "pymdown-extensions==12.3",
+    "mkdocs-autorefs==1.4.4",
 ]
 
 [build-system]
