@@ -30,6 +30,7 @@ Three pre-declared hypotheses; a 167-configuration D-optimal design over eight p
 ## Software
 
 - Install with `pip install lasagna-rag` (Apache-2.0); code at https://github.com/dolev31/lasagna.
+- Purpose: develop a RAG technique and test it inside the full pipeline. Write one stage as a Python function, sweep it against the built-in components with every other stage held fixed, and read a significance-tested verdict.
 - Eight swappable pipeline stages and 55 built-in components; a new component can be one Python function with one decorator.
 - A sweep holds every other stage fixed, records what reached each stage, flags arms that never changed a ranking, and reports paired sign-flip tests with Holm correction.
 - For agents: an MCP server for Claude Code, Claude Desktop and Cursor (22 tools by default, none that deletes; 29 with --tools all), a REST API, and a Docker deployment over six vector backends.

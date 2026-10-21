@@ -239,13 +239,15 @@
       <span class="brand-name">LASAGNA</span>
     </a>
     <nav class="nav-links" aria-label="Sections">
+      <a href="#develop">Develop</a>
       <a href="#overview">Overview</a>
       <a href="#findings">Findings</a>
       <a href="#results">Results</a>
       <a href="#figures">Figures</a>
-      <a href="#use">Use</a>
+      <a href="#release">Release</a>
       <a href="#faq">FAQ</a>
       <a href="#citation">Cite</a>
+      <a href="docs/">Docs</a>
     </nav>
     <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Dark theme" aria-pressed="false" title="Toggle dark theme">
       <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20.5 14.6A8.5 8.5 0 0 1 9.4 3.5a8.5 8.5 0 1 0 11.1 11.1Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
@@ -259,34 +261,118 @@
 <section class="hero" id="top" aria-labelledby="title">
   <div class="wrap hero-inner">
     <div class="motif" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-    <p class="eyebrow">Preprint · 2026</p>
-    <h1 id="title">Retrieval Augmented Generation <span class="title-accent">Compositionality</span></h1>
-    <p class="dek">Retrieval-augmented generation techniques are typically evaluated one at a time, so it remains unclear whether their isolated gains survive composition.</p>
+    <p class="eyebrow">Open source · Apache 2.0</p>
+    <p class="pitch">Develop a RAG technique <span class="title-accent">inside the full pipeline</span></p>
+    <p class="dek">Lasagna is an open-source framework for retrieval-augmented generation. Write one pipeline stage, sweep it against the built-in components with every other stage held fixed, and read a significance-tested verdict.</p>
+    <p class="why">Why: gains measured one technique at a time do not carry over. In our study, three retrieval techniques predicted a +47% NDCG@10 improvement together and delivered +17%.</p>
 
-    <ul class="authors">
-      <li><a href="https://www.linkedin.com/in/idolevi31/" rel="noopener" target="_blank">Ido Levy</a><sup>1,2</sup></li>
-      <li><a href="https://www.linkedin.com/in/segev-shlomov/" rel="noopener" target="_blank">Segev Shlomov</a><sup>1</sup></li>
-      <li><a href="https://www.linkedin.com/in/leshemchoshen/" rel="noopener" target="_blank">Leshem Choshen</a><sup>1,2</sup></li>
-    </ul>
-    <ul class="affils">
-      <li><sup>1</sup>IBM</li>
-      <li><sup>2</sup>Weizmann Institute of Science</li>
-    </ul>
+    <div class="pitch-actions">
+      <div class="install-chip">
+        <code id="hero-install">pip install lasagna-rag</code>
+        <button class="copy" type="button" data-copy="hero-install" aria-label="Copy the install command">Copy</button>
+      </div>
+      <a class="btn btn-primary" href="#develop"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 2.5v10M3.5 8.5 8 13l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Develop a technique</a>
+      <a class="btn" href="docs/"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 3.2c1.9-.5 3.7-.4 5.5.6v9.5c-1.8-1-3.6-1.1-5.5-.6zM13.5 3.2c-1.9-.5-3.7-.4-5.5.6v9.5c1.8-1 3.6-1.1 5.5-.6z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>Docs</a>
+    </div>
 
-    <ul class="actions">
+    <div class="hero-paper">
+      <p class="eyebrow">The paper · Preprint 2026</p>
+      <h1 id="title">Retrieval Augmented Generation <span class="title-accent">Compositionality</span></h1>
+
+      <ul class="authors">
+        <li><a href="https://www.linkedin.com/in/idolevi31/" rel="noopener" target="_blank">Ido Levy</a><sup>1,2</sup></li>
+        <li><a href="https://www.linkedin.com/in/segev-shlomov/" rel="noopener" target="_blank">Segev Shlomov</a><sup>1</sup></li>
+        <li><a href="https://www.linkedin.com/in/leshemchoshen/" rel="noopener" target="_blank">Leshem Choshen</a><sup>1,2</sup></li>
+      </ul>
+      <ul class="affils">
+        <li><sup>1</sup>IBM</li>
+        <li><sup>2</sup>Weizmann Institute of Science</li>
+      </ul>
+
+      <ul class="actions">
       <li><span class="btn btn-soon" aria-disabled="true"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 1.5h6l3 3v10h-9z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M9.5 1.5v3h3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>Paper<span class="soon">coming soon</span></span></li>
       <li><a class="btn btn-primary" href="https://github.com/dolev31/lasagna"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>Code</a></li>
       <li><a class="btn" href="https://github.com/dolev31/Lasagna-Retrieval-Augmented-Generation-Compositionality"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 2.5h8v11H4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M6 6h4M6 8.5h4M6 11h2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Preregistration</a></li>
       <li><a class="btn" href="#citation"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2.5 3.5h4.25v4.25H4.9c0 1.45.55 2.35 1.85 2.95l-.62 1.55C3.7 11.4 2.5 9.75 2.5 7.2zm6.75 0h4.25v4.25h-1.85c0 1.45.55 2.35 1.85 2.95l-.62 1.55c-2.43-.85-3.63-2.5-3.63-5.05z"/></svg>BibTeX</a></li>
-    </ul>
+      </ul>
+    </div>
+  </div>
+</section>
 
-    <figure class="video-card">
-      <div class="video-shell" id="video-shell">
-        <video id="explainer" width="1920" height="1080" autoplay muted playsinline loop controls preload="auto" poster="video/poster.webp" aria-label="Explainer video: the question, LASAGNA, the study, the findings, and the takeaway">
-          <source src="video/explainer.mp4" type="video/mp4">
-        </video>
-      </div>
+<section class="section" id="develop" aria-labelledby="develop-title">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <p class="kicker">Develop a technique</p>
+      <h2 id="develop-title">Write one stage. Test it in the full pipeline.</h2>
+      <p class="section-lede">A technique that helps on its own may add less once the other stages are in place. Lasagna puts your technique in the full stack, changes only that stage, and measures what it adds there.</p>
+    </div>
+    <ol class="steps">
+      <li class="step reveal">
+        <div class="step-text">
+          <p class="step-num" aria-hidden="true">1</p>
+          <h3>Write one stage</h3>
+          <p>A technique can be a plain Python function. One decorator registers it as a component of its stage, interchangeable with every built-in. Decorators exist for rerankers, query enhancers, chunkers, embedders, retrievers, document processors and generators.</p>
+        </div>
+        <div class="step-code">
+        <div class="code-block">
+          <div class="code-head"><span>Install</span><button class="copy" type="button" data-copy="code-install" aria-label="Copy the install command">Copy</button></div>
+          <pre id="code-install"><code>pip install lasagna-rag</code></pre>
+        </div>
+        <div class="code-block">
+          <div class="code-head"><span>my_ideas.py</span><button class="copy" type="button" data-copy="code-component" aria-label="Copy the component example">Copy</button></div>
+          <pre id="code-component"><code><span class="tok-k">import</span> lasagna
+
+@lasagna.reranker(<span class="tok-s">"keyword_overlap"</span>)
+<span class="tok-k">def</span> keyword_overlap(query, text):
+    shared = set(query.split()) &amp; set(text.split())
+    <span class="tok-k">return</span> len(shared)  <span class="tok-c"># score one passage</span></code></pre>
+        </div>
+        </div>
+      </li>
+      <li class="step reveal">
+        <div class="step-text">
+          <p class="step-num" aria-hidden="true">2</p>
+          <h3>Sweep it in a full pipeline</h3>
+          <p>Name your component next to a built-in in a sweep file. Each arm runs through the same pipeline with only that stage changed, and the run records what reached every stage. This sweep uses the speed profile, which needs no API key.</p>
+        </div>
+        <div class="step-code">
+        <div class="code-block">
+          <div class="code-head"><span>sweep.yaml</span><button class="copy" type="button" data-copy="code-sweep" aria-label="Copy the sweep file">Copy</button></div>
+          <pre id="code-sweep"><code><span class="tok-k">name:</span> does keyword_overlap help
+<span class="tok-k">benchmarks:</span> [{name: smoke}]
+<span class="tok-k">tracks:</span> [retrieval]
+<span class="tok-k">pipeline:</span>
+  <span class="tok-k">base_profile:</span> speed
+  <span class="tok-k">rerankers:</span> [cross_encoder, <span class="tok-s">"my_ideas:keyword_overlap"</span>]
+<span class="tok-k">n_runs:</span> 1  <span class="tok-c"># retrieval does not sample</span></code></pre>
+        </div>
+        </div>
+      </li>
+      <li class="step reveal">
+        <div class="step-text">
+          <p class="step-num" aria-hidden="true">3</p>
+          <h3>Read the verdict</h3>
+          <p>Run the sweep, then compare the arms on a benchmark. Each comparison gets a paired sign-flip test, with Holm correction across the sweep. An arm whose ranked lists never moved is flagged as inert.</p>
+        </div>
+        <div class="step-code">
+        <div class="code-block">
+          <div class="code-head"><span>Run</span><button class="copy" type="button" data-copy="code-run" aria-label="Copy the run commands">Copy</button></div>
+          <pre id="code-run"><code>lasagna benchmark experiment sweep.yaml
+lasagna results significance <span class="tok-s">"&lt;output&gt;/results.json"</span> -m ndcg@10 --all</code></pre>
+        </div>
+        </div>
+      </li>
+    </ol>
+
+    <figure class="figure demo-figure reveal">
+      <video id="demo" width="978" height="798" autoplay muted loop playsinline preload="metadata" poster="assets/demo-poster.webp" aria-label="Terminal demo: a one-function reranker is swept against the built-in cross-encoder on 100 BEIR SciFact queries; the run confirms stage isolation and ends in a Holm-corrected verdict that the cross-encoder wins by 0.091 NDCG@10.">
+        <source src="assets/demo.webm" type="video/webm">
+        <source src="assets/demo.mp4" type="video/mp4">
+      </video>
+      <figcaption>A real run with the idle waits cut: write a reranker, sweep it against a built-in, and get a Holm-corrected verdict.</figcaption>
     </figure>
+
+    <p class="develop-links reveal"><a class="link-arrow" href="docs/">Read the documentation<span aria-hidden="true"> →</span></a></p>
   </div>
 </section>
 
@@ -297,6 +383,13 @@
       <h2 id="tldr-title">TL;DR</h2>
       <p class="section-lede">We pre-declare three hypotheses and test 450 configurations across eight benchmarks and corpora from 5K to 200K documents with LASAGNA, an open-source framework for controlled RAG evaluation.</p>
     </div>
+    <figure class="video-card reveal">
+      <div class="video-shell" id="video-shell">
+        <video id="explainer" width="1920" height="1080" autoplay muted playsinline loop controls preload="auto" poster="video/poster.webp" aria-label="Explainer video: the question, LASAGNA, the study, the findings, and the takeaway">
+          <source src="video/explainer.mp4" type="video/mp4">
+        </video>
+      </div>
+    </figure>
     <ul class="stats">
       <li class="stat reveal">
         <p class="stat-value"><span class="was"><span class="sr-only">Predicted </span>+47%</span><span class="arrow" aria-hidden="true">→</span><span class="now"><span class="sr-only">, realized </span>+17%</span></p>
@@ -452,59 +545,20 @@
   </div>
 </section>
 
-<section class="section" id="use" aria-labelledby="use-title">
+<section class="section" id="release" aria-labelledby="release-title">
   <div class="wrap">
-    <div class="use">
-      <div class="use-text reveal">
-        <p class="kicker">Code</p>
-        <h2 id="use-title">Use LASAGNA</h2>
-        <p>The framework and evaluation harness let you swap one RAG pipeline stage, hold the other seven fixed, and benchmark the change with a paired significance test.</p>
-        <p>Your technique can be a plain Python function. One decorator makes it a component of its stage, interchangeable with every built-in.</p>
-        <p><a class="link-arrow" href="https://github.com/dolev31/lasagna#compare-a-component">Compare a component, with no model download, corpus or API key<span aria-hidden="true"> →</span></a></p>
-        <p><a class="link-arrow" href="https://github.com/dolev31/lasagna#quickstart">Quickstart in the repository README<span aria-hidden="true"> →</span></a></p>
-        <p><a class="link-arrow" href="https://github.com/dolev31/lasagna">Source code on GitHub (Apache-2.0)<span aria-hidden="true"> →</span></a></p>
-        <p><a class="link-arrow" href="https://colab.research.google.com/github/dolev31/lasagna/blob/main/examples/notebooks/compare_your_reranker.ipynb">Run it in Colab on 100 BEIR SciFact queries, with no API key<span aria-hidden="true"> →</span></a></p>
-        <p><a class="link-arrow" href="https://github.com/dolev31/lasagna#give-your-agent-rag-mcp-rest-docker">Give your agent RAG over your documents: an MCP server for Claude Code, Claude Desktop and Cursor, a REST API and a Docker stack<span aria-hidden="true"> →</span></a></p>
-      </div>
-      <div class="use-code reveal">
-        <div class="code-block">
-          <div class="code-head"><span>Install</span><button class="copy" type="button" data-copy="code-install" aria-label="Copy the install command">Copy</button></div>
-          <pre id="code-install"><code>pip install lasagna-rag</code></pre>
-        </div>
-        <div class="code-block">
-          <div class="code-head"><span>my_ideas.py</span><button class="copy" type="button" data-copy="code-component" aria-label="Copy the component example">Copy</button></div>
-          <pre id="code-component"><code><span class="tok-k">import</span> lasagna
-
-@lasagna.reranker(<span class="tok-s">"keyword_overlap"</span>)
-<span class="tok-k">def</span> keyword_overlap(query, text):
-    shared = set(query.split()) &amp; set(text.split())
-    <span class="tok-k">return</span> len(shared)  <span class="tok-c"># score one passage</span></code></pre>
-        </div>
-        <div class="code-block">
-          <div class="code-head"><span>sweep.yaml</span><button class="copy" type="button" data-copy="code-sweep" aria-label="Copy the sweep file">Copy</button></div>
-          <pre id="code-sweep"><code><span class="tok-k">name:</span> does keyword_overlap help
-<span class="tok-k">benchmarks:</span> [{name: smoke}]
-<span class="tok-k">tracks:</span> [retrieval]
-<span class="tok-k">pipeline:</span>
-  <span class="tok-k">base_profile:</span> speed
-  <span class="tok-k">rerankers:</span> [cross_encoder, <span class="tok-s">"my_ideas:keyword_overlap"</span>]
-<span class="tok-k">n_runs:</span> 3</code></pre>
-        </div>
-        <div class="code-block">
-          <div class="code-head"><span>Run</span><button class="copy" type="button" data-copy="code-run" aria-label="Copy the run commands">Copy</button></div>
-          <pre id="code-run"><code>lasagna benchmark experiment sweep.yaml
-lasagna results significance <span class="tok-s">"&lt;output&gt;/results.json"</span> -m ndcg@10 --all</code></pre>
-        </div>
-      </div>
+    <div class="section-head reveal">
+      <p class="kicker">Release</p>
+      <h2 id="release-title">What ships in Lasagna</h2>
+      <p class="section-lede">The framework and evaluation harness from the paper, released under Apache 2.0.</p>
     </div>
-
-    <figure class="figure demo-figure reveal">
-      <video id="demo" width="978" height="798" autoplay muted loop playsinline preload="metadata" poster="assets/demo-poster.webp" aria-label="Terminal demo: a one-function reranker is swept against the built-in cross-encoder on 100 BEIR SciFact queries; the run confirms stage isolation and ends in a Holm-corrected verdict that the cross-encoder wins by 0.091 NDCG@10.">
-        <source src="assets/demo.webm" type="video/webm">
-        <source src="assets/demo.mp4" type="video/mp4">
-      </video>
-      <figcaption>A real run with the idle waits cut: write a reranker, sweep it against a built-in, and get a Holm-corrected verdict.</figcaption>
-    </figure>
+    <div class="release-links reveal">
+      <p><a class="link-arrow" href="https://github.com/dolev31/lasagna#compare-a-component">Compare a component, with no model download, corpus or API key<span aria-hidden="true"> →</span></a></p>
+      <p><a class="link-arrow" href="https://github.com/dolev31/lasagna#quickstart">Quickstart in the repository README<span aria-hidden="true"> →</span></a></p>
+      <p><a class="link-arrow" href="https://github.com/dolev31/lasagna">Source code on GitHub (Apache-2.0)<span aria-hidden="true"> →</span></a></p>
+      <p><a class="link-arrow" href="https://colab.research.google.com/github/dolev31/lasagna/blob/main/examples/notebooks/compare_your_reranker.ipynb">Run it in Colab on 100 BEIR SciFact queries, with no API key<span aria-hidden="true"> →</span></a></p>
+      <p><a class="link-arrow" href="https://github.com/dolev31/lasagna#give-your-agent-rag-mcp-rest-docker">Give your agent RAG over your documents: an MCP server for Claude Code, Claude Desktop and Cursor, a REST API and a Docker stack<span aria-hidden="true"> →</span></a></p>
+    </div>
 
     <div class="use-facts">
       <h3 class="use-facts-title reveal">In the release</h3>
@@ -537,6 +591,7 @@ lasagna results significance <span class="tok-s">"&lt;output&gt;/results.json"</
       <p class="repro-note">NDCG@10. Published: BEIR (Thakur et al., NeurIPS 2021, Table 2) and the MTEB results repository.</p>
       <p><a class="link-arrow" href="https://github.com/dolev31/lasagna/blob/main/examples/reproduction/README.md">Rerun it in about half an hour, with no API key<span aria-hidden="true"> →</span></a></p>
     </div>
+
   </div>
 </section>
 
