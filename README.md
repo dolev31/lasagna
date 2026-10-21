@@ -7,8 +7,9 @@
 
 **Test your RAG components against a real stack, not a toy baseline. Then give that stack to your agent.**
 
-Code for the paper **[Retrieval Augmented Generation Compositionality](https://dolev31.github.io/lasagna/)**<br>
-Ido Levy, Segev Shlomov and Leshem Choshen (IBM, Weizmann Institute of Science), 2026
+Code for **[Retrieval Augmented Generation Compositionality](https://dolev31.github.io/lasagna/)**<br>
+[Ido Levy](https://www.linkedin.com/in/idolevi31/)<sup>1,2</sup> · [Segev Shlomov](https://www.linkedin.com/in/segev-shlomov/)<sup>1</sup> · [Leshem Choshen](https://www.linkedin.com/in/leshemchoshen/)<sup>1,2</sup><br>
+<sup>1</sup>IBM · <sup>2</sup>Weizmann Institute of Science
 <!-- After the arXiv listing: point the title link at the arXiv abstract page and add an arXiv badge below. -->
 
 [![Project page](https://img.shields.io/badge/project-page-1f6feb.svg)](https://dolev31.github.io/lasagna/)
@@ -17,20 +18,9 @@ Ido Levy, Segev Shlomov and Leshem Choshen (IBM, Weizmann Institute of Science),
 [![Tests](https://github.com/dolev31/lasagna/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/dolev31/lasagna/actions/workflows/tests.yml)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dolev31/lasagna/blob/main/examples/notebooks/compare_your_reranker.ipynb)
 
-[The paper](#the-paper) · [Guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md) · [How it compares](#how-lasagna-compares) · [Quickstart](#quickstart) · [Give your agent RAG](#give-your-agent-rag-mcp-rest-docker) · [Compare a component](#compare-a-component) · [What's inside](#whats-inside) · [Docs](#documentation)
+**[Quickstart](#quickstart)** · **[Compare a component](#compare-a-component)** · **[Give your agent RAG](#give-your-agent-rag-mcp-rest-docker)** · **[Guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md)** · **[The paper](#the-paper)**
 
 </div>
-
-> **For researchers** publishing a component and needing a defensible number:
-> [compare a component](#compare-a-component) against a real stack, with a
-> significance test, in minutes and with no API key.
->
-> **For agent builders** who want search over their own documents as a tool
-> call: [an MCP server](#give-your-agent-rag-mcp-rest-docker) for Claude Code,
-> Claude Desktop and Cursor, a REST API, and a Docker Compose stack.
->
-> **For engineers** choosing between six vector backends and a dozen retrieval
-> strategies without building the harness first.
 
 <p align="center">
   <img src="https://github.com/dolev31/lasagna/raw/main/docs/assets/demo.gif" width="800" alt="Terminal demo: a three-line @lasagna.reranker function that scores query-word overlap is swept against the built-in cross_encoder on 100 BEIR SciFact queries. The run confirms stage isolation, and lasagna results significance ends in a green box: cross_encoder beats keyword_overlap by +0.091 nDCG@10 (d_z 0.38, Holm p = 1e-4) on 100 queries.">
@@ -38,8 +28,12 @@ Ido Levy, Segev Shlomov and Leshem Choshen (IBM, Weizmann Institute of Science),
   <sub>A real run with the idle waits cut: write a reranker, sweep it against a built-in, and get a Holm-corrected verdict.</sub>
 </p>
 
-The paper asks whether RAG gains measured one component at a time survive
-when the components are combined. [What it found](#the-paper).
+| You want to | Start here |
+|---|---|
+| Show that your component helps, with a significance test and no API key | [Compare a component](#compare-a-component) |
+| Give an agent search over your own documents (MCP, REST, Docker) | [Give your agent RAG](#give-your-agent-rag-mcp-rest-docker) |
+| Pick a vector backend and retrieval strategy without building a harness | [Quickstart](#quickstart), then [What's inside](#whats-inside) |
+| Read what the paper found | [The paper](#the-paper) |
 
 ---
 
@@ -709,7 +703,7 @@ executed by the release gate; report anything elsewhere that does not work.
 ## The paper
 
 Lasagna is the framework behind **[Retrieval Augmented Generation Compositionality](https://dolev31.github.io/lasagna/)**
-(Ido Levy, Segev Shlomov, Leshem Choshen, 2026). The study tests 450 configurations across eight
+([Ido Levy](https://www.linkedin.com/in/idolevi31/), [Segev Shlomov](https://www.linkedin.com/in/segev-shlomov/), [Leshem Choshen](https://www.linkedin.com/in/leshemchoshen/), 2026). The study tests 450 configurations across eight
 benchmarks and corpora from 5K to 200K documents, and asks whether gains measured one component at
 a time survive when the components are combined.
 
