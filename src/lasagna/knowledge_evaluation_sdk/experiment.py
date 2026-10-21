@@ -859,6 +859,11 @@ def _corpus_census(
     The documents (all, or an evenly spread ``_CENSUS_DOCUMENTS`` of them)
     and their chunks: a corpus another process deleted, or ingested again on
     top, differs in one or the other. A few queries, as the pre-flight asks.
+
+    A Milvus Lite store records no ingest stamp: one process at a time opens
+    it, so no other can ingest into it under this run. Processes that each
+    keep their own Lite file but share one metadata store register the same
+    document ids again, which changed the stamp and stopped every such run.
     """
     ids = sorted(document_ids)
     if len(ids) > _CENSUS_DOCUMENTS:
@@ -870,7 +875,7 @@ def _corpus_census(
         "documents": ids,
         "present": present,
         "chunks": chunks,
-        "ingest": _ingest_stamp(ids),
+        "ingest": None if getattr(backend, "is_lite", False) else _ingest_stamp(ids),
     }
 
 

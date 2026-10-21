@@ -253,6 +253,35 @@ def test_a_corpus_deleted_and_ingested_again_under_a_run_is_noticed(tmp_path, mo
     assert "numbers are not recorded" in changed and "run this one again" in changed
 
 
+def test_a_lite_store_is_not_flagged_when_another_store_registers_its_documents(
+    tmp_path, monkeypatch
+):
+    """Two processes, each with its own Milvus Lite file, one metadata store.
+
+    The second process's ingest into its own file registered the same
+    document ids again, at its own time, and the first run stopped with "was
+    ingested again" although its own store never changed (CI, Python 3.11).
+    A Lite file admits one process, so its census compares the counts only.
+    """
+    import lasagna.core.database as database
+    from lasagna.core.database import RAGDatabase
+    from lasagna.knowledge_evaluation_sdk import experiment as exp
+
+    db = RAGDatabase(str(tmp_path / "rag.db"))
+    monkeypatch.setattr(database, "get_rag_database", lambda: db)
+    store = _SharedStore()
+    store.is_lite = True
+    store.rows = ["d1", "d1", "d2", "d2", "d2"]
+    _register(db, "s", ["d1", "d2"], "2026-10-19T10:00:00+00:00")
+    census = exp._corpus_census(store, "c", "s", ["d1", "d2"])
+    slot = {"session_id": "s", "corpus_census": census, "_census_store": lambda: store}
+
+    _register(db, "s", ["d1", "d2"], "2026-10-19T10:30:00+00:00")  # the other file's ingest
+    assert exp._corpus_changed(slot) is None
+    store.rows = ["d1", "d1"]  # a change in its own store is still caught
+    assert "changed while this run used it" in exp._corpus_changed(slot)
+
+
 def test_a_count_that_fails_once_is_asked_again(monkeypatch):
     """One failed count (a dropped connection) no longer discards the task's numbers."""
     from lasagna.knowledge_evaluation_sdk import experiment as exp
