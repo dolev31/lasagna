@@ -6,7 +6,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.1.0] - YYYY-MM-DD
+## [0.1.0] - 2026-10-21
 
 The first public release. Lasagna is a RAG framework built for comparing one
 part of a pipeline with everything else held fixed: eight swappable stages and
