@@ -27,9 +27,9 @@ version: "0.1.0"
 # the CHANGELOG date (RELEASING.md); the release workflow refuses a tag where
 # the two differ.
 date-released: "2026-10-21"
-# Filled in after the GitHub Release, when Zenodo mints it. Switch the Zenodo
-# integration on BEFORE creating the release; it only archives later releases.
-# doi: "10.5281/zenodo.XXXXXXX"
+# The Zenodo DOI of this version. 10.5281/zenodo.23548068 names every version
+# and resolves to the latest one.
+doi: "10.5281/zenodo.23548069"
 abstract: >-
   Lasagna isolates the stages of a retrieval-augmented generation pipeline
   behind typed contracts so that a single component can be replaced while

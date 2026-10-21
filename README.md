@@ -13,6 +13,8 @@ Code for **[Retrieval Augmented Generation Compositionality](https://dolev31.git
 <!-- After the arXiv listing: point the title link at the arXiv abstract page and add an arXiv badge below. -->
 
 [![Project page](https://img.shields.io/badge/project-page-1f6feb.svg)](https://dolev31.github.io/lasagna/)
+[![PyPI](https://img.shields.io/pypi/v/lasagna-rag.svg)](https://pypi.org/project/lasagna-rag/)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23548068.svg)](https://doi.org/10.5281/zenodo.23548068)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/dolev31/lasagna/blob/main/LICENSE)
 [![Python 3.10 to 3.13](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12%20|%203.13-blue.svg)](https://www.python.org/downloads/)
 [![Tests](https://github.com/dolev31/lasagna/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/dolev31/lasagna/actions/workflows/tests.yml)
