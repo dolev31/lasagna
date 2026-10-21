@@ -139,10 +139,9 @@
     dialog.addEventListener("close", function () { if (opener) opener.focus(); });
   }
 
-  /* ---- explainer video: muted, plays on click ---- */
+  /* ---- explainer video: autoplays muted on loop, unless reduced motion is set ---- */
   var shell = document.getElementById("video-shell");
   var video = document.getElementById("explainer");
-  var play = document.getElementById("play");
   if (shell && video) {
     video.muted = true;
     var fallbacks = ["video/poster.png", "assets/fig-overview.png"];
@@ -160,32 +159,20 @@
     probe(video.getAttribute("poster"));
 
     var source = video.querySelector("source");
-    var broken = function () {
+    if (source) source.addEventListener("error", function () {
       shell.classList.add("is-fallback");
       video.removeAttribute("controls");
       video.poster = "assets/fig-overview.png";
-    };
-    if (source) source.addEventListener("error", broken);
-
-    // Before the first play, the overlay button is the one control; the native controls
-    // (present in the HTML for visitors without JS) come back as soon as playback starts.
-    var start = function () {
-      if (shell.classList.contains("is-fallback")) return;
-      video.muted = true;
-      video.setAttribute("controls", "");
-      shell.classList.add("is-playing");
-      var p = video.play();
-      if (p && p.catch) p.catch(function () { /* the native controls remain */ });
-    };
-    if (play) {
-      video.removeAttribute("controls");
-      play.addEventListener("click", function () { start(); video.focus(); });
-      video.addEventListener("click", function () { if (!shell.classList.contains("is-playing")) start(); });
-    }
-    video.addEventListener("play", function () {
-      shell.classList.add("is-playing");
-      if (!video.hasAttribute("controls")) video.setAttribute("controls", "");
     });
+
+    if (reduceMotion.matches) {
+      video.removeAttribute("autoplay");
+      video.pause();
+    } else {
+      // A browser that refuses autoplay (data saver, low power mode) leaves the native controls.
+      var p = video.play();
+      if (p && p.catch) p.catch(function () {});
+    }
   }
   /* ---- terminal demo: autoplays muted on loop, unless reduced motion is set ---- */
   var demo = document.getElementById("demo");

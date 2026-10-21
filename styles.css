@@ -218,6 +218,8 @@ h1 {
   font: 500 1.0625rem/1.5 var(--sans); color: var(--ink);
 }
 .authors sup { color: var(--accent); font-weight: 600; margin-left: 1px; }
+.authors a, .footer-authors a { color: inherit; text-decoration: none; }
+.authors a:hover, .footer-authors a:hover { color: var(--accent); text-decoration: underline; }
 .affils {
   margin-top: 6px;
   display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 18px;
@@ -257,29 +259,6 @@ h1 {
 }
 .video-shell video { width: 100%; height: 100%; object-fit: contain; background: #121211; }
 .video-shell.is-fallback video { background: #FFFFFF; }
-.play {
-  display: none;
-  position: absolute; left: 50%; top: 81%; transform: translate(-50%, -50%);
-  align-items: center; gap: 12px;
-  padding: 10px 20px 10px 10px; border-radius: 999px;
-  border: 1px solid rgb(255 255 255 / 0.18);
-  background: rgb(18 18 17 / 0.62);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-  color: #FFFFFF; font: 600 0.9375rem/1 var(--sans); white-space: nowrap; cursor: pointer;
-  transition: background-color 0.15s ease, transform 0.15s ease;
-}
-.js .play { display: inline-flex; }
-.play:hover { background: rgb(27 94 168 / 0.85); }
-.play-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 999px; background: #FFFFFF; color: #121211; }
-.play-icon svg { margin-left: 2px; }
-.video-shell.is-playing .play, .video-shell.is-fallback .play { display: none; }
-.js .video-shell:not(.is-playing):not(.is-fallback) video { cursor: pointer; }
-@media (max-width: 559px) {
-  .play { top: 82%; gap: 6px; padding: 3px 11px 3px 3px; font-size: 0.75rem; }
-  .play-icon { width: 26px; height: 26px; }
-  .play-icon svg { width: 14px; height: 14px; }
-}
-
 /* ---------- sections ---------- */
 .section { padding-block: clamp(64px, 9vw, 120px); scroll-margin-top: var(--nav-h); }
 .band { background: var(--band); border-block: 1px solid var(--line); }
@@ -579,7 +558,7 @@ strong.cell-val { color: var(--accent); font-weight: 650; }
 }
 
 @media print {
-  .nav, .play, .copy, .theme-toggle, .skip, .video-card { display: none !important; }
+  .nav, .copy, .theme-toggle, .skip, .video-card { display: none !important; }
   .js .reveal { opacity: 1 !important; transform: none !important; }
   .band { background: none; }
 }
