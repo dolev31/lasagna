@@ -7,15 +7,15 @@
 
 **Test your RAG components against a real stack, not a toy baseline. Then give that stack to your agent.**
 
-Code for **[Retrieval Augmented Generation Compositionality](https://dolev31.github.io/lasagna/)**<br>
+Code for **[Retrieval Augmented Generation Compositionality](https://arxiv.org/abs/2610.29722)**<br>
 [Ido Levy](https://www.linkedin.com/in/idolevi31/)<sup>1,2</sup> · [Segev Shlomov](https://www.linkedin.com/in/segev-shlomov/)<sup>1</sup> · [Leshem Choshen](https://www.linkedin.com/in/leshemchoshen/)<sup>1,2</sup><br>
 <sup>1</sup>IBM · <sup>2</sup>Weizmann Institute of Science
-<!-- After the arXiv listing: point the title link at the arXiv abstract page and add an arXiv badge below. -->
 
+[![arXiv](https://img.shields.io/badge/arXiv-2610.29722-b31b1b.svg)](https://arxiv.org/abs/2610.29722)
 [![Project page](https://img.shields.io/badge/project-page-1f6feb.svg)](https://dolev31.github.io/lasagna/)
 [![Docs](https://img.shields.io/badge/docs-read-1f6feb.svg)](https://dolev31.github.io/lasagna/docs/)
 [![PyPI](https://img.shields.io/pypi/v/lasagna-rag.svg)](https://pypi.org/project/lasagna-rag/)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23548068.svg)](https://doi.org/10.5281/zenodo.23548068)
+[![DOI](https://zenodo.org/badge/1428808706.svg)](https://doi.org/10.5281/zenodo.23548068)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/dolev31/lasagna/blob/main/LICENSE)
 [![Python 3.10 to 3.13](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12%20|%203.13-blue.svg)](https://www.python.org/downloads/)
 [![Tests](https://github.com/dolev31/lasagna/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/dolev31/lasagna/actions/workflows/tests.yml)
@@ -705,7 +705,7 @@ executed by the release gate; report anything elsewhere that does not work.
 
 ## The paper
 
-Lasagna is the framework behind **[Retrieval Augmented Generation Compositionality](https://dolev31.github.io/lasagna/)**
+Lasagna is the framework behind **[Retrieval Augmented Generation Compositionality](https://arxiv.org/abs/2610.29722)**
 ([Ido Levy](https://www.linkedin.com/in/idolevi31/), [Segev Shlomov](https://www.linkedin.com/in/segev-shlomov/), [Leshem Choshen](https://www.linkedin.com/in/leshemchoshen/), 2026). The study tests 450 configurations across eight
 benchmarks and corpora from 5K to 200K documents, and asks whether gains measured one component at
 a time survive when the components are combined.
@@ -722,8 +722,7 @@ a time survive when the components are combined.
 **The best pipeline also changes with corpus size.** At 200K documents, the design that leads at
 small corpora trails by 13.7% NDCG@10, with the rank flip visible from 25K.
 
-[Project page](https://dolev31.github.io/lasagna/) · [Explainer video](https://dolev31.github.io/lasagna/#explainer) · [Pre-registration](https://github.com/dolev31/Lasagna-Retrieval-Augmented-Generation-Compositionality)
-<!-- After the arXiv listing: add the paper link to this row, and the arXiv id to the BibTeX below and to CITATION.cff. -->
+[Paper](https://arxiv.org/abs/2610.29722) · [PDF](https://arxiv.org/pdf/2610.29722) · [Project page](https://dolev31.github.io/lasagna/) · [Explainer video](https://dolev31.github.io/lasagna/#explainer) · [Pre-registration](https://github.com/dolev31/Lasagna-Retrieval-Augmented-Generation-Compositionality)
 
 ### Citing Lasagna
 
@@ -733,11 +732,13 @@ To cite the paper:
 
 ```bibtex
 @misc{levy2026retrieval,
-  title  = {Retrieval Augmented Generation Compositionality},
-  author = {Levy, Ido and Shlomov, Segev and Choshen, Leshem},
-  year   = {2026},
-  note   = {Preprint},
-  url    = {https://dolev31.github.io/lasagna/}
+  title         = {Retrieval Augmented Generation Compositionality},
+  author        = {Levy, Ido and Shlomov, Segev and Choshen, Leshem},
+  year          = {2026},
+  eprint        = {2610.29722},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL},
+  url           = {https://arxiv.org/abs/2610.29722}
 }
 ```
 

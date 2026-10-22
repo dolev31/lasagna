@@ -6,13 +6,17 @@ ready-made entry.
 
 ## The paper
 
+The paper is on arXiv as [2610.29722](https://arxiv.org/abs/2610.29722).
+
 ```bibtex
 @misc{levy2026retrieval,
-  title  = {Retrieval Augmented Generation Compositionality},
-  author = {Levy, Ido and Shlomov, Segev and Choshen, Leshem},
-  year   = {2026},
-  note   = {Preprint},
-  url    = {https://dolev31.github.io/lasagna/}
+  title         = {Retrieval Augmented Generation Compositionality},
+  author        = {Levy, Ido and Shlomov, Segev and Choshen, Leshem},
+  year          = {2026},
+  eprint        = {2610.29722},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL},
+  url           = {https://arxiv.org/abs/2610.29722}
 }
 ```
 

@@ -61,9 +61,13 @@ preferred-citation:
       family-names: "Choshen"
       affiliation: "IBM; Weizmann Institute of Science"
   year: 2026
-  url: "https://dolev31.github.io/lasagna/"
-  # After the arXiv listing, add:
-  # journal: "arXiv preprint arXiv:XXXX.XXXXX"
-  # identifiers:
-  #   - type: url
-  #     value: "https://arxiv.org/abs/XXXX.XXXXX"
+  month: 10
+  journal: "arXiv preprint arXiv:2610.29722"
+  url: "https://arxiv.org/abs/2610.29722"
+  identifiers:
+    - type: other
+      value: "arXiv:2610.29722"
+      description: "The arXiv identifier"
+    - type: url
+      value: "https://dolev31.github.io/lasagna/"
+      description: "The project page"

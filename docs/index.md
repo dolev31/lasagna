@@ -16,6 +16,7 @@ difference is real. The same pipeline also serves your agent over MCP and REST.
 [Get started](get-started/quickstart.md){ .lg-button .lg-button--primary }
 [Compare a component](guides/compare-a-component.md){ .lg-button }
 [View on GitHub](https://github.com/dolev31/lasagna){ .lg-button }
+[Project page and paper](https://dolev31.github.io/lasagna/){ .lg-button }
 </div>
 
 </div>

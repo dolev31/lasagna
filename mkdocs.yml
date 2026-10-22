@@ -50,6 +50,23 @@ theme:
     - content.tabs.link
     - toc.follow
 
+# The logo leads back to the project page; the Home tab stays on the docs.
+extra:
+  homepage: https://dolev31.github.io/lasagna/
+  social:
+    - icon: material/home
+      link: https://dolev31.github.io/lasagna/
+      name: Project page
+    - icon: simple/arxiv
+      link: https://arxiv.org/abs/2610.29722
+      name: The paper on arXiv
+    - icon: fontawesome/brands/github
+      link: https://github.com/dolev31/lasagna
+      name: Code on GitHub
+    - icon: simple/pypi
+      link: https://pypi.org/project/lasagna-rag/
+      name: lasagna-rag on PyPI
+
 extra_css:
   - stylesheets/extra.css
 
@@ -138,3 +155,5 @@ nav:
       - Security: project/security.md
       - Citing: project/citing.md
       - Model licenses: model-licenses.md
+      - Project page: https://dolev31.github.io/lasagna/
+      - The paper on arXiv: https://arxiv.org/abs/2610.29722

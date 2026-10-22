@@ -272,6 +272,7 @@ Issues = "https://github.com/dolev31/lasagna/issues"
 # other signposted route to the guide.
 Documentation = "https://dolev31.github.io/lasagna/docs/"
 Changelog = "https://github.com/dolev31/lasagna/blob/main/CHANGELOG.md"
+Paper = "https://arxiv.org/abs/2610.29722"
 
 [project.scripts]
 lasagna = "lasagna.cli:main"

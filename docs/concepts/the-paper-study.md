@@ -3,7 +3,7 @@
 Lasagna is the framework behind the paper *Retrieval Augmented Generation
 Compositionality* by Ido Levy, Segev Shlomov and Leshem Choshen (2026). This page
 says what the study asked and how the framework made it possible. For the full
-results, read the [paper](https://dolev31.github.io/lasagna/).
+results, read the [paper](https://arxiv.org/abs/2610.29722).
 
 ## The question
 
