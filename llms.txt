@@ -49,7 +49,7 @@ Three pre-declared hypotheses; a 167-configuration D-optimal design over eight p
 
 ## Publication status
 
-Preprint on arXiv: [2610.29722](https://arxiv.org/abs/2610.29722) (cs.CL, cross-listed in cs.IR), submitted 21 October 2026. PDF: https://arxiv.org/pdf/2610.29722
+Preprint on arXiv: [2610.29722](https://arxiv.org/abs/2610.29722) (cs.CL, cross-listed in cs.AI), submitted 21 October 2026. PDF: https://arxiv.org/pdf/2610.29722
 
 ## Questions and answers
 
