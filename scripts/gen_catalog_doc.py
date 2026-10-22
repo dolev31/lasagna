@@ -151,7 +151,10 @@ NEEDS: Dict[Tuple[str, str], str] = {
     ("chunker", "contextual"): LLM,
     ("embedder", "default"): MODEL,
     ("embedder", "sentence_transformers"): MODEL,
-    ("embedder", "bge_m3"): "Downloads BAAI/bge-m3 on first use; `[flag-embedding]` adds its sparse and multi-vector outputs",
+    (
+        "embedder",
+        "bge_m3",
+    ): "Downloads BAAI/bge-m3 on first use; `[flag-embedding]` adds its sparse and multi-vector outputs",
     ("embedder", "openai"): "`openai` package and `OPENAI_API_KEY`",
     ("embedder", "cohere"): "`pip install cohere` and `COHERE_API_KEY` (or `CO_API_KEY`)",
     ("embedder", "voyage"): "`pip install voyageai` and `VOYAGE_API_KEY`",
@@ -353,7 +356,10 @@ def _stages_page(components: List[dict]) -> str:
             "",
         ]
         if by_stage.get(stage):
-            lines += [f"The {by_stage[stage]} built-in components are listed in the [component catalog](components.md#{_anchor(s['title'])}).", ""]
+            lines += [
+                f"The {by_stage[stage]} built-in components are listed in the [component catalog](components.md#{_anchor(s['title'])}).",
+                "",
+            ]
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -370,7 +376,9 @@ def _components_page(components: List[dict]) -> str:
         )
     stale = sorted(set(NEEDS) - {(c["stage"], c["name"]) for c in components})
     if stale:
-        raise SystemExit(f"scripts/gen_catalog_doc.py: NEEDS names components that are gone: {stale}")
+        raise SystemExit(
+            f"scripts/gen_catalog_doc.py: NEEDS names components that are gone: {stale}"
+        )
 
     lines = [
         "# Components",
@@ -462,7 +470,11 @@ def _load() -> Tuple[List[dict], List[Tuple[str, object, bool]]]:
     components = [c for c in registry.list_components() if c["builtin"]]
     rows = []
     for name, info in sorted(benchmark_registry.list_benchmarks().items()):
-        if name == "smoke" or name.startswith("private_eval/") or not benchmark_registry.is_builtin(name):
+        if (
+            name == "smoke"
+            or name.startswith("private_eval/")
+            or not benchmark_registry.is_builtin(name)
+        ):
             continue
         rows.append((name, info, bool(_adapter_has_corpus(benchmark_registry.get(name)))))
     return components, rows
@@ -491,7 +503,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         ]
         if stale:
             print(
-                "docs/catalog/" + ", docs/catalog/".join(stale)
+                "docs/catalog/"
+                + ", docs/catalog/".join(stale)
                 + " out of date: run python scripts/gen_catalog_doc.py",
                 file=sys.stderr,
             )

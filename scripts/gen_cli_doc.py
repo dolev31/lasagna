@@ -69,7 +69,12 @@ def _escape(text: str) -> str:
         if i % 2:
             out.append(part.replace("|", "\\|"))
         else:
-            out.append(part.replace("<", "&lt;").replace(">", "&gt;").replace("|", "\\|").replace("*", "\\*"))
+            out.append(
+                part.replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("|", "\\|")
+                .replace("*", "\\*")
+            )
     return "".join(out)
 
 
@@ -91,10 +96,13 @@ def _body(text: str) -> str:
             continue
         if all(line.startswith((" ", "\t")) for line in lines):
             blocks.append("```text\n" + "\n".join(inspect.cleandoc(para).splitlines()) + "\n```")
-        elif any(line.lstrip().startswith(("- ", "* ", "$ ", "lasagna ")) for line in lines[1:]) or lines[0].startswith(("$ ", "lasagna ")):
+        elif any(
+            line.lstrip().startswith(("- ", "* ", "$ ", "lasagna ")) for line in lines[1:]
+        ) or lines[0].startswith(("$ ", "lasagna ")):
             # A list or a shell example: keep the lines as written.
             if lines[0].startswith(("$ ", "lasagna ")) or all(
-                line.lstrip().startswith(("$ ", "lasagna ", "#")) or line.startswith(" ") for line in lines
+                line.lstrip().startswith(("$ ", "lasagna ", "#")) or line.startswith(" ")
+                for line in lines
             ):
                 blocks.append("```console\n" + "\n".join(lines) + "\n```")
             else:
@@ -142,7 +150,13 @@ def _type(param) -> str:
     name = param.type.name.upper()
     if hasattr(param.type, "choices"):
         return " | ".join(param.type.choices)
-    return {"STRING": "text", "INTEGER": "int", "FLOAT": "float", "BOOLEAN": "bool", "PATH": "path"}.get(name, name.lower())
+    return {
+        "STRING": "text",
+        "INTEGER": "int",
+        "FLOAT": "float",
+        "BOOLEAN": "bool",
+        "PATH": "path",
+    }.get(name, name.lower())
 
 
 def _options_table(cmd) -> List[str]:
@@ -153,12 +167,21 @@ def _options_table(cmd) -> List[str]:
         lines += ["**Arguments**", "", "| Argument | Required | Description |", "|---|:--:|---|"]
         for p in args:
             label = p.human_readable_name.upper() + ("..." if p.nargs == -1 else "")
-            lines.append(f"| `{label}` | {'yes' if p.required else 'no'} | {_cell(getattr(p, 'help', '') or '')} |")
+            lines.append(
+                f"| `{label}` | {'yes' if p.required else 'no'} | {_cell(getattr(p, 'help', '') or '')} |"
+            )
         lines.append("")
     if opts:
-        lines += ["**Options**", "", "| Option | Type | Default | Description |", "|---|---|---|---|"]
+        lines += [
+            "**Options**",
+            "",
+            "| Option | Type | Default | Description |",
+            "|---|---|---|---|",
+        ]
         for p in opts:
-            names = ", ".join(f"`{n}`" for n in sorted(p.opts, key=lambda n: (not n.startswith("--"), n)))
+            names = ", ".join(
+                f"`{n}`" for n in sorted(p.opts, key=lambda n: (not n.startswith("--"), n))
+            )
             if p.secondary_opts:
                 names += " / " + ", ".join(f"`{n}`" for n in p.secondary_opts)
             lines.append(f"| {names} | {_type(p)} | {_default(p)} | {_cell(p.help or '')} |")
@@ -178,7 +201,11 @@ def _usage(cmd, path: str) -> str:
 
 
 def _visible(group):
-    return [(name, cmd) for name, cmd in sorted(group.commands.items()) if not getattr(cmd, "hidden", False)]
+    return [
+        (name, cmd)
+        for name, cmd in sorted(group.commands.items())
+        if not getattr(cmd, "hidden", False)
+    ]
 
 
 def _command_section(cmd, path: str, level: int) -> List[str]:
@@ -201,7 +228,9 @@ def render() -> str:
     top_plain = [(n, c) for n, c in _visible(root) if not _is_group(c)]
     groups = [(n, c) for n, c in _visible(root) if _is_group(c)]
 
-    documents = [x for x in top_plain if x[0] in ("init", "upload", "search", "status", "export", "import")]
+    documents = [
+        x for x in top_plain if x[0] in ("init", "upload", "search", "status", "export", "import")
+    ]
     setup = [x for x in top_plain if x[0] in ("configure", "doctor", "serve")]
     left = {n for n, _ in top_plain} - {n for n, _ in documents + setup}
     if left:  # a new top-level command must be placed on purpose
@@ -209,27 +238,51 @@ def render() -> str:
 
     sections = [("documents", "Documents", documents)]
     for name, grp in groups:
-        sections.append((name, GROUP_TITLES.get(name, name.capitalize()), [(f"{name} {n}", c) for n, c in _visible(grp)]))
+        sections.append(
+            (
+                name,
+                GROUP_TITLES.get(name, name.capitalize()),
+                [(f"{name} {n}", c) for n, c in _visible(grp)],
+            )
+        )
     sections.append(("setup", "Setup and serving", setup))
-    order = ["documents", "benchmark", "results", "component", "plugins", "pipelines", "skills", "setup"]
+    order = [
+        "documents",
+        "benchmark",
+        "results",
+        "component",
+        "plugins",
+        "pipelines",
+        "skills",
+        "setup",
+    ]
     sections.sort(key=lambda s: order.index(s[0]) if s[0] in order else len(order))
 
     index_rows = ["| Group | Commands | What it is for |", "|---|---|---|"]
     for key, title, cmds in sections:
         anchor = _anchor(title)
         names = ", ".join(f"`{n}`" for n, _ in cmds)
-        blurb = GROUP_BLURBS.get(key, _first_sentence(dict(groups).get(key).help) if key in dict(groups) else "")
+        blurb = GROUP_BLURBS.get(
+            key, _first_sentence(dict(groups).get(key).help) if key in dict(groups) else ""
+        )
         index_rows.append(f"| [{title}](#{anchor}) | {names} | {blurb} |")
 
     glob_rows = ["| Option | Description |", "|---|---|"]
     for p in root.params:
         if p.name in ("install_completion", "show_completion"):
             continue
-        names = ", ".join(f"`{n}`" for n in sorted(p.opts, key=lambda n: (not n.startswith("--"), n)))
+        names = ", ".join(
+            f"`{n}`" for n in sorted(p.opts, key=lambda n: (not n.startswith("--"), n))
+        )
         glob_rows.append(f"| {names} | {_cell(p.help or '')} |")
-    glob_rows.append("| `--install-completion`, `--show-completion` | Install shell completion, or print it to copy. |")
+    glob_rows.append(
+        "| `--install-completion`, `--show-completion` | Install shell completion, or print it to copy. |"
+    )
 
-    out: List[str] = [HEADER.format(index="\n".join(index_rows), globals="\n".join(glob_rows)).rstrip(), ""]
+    out: List[str] = [
+        HEADER.format(index="\n".join(index_rows), globals="\n".join(glob_rows)).rstrip(),
+        "",
+    ]
     for key, title, cmds in sections:
         out += [f"## {title}", ""]
         if key in GROUP_BLURBS:
@@ -253,7 +306,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.check:
         current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
         if current != text:
-            print(f"{OUT.relative_to(ROOT)} is out of date: run python scripts/gen_cli_doc.py", file=sys.stderr)
+            print(
+                f"{OUT.relative_to(ROOT)} is out of date: run python scripts/gen_cli_doc.py",
+                file=sys.stderr,
+            )
             return 1
         return 0
     OUT.write_text(text, encoding="utf-8")
