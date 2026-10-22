@@ -49,7 +49,7 @@ Three pre-declared hypotheses; a 167-configuration D-optimal design over eight p
 
 ## Publication status
 
-Preprint.
+Preprint on arXiv: [2610.29722](https://arxiv.org/abs/2610.29722) (cs.CL, cross-listed in cs.IR), submitted 21 October 2026. PDF: https://arxiv.org/pdf/2610.29722
 
 ## Questions and answers
 
@@ -79,8 +79,11 @@ Eight benchmarks unified into one multi-domain corpus: five BEIR sets for retrie
 
 ## Links
 
+- [Paper on arXiv](https://arxiv.org/abs/2610.29722): the full paper, with the appendix
 - [Project page](https://dolev31.github.io/lasagna/): overview, results and citation
 - [Code](https://github.com/dolev31/lasagna): The LASAGNA framework and evaluation harness: eight swappable RAG pipeline stages and 55 built-in components. Swap one stage, hold the rest fixed, and get a paired significance test on the change. Apache-2.0.
+- [Documentation](https://dolev31.github.io/lasagna/docs/): installing Lasagna, writing a component, running a sweep, and the reference
+- [Software DOI](https://doi.org/10.5281/zenodo.23548068): the archived releases of the code on Zenodo
 - [Preregistration](https://github.com/dolev31/Lasagna-Retrieval-Augmented-Generation-Compositionality): The pre-declared hypotheses and analysis plan.
 
 ## Abstract
@@ -91,9 +94,12 @@ Retrieval Augmented Generation (RAG) grounds large language models in external k
 
 ```bibtex
 @misc{levy2026retrieval,
-  title  = {Retrieval Augmented Generation Compositionality},
-  author = {Levy, Ido and Shlomov, Segev and Choshen, Leshem},
-  year   = {2026},
-  note   = {Preprint}
+  title         = {Retrieval Augmented Generation Compositionality},
+  author        = {Levy, Ido and Shlomov, Segev and Choshen, Leshem},
+  year          = {2026},
+  eprint        = {2610.29722},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL},
+  url           = {https://arxiv.org/abs/2610.29722}
 }
 ```
