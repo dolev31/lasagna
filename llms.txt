@@ -83,6 +83,7 @@ Eight benchmarks unified into one multi-domain corpus: five BEIR sets for retrie
 - [Project page](https://dolev31.github.io/lasagna/): overview, results and citation
 - [Code](https://github.com/dolev31/lasagna): The LASAGNA framework and evaluation harness: eight swappable RAG pipeline stages and 55 built-in components. Swap one stage, hold the rest fixed, and get a paired significance test on the change. Apache-2.0.
 - [Documentation](https://dolev31.github.io/lasagna/docs/): installing Lasagna, writing a component, running a sweep, and the reference
+- [Podcast](https://dolev31.github.io/lasagna/#podcast): a 25-minute AI-generated conversation about the paper and LASAGNA, made with NotebookLM. It paraphrases the paper; where they differ, the paper is right. Transcript: https://dolev31.github.io/lasagna/audio/why-stacked-rag-components-fail.txt
 - [Software DOI](https://doi.org/10.5281/zenodo.23548068): the archived releases of the code on Zenodo
 - [Preregistration](https://github.com/dolev31/Lasagna-Retrieval-Augmented-Generation-Compositionality): The pre-declared hypotheses and analysis plan.
 

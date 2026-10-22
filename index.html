@@ -251,6 +251,24 @@
 }
 </script>
 <!-- PEO:HEAD:END -->
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "AudioObject",
+ "@id": "https://dolev31.github.io/lasagna/#podcast",
+ "name": "Why Stacked RAG Components Fail",
+ "description": "A 25-minute AI-generated conversation, made with NotebookLM, about the paper Retrieval Augmented Generation Compositionality and the LASAGNA framework. It paraphrases the paper; where they differ, the paper is right.",
+ "contentUrl": "https://dolev31.github.io/lasagna/audio/why-stacked-rag-components-fail.m4a",
+ "encodingFormat": "audio/mp4",
+ "duration": "PT25M34S",
+ "uploadDate": "2026-10-22",
+ "inLanguage": "en",
+ "about": {
+  "@id": "https://dolev31.github.io/lasagna/#paper"
+ },
+ "url": "https://dolev31.github.io/lasagna/#podcast"
+}
+</script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -263,6 +281,7 @@
     </a>
     <nav class="nav-links" aria-label="Sections">
       <a href="#develop">Develop</a>
+      <a href="#podcast">Podcast</a>
       <a href="#overview">Overview</a>
       <a href="#findings">Findings</a>
       <a href="#results">Results</a>
@@ -315,6 +334,7 @@
       <ul class="actions">
       <li><a class="btn" href="https://arxiv.org/abs/2610.29722"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 1.5h6l3 3v10h-9z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M9.5 1.5v3h3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>Paper</a></li>
       <li><a class="btn btn-primary" href="https://github.com/dolev31/lasagna"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>Code</a></li>
+      <li><a class="btn" href="#podcast"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 10.5V8.5a5.5 5.5 0 0 1 11 0v2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M2.5 10h2.25v4H3.5a1 1 0 0 1-1-1zM13.5 10h-2.25v4h1.25a1 1 0 0 0 1-1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>Podcast</a></li>
       <li><a class="btn" href="https://github.com/dolev31/Lasagna-Retrieval-Augmented-Generation-Compositionality"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 2.5h8v11H4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M6 6h4M6 8.5h4M6 11h2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Preregistration</a></li>
       <li><a class="btn" href="#citation"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2.5 3.5h4.25v4.25H4.9c0 1.45.55 2.35 1.85 2.95l-.62 1.55C3.7 11.4 2.5 9.75 2.5 7.2zm6.75 0h4.25v4.25h-1.85c0 1.45.55 2.35 1.85 2.95l-.62 1.55c-2.43-.85-3.63-2.5-3.63-5.05z"/></svg>BibTeX</a></li>
       </ul>
@@ -434,6 +454,429 @@ lasagna results significance <span class="tok-s">"&lt;output&gt;/results.json"</
   </div>
 </section>
 
+<section class="section" id="podcast" aria-labelledby="podcast-title">
+  <div class="wrap narrow">
+    <div class="section-head reveal">
+      <p class="kicker">Listen</p>
+      <h2 id="podcast-title">Podcast</h2>
+      <p class="section-lede">Two AI hosts talk through the study and the LASAGNA framework in 25 minutes. Below are the chapters, a full transcript, and the places where the episode differs from the paper.</p>
+    </div>
+    <figure class="podcast-card reveal">
+      <div class="podcast-top">
+        <div class="podcast-cover" aria-hidden="true"><svg class="brand-mark" viewBox="0 0 32 32" width="44" height="44" aria-hidden="true" focusable="false"><rect x="4" y="26" width="24" height="4" class="bm-l0"/><rect x="4" y="20" width="24" height="4" class="bm-l1"/><rect x="4" y="14" width="24" height="4" class="bm-l2"/><path d="M4 12V8Q7 5 10 7Q13 5 16 7Q19 5 22 7Q25 5 28 8V12Z" class="bm-l7"/><rect x="2" y="12" width="28" height="2" class="bm-p"/><rect x="2" y="18" width="28" height="2" class="bm-p"/><rect x="2" y="24" width="28" height="2" class="bm-p"/><rect x="2" y="30" width="28" height="2" class="bm-p"/><g fill="none" stroke-width="2" stroke-linecap="round" class="bm-s"><path d="M9 5.5c-1-1 1-1.5 0-3.5"/><path d="M15 5.5c-1-1.2 1-1.8 0-4.5"/><path d="M21 5.5c-1-1 1-1.5 0-3.5"/></g></svg></div>
+        <div>
+          <p class="podcast-label">Audio overview</p>
+          <p class="podcast-title">Why Stacked RAG Components Fail</p>
+          <p class="podcast-meta">25 min 34 s · M4A, 12 MB · English</p>
+        </div>
+      </div>
+      <audio id="podcast-audio" controls preload="metadata" aria-label="Podcast: Why Stacked RAG Components Fail" aria-describedby="podcast-note">
+        <source src="audio/why-stacked-rag-components-fail.m4a" type="audio/mp4">
+        <a href="audio/why-stacked-rag-components-fail.m4a">Download the episode (M4A, 12 MB)</a>
+      </audio>
+      <ul class="podcast-actions">
+        <li><a class="btn" href="audio/why-stacked-rag-components-fail.m4a" type="audio/mp4" download><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 2.5v10M3.5 8.5 8 13l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Download</a></li>
+        <li><a class="btn" href="audio/why-stacked-rag-components-fail.txt" type="text/plain"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 1.5h6l3 3v10h-9z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M9.5 1.5v3h3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>Transcript</a></li>
+        <li><a class="btn" href="audio/why-stacked-rag-components-fail.vtt" type="text/vtt" download><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 2.5h8v11H4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M6 6h4M6 8.5h4M6 11h2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Captions (VTT)</a></li>
+      </ul>
+      <figcaption class="podcast-note" id="podcast-note">Made from the paper with NotebookLM. The hosts are AI voices and they paraphrase; where they differ from the paper, the paper is right. Speaker labels in the transcript were assigned automatically.</figcaption>
+    </figure>
+    <h3 class="podcast-h" id="chapters-title">Chapters</h3>
+    <ol class="chapters" aria-labelledby="chapters-title">
+      <li><button type="button" data-chapter data-seek="0"><span class="ch-time">00:00</span> <span class="ch-title">The gains that vanish</span></button></li>
+      <li><button type="button" data-chapter data-seek="129"><span class="ch-time">02:09</span> <span class="ch-title">What RAG is</span></button></li>
+      <li><button type="button" data-chapter data-seek="205"><span class="ch-time">03:25</span> <span class="ch-title">Testing one component at a time</span></button></li>
+      <li><button type="button" data-chapter data-seek="269"><span class="ch-time">04:29</span> <span class="ch-title">Two metrics: retrieval and faithfulness</span></button></li>
+      <li><button type="button" data-chapter data-seek="406"><span class="ch-time">06:46</span> <span class="ch-title">Why retrieval gains overlap</span></button></li>
+      <li><button type="button" data-chapter data-seek="566"><span class="ch-time">09:26</span> <span class="ch-title">Lasagna and stage isolation</span></button></li>
+      <li><button type="button" data-chapter data-seek="710"><span class="ch-time">11:50</span> <span class="ch-title">Cost, configurator, significance tests and MCP</span></button></li>
+      <li><button type="button" data-chapter data-seek="833"><span class="ch-time">13:53</span> <span class="ch-title">No best configuration: the four profiles</span></button></li>
+      <li><button type="button" data-chapter data-seek="976"><span class="ch-time">16:16</span> <span class="ch-title">The cost of agentic loops</span></button></li>
+      <li><button type="button" data-chapter data-seek="1125"><span class="ch-time">18:45</span> <span class="ch-title">Corpus size and the rank flip</span></button></li>
+      <li><button type="button" data-chapter data-seek="1236"><span class="ch-time">20:36</span> <span class="ch-title">Distractors, hierarchical chunking and merging</span></button></li>
+      <li><button type="button" data-chapter data-seek="1395"><span class="ch-time">23:15</span> <span class="ch-title">Three lessons</span></button></li>
+      <li><button type="button" data-chapter data-seek="1449"><span class="ch-time">24:09</span> <span class="ch-title">Stronger generators and lighter pipelines</span></button></li>
+    </ol>
+    <div class="faq podcast-more reveal">
+      <details>
+        <summary><h3>Where the episode differs from the paper</h3></summary>
+        <p class="loose-intro">The hosts get the main results right: 450 configurations, eight benchmarks, retrieval gains predicted at +47% that deliver +17%, faithfulness gains that carry over (+28% predicted, +32% realized), the four profiles, and the rank flip as the corpus grows. These are the places where they simplify or overstate.</p>
+        <ul class="loose">
+          <li>
+            <button type="button" class="seek-pill" data-seek="406"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3 1.8 10 6l-7 4.2z" fill="currentColor"/></svg><span class="sr-only">Play from </span>06:46</button>
+            <div>
+              <p class="loose-said">"A mechanical conflict the paper calls functional duplication" ... "they just destroy each other's work."</p>
+              <p>The paper uses "functional duplication" for HyDE combined with reranking. For MMR, it reports that MMR lowers NDCG@10 by 3.6% on these focused corpora, and that reranking already gives part of the benefit of turning MMR off. That is a partial overlap, not two methods canceling each other out. The hosts' account of why MMR hurts here matches the paper's hypothesis.</p>
+            </div>
+          </li>
+          <li>
+            <button type="button" class="seek-pill" data-seek="622"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3 1.8 10 6l-7 4.2z" fill="currentColor"/></svg><span class="sr-only">Play from </span>10:22</button>
+            <div>
+              <p class="loose-said">"About nine distinct stages" (and "the other eight stages", "nine-stage pipeline").</p>
+              <p>LASAGNA has eight stages, so a swap holds the other seven fixed.</p>
+            </div>
+          </li>
+          <li>
+            <button type="button" class="seek-pill" data-seek="665"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3 1.8 10 6l-7 4.2z" fill="currentColor"/></svg><span class="sr-only">Play from </span>11:05</button>
+            <div>
+              <p class="loose-said">"It caches the exact intermediate outputs" ... "It guarantees at a mathematical level..."</p>
+              <p>Each stage sits behind a fixed interface, and five automated isolation tests check that toggling one component does not change another. The ingested corpus is cached and reused when its settings match, so a retriever swap does not re-parse or re-chunk. This is tested, not proven mathematically.</p>
+            </div>
+          </li>
+          <li>
+            <button type="button" class="seek-pill" data-seek="782"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3 1.8 10 6l-7 4.2z" fill="currentColor"/></svg><span class="sr-only">Play from </span>13:02</button>
+            <div>
+              <p class="loose-said">"Paired statistical tests to prove..." ... "It mathematically verifies..."</p>
+              <p>LASAGNA runs a paired sign-flip test, with Holm correction across a sweep. The test estimates how likely a gain is to be noise; it does not prove that a gain is real.</p>
+            </div>
+          </li>
+          <li>
+            <button type="button" class="seek-pill" data-seek="1016"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3 1.8 10 6l-7 4.2z" fill="currentColor"/></svg><span class="sr-only">Play from </span>16:56</button>
+            <div>
+              <p class="loose-said">Agentic loops are "incredible for pushing that faithfulness score up."</p>
+              <p>On a strong retrieval stack, the paper finds that adding an agentic loop gives only a negligible faithfulness gain, while retrieval quality and latency get worse.</p>
+            </div>
+          </li>
+          <li>
+            <button type="button" class="seek-pill" data-seek="1024"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3 1.8 10 6l-7 4.2z" fill="currentColor"/></svg><span class="sr-only">Play from </span>17:04</button>
+            <div>
+              <p class="loose-said">"A snappy two-second response to a 14-second delay."</p>
+              <p>Mean latencies in the paper: Speed 0.70 s, Standard 5.30 s, Balanced 12.25 s, Max-Reliable 14.16 s.</p>
+            </div>
+          </li>
+          <li>
+            <button type="button" class="seek-pill" data-seek="1225"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3 1.8 10 6l-7 4.2z" fill="currentColor"/></svg><span class="sr-only">Play from </span>20:25</button>
+            <div>
+              <p class="loose-said">"A near 14% drop in search quality" (and "the system breaks", "plummets").</p>
+              <p>13.7% is how far Balanced leads Standard at 200K documents (p = 0.003), as the hosts say correctly at 20:19. Standard declines gradually as the corpus grows (log-linearly); it does not break.</p>
+            </div>
+          </li>
+          <li>
+            <button type="button" class="seek-pill" data-seek="1303"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3 1.8 10 6l-7 4.2z" fill="currentColor"/></svg><span class="sr-only">Play from </span>21:43</button>
+            <div>
+              <p class="loose-said">Post-retrieval merging "looks at multiple different search strategies like keyword matching and semantic vector similarity and mathematically fuses the results."</p>
+              <p>Balanced adds a structured-graph merge after retrieval. Combining keyword and vector search (hybrid retrieval) is a separate setting that Balanced and Standard share, so it does not explain the gap between them.</p>
+            </div>
+          </li>
+        </ul>
+        <p class="loose-outro">The hosts also speak more strongly than the paper in general. Its results come from one constructed English multi-domain test bed, and every headline result uses proprietary generators.</p>
+      </details>
+      <details class="transcript">
+        <summary><h3>Transcript</h3></summary>
+        <p class="tr-intro">Also as <a href="audio/why-stacked-rag-components-fail.txt">plain text</a> and <a href="audio/why-stacked-rag-components-fail.vtt" download>captions (VTT)</a>. Speaker labels were assigned automatically from the audio and may be wrong on short replies. Select a chapter heading to play from there.</p>
+        <div class="tr-body" tabindex="0" role="region" aria-label="Transcript">
+          <section class="tr-chapter" aria-labelledby="tr-ch-1">
+            <h4 id="tr-ch-1"><button type="button" class="tr-seek" data-chapter data-seek="0"><span class="ch-time">00:00</span> <span class="ch-title">The gains that vanish</span></button></h4>
+            <p class="tr-turn tr-h" data-t="0.0"><span class="tr-spk">Host 1</span> So imagine you add three brand new upgrades to a piece of software you&#x27;re building.</p>
+            <p class="tr-turn tr-l" data-t="4.6"><span class="tr-spk">Host 2</span> Right.</p>
+            <p class="tr-turn tr-h" data-t="5.1"><span class="tr-spk">Host 1</span> You know, you read the documentation, you look at all the industry benchmarks, and, well, each individual upgrade promises this massive boost in capability.</p>
+            <p class="tr-turn tr-l" data-t="13.0"><span class="tr-spk">Host 2</span> Oh, yeah. They always do on paper.</p>
+            <p class="tr-turn tr-h" data-t="14.3"><span class="tr-spk">Host 1</span> Right. On paper. If you add their individual scores together, they should equal like a 47% improvement in performance.</p>
+            <p class="tr-turn tr-l" data-t="21.2"><span class="tr-spk">Host 2</span> A huge jump.</p>
+            <p class="tr-turn tr-h" data-t="22.0"><span class="tr-spk">Host 1</span> Exactly. So you compile the code, you turn the system on, and you only get a 17% boost. I mean, almost two-thirds of the expected performance just completely vanished. Where did it actually go?</p>
+            <p class="tr-turn tr-l" data-t="34.1"><span class="tr-spk">Host 2</span> It is honestly a developer&#x27;s absolute worst nightmare.</p>
+            <p class="tr-turn tr-h" data-t="36.8"><span class="tr-spk">Host 1</span> Yeah, I bet.</p>
+            <p class="tr-turn tr-l" data-t="37.8"><span class="tr-spk">Host 2</span> You know, you source the absolute best components available, you verify them individually, you string them all together, and the final math simply refuses to add up.</p>
+            <p class="tr-turn tr-h" data-t="46.5"><span class="tr-spk">Host 1</span> Like 1 plus 1 equals 1.5.</p>
+            <p class="tr-turn tr-l" data-t="48.7"><span class="tr-spk">Host 2</span> Exactly. This system somehow becomes like less than the sum of its parts.</p>
+            <p class="tr-turn tr-h" data-t="52.3"><span class="tr-spk">Host 1</span> And that disappearing math problem is really the core of our deep dive today. We are looking at this heavily discussed new paper. It&#x27;s titled Retrieval Augmented Generation Compositionality.</p>
+            <p class="tr-turn tr-l" data-t="64.3"><span class="tr-spk">Host 2</span> Such a mouthful.</p>
+            <p class="tr-turn tr-h" data-t="65.0"><span class="tr-spk">Host 1</span> It is, yeah. And we&#x27;re also looking at its companion, which is this brand new open source framework called Lasagna.</p>
+            <p class="tr-turn tr-l" data-t="71.3"><span class="tr-spk">Host 2</span> Which is a much better name.</p>
+            <p class="tr-turn tr-h" data-t="72.3"><span class="tr-spk">Host 1</span> Way better name. So our mission today, for you listening, is to pull back the curtain on how developers are currently building AI systems. Explore why the tech industry&#x27;s standard method of testing these setups is, well, fundamentally broken.</p>
+            <p class="tr-turn tr-l" data-t="84.9"><span class="tr-spk">Host 2</span> Completely broken, yeah.</p>
+            <p class="tr-turn tr-h" data-t="85.7"><span class="tr-spk">Host 1</span> And break down how this Lasagna framework can prevent some truly catastrophic failures before an AI application ever reaches the public.</p>
+            <p class="tr-turn tr-l" data-t="93.4"><span class="tr-spk">Host 2</span> Yeah, because the findings in this study, they really require a massive shift in how we approach reliable AI.</p>
+            <p class="tr-turn tr-h" data-t="99.0"><span class="tr-spk">Host 1</span> It&#x27;s not just a small tweak.</p>
+            <p class="tr-turn tr-l" data-t="100.3"><span class="tr-spk">Host 2</span> No, not at all. The researchers didn&#x27;t just run a handful of quick isolated tests. They engineered an incredible 450 unique configurations.</p>
+            <p class="tr-turn tr-h" data-t="109.4"><span class="tr-spk">Host 1</span> 450. That&#x27;s a lot of testing.</p>
+            <p class="tr-turn tr-l" data-t="111.7"><span class="tr-spk">Host 2</span> Right. And they did it across eight different benchmarks and then scaled those tests from a baseline of 5,000 documents all the way up to 200,000 documents.</p>
+            <p class="tr-turn tr-h" data-t="121.2"><span class="tr-spk">Host 1</span> Okay, wow. Before we jump into those massive numbers, though, we should probably set the table for anyone listening who might be checking out this project for the first time.</p>
+            <p class="tr-turn tr-l" data-t="128.9"><span class="tr-spk">Host 2</span> Good idea.</p>
+          </section>
+          <section class="tr-chapter" aria-labelledby="tr-ch-2">
+            <h4 id="tr-ch-2"><button type="button" class="tr-seek" data-chapter data-seek="129"><span class="ch-time">02:09</span> <span class="ch-title">What RAG is</span></button></h4>
+            <p class="tr-turn tr-h" data-t="129.5"><span class="tr-spk">Host 1</span> Because we are talking about RAG today, Retrieval Augmented Generation. Let&#x27;s make sure we clearly define the mechanics of what that actually is.</p>
+            <p class="tr-turn tr-l" data-t="137.7"><span class="tr-spk">Host 2</span> Yeah, keep it simple.</p>
+            <p class="tr-turn tr-h" data-t="138.6"><span class="tr-spk">Host 1</span> Right. So the simplest mental model is that it&#x27;s like giving an AI an open book test.</p>
+            <p class="tr-turn tr-l" data-t="144.8"><span class="tr-spk">Host 2</span> I love that analogy.</p>
+            <p class="tr-turn tr-h" data-t="146.3"><span class="tr-spk">Host 1</span> Thanks. Because, you know, if you ask a standard language model a really highly specific question, it might confidently hallucinate and just completely make up a fake answer.</p>
+            <p class="tr-turn tr-l" data-t="156.0"><span class="tr-spk">Host 2</span> Right. It just guesses based on vibes, basically.</p>
+            <p class="tr-turn tr-h" data-t="158.9"><span class="tr-spk">Host 1</span> Exactly. RAG prevents that by, well, bolting a search engine onto the AI. You ask a question, the system searches a private, trusted database, retrieves the relevant documents, hands them to the AI, and basically says, answer the user&#x27;s question using only the information in these specific pages.</p>
+            <p class="tr-turn tr-l" data-t="177.4"><span class="tr-spk">Host 2</span> Right. So it forces the language model to ground its response in external verified reality.</p>
+            <p class="tr-turn tr-h" data-t="181.9"><span class="tr-spk">Host 1</span> Instead of just making things up.</p>
+            <p class="tr-turn tr-l" data-t="183.4"><span class="tr-spk">Host 2</span> Exactly. Rather than relying on the statistical guesswork of its training data. And the ultimate takeaway from this massive study is that building a successful RAG pipeline is not about stacking the, quote unquote, best individual components on top of each other.</p>
+            <p class="tr-turn tr-h" data-t="198.0"><span class="tr-spk">Host 1</span> Right, which is what everyone tries to do.</p>
+            <p class="tr-turn tr-l" data-t="199.9"><span class="tr-spk">Host 2</span> Right. But it&#x27;s actually entirely about the specific interactions between those components.</p>
+            <p class="tr-turn tr-h" data-t="204.5"><span class="tr-spk">Host 1</span> Okay, let&#x27;s unpack that.</p>
+            <p class="tr-turn tr-l" data-t="205.6"><span class="tr-spk">Host 2</span> Okay.</p>
+          </section>
+          <section class="tr-chapter" aria-labelledby="tr-ch-3">
+            <h4 id="tr-ch-3"><button type="button" class="tr-seek" data-chapter data-seek="205"><span class="ch-time">03:25</span> <span class="ch-title">Testing one component at a time</span></button></h4>
+            <p class="tr-turn tr-h" data-t="205.9"><span class="tr-spk">Host 1</span> Because that specific problem that is actively breaking RAG pipelines today, the paper gives it a very specific name.</p>
+            <p class="tr-turn tr-l" data-t="212.2"><span class="tr-spk">Host 2</span> Yeah, the isolated testing problem.</p>
+            <p class="tr-turn tr-h" data-t="213.8"><span class="tr-spk">Host 1</span> The isolated testing problem, right. Right. Because from what I gather, the current culture of AI development treats every new upgrade like it exists in a total vacuum.</p>
+            <p class="tr-turn tr-l" data-t="222.2"><span class="tr-spk">Host 2</span> A hundred percent.</p>
+            <p class="tr-turn tr-h" data-t="223.1"><span class="tr-spk">Host 1</span> Like a researcher invents a new way to chunk text into smaller pieces or, you know, a new reranking algorithm to sort search results. They plug their one new invention into a bare bones basic pipeline, measure it, and then they publish a paper saying, hey, performance went up 10 percent.</p>
+            <p class="tr-turn tr-l" data-t="239.2"><span class="tr-spk">Host 2</span> Right. And then a second researcher builds a completely different component, tests it in their own isolated basic pipeline, and they claim like a 15% increase.</p>
+            <p class="tr-turn tr-h" data-t="247.1"><span class="tr-spk">Host 1</span> Okay, so it&#x27;s like a general manager trying to build a championship football team by just buying five-star quarterbacks.</p>
+            <p class="tr-turn tr-l" data-t="253.9"><span class="tr-spk">Host 2</span> That is exactly what it&#x27;s like.</p>
+            <p class="tr-turn tr-h" data-t="255.5"><span class="tr-spk">Host 1</span> Because individually on their own practice fields, they all throw perfect spirals. They have amazing stats, but you put all five of them on the field at the exact same time and they literally trip over each other.</p>
+            <p class="tr-turn tr-l" data-t="264.9"><span class="tr-spk">Host 2</span> Because nobody is playing receiver.</p>
+            <p class="tr-turn tr-h" data-t="266.1"><span class="tr-spk">Host 1</span> Exactly. The playbook shatters because nobody is blocking the line.</p>
+          </section>
+          <section class="tr-chapter" aria-labelledby="tr-ch-4">
+            <h4 id="tr-ch-4"><button type="button" class="tr-seek" data-chapter data-seek="269"><span class="ch-time">04:29</span> <span class="ch-title">Two metrics: retrieval and faithfulness</span></button></h4>
+            <p class="tr-turn tr-l" data-t="269.7"><span class="tr-spk">Host 2</span> That sports analogy maps perfectly to the paper&#x27;s first major hypothesis, actually. When the researchers looked at the data, they separated the performance of these pipelines into two primary metrics.</p>
+            <p class="tr-turn tr-h" data-t="280.7"><span class="tr-spk">Host 1</span> Okay, what are the two metrics?</p>
+            <p class="tr-turn tr-l" data-t="282.2"><span class="tr-spk">Host 2</span> So the first metric is retrieval. Basically, did the search engine side of the system actually find the correct document in the database?</p>
+            <p class="tr-turn tr-h" data-t="289.9"><span class="tr-spk">Host 1</span> Got it.</p>
+            <p class="tr-turn tr-l" data-t="290.7"><span class="tr-spk">Host 2</span> Did we find the needle in the haystack?</p>
+            <p class="tr-turn tr-h" data-t="291.8"><span class="tr-spk">Host 1</span> Right.</p>
+            <p class="tr-turn tr-l" data-t="292.5"><span class="tr-spk">Host 2</span> And the second metric is faithfulness. Did the text generation side of the AI actually answer honestly based only on the facts in that specific document without hallucinating?</p>
+            <p class="tr-turn tr-h" data-t="303.7"><span class="tr-spk">Host 1</span> So it breaks down into finding the truth and then strictly adhering to the truth.</p>
+            <p class="tr-turn tr-l" data-t="308.7"><span class="tr-spk">Host 2</span> Beautifully said, yes. And the researchers dropped some specific numbers here that made the entire AI community just like double take.</p>
+            <p class="tr-turn tr-h" data-t="316.3"><span class="tr-spk">Host 1</span> This is the math problem from earlier, right?</p>
+            <p class="tr-turn tr-l" data-t="318.8"><span class="tr-spk">Host 2</span> Exactly. They took the three strongest single retrieval improvements they could find. Measured in isolation, these three upgrades predicted a massive 47% gain in retrieval quality.</p>
+            <p class="tr-turn tr-h" data-t="329.8"><span class="tr-spk">Host 1</span> 47%, which is huge.</p>
+            <p class="tr-turn tr-l" data-t="331.6"><span class="tr-spk">Host 2</span> Massive. And they measured this using a metric called NDCG@10, which essentially scores a system based on whether the absolute most relevant documents show up in the top 10 search results.</p>
+            <p class="tr-turn tr-h" data-t="343.1"><span class="tr-spk">Host 1</span> Kind of like page one of Google?</p>
+            <p class="tr-turn tr-l" data-t="344.7"><span class="tr-spk">Host 2</span> Yeah, exactly. Giving way more weight to the number one spot. But when they compiled those three specific improvements into the exact same pipeline,</p>
+            <p class="tr-turn tr-h" data-t="352.8"><span class="tr-spk">Host 1</span> Let me guess. It didn&#x27;t equal 47%.</p>
+            <p class="tr-turn tr-l" data-t="355.5"><span class="tr-spk">Host 2</span> Not even close. The combined system only realized a 17% gain.</p>
+            <p class="tr-turn tr-h" data-t="361.1"><span class="tr-spk">Host 1</span> Wow. So that is that 63% shortfall we talked about at the start. The performance gains just completely evaporated?</p>
+            <p class="tr-turn tr-l" data-t="368.5"><span class="tr-spk">Host 2</span> Just poof. Gone.</p>
+            <p class="tr-turn tr-h" data-t="369.9"><span class="tr-spk">Host 1</span> But, you know, the twist in the paper is that this evaporation didn&#x27;t happen everywhere, right?</p>
+            <p class="tr-turn tr-l" data-t="374.2"><span class="tr-spk">Host 2</span> Right.</p>
+            <p class="tr-turn tr-h" data-t="374.7"><span class="tr-spk">Host 1</span> Because when they looked at the other metric, faithfulness, the gains mostly did add up.</p>
+            <p class="tr-turn tr-l" data-t="379.9"><span class="tr-spk">Host 2</span> They did, yeah.</p>
+            <p class="tr-turn tr-h" data-t="380.4"><span class="tr-spk">Host 1</span> Separately measured faithfulness upgrades predicted a 28% gain. And when combined, the pipeline actually secured a 32% gain.</p>
+            <p class="tr-turn tr-l" data-t="389.2"><span class="tr-spk">Host 2</span> Yeah, they overperformed on that side.</p>
+            <p class="tr-turn tr-h" data-t="390.9"><span class="tr-spk">Host 1</span> I have to pause and challenge the mechanics of that, though. Why would one metric stack beautifully, but the other metric just completely cannibalize itself?</p>
+            <p class="tr-turn tr-l" data-t="399.3"><span class="tr-spk">Host 2</span> It&#x27;s a great question.</p>
+            <p class="tr-turn tr-h" data-t="400.1"><span class="tr-spk">Host 1</span> Like, if the retrieval parts trip over each other, why do the faithfulness parts cooperate so perfectly well?</p>
+          </section>
+          <section class="tr-chapter" aria-labelledby="tr-ch-5">
+            <h4 id="tr-ch-5"><button type="button" class="tr-seek" data-chapter data-seek="406"><span class="ch-time">06:46</span> <span class="ch-title">Why retrieval gains overlap</span></button></h4>
+            <p class="tr-turn tr-l" data-t="406.1"><span class="tr-spk">Host 2</span> So it comes down to a mechanical conflict the paper calls functional duplication.</p>
+            <p class="tr-turn tr-h" data-t="411.5"><span class="tr-spk">Host 1</span> Functional duplication. Okay, what does that mean?</p>
+            <p class="tr-turn tr-l" data-t="414.2"><span class="tr-spk">Host 2</span> Think about what happens mathematically when you combine two really advanced retrieval techniques. Let&#x27;s say a developer uses a cross-encoder reranker.</p>
+            <p class="tr-turn tr-h" data-t="422.5"><span class="tr-spk">Host 1</span> Okay.</p>
+            <p class="tr-turn tr-l" data-t="423.3"><span class="tr-spk">Host 2</span> Its entire function is to act as a strict quality filter. It takes the initial search results, analyzes the really complex semantic relationship between the user&#x27;s question and each document, and aggressively filters for pure, absolute relevance.</p>
+            <p class="tr-turn tr-h" data-t="439.9"><span class="tr-spk">Host 1</span> So it&#x27;s pushing the very best matches to the top.</p>
+            <p class="tr-turn tr-l" data-t="442.6"><span class="tr-spk">Host 2</span> Exactly.</p>
+            <p class="tr-turn tr-h" data-t="443.2"><span class="tr-spk">Host 1</span> So it&#x27;s like a sniper rifle for relevance.</p>
+            <p class="tr-turn tr-l" data-t="446.3"><span class="tr-spk">Host 2</span> That&#x27;s a great way to put it. But then that same developer reads an article suggesting they also activate a technique called MMR, which stands for maximal marginal relevance.</p>
+            <p class="tr-turn tr-h" data-t="457.1"><span class="tr-spk">Host 1</span> Okay. What does MMR do?</p>
+            <p class="tr-turn tr-l" data-t="459.5"><span class="tr-spk">Host 2</span> MMR&#x27;s mathematical function is to force diversity in the search results.</p>
+            <p class="tr-turn tr-h" data-t="463.9"><span class="tr-spk">Host 1</span> Oh. Oh, I see where this is going.</p>
+            <p class="tr-turn tr-l" data-t="466.9"><span class="tr-spk">Host 2</span> Yeah. It calculates a penalty based on how similar a document is to the ones already retrieved, ensuring you don&#x27;t just get 10 documents saying the exact same thing.</p>
+            <p class="tr-turn tr-h" data-t="475.7"><span class="tr-spk">Host 1</span> Right. So I see the collision happening here. You ask the system a highly specific, complex question. The initial search finds five excellent documents that all contain the exact right answer.</p>
+            <p class="tr-turn tr-l" data-t="486.9"><span class="tr-spk">Host 2</span> Right. And the cross-encoder analyzes them and says, these five are perfectly relevant. Put them in spots one through five.</p>
+            <p class="tr-turn tr-h" data-t="493.2"><span class="tr-spk">Host 1</span> But then the MMR kicks in.</p>
+            <p class="tr-turn tr-l" data-t="496.0"><span class="tr-spk">Host 2</span> Exactly. The MMR algorithm immediately kicks in and applies a mathematical penalty. It basically says, no, no, documents 2, 3, 4, and 5 look too statistically similar to document 1.</p>
+            <p class="tr-turn tr-h" data-t="508.5"><span class="tr-spk">Host 1</span> Wow.</p>
+            <p class="tr-turn tr-l" data-t="509.1"><span class="tr-spk">Host 2</span> We are going to demote them and replace them with wildly different topics just for the sake of variety.</p>
+            <p class="tr-turn tr-h" data-t="515.0"><span class="tr-spk">Host 1</span> That is wild.</p>
+            <p class="tr-turn tr-l" data-t="517.0"><span class="tr-spk">Host 2</span> Right. The MMR accidentally hides the exact corroborating evidence you desperately need. because it literally punishes documents for agreeing with each other.</p>
+            <p class="tr-turn tr-h" data-t="526.1"><span class="tr-spk">Host 1</span> So by adding a so-called best practice component, developers are actively breaking their own systems because the underlying algorithms just have completely conflicting goals. The cross-encoder is optimizing for pure relevance while the MMR is optimizing for diversity, and they just destroy each other&#x27;s work.</p>
+            <p class="tr-turn tr-l" data-t="544.5"><span class="tr-spk">Host 2</span> They directly interfere. On the faithfulness side, however, like adding a step that prompts the AI to verify facts before generating the final text, those components operate at entirely different stages of the pipeline.</p>
+            <p class="tr-turn tr-h" data-t="557.1"><span class="tr-spk">Host 1</span> Oh, I see.</p>
+            <p class="tr-turn tr-l" data-t="557.8"><span class="tr-spk">Host 2</span> Yeah, one might check the formatting, another might check the source citations. They don&#x27;t mathematically overlap, so their benefits are actually allowed to compound.</p>
+          </section>
+          <section class="tr-chapter" aria-labelledby="tr-ch-6">
+            <h4 id="tr-ch-6"><button type="button" class="tr-seek" data-chapter data-seek="566"><span class="ch-time">09:26</span> <span class="ch-title">Lasagna and stage isolation</span></button></h4>
+            <p class="tr-turn tr-h" data-t="566.2"><span class="tr-spk">Host 1</span> Okay, so if combining these best parts blindly just cannibalizes performance on the retrieval side, developers are essentially flying blind. How do we actually isolate the variables to see what&#x27;s actually causing the failure?</p>
+            <p class="tr-turn tr-l" data-t="578.9"><span class="tr-spk">Host 2</span> Well, you need a framework that can test the entire system holistically, but with strict mathematical controls over every single variable.</p>
+            <p class="tr-turn tr-h" data-t="587.0"><span class="tr-spk">Host 1</span> And that is the motivation behind the Lasagna framework introduced in the paper.</p>
+            <p class="tr-turn tr-l" data-t="591.3"><span class="tr-spk">Host 2</span> Exactly.</p>
+            <p class="tr-turn tr-h" data-t="592.1"><span class="tr-spk">Host 1</span> But, you know, if I&#x27;m a developer listening to this or someone managing an AI project, I might be pushing back a little. I might be thinking, hey, I already used orchestrators like LangChain or LlamaIndex to build my applications. Why do I need to integrate this entirely new Lasagna tool?</p>
+            <p class="tr-turn tr-l" data-t="606.9"><span class="tr-spk">Host 2</span> It&#x27;s a fair question, but Lasagna is not an orchestrator trying to replace LangChain or LlamaIndex.</p>
+            <p class="tr-turn tr-h" data-t="612.7"><span class="tr-spk">Host 1</span> Okay, so what is it?</p>
+            <p class="tr-turn tr-l" data-t="613.7"><span class="tr-spk">Host 2</span> It functions as a diagnostic and evaluation layer. Its primary superpower is a mechanism called stage isolation.</p>
+            <p class="tr-turn tr-h" data-t="620.7"><span class="tr-spk">Host 1</span> Stage isolation. Let&#x27;s break down the mechanics of that, because a standard modern RAG pipeline has about nine distinct stages, right?</p>
+            <p class="tr-turn tr-l" data-t="628.4"><span class="tr-spk">Host 2</span> Roughly, yeah.</p>
+            <p class="tr-turn tr-h" data-t="629.3"><span class="tr-spk">Host 1</span> You parse the document, you chunk the text into smaller pieces, you embed those chunks into mathematical vectors, you retrieve them, you rerank them, and so on.</p>
+            <p class="tr-turn tr-l" data-t="637.2"><span class="tr-spk">Host 2</span> Right. And typically, if you change a component early in that pipeline, the data outputs change completely, cascading down and suddenly altering how every subsequent stage performs.</p>
+            <p class="tr-turn tr-h" data-t="647.1"><span class="tr-spk">Host 1</span> Which ruins the test.</p>
+            <p class="tr-turn tr-l" data-t="648.3"><span class="tr-spk">Host 2</span> Exactly. Lasagna stops that cascade. It lets you swap out exactly one pipeline stage, say you want to test a brand new retrieval algorithm, while strictly holding the other eight stages completely fixed.</p>
+            <p class="tr-turn tr-h" data-t="660.9"><span class="tr-spk">Host 1</span> But how does it actually hold them fixed? Like, does it just save the outputs?</p>
+            <p class="tr-turn tr-l" data-t="665.0"><span class="tr-spk">Host 2</span> Exactly. It caches the exact intermediate outputs.</p>
+            <p class="tr-turn tr-h" data-t="668.8"><span class="tr-spk">Host 1</span> Oh, wow.</p>
+            <p class="tr-turn tr-l" data-t="669.5"><span class="tr-spk">Host 2</span> Yeah, it saves the specific mathematical vectors, the precise chunk boundaries, literally everything into a database.</p>
+            <p class="tr-turn tr-h" data-t="675.7"><span class="tr-spk">Host 1</span> So it&#x27;s basically freezing time for the rest of the pipeline.</p>
+            <p class="tr-turn tr-l" data-t="679.1"><span class="tr-spk">Host 2</span> Yes. When you run your test on the new retriever, Lasagna doesn&#x27;t rerun the document parser or the chunker. It feeds the new retriever the exact same cached data bytes that the old retriever used.</p>
+            <p class="tr-turn tr-h" data-t="691.6"><span class="tr-spk">Host 1</span> That&#x27;s brilliant.</p>
+            <p class="tr-turn tr-l" data-t="693.0"><span class="tr-spk">Host 2</span> It guarantees at a mathematical level that swapping one method cannot silently change the implementation of another stage downstream. You know for a fact whether your new component actually caused the improvement or if it was just, you know, a fluke in the pipeline&#x27;s overall machinery.</p>
+            <p class="tr-turn tr-h" data-t="708.7"><span class="tr-spk">Host 1</span> It eliminates the guesswork entirely.</p>
+          </section>
+          <section class="tr-chapter" aria-labelledby="tr-ch-7">
+            <h4 id="tr-ch-7"><button type="button" class="tr-seek" data-chapter data-seek="710"><span class="ch-time">11:50</span> <span class="ch-title">Cost, configurator, significance tests and MCP</span></button></h4>
+            <p class="tr-turn tr-h" data-t="710.7"><span class="tr-spk">Host 1</span> And what really stands out in the paper is how accessible this level of rigorous testing is for production teams.</p>
+            <p class="tr-turn tr-l" data-t="717.4"><span class="tr-spk">Host 2</span> Oh, absolutely.</p>
+            <p class="tr-turn tr-h" data-t="718.6"><span class="tr-spk">Host 1</span> Like the researchers noted that running their massive experimental sweep, evaluating 450 different configurations and mapping out all those complex interactions, cost them about $5,200 in cloud compute.</p>
+            <p class="tr-turn tr-l" data-t="730.5"><span class="tr-spk">Host 2</span> Which is nothing, really.</p>
+            <p class="tr-turn tr-h" data-t="732.6"><span class="tr-spk">Host 1</span> And it took around 310 hours. I mean, $5,200 is a rounding error for an enterprise deployment.</p>
+            <p class="tr-turn tr-l" data-t="739.7"><span class="tr-spk">Host 2</span> A completely lean development team can utilize this framework to scientifically validate their bespoke pipeline before they ever expose it to real customers.</p>
+            <p class="tr-turn tr-h" data-t="748.2"><span class="tr-spk">Host 1</span> Let&#x27;s walk through some of the practical features the framework offers, because for anyone building these systems, this just seems like an essential toolkit. First, they built a RAG configurator UI, right?</p>
+            <p class="tr-turn tr-l" data-t="758.3"><span class="tr-spk">Host 2</span> Yes, the UI is great.</p>
+            <p class="tr-turn tr-h" data-t="759.4"><span class="tr-spk">Host 1</span> So instead of writing endless lines of complex YAML configuration files to test every single hypothesis, developers can build and tune the entire nine-stage pipeline visually.</p>
+            <p class="tr-turn tr-l" data-t="768.7"><span class="tr-spk">Host 2</span> Directly in a browser window.</p>
+            <p class="tr-turn tr-h" data-t="770.3"><span class="tr-spk">Host 1</span> That saves so much time.</p>
+            <p class="tr-turn tr-l" data-t="771.9"><span class="tr-spk">Host 2</span> It really does. And beyond the visual interface, Lasagna includes built-in significance testing.</p>
+            <p class="tr-turn tr-h" data-t="777.1"><span class="tr-spk">Host 1</span> Oh, nice.</p>
+            <p class="tr-turn tr-l" data-t="777.9"><span class="tr-spk">Host 2</span> Yeah, when you run an evaluation, it doesn&#x27;t just output a new score and leave you to interpret it. It runs paired statistical tests to prove that, say, a 3% gain in performance isn&#x27;t just random statistical noise.</p>
+            <p class="tr-turn tr-h" data-t="790.1"><span class="tr-spk">Host 1</span> It mathematically verifies if the improvement is real and repeatable.</p>
+            <p class="tr-turn tr-l" data-t="793.8"><span class="tr-spk">Host 2</span> Exactly.</p>
+            <p class="tr-turn tr-h" data-t="794.2"><span class="tr-spk">Host 1</span> But the feature that really, I think, changes the deployment game is the MCP server integration.</p>
+            <p class="tr-turn tr-l" data-t="799.4"><span class="tr-spk">Host 2</span> Oh, for sure.</p>
+            <p class="tr-turn tr-h" data-t="800.2"><span class="tr-spk">Host 1</span> Because MCP stands for Model Context Protocol. And from what I understand, this allows you to hook your perfectly tuned Lasagna tested knowledge base directly into an AI agent.</p>
+            <p class="tr-turn tr-l" data-t="809.5"><span class="tr-spk">Host 2</span> Immediately. Yeah.</p>
+            <p class="tr-turn tr-h" data-t="810.8"><span class="tr-spk">Host 1</span> So that agent can then use your validated database as a tool instantly. You don&#x27;t have to write custom API bridges or, you know, complex integration code.</p>
+            <p class="tr-turn tr-l" data-t="819.0"><span class="tr-spk">Host 2</span> No, you just point the agent at the Lasagna server.</p>
+            <p class="tr-turn tr-h" data-t="821.4"><span class="tr-spk">Host 1</span> And your agent immediately has access to flawless, thoroughly tested recall capabilities.</p>
+            <p class="tr-turn tr-l" data-t="826.2"><span class="tr-spk">Host 2</span> It really just removes the friction between evaluating a theoretical pipeline and actually deploying it into a real production environment.</p>
+          </section>
+          <section class="tr-chapter" aria-labelledby="tr-ch-8">
+            <h4 id="tr-ch-8"><button type="button" class="tr-seek" data-chapter data-seek="833"><span class="ch-time">13:53</span> <span class="ch-title">No best configuration: the four profiles</span></button></h4>
+            <p class="tr-turn tr-h" data-t="833.8"><span class="tr-spk">Host 1</span> So with this Lasagna tool built, the researchers unleashed it on all those configurations. And the obvious question anyone reading the paper wants answered is, well, what is the ultimate, objective, best configuration they discovered?</p>
+            <p class="tr-turn tr-l" data-t="846.6"><span class="tr-spk">Host 2</span> And that&#x27;s the kicker. The paper&#x27;s second major hypothesis reveals that an objective best configuration does not exist.</p>
+            <p class="tr-turn tr-h" data-t="854.5"><span class="tr-spk">Host 1</span> It just doesn&#x27;t exist.</p>
+            <p class="tr-turn tr-l" data-t="855.7"><span class="tr-spk">Host 2</span> No. RAG pipelines are bound by a brutal Pareto tradeoff.</p>
+            <p class="tr-turn tr-h" data-t="860.1"><span class="tr-spk">Host 1</span> Okay, a Pareto tradeoff, meaning you are forced to make a sacrifice somewhere. You cannot optimize every metric simultaneously.</p>
+            <p class="tr-turn tr-l" data-t="867.6"><span class="tr-spk">Host 2</span> Exactly. You absolutely cannot have the fastest processing speed, the highest retrieval quality, and the most rigorous faithfulness all at the exact same time.</p>
+            <p class="tr-turn tr-h" data-t="876.5"><span class="tr-spk">Host 1</span> You have to choose.</p>
+            <p class="tr-turn tr-l" data-t="877.3"><span class="tr-spk">Host 2</span> You are forced to pick your priorities based on the specific use case of your application.</p>
+            <p class="tr-turn tr-h" data-t="881.8"><span class="tr-spk">Host 1</span> And to help navigate that tradeoff, the framework provides four out-of-the-box profiles, right? The researchers essentially did all the heavy lifting to find the optimal points on that Pareto curve.</p>
+            <p class="tr-turn tr-l" data-t="891.7"><span class="tr-spk">Host 2</span> They did, yeah.</p>
+            <p class="tr-turn tr-h" data-t="892.7"><span class="tr-spk">Host 1</span> So let&#x27;s go through them. The first is the Speed profile.</p>
+            <p class="tr-turn tr-l" data-t="896.6"><span class="tr-spk">Host 2</span> Right.</p>
+            <p class="tr-turn tr-h" data-t="897.0"><span class="tr-spk">Host 1</span> And this strips out the heavy machinery, from what I understand. It uses smaller vector embeddings, drops the complex reranking stages entirely. It is lightning fast. We&#x27;re talking processing queries in about 0.7 seconds.</p>
+            <p class="tr-turn tr-l" data-t="910.2"><span class="tr-spk">Host 2</span> Super fast.</p>
+            <p class="tr-turn tr-h" data-t="911.0"><span class="tr-spk">Host 1</span> But it takes a noticeable hit on complex retrieval quality.</p>
+            <p class="tr-turn tr-l" data-t="914.2"><span class="tr-spk">Host 2</span> Right. Now, on the other end of the baseline spectrum is the Standard profile. This uses a very direct traditional retrieval route, and surprisingly on smaller data sets, it actually wins at pure retrieval quality.</p>
+            <p class="tr-turn tr-h" data-t="926.1"><span class="tr-spk">Host 1</span> Oh, really?</p>
+            <p class="tr-turn tr-l" data-t="926.8"><span class="tr-spk">Host 2</span> Yeah. It excels at finding the exact right documents efficiently without overcomplicating the search.</p>
+            <p class="tr-turn tr-h" data-t="932.6"><span class="tr-spk">Host 1</span> Okay. Moving up the complexity curve is the Balanced profile. This acts as the sweet spot for most production environments. It introduces some advanced techniques to maintain accuracy as the system scales up, which we will detail in just a moment.</p>
+            <p class="tr-turn tr-l" data-t="946.7"><span class="tr-spk">Host 2</span> Yeah, that one is key. And finally, we have the Max-Reliable profile.</p>
+            <p class="tr-turn tr-h" data-t="950.9"><span class="tr-spk">Host 1</span> The heavy hitter.</p>
+            <p class="tr-turn tr-l" data-t="951.9"><span class="tr-spk">Host 2</span> Exactly. This profile utilizes extreme verification to ensure very high faithfulness. It aggressively double checks its own work, often making multiple calls to the language model just to verify claims and prevent hallucinations.</p>
+            <p class="tr-turn tr-h" data-t="965.2"><span class="tr-spk">Host 1</span> But there&#x27;s a cost, right?</p>
+            <p class="tr-turn tr-l" data-t="966.5"><span class="tr-spk">Host 2</span> A massive latency hit, averaging around 14 seconds per single query.</p>
+            <p class="tr-turn tr-h" data-t="970.7"><span class="tr-spk">Host 1</span> Wow. 14 seconds of waiting for an answer is, I mean, that&#x27;s an eternity in software.</p>
+            <p class="tr-turn tr-l" data-t="975.6"><span class="tr-spk">Host 2</span> It really is.</p>
+          </section>
+          <section class="tr-chapter" aria-labelledby="tr-ch-9">
+            <h4 id="tr-ch-9"><button type="button" class="tr-seek" data-chapter data-seek="976"><span class="ch-time">16:16</span> <span class="ch-title">The cost of agentic loops</span></button></h4>
+            <p class="tr-turn tr-h" data-t="976.3"><span class="tr-spk">Host 1</span> And that actually brings up a critical production tip we need to discuss for you guys listening. Because a lot of developers right now are currently obsessed with integrating agentic loops into their systems.</p>
+            <p class="tr-turn tr-l" data-t="987.1"><span class="tr-spk">Host 2</span> Oh, yeah. The current hype.</p>
+            <p class="tr-turn tr-h" data-t="989.1"><span class="tr-spk">Host 1</span> Architectures like CRAG, which stands for Corrective RAG, or Self-RAG, the concept is that the AI acts like an autonomous agent. It retrieves a document, grades the relevance of that document, and if it decides the information is insufficient, it loops back, rewrites its own search query, and tries again.</p>
+            <p class="tr-turn tr-l" data-t="1007.1"><span class="tr-spk">Host 2</span> I mean, the theory sounds flawless, right?</p>
+            <p class="tr-turn tr-h" data-t="1009.4"><span class="tr-spk">Host 1</span> It does. But the paper raises a vital warning about the hidden costs of these agentic loops. While they are incredible for pushing that faithfulness score up, the tradeoff is just severe.</p>
+            <p class="tr-turn tr-l" data-t="1022.2"><span class="tr-spk">Host 2</span> You absorb that massive latency cost.</p>
+            <p class="tr-turn tr-h" data-t="1024.7"><span class="tr-spk">Host 1</span> You&#x27;re jumping from a snappy two-second response to a 14-second delay while the AI, like, argues with itself in the background.</p>
+            <p class="tr-turn tr-l" data-t="1033.1"><span class="tr-spk">Host 2</span> But the delay is one thing.</p>
+            <p class="tr-turn tr-h" data-t="1035.0"><span class="tr-spk">Host 1</span> The paper implies it gets worse than just being slow. Agentic loops can actually reduce the overall quality of the information retrieved, which I struggle to understand. How does double-checking your work mathematically make you worse at finding the right information?</p>
+            <p class="tr-turn tr-l" data-t="1050.8"><span class="tr-spk">Host 2</span> It is entirely due to how aggressively these agentic systems filter the context.</p>
+            <p class="tr-turn tr-h" data-t="1055.9"><span class="tr-spk">Host 1</span> Okay, how so?</p>
+            <p class="tr-turn tr-l" data-t="1057.0"><span class="tr-spk">Host 2</span> In an effort to be perfectly faithful, an agentic loop will look at a retrieved chunk of text and ask a binary question, like, does this fully answer the user&#x27;s query?</p>
+            <p class="tr-turn tr-h" data-t="1066.2"><span class="tr-spk">Host 1</span> Just yes or no.</p>
+            <p class="tr-turn tr-l" data-t="1067.1"><span class="tr-spk">Host 2</span> Right. Right. So if the user asks a complex multi-step question, a single chunk of text might only contain a partial clue, perhaps just a bridge fact needed to connect two larger ideas.</p>
+            <p class="tr-turn tr-h" data-t="1079.7"><span class="tr-spk">Host 1</span> Okay, I see.</p>
+            <p class="tr-turn tr-l" data-t="1080.5"><span class="tr-spk">Host 2</span> The strict agentic gate will often label that partial clue as irrelevant and just throw it away. It aggressively filters out the necessary context chunks, effectively starving the final generator of the nuances it needs to construct a complete comprehensive answer.</p>
+            <p class="tr-turn tr-h" data-t="1095.5"><span class="tr-spk">Host 1</span> Wow. So it&#x27;s analogous to like a strict editor going through a mystery novel and deleting all the subtle setup and character motives just because they aren&#x27;t the final clue that solves the murder.</p>
+            <p class="tr-turn tr-l" data-t="1105.7"><span class="tr-spk">Host 2</span> Exactly.</p>
+            <p class="tr-turn tr-h" data-t="1106.3"><span class="tr-spk">Host 1</span> By the time you get to the end, the solution makes absolutely no sense because all the bridging context was just thrown out.</p>
+            <p class="tr-turn tr-l" data-t="1112.5"><span class="tr-spk">Host 2</span> Exactly. You really only implement these heavy agentic loops if your specific application demands absolute baseline factual accuracy at the expense of speed and comprehensive nuance.</p>
+            <p class="tr-turn tr-h" data-t="1124.8"><span class="tr-spk">Host 1</span> Good to know.</p>
+          </section>
+          <section class="tr-chapter" aria-labelledby="tr-ch-10">
+            <h4 id="tr-ch-10"><button type="button" class="tr-seek" data-chapter data-seek="1125"><span class="ch-time">18:45</span> <span class="ch-title">Corpus size and the rank flip</span></button></h4>
+            <p class="tr-turn tr-h" data-t="1125.5"><span class="tr-spk">Host 1</span> So let&#x27;s assume a development team has weighed these tradeoffs. They review the four profiles and decide to go with the Standard profile. It&#x27;s fast, and on their initial test data set of, say, 5,000 documents, it achieved the absolute best retrieval score.</p>
+            <p class="tr-turn tr-l" data-t="1138.6"><span class="tr-spk">Host 2</span> Makes sense.</p>
+            <p class="tr-turn tr-h" data-t="1139.3"><span class="tr-spk">Host 1</span> They test it, it works beautifully, and they prepare to deploy. But what happens when that company actually scales their application up? Like, they move from the 5,000 document test database to a massive 200,000 document enterprise deployment.</p>
+            <p class="tr-turn tr-l" data-t="1152.7"><span class="tr-spk">Host 2</span> And this brings us to the third major hypothesis of the paper. And it is where a significant number of teams encounter catastrophic surprises in production environments.</p>
+            <p class="tr-turn tr-h" data-t="1163.9"><span class="tr-spk">Host 1</span> Because most RAG testing out there today is done on what the industry calls toy benchmarks, right?</p>
+            <p class="tr-turn tr-l" data-t="1169.0"><span class="tr-spk">Host 2</span> Toy benchmarks.</p>
+            <p class="tr-turn tr-h" data-t="1169.7"><span class="tr-spk">Host 1</span> These are small, pristine data sets of 5,000, maybe 10,000 documents. But real enterprise businesses have hundreds of thousands or millions of interconnected documents. When we push that winning Standard profile into a database of 200,000 documents, the system breaks.</p>
+            <p class="tr-turn tr-l" data-t="1185.6"><span class="tr-spk">Host 2</span> Completely. A complete rank flip occurs.</p>
+            <p class="tr-turn tr-h" data-t="1188.7"><span class="tr-spk">Host 1</span> A rank flip.</p>
+            <p class="tr-turn tr-l" data-t="1189.8"><span class="tr-spk">Host 2</span> Yeah, the performance rankings literally invert as the corpus size grows. At 5,000 documents and even scaling up to 15,000 documents, the Standard profile is the undeniable winner. It finds the needle in the haystack with extreme efficiency.</p>
+            <p class="tr-turn tr-h" data-t="1204.4"><span class="tr-spk">Host 1</span> Right.</p>
+            <p class="tr-turn tr-l" data-t="1204.5"><span class="tr-spk">Host 2</span> But right around 25,000 documents, a crossover begins.</p>
+            <p class="tr-turn tr-h" data-t="1209.3"><span class="tr-spk">Host 1</span> The Standard profile starts choking on the volume.</p>
+            <p class="tr-turn tr-l" data-t="1213.4"><span class="tr-spk">Host 2</span> By the time the database expands to 200,000 documents, the Balanced profile completely takes over the leaderboard. It outperforms the Standard profile by a massive 13.7% in pure retrieval quality.</p>
+            <p class="tr-turn tr-h" data-t="1225.7"><span class="tr-spk">Host 1</span> Wait, a near 14% drop in search quality? That is a massive degradation. What specific mechanism is breaking inside the Standard profile at that scale?</p>
+          </section>
+          <section class="tr-chapter" aria-labelledby="tr-ch-11">
+            <h4 id="tr-ch-11"><button type="button" class="tr-seek" data-chapter data-seek="1236"><span class="ch-time">20:36</span> <span class="ch-title">Distractors, hierarchical chunking and merging</span></button></h4>
+            <p class="tr-turn tr-l" data-t="1236.3"><span class="tr-spk">Host 2</span> It fundamentally comes down to distractors.</p>
+            <p class="tr-turn tr-h" data-t="1238.9"><span class="tr-spk">Host 1</span> Distractors.</p>
+            <p class="tr-turn tr-l" data-t="1239.7"><span class="tr-spk">Host 2</span> Yeah. In a small database, finding the right document is relatively straightforward because there are just fewer competing concepts. But at 200,000 documents, you introduce a massive pool of distractors.</p>
+            <p class="tr-turn tr-h" data-t="1252.6"><span class="tr-spk">Host 1</span> Irrelevant stuff.</p>
+            <p class="tr-turn tr-l" data-t="1253.5"><span class="tr-spk">Host 2</span> Thousands of completely irrelevant documents that happen to use the exact same keywords sound highly relevant to the basic algorithm, but are actually discussing something else entirely.</p>
+            <p class="tr-turn tr-h" data-t="1262.8"><span class="tr-spk">Host 1</span> So they are mathematically tricking the basic search engine.</p>
+            <p class="tr-turn tr-l" data-t="1266.5"><span class="tr-spk">Host 2</span> Precisely. The Standard profile relies on a simpler, more direct retrieval mechanism, and it just gets overwhelmed by this ocean of noise. Its accuracy plummets as the database grows. The Balanced profile, however, maintains a flat, robust trajectory.</p>
+            <p class="tr-turn tr-h" data-t="1281.5"><span class="tr-spk">Host 1</span> But if the noise is tricking the system, how does the Balanced profile survive it? It must be filtering the noise in a way the Standard profile is incapable of, right?</p>
+            <p class="tr-turn tr-l" data-t="1290.3"><span class="tr-spk">Host 2</span> It survives because it utilizes advanced scale-resistant architectural techniques. Specifically, it employs post-retrieval merging and hierarchical chunking.</p>
+            <p class="tr-turn tr-h" data-t="1300.6"><span class="tr-spk">Host 1</span> Okay, let&#x27;s break those down. Post-retrieval merging.</p>
+            <p class="tr-turn tr-l" data-t="1303.3"><span class="tr-spk">Host 2</span> With post-retrieval merging, it doesn&#x27;t just rely on one search method. It looks at multiple different search strategies like keyword matching and semantic vector similarity and mathematically fuses the results together, basically cross-referencing them to weed out the distractors.</p>
+            <p class="tr-turn tr-h" data-t="1320.3"><span class="tr-spk">Host 1</span> That makes a lot of sense. And what about the hierarchical chunking?</p>
+            <p class="tr-turn tr-l" data-t="1324.1"><span class="tr-spk">Host 2</span> So hierarchical chunking fundamentally changes how the AI understands context. Normally, if you chunk a document into single paragraphs, the AI might retrieve a paragraph that says the company saw a 20% drop.</p>
+            <p class="tr-turn tr-h" data-t="1336.4"><span class="tr-spk">Host 1</span> Right, but out of context, that is totally meaningless. Which company, which quarter?</p>
+            <p class="tr-turn tr-l" data-t="1340.5"><span class="tr-spk">Host 2</span> Exactly. Hierarchical chunking keeps track of the parent-child relationships in the data. If the AI flags that small paragraph as relevant, the system retrieves the entire parent section or chapter and feeds that larger context to the language model.</p>
+            <p class="tr-turn tr-h" data-t="1355.2"><span class="tr-spk">Host 1</span> I see.</p>
+            <p class="tr-turn tr-l" data-t="1356.2"><span class="tr-spk">Host 2</span> These mechanisms act as a heavy anchor, preventing the system from being swept away by irrelevant distractors.</p>
+            <p class="tr-turn tr-h" data-t="1363.6"><span class="tr-spk">Host 1</span> So the takeaway for anyone interacting with this project is critical. Never trust a small-scale benchmark if you are architecting a large-scale application.</p>
+            <p class="tr-turn tr-l" data-t="1371.7"><span class="tr-spk">Host 2</span> Never.</p>
+            <p class="tr-turn tr-h" data-t="1371.8"><span class="tr-spk">Host 1</span> The pipeline that appears to be your objective best on a toy data set might actually be incredibly fragile when exposed to real-world scale. Your absolute winner at 5,000 documents will likely become your biggest liability at 200,000.</p>
+            <p class="tr-turn tr-l" data-t="1386.2"><span class="tr-spk">Host 2</span> It invalidates a significant portion of how the industry is currently choosing AI architectures. Validating at your target scale is not optional. It is an engineering requirement.</p>
+          </section>
+          <section class="tr-chapter" aria-labelledby="tr-ch-12">
+            <h4 id="tr-ch-12"><button type="button" class="tr-seek" data-chapter data-seek="1395"><span class="ch-time">23:15</span> <span class="ch-title">Three lessons</span></button></h4>
+            <p class="tr-turn tr-h" data-t="1395.4"><span class="tr-spk">Host 1</span> Okay, so to pull all of these insights together, for anyone building, managing, or utilizing AI systems, the lessons from the RAG compositionality paper and the Lasagna framework are essential.</p>
+            <p class="tr-turn tr-l" data-t="1407.1"><span class="tr-spk">Host 2</span> Let&#x27;s summarize.</p>
+            <p class="tr-turn tr-h" data-t="1408.1"><span class="tr-spk">Host 1</span> First, you must test your systems end-to-end, holding variables strictly isolated, because gains do not automatically stack. Functional duplication will actively cannibalize your performance.</p>
+            <p class="tr-turn tr-l" data-t="1421.3"><span class="tr-spk">Host 2</span> Right.</p>
+            <p class="tr-turn tr-h" data-t="1422.0"><span class="tr-spk">Host 1</span> Second, you have to balance your metrics. You are operating on a strict Pareto curve, and you must choose your tradeoff between retrieval quality, faithfulness, and latency based on your actual real-world use case.</p>
+            <p class="tr-turn tr-l" data-t="1434.1"><span class="tr-spk">Host 2</span> No magic bullets.</p>
+            <p class="tr-turn tr-h" data-t="1435.2"><span class="tr-spk">Host 1</span> And finally, always validate your pipeline at the massive scale you actually intend to deploy it at.</p>
+            <p class="tr-turn tr-l" data-t="1440.7"><span class="tr-spk">Host 2</span> The overarching theme here is the necessary transition from educated guesswork to rigorous, mathematically accountable engineering.</p>
+            <p class="tr-turn tr-h" data-t="1447.9"><span class="tr-spk">Host 1</span> Absolutely.</p>
+          </section>
+          <section class="tr-chapter" aria-labelledby="tr-ch-13">
+            <h4 id="tr-ch-13"><button type="button" class="tr-seek" data-chapter data-seek="1449"><span class="ch-time">24:09</span> <span class="ch-title">Stronger generators and lighter pipelines</span></button></h4>
+            <p class="tr-turn tr-l" data-t="1449.0"><span class="tr-spk">Host 2</span> Now, before we close out this deep dive, there is one final really thought-provoking observation from the researchers that we need to address.</p>
+            <p class="tr-turn tr-h" data-t="1455.6"><span class="tr-spk">Host 1</span> Yes.</p>
+            <p class="tr-turn tr-l" data-t="1456.2"><span class="tr-spk">Host 2</span> During the massive sweep of tests, the study documented a fascinating pattern regarding the language models themselves.</p>
+            <p class="tr-turn tr-h" data-t="1462.8"><span class="tr-spk">Host 1</span> Okay, what was it?</p>
+            <p class="tr-turn tr-l" data-t="1463.8"><span class="tr-spk">Host 2</span> They found that utilizing a stronger, vastly more advanced underlying LLM generator, like a smarter core AI, can actually partially substitute for a heavy, complex RAG pipeline.</p>
+            <p class="tr-turn tr-h" data-t="1476.3"><span class="tr-spk">Host 1</span> Really?</p>
+            <p class="tr-turn tr-l" data-t="1476.9"><span class="tr-spk">Host 2</span> Yeah. If the underlying model possesses stronger reasoning and processing capabilities, it requires significantly less hand-holding from the complex retrieval machinery.</p>
+            <p class="tr-turn tr-h" data-t="1485.6"><span class="tr-spk">Host 1</span> Man, that presents a massive architectural question for the future of AI development.</p>
+            <p class="tr-turn tr-l" data-t="1490.5"><span class="tr-spk">Host 2</span> It really does.</p>
+            <p class="tr-turn tr-h" data-t="1491.3"><span class="tr-spk">Host 1</span> Because as raw models continue to evolve, becoming vastly more intelligent, capable of reasoning through noise and holding massive context windows, will all of this intricate RAG machinery eventually become obsolete?</p>
+            <p class="tr-turn tr-l" data-t="1504.0"><span class="tr-spk">Host 2</span> It&#x27;s the big question.</p>
+            <p class="tr-turn tr-h" data-t="1505.1"><span class="tr-spk">Host 1</span> Or regardless of how intelligent the raw AI becomes, will we always require strict diagnostic frameworks like Lasagna to act as the ultimate librarians, forcing the AI to prove its work and remain grounded in verified truth?</p>
+            <p class="tr-turn tr-l" data-t="1519.0"><span class="tr-spk">Host 2</span> It highlights the ongoing tension between raw computational intelligence and the strict necessity of factual verification.</p>
+            <p class="tr-turn tr-h" data-t="1526.7"><span class="tr-spk">Host 1</span> It is definitely something to keep in mind the next time you ask an AI a question and have to wonder, how exactly did it arrive at that answer?</p>
+          </section>
+        </div>
+      </details>
+    </div>
+  </div>
+  <div class="podcast-dock" id="podcast-dock" hidden>
+    <button type="button" class="dock-play" id="dock-play" aria-label="Pause the podcast">
+      <svg class="i-play" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4.5 2.8 13 8l-8.5 5.2z" fill="currentColor"/></svg>
+      <svg class="i-pause" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4.5 2.5h2.4v11H4.5zM9.1 2.5h2.4v11H9.1z" fill="currentColor"/></svg>
+    </button>
+    <a class="dock-info" href="#podcast"><span class="dock-label">Podcast</span> <span class="dock-chapter" id="dock-chapter"></span></a>
+    <span class="dock-time" id="dock-time" aria-hidden="true">00:00</span>
+    <button type="button" class="dock-close" id="dock-close" aria-label="Hide the mini player">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</section>
 <section class="section" id="abstract" aria-labelledby="abstract-title">
   <div class="wrap split">
     <div class="split-head reveal">
@@ -698,6 +1141,7 @@ lasagna results significance <span class="tok-s">"&lt;output&gt;/results.json"</
       <li><a href="docs/">Documentation</a></li>
       <li><a href="https://doi.org/10.5281/zenodo.23548068">Software DOI</a></li>
       <li><a href="https://github.com/dolev31/Lasagna-Retrieval-Augmented-Generation-Compositionality">Preregistration</a></li>
+      <li><a href="#podcast">Podcast</a></li>
       <li><a href="llms.txt">llms.txt</a></li>
       <li><a href="#top">Back to top</a></li>
     </ul>
