@@ -14,6 +14,7 @@ Code for **[Retrieval Augmented Generation Compositionality](https://arxiv.org/a
 [![arXiv](https://img.shields.io/badge/arXiv-2610.29722-b31b1b.svg)](https://arxiv.org/abs/2610.29722)
 [![Project page](https://img.shields.io/badge/project-page-1f6feb.svg)](https://dolev31.github.io/lasagna/)
 [![Docs](https://img.shields.io/badge/docs-read-1f6feb.svg)](https://dolev31.github.io/lasagna/docs/)
+[![Podcast](https://img.shields.io/badge/podcast-25_min-1f6feb.svg?logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xMiAzYTkgOSAwIDAgMC05IDl2NmEzIDMgMCAwIDAgMyAzaDEuNWExIDEgMCAwIDAgMS0xdi02YTEgMSAwIDAgMC0xLTFINXYtMWE3IDcgMCAwIDEgMTQgMHYxaC0yLjVhMSAxIDAgMCAwLTEgMXY2YTEgMSAwIDAgMCAxIDFIMThhMyAzIDAgMCAwIDMtM3YtNmE5IDkgMCAwIDAtOS05eiIvPjwvc3ZnPg%3D%3D)](https://dolev31.github.io/lasagna/#podcast)
 [![PyPI](https://img.shields.io/pypi/v/lasagna-rag.svg)](https://pypi.org/project/lasagna-rag/)
 [![DOI](https://zenodo.org/badge/1428808706.svg)](https://doi.org/10.5281/zenodo.23548068)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/dolev31/lasagna/blob/main/LICENSE)
@@ -722,7 +723,7 @@ a time survive when the components are combined.
 **The best pipeline also changes with corpus size.** At 200K documents, the design that leads at
 small corpora trails by 13.7% NDCG@10, with the rank flip visible from 25K.
 
-[Paper](https://arxiv.org/abs/2610.29722) · [PDF](https://arxiv.org/pdf/2610.29722) · [Project page](https://dolev31.github.io/lasagna/) · [Explainer video](https://dolev31.github.io/lasagna/#explainer) · [Pre-registration](https://github.com/dolev31/Lasagna-Retrieval-Augmented-Generation-Compositionality)
+[Paper](https://arxiv.org/abs/2610.29722) · [PDF](https://arxiv.org/pdf/2610.29722) · [Project page](https://dolev31.github.io/lasagna/) · [Explainer video](https://dolev31.github.io/lasagna/#explainer) · [Podcast (AI-generated, 25 min)](https://dolev31.github.io/lasagna/#podcast) · [Pre-registration](https://github.com/dolev31/Lasagna-Retrieval-Augmented-Generation-Compositionality)
 
 ### Citing Lasagna
 
