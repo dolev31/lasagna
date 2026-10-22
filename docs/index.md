@@ -1,5 +1,4 @@
 ---
-title: Lasagna
 hide:
   - navigation
   - toc
