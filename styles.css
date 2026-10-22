@@ -225,10 +225,6 @@ h1 {
   font: 500 clamp(2.25rem, 1.2rem + 3.6vw, 3.75rem)/1.04 var(--serif);
   letter-spacing: -0.022em; max-width: 15em; color: var(--ink); text-wrap: balance;
 }
-.why {
-  margin-top: 12px; max-width: 42rem;
-  font-size: 0.9375rem; line-height: 1.55; color: var(--muted);
-}
 .pitch-actions {
   margin-top: 22px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px;
 }
@@ -240,14 +236,34 @@ h1 {
 }
 .install-chip code { font: inherit; white-space: nowrap; }
 .hero-paper {
-  margin-top: clamp(32px, 4vw, 44px); padding-top: clamp(24px, 3vw, 32px);
-  border-top: 1px solid var(--line); width: 100%; max-width: 54rem;
+  margin-top: clamp(36px, 5vw, 56px); width: 100%; max-width: 46rem;
+  padding: clamp(20px, 3vw, 28px) clamp(18px, 3vw, 32px);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--bg-elev); box-shadow: var(--shadow-sm);
   display: flex; flex-direction: column; align-items: center;
 }
-.hero-paper .eyebrow { margin-bottom: 16px; }
-.hero-paper h1 { font-size: clamp(1.75rem, 1.2rem + 2.4vw, 2.75rem); line-height: 1.1; max-width: 18em; }
-.hero-paper .authors { margin-top: 18px; }
-.hero-paper .actions { margin-top: 20px; }
+.hero-paper .eyebrow { margin-bottom: 12px; }
+.hero-paper h1 {
+  font-size: clamp(1.375rem, 1.1rem + 1.1vw, 1.75rem); line-height: 1.2; letter-spacing: -0.012em;
+  max-width: 24em; text-wrap: balance;
+}
+.hero-paper .authors { margin-top: 12px; font-size: 0.9375rem; gap: 2px 16px; }
+.hero-paper .affils { margin-top: 2px; font-size: 0.8125rem; }
+.paper-finding {
+  margin-top: 14px; max-width: 36rem;
+  font-size: 0.9375rem; line-height: 1.55; color: var(--ink-2);
+}
+.paper-links {
+  margin-top: 14px; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px;
+}
+.paper-links a {
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 36px; padding: 0 12px; border-radius: 999px;
+  font: 500 0.875rem/1 var(--sans); color: var(--ink-2); text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.paper-links a:hover { background: var(--band); color: var(--accent); }
+.paper-links svg { flex: none; }
 .dek {
   margin-top: 18px; max-width: 44rem;
   font-size: clamp(1.0625rem, 0.95rem + 0.5vw, 1.25rem); line-height: 1.55; color: var(--ink-2);
