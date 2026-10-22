@@ -13,6 +13,7 @@ Code for **[Retrieval Augmented Generation Compositionality](https://dolev31.git
 <!-- After the arXiv listing: point the title link at the arXiv abstract page and add an arXiv badge below. -->
 
 [![Project page](https://img.shields.io/badge/project-page-1f6feb.svg)](https://dolev31.github.io/lasagna/)
+[![Docs](https://img.shields.io/badge/docs-read-1f6feb.svg)](https://dolev31.github.io/lasagna/docs/)
 [![PyPI](https://img.shields.io/pypi/v/lasagna-rag.svg)](https://pypi.org/project/lasagna-rag/)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23548068.svg)](https://doi.org/10.5281/zenodo.23548068)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/dolev31/lasagna/blob/main/LICENSE)
@@ -20,7 +21,7 @@ Code for **[Retrieval Augmented Generation Compositionality](https://dolev31.git
 [![Tests](https://github.com/dolev31/lasagna/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/dolev31/lasagna/actions/workflows/tests.yml)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/dolev31/lasagna/blob/main/examples/notebooks/compare_your_reranker.ipynb)
 
-**[Quickstart](#quickstart)** · **[Compare a component](#compare-a-component)** · **[Give your agent RAG](#give-your-agent-rag-mcp-rest-docker)** · **[Guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md)** · **[The paper](#the-paper)**
+**[Quickstart](#quickstart)** · **[Compare a component](#compare-a-component)** · **[Give your agent RAG](#give-your-agent-rag-mcp-rest-docker)** · **[Docs](https://dolev31.github.io/lasagna/docs/)** · **[The paper](#the-paper)**
 
 </div>
 
