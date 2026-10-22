@@ -218,7 +218,7 @@ this design exists to prevent.
 
 A function is enough for most techniques: `@lasagna.reranker("name")` on
 `f(query, text) -> score` wraps it in this interface, and the other stages have
-decorators of their own. The [README](../README.md#compare-a-component) shows
+decorators of their own. The [README](https://github.com/dolev31/lasagna/blob/main/README.md#compare-a-component) shows
 one, and [Contributing components](contributing-components.md) lists every
 stage's function signature.
 
@@ -462,7 +462,7 @@ arm from `standard` (a 3.2 GB download), while `lasagna benchmark run` starts
 from `speed`. `--dry-run` and the run header print the profile each arm starts
 from. The same file in YAML runs with
 `lasagna benchmark experiment sweep.yaml`, which is what the
-[README](../README.md#compare-a-component) and
+[README](https://github.com/dolev31/lasagna/blob/main/README.md#compare-a-component) and
 [Contributing components](contributing-components.md#4-check-it-helps) show.
 Run it, and look at the failed tasks before the scores: a task that failed is
 listed there, not in the table.
@@ -721,9 +721,9 @@ questions a model wrote favor systems like that model.
 why and shows the options.
 
 For what the metrics mean and which are trustworthy, see
-[metrics](../src/lasagna/knowledge_evaluation_sdk/docs/metrics.md); for the
+[metrics](https://github.com/dolev31/lasagna/blob/main/src/lasagna/knowledge_evaluation_sdk/docs/metrics.md); for the
 available datasets, see
-[benchmarks](../src/lasagna/knowledge_evaluation_sdk/docs/benchmarks.md).
+[benchmarks](https://github.com/dolev31/lasagna/blob/main/src/lasagna/knowledge_evaluation_sdk/docs/benchmarks.md).
 
 ---
 
@@ -791,7 +791,7 @@ warnings that do not invalidate a bundle, such as `SINGLE_RUN` (one run of a
 pipeline in which something samples) or `UNRESOLVED_JUDGE_ALIAS` (a judge named
 by a floating alias); `--strict` turns them into failures. A run records
 `nothing_samples` when only retrieval ran and no task called an LLM; one run of
-it is complete and raises no `SINGLE_RUN`. The [results hub](../hub/README.md)
+it is complete and raises no `SINGLE_RUN`. The [results hub](https://github.com/dolev31/lasagna/blob/main/hub/README.md)
 runs a public leaderboard from such bundles, and marks a row verified only when
 someone else's bundle reproduces it: within its spread, which needs at least two
 runs, or by equalling its mean when nothing in the run samples.
@@ -803,19 +803,19 @@ runs, or by equalling its mean when nothing in the run samples.
 | I want to... | Read |
 |---|---|
 | **Run on my own questions or documents** | [Your own data](own-data.md) |
-| **Publish my component as a package** | [Plugin template](../examples/lasagna-plugin-template/) |
+| **Publish my component as a package** | [Plugin template](https://github.com/dolev31/lasagna/tree/main/examples/lasagna-plugin-template) |
 | **Check my component satisfies its contract** | `lasagna component validate <module:Class>` |
 | **See which plugins are installed (and which failed)** | `lasagna plugins list` |
-| **Know a dataset's terms before publishing** | [Dataset licenses](../src/lasagna/knowledge_evaluation_sdk/research/DATASETS.md) |
+| **Know a dataset's terms before publishing** | [Dataset licenses](https://github.com/dolev31/lasagna/blob/main/src/lasagna/knowledge_evaluation_sdk/research/DATASETS.md) |
 | Know which settings apply, and where data lives | [Configuration](configuration.md) |
 | Look up any setting | [Settings reference](reference/settings.md) |
-| Use the Python SDK in an application | [SDK user guide](../src/lasagna/sdk/docs/user_guide.md) |
-| Add a component type, not just an implementation | [Extending](../src/lasagna/sdk/docs/extending.md) |
-| Call it over HTTP | [REST endpoints](../src/lasagna/api/docs/endpoints.md) |
-| Give an agent search over documents | [MCP server](../src/lasagna/mcp/README.md) |
-| Run a different vector database | [Vector backends](../src/lasagna/vector_backends/README.md) |
-| Understand the retrieval internals | [Architecture](../src/lasagna/core/docs/architecture.md) |
-| Deploy it | [Deployment](../src/lasagna/deploy/README.md) |
+| Use the Python SDK in an application | [SDK user guide](https://github.com/dolev31/lasagna/blob/main/src/lasagna/sdk/docs/user_guide.md) |
+| Add a component type, not just an implementation | [Extending](https://github.com/dolev31/lasagna/blob/main/src/lasagna/sdk/docs/extending.md) |
+| Call it over HTTP | [REST endpoints](https://github.com/dolev31/lasagna/blob/main/src/lasagna/api/docs/endpoints.md) |
+| Give an agent search over documents | [MCP server](https://github.com/dolev31/lasagna/blob/main/src/lasagna/mcp/README.md) |
+| Run a different vector database | [Vector backends](https://github.com/dolev31/lasagna/blob/main/src/lasagna/vector_backends/README.md) |
+| Understand the retrieval internals | [Architecture](https://github.com/dolev31/lasagna/blob/main/src/lasagna/core/docs/architecture.md) |
+| Deploy it | [Deployment](https://github.com/dolev31/lasagna/blob/main/src/lasagna/deploy/README.md) |
 
 ### Two warnings
 

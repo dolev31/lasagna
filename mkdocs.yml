@@ -1,0 +1,140 @@
+site_name: Lasagna
+site_description: Develop a RAG technique and test it inside a full pipeline.
+site_url: https://dolev31.github.io/lasagna/docs/
+site_author: Ido Levy, Segev Shlomov, Leshem Choshen
+repo_url: https://github.com/dolev31/lasagna
+repo_name: dolev31/lasagna
+edit_uri: edit/main/docs/
+copyright: Apache License 2.0
+strict: true
+
+docs_dir: docs
+site_dir: site
+
+exclude_docs: |
+  assets/demo/
+  assets/demo.gif
+  assets/demo.mp4
+  assets/hero-*.png
+  assets/brand/lasagna-lockup-*.svg
+  assets/brand/lasagna-layers.svg
+  assets/brand/lasagna-mark-mono.svg
+
+theme:
+  name: material
+  logo: assets/brand/lasagna-mark.svg
+  favicon: assets/brand/favicon.svg
+  font: false
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.instant
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - toc.follow
+
+extra_css:
+  - stylesheets/extra.css
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            docstring_options:
+              warn_missing_types: false
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            heading_level: 2
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+            merge_init_into_class: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: false
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Get started:
+      - Installation: get-started/installation.md
+      - Quickstart: get-started/quickstart.md
+      - Your first comparison: get-started/first-comparison.md
+      - Offline demo and notebook: get-started/offline-demo.md
+  - Guides:
+      - The long-form guide: guide.md
+      - Write a component: guides/write-a-component.md
+      - Compare a component: guides/compare-a-component.md
+      - Use your own data: own-data.md
+      - Synthetic dev sets: guides/synthetic-data.md
+      - Baselines: guides/baselines.md
+      - Dry runs and cost estimates: guides/dry-run.md
+      - LLM response cache: guides/llm-cache.md
+      - Read and publish results: guides/results.md
+      - LangChain and LlamaIndex: guides/langchain-llamaindex.md
+      - Vector backends: guides/vector-backends.md
+      - Profiles and configuration: configuration.md
+      - Component contribution rules: contributing-components.md
+      - Reproduce BEIR: guides/reproduce-beir.md
+  - Agents and serving:
+      - MCP server: serving/mcp.md
+      - REST API: serving/rest-api.md
+      - Docker and Compose: serving/docker.md
+  - Catalog:
+      - Stages: catalog/stages.md
+      - Components: catalog/components.md
+      - Benchmarks: catalog/benchmarks.md
+  - Reference:
+      - Command line: reference/cli.md
+      - Python API: reference/python-api.md
+      - Settings: reference/settings.md
+      - Metrics: reference/metrics.md
+      - Results schema: reference/results-schema.md
+  - Concepts:
+      - Stage isolation: concepts/stage-isolation.md
+      - Significance testing: concepts/significance.md
+      - Comparability and provenance: concepts/comparability.md
+      - How the paper used Lasagna: concepts/the-paper-study.md
+  - Project:
+      - Changelog: project/changelog.md
+      - Contributing: project/contributing.md
+      - Governance: project/governance.md
+      - Security: project/security.md
+      - Citing: project/citing.md
+      - Model licenses: model-licenses.md

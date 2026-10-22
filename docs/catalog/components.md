@@ -7,7 +7,7 @@ registries. Do not edit by hand: run the script.
 sweep, or run one with `lasagna benchmark run <benchmark> --reranker <name>`. The same
 list prints from `lasagna component list`.
 
-The last column is what the component needs beyond `pip install lasagna-rag`. "An LLM" means the run's LLM, set up as in [Installation](../get-started/installation.md#an-llm-for-the-generation-track). "Downloads a model" means the weights come from the Hugging Face Hub on first use (see [Model licenses](../project/model-licenses.md)). Extras are listed in [Installation](../get-started/installation.md#extras).
+The last column is what the component needs beyond `pip install lasagna-rag`. "An LLM" means the run's LLM, set up as in [Installation](../get-started/installation.md#an-llm-for-the-generation-track). "Downloads a model" means the weights come from the Hugging Face Hub on first use (see [Model licenses](../model-licenses.md)). Extras are listed in [Installation](../get-started/installation.md#extras).
 
 ## Document processor
 

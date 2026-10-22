@@ -231,7 +231,7 @@ That exclusion is the whole design. A key covering everything would make every
 row incomparable with every other; a key covering nothing would make all rows
 comparable regardless of what they measured.
 
-Submit to [the results hub](../hub/README.md) as a pull request adding one file.
+Submit to [the results hub](https://github.com/dolev31/lasagna/blob/main/hub/README.md) as a pull request adding one file.
 
 ---
 
@@ -270,7 +270,7 @@ the rest of the guarantees worth anything.
 
 ## Shipping it as a package
 
-Copy [`examples/lasagna-plugin-template/`](../examples/lasagna-plugin-template/):
+Copy [`examples/lasagna-plugin-template/`](https://github.com/dolev31/lasagna/tree/main/examples/lasagna-plugin-template):
 a real installable package registering one reranker and one benchmark through
 entry points, with tests. CI installs and runs it, so it cannot rot into a
 snippet that no longer works.
@@ -321,10 +321,10 @@ Stated rather than hidden, because you will hit these.
 ## Getting help
 
 `lasagna doctor` first: it answers most questions before they are asked. Then
-[a bug report](../.github/ISSUE_TEMPLATE/bug_report.yml), or
-[a component contribution](../.github/ISSUE_TEMPLATE/component_contribution.yml)
+[a bug report](https://github.com/dolev31/lasagna/blob/main/.github/ISSUE_TEMPLATE/bug_report.yml), or
+[a component contribution](https://github.com/dolev31/lasagna/blob/main/.github/ISSUE_TEMPLATE/component_contribution.yml)
 if you want yours listed. If a published number does not reproduce, open a
-[result dispute](../.github/ISSUE_TEMPLATE/result_dispute.yml); run
+[result dispute](https://github.com/dolev31/lasagna/blob/main/.github/ISSUE_TEMPLATE/result_dispute.yml); run
 `lasagna results compare` first, since the field-level diff usually settles it.
 
 Agents working in a repo that uses Lasagna can run `lasagna skills install` to

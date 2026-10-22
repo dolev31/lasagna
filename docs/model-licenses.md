@@ -86,7 +86,7 @@ from the table load normally and log a `DEBUG` note that their license was not
 checked. Absence means *uncataloged*, not *unrestricted*.
 
 If you add a model to the configurator, add it to
-[`src/lasagna/core/model_licenses.py`](../src/lasagna/core/model_licenses.py)
+[`src/lasagna/core/model_licenses.py`](https://github.com/dolev31/lasagna/blob/main/src/lasagna/core/model_licenses.py)
 too. `tests/test_model_licenses.py` fails the build when the UI offers a model
 the table does not cover, which is what keeps this page honest.
 

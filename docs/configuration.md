@@ -60,7 +60,7 @@ become session overrides for the client's session. The embedding model is
 both: the process's default, and the client's session setting, which wins, so
 each session indexes and searches with its own model and two clients in one
 process on different sessions can use different models. The
-[SDK configuration page](../src/lasagna/sdk/docs/configuration.md) lists which
+[SDK configuration page](https://github.com/dolev31/lasagna/blob/main/src/lasagna/sdk/docs/configuration.md) lists which
 is which.
 
 **Environment variables.** Every setting reads from `LASAGNA_<NAME>` and from
@@ -153,7 +153,7 @@ a store version, and a Lasagna that finds a store written by a newer version
 refuses to open it, naming both versions. Upgrade the package, or point
 `LASAGNA_DB_DIR` (or the PostgreSQL DSN) at another store. Downgrading over a
 store is therefore not possible. The deployment guide covers
-[upgrading a running stack](../src/lasagna/deploy/README.md).
+[upgrading a running stack](https://github.com/dolev31/lasagna/blob/main/src/lasagna/deploy/README.md).
 
 ## One collection per embedding model
 
@@ -261,7 +261,7 @@ Cohere and NVIDIA need the `providers` extra
 (`langchain-groq`, `langchain-ibm`, `langchain-community` with
 `llama-cpp-python`), which no extra installs. Writing your own provider, or
 configuring one in code, is covered in
-[the providers package](../src/lasagna/providers/README.md).
+[the providers package](https://github.com/dolev31/lasagna/blob/main/src/lasagna/providers/README.md).
 
 **In an experiment**, the answers come from `RAG_EVAL_GENERATOR_MODEL`, else
 `MODEL_NAME`, else the provider default above. The judge is separate:

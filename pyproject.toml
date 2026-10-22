@@ -326,6 +326,8 @@ docs = [
     "griffe==2.4.0",
     "pymdown-extensions==12.3",
     "mkdocs-autorefs==1.4.4",
+    # Formats long signatures in the API reference; the same pin as the lint group.
+    "ruff==0.14.7",
 ]
 
 [build-system]
