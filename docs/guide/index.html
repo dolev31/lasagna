@@ -1,0 +1,3598 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Develop a RAG technique and test it inside a full pipeline.">
+      
+      
+        <meta name="author" content="Ido Levy, Segev Shlomov, Leshem Choshen">
+      
+      
+        <link rel="canonical" href="https://dolev31.github.io/lasagna/docs/guide/">
+      
+      
+        <link rel="prev" href="../get-started/offline-demo/">
+      
+      
+        <link rel="next" href="../guides/write-a-component/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/brand/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>The long-form guide - Lasagna</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#working-with-lasagna" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Lasagna" class="md-header__button md-logo" aria-label="Lasagna" data-md-component="logo">
+      
+  <img src="../assets/brand/lasagna-mark.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Lasagna
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              The long-form guide
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dolev31/lasagna" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    dolev31/lasagna
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../get-started/installation/" class="md-tabs__link">
+          
+  
+  
+  Get started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../serving/mcp/" class="md-tabs__link">
+          
+  
+  
+  Agents and serving
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../catalog/stages/" class="md-tabs__link">
+          
+  
+  
+  Catalog
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../reference/cli/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../concepts/stage-isolation/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../project/changelog/" class="md-tabs__link">
+          
+  
+  
+  Project
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Lasagna" class="md-nav__button md-logo" aria-label="Lasagna" data-md-component="logo">
+      
+  <img src="../assets/brand/lasagna-mark.svg" alt="logo">
+
+    </a>
+    Lasagna
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dolev31/lasagna" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    dolev31/lasagna
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../get-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../get-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../get-started/first-comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your first comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../get-started/offline-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Offline demo and notebook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The long-form guide
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The long-form guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-the-question-this-answers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. The question this answers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Install
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Install">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#extras" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extras
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#platform-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Platform notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-the-stages-you-can-swap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. The stages you can swap
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-write-a-component" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Write a component
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-register-it-and-see-it-listed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Register it, and see it listed
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Register it, and see it listed">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#already-built-in-langchain-or-llamaindex" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Already built in LangChain or LlamaIndex?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-compare-it-against-a-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Compare it against a baseline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Compare it against a baseline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#picking-a-baseline-that-means-something" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Picking a baseline that means something
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-swap-it-into-a-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Swap it into a pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-measure-it-on-a-benchmark" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Measure it on a benchmark
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Measure it on a benchmark">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#check-the-setup-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Check the setup first
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#then-the-real-thing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Then the real thing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-many-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How many runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-corpus-documents-fail-to-ingest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When corpus documents fail to ingest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sweep-the-other-stages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sweep the other stages
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-baselines-a-reviewer-asks-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The baselines a reviewer asks for
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#before-a-long-run-dry-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before a long run: --dry-run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#re-running-a-sweep-replays-llm-calls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Re-running a sweep replays LLM calls
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-development-set-from-your-own-documents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A development set from your own documents
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-read-and-publish-the-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Read and publish the result
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-where-to-go-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Where to go next
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Where to go next">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#two-warnings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two warnings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/write-a-component/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Write a component
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/compare-a-component/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compare a component
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../own-data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use your own data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/synthetic-data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synthetic dev sets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/baselines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Baselines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/dry-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dry runs and cost estimates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/llm-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM response cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Read and publish results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/langchain-llamaindex/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LangChain and LlamaIndex
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/vector-backends/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vector backends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Profiles and configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing-components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Component contribution rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/reproduce-beir/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproduce BEIR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents and serving
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Agents and serving
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serving/mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serving/rest-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serving/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker and Compose
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Catalog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Catalog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../catalog/stages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stages
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../catalog/components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../catalog/benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/results-schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results schema
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/stage-isolation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage isolation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/significance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Significance testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/comparability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparability and provenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/the-paper-study/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How the paper used Lasagna
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../project/changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../project/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../project/governance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Governance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../project/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../project/citing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Citing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-licenses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model licenses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-the-question-this-answers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. The question this answers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Install
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Install">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#extras" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extras
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#platform-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Platform notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-the-stages-you-can-swap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. The stages you can swap
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-write-a-component" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Write a component
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-register-it-and-see-it-listed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Register it, and see it listed
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Register it, and see it listed">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#already-built-in-langchain-or-llamaindex" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Already built in LangChain or LlamaIndex?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-compare-it-against-a-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Compare it against a baseline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Compare it against a baseline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#picking-a-baseline-that-means-something" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Picking a baseline that means something
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-swap-it-into-a-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Swap it into a pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-measure-it-on-a-benchmark" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Measure it on a benchmark
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Measure it on a benchmark">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#check-the-setup-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Check the setup first
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#then-the-real-thing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Then the real thing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-many-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How many runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-corpus-documents-fail-to-ingest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When corpus documents fail to ingest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sweep-the-other-stages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sweep the other stages
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-baselines-a-reviewer-asks-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The baselines a reviewer asks for
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#before-a-long-run-dry-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before a long run: --dry-run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#re-running-a-sweep-replays-llm-calls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Re-running a sweep replays LLM calls
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-development-set-from-your-own-documents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A development set from your own documents
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-read-and-publish-the-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Read and publish the result
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-where-to-go-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Where to go next
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Where to go next">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#two-warnings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two warnings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="working-with-lasagna">Working with Lasagna<a class="headerlink" href="#working-with-lasagna" title="Permanent link">&para;</a></h1>
+<p>A guide for the thing this package exists to do: <strong>find out whether a retrieval
+component actually helps.</strong></p>
+<p>Every Python block below is executed by the release gate on each run
+(<code>e2e/phases/p3_docs.py</code>). If one stops working, the build fails. Blocks that
+cannot run hermetically (anything needing a model download or a populated
+store) are marked and say why.</p>
+<p><strong>Contents</strong></p>
+<ol>
+<li><a href="#1-the-question-this-answers">The question this answers</a></li>
+<li><a href="#2-install">Install</a></li>
+<li><a href="#3-the-stages-you-can-swap">The stages you can swap</a></li>
+<li><a href="#4-write-a-component">Write a component</a></li>
+<li><a href="#5-register-it-and-see-it-listed">Register it, and see it listed</a></li>
+<li><a href="#6-compare-it-against-a-baseline">Compare it against a baseline</a></li>
+<li><a href="#7-swap-it-into-a-pipeline">Swap it into a pipeline</a></li>
+<li><a href="#8-measure-it-on-a-benchmark">Measure it on a benchmark</a></li>
+<li><a href="#9-read-and-publish-the-result">Read and publish the result</a></li>
+<li><a href="#10-where-to-go-next">Where to go next</a></li>
+</ol>
+<hr />
+<h2 id="1-the-question-this-answers">1. The question this answers<a class="headerlink" href="#1-the-question-this-answers" title="Permanent link">&para;</a></h2>
+<p>You have an idea for a reranker, or a chunker, or a query rewriter. The
+literature says the technique gives +4 NDCG. You want to know whether it helps
+<em>your</em> corpus, and you want a number you would be willing to publish.</p>
+<p>Doing that honestly is harder than it sounds, because the usual approach (fork
+a RAG pipeline, patch your component in, run it) changes more than one thing at
+once. Different chunking, a different embedding model, a different top-k, and
+the +4 you measured belongs to something other than your idea.</p>
+<p>Lasagna's answer is that the eight stages are isolated behind typed contracts.
+You swap exactly one and everything else stays fixed, so a difference in the
+result is attributable to the swap. That property is enforced by a conformance
+suite, not by convention.</p>
+<p>The rest of this guide walks that workflow end to end.</p>
+<hr />
+<h2 id="2-install">2. Install<a class="headerlink" href="#2-install" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>lasagna-rag<span class="w">                    </span><span class="c1"># core: ingest, embed, search, serve</span>
+python<span class="w"> </span>-m<span class="w"> </span>nltk.downloader<span class="w"> </span>punkt_tab<span class="w">        </span><span class="c1"># once: nltk's sentence tokenizer data</span>
+</code></pre></div>
+<p>Lasagna never downloads the tokenizer data by itself. Without it, sentences are
+split with a regular expression, which can move chunk boundaries, and run
+bundles record that as the <code>sentence_split_without_punkt</code> fallback.</p>
+<p><strong>First run downloads models.</strong> The default profile pulls an embedding model
+on the first upload or search <em>and</em> a reranker on the first search that
+reranks: about <strong>3.2 GB</strong> (BGE-M3, 2.3 GB, and the mxbai reranker, 881 MB;
+2.3 GB more with the <code>flag-embedding</code> extra, which fetches BGE-M3's whole
+repository, ONNX export included), and between 2 and 40 minutes to your first
+search result on release-gate runs, depending on the connection. After that, a warm search on the speed profile takes tens of
+milliseconds (median 32 ms over 18,442 chunks on Milvus Lite). The default
+profile takes 7 to 9 s on two CPU threads, because its large reranker scores
+every query; more cores or a GPU cut that.</p>
+<p>To try it faster, start on the <code>speed</code> profile: dense vector search on a
+92 MB model, no reranker and no API key.</p>
+<div class="highlight"><pre><span></span><code>lasagna<span class="w"> </span>configure<span class="w"> </span>--profile<span class="w"> </span>speed
+</code></pre></div>
+<p><a href="../configuration/#profiles">Configuration</a> lists the five profiles and what
+each one downloads, and explains which settings win when a profile, the
+settings file and the environment disagree.</p>
+<p>Nothing in sections 3 to 7 needs a model or a network: components are plain
+Python objects, and you can exercise them directly. Only section 8 needs a
+corpus.</p>
+<h3 id="extras">Extras<a class="headerlink" href="#extras" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Extra</th>
+<th>Adds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>eval</code></td>
+<td>RAGAS metrics, benchmark loaders, statistics, plots</td>
+</tr>
+<tr>
+<td><code>ingest</code></td>
+<td>EasyOCR for scanned documents</td>
+</tr>
+<tr>
+<td><code>docling</code></td>
+<td>structure-aware document conversion (the <code>docling</code> processor)</td>
+</tr>
+<tr>
+<td><code>markitdown</code></td>
+<td>Microsoft MarkItDown: PDF, Office and HTML to Markdown (the <code>markitdown</code> processor)</td>
+</tr>
+<tr>
+<td><code>pymupdf4llm</code></td>
+<td>PDF to Markdown (the <code>pymupdf4llm</code> processor); AGPL-3.0</td>
+</tr>
+<tr>
+<td><code>vector-backends</code></td>
+<td>Pinecone, Qdrant, Weaviate clients</td>
+</tr>
+<tr>
+<td><code>opensearch</code> / <code>pgvector</code></td>
+<td>those backends</td>
+</tr>
+<tr>
+<td><code>flag-embedding</code></td>
+<td>BGE-M3 dense+sparse+ColBERT</td>
+</tr>
+<tr>
+<td><code>graphrag</code></td>
+<td>entity-linked retrieval</td>
+</tr>
+<tr>
+<td><code>llamaindex</code></td>
+<td>wrapping LlamaIndex components as stages</td>
+</tr>
+<tr>
+<td><code>storage-all</code></td>
+<td>S3, GCS, Azure document storage</td>
+</tr>
+<tr>
+<td><code>local</code></td>
+<td>local LLM inference (HF, Ollama)</td>
+</tr>
+<tr>
+<td><code>providers</code></td>
+<td>LLM providers beyond OpenAI: Anthropic, Google, Mistral, Cohere, NVIDIA</td>
+</tr>
+<tr>
+<td><code>ocr</code></td>
+<td>Tesseract and PaddleOCR engines (Tesseract also needs the <code>tesseract</code> program)</td>
+</tr>
+<tr>
+<td><code>web</code></td>
+<td>web search fallback for corrective RAG</td>
+</tr>
+<tr>
+<td><code>lifecycle</code></td>
+<td>scheduled document expiry and cleanup</td>
+</tr>
+<tr>
+<td><code>production</code></td>
+<td>Redis, Celery, Prometheus, OpenTelemetry and PostgreSQL: what <code>settings.lasagna_production.toml</code> turns on</td>
+</tr>
+<tr>
+<td><code>all</code></td>
+<td>everything above except <code>markitdown</code>, <code>pymupdf4llm</code> and <code>llamaindex</code></td>
+</tr>
+</tbody>
+</table>
+<p>A few components need a package or an API key of their own: the <code>flashrank</code>
+reranker (<code>pip install flashrank</code>), the <code>cohere</code> reranker and embedder
+(<code>pip install cohere</code>, <code>COHERE_API_KEY</code>), the <code>voyage</code> embedder
+(<code>pip install voyageai</code>, <code>VOYAGE_API_KEY</code>) and the <code>openai</code> embedder
+(<code>OPENAI_API_KEY</code>). Each raises naming what is missing.</p>
+<p><code>all</code> is large: pip takes about two minutes to resolve it (measured with pip
+26.2), and <code>uv pip install "lasagna-rag[all]"</code> a few seconds.</p>
+<h3 id="platform-notes">Platform notes<a class="headerlink" href="#platform-notes" title="Permanent link">&para;</a></h3>
+<p>On Linux x86_64, <code>pip</code> installs the CUDA build of torch, about 3.2 GB of
+downloads. For CPU only, install torch from the PyTorch CPU index first:</p>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu
+pip<span class="w"> </span>install<span class="w"> </span>lasagna-rag
+</code></pre></div>
+<p>On Apple Silicon, model calls on the GPU (MPS) run one at a time, because two at
+once crash Metal; concurrent sweep arms wait for each other there. To run
+everything on the CPU instead, set <code>RAG_USE_GPU=false</code>.</p>
+<p><strong>Name collision.</strong> <code>pip install lasagna</code> installs a different project
+(<code>lasagna-ai</code>, an LLM-agent framework), which also provides a top-level
+<code>lasagna</code> import package. Installing both in one environment makes them
+overwrite each other. This package is <code>lasagna-rag</code>.</p>
+<p><code>import lasagna</code> loads no torch, transformers, sentence-transformers or
+pymilvus; those arrive only when something needs them, so a remote-backend
+client stays light.</p>
+<p><strong>No usage telemetry.</strong> Lasagna collects none. ragas, the library behind the
+generation metrics, sends its authors a usage event (its version, the LLM
+provider and model name, and a random id) each time a judge is built. Importing
+<code>lasagna</code> turns that off by setting <code>RAGAS_DO_NOT_TRACK=true</code>, unless you have
+already set it. To send ragas those events, set <code>RAGAS_DO_NOT_TRACK=false</code>
+before importing <code>lasagna</code>. ragas still writes its random id to a file in your
+user data folder, but with tracking off it sends nothing.</p>
+<hr />
+<h2 id="3-the-stages-you-can-swap">3. The stages you can swap<a class="headerlink" href="#3-the-stages-you-can-swap" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">lasagna.core.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">registry</span>
+
+<span class="c1"># list_all() maps each stage to the names registered for it.</span>
+<span class="k">for</span> <span class="n">stage</span><span class="p">,</span> <span class="n">names</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">registry</span><span class="o">.</span><span class="n">list_all</span><span class="p">()</span><span class="o">.</span><span class="n">items</span><span class="p">()):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">stage</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">names</span><span class="p">)</span><span class="si">}</span><span class="s2"> registered -&gt; </span><span class="si">{</span><span class="s1">', '</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">names</span><span class="p">)[:</span><span class="mi">3</span><span class="p">])</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</code></pre></div>
+<p>From the shell, <code>lasagna component list</code> (or <code>lasagna component list reranker</code>)
+prints the same, with each component's description and paper.</p>
+<p>Each stage has a typed abstract base class. Implementing it is the whole
+contract: there is no plugin manifest and no registration ceremony beyond one
+decorator.</p>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Base class</th>
+<th>Swap it to change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Chunker</td>
+<td><code>BaseChunker</code></td>
+<td>how documents are split</td>
+</tr>
+<tr>
+<td>Embedder</td>
+<td><code>BaseEmbedder</code></td>
+<td>what vectors are stored</td>
+</tr>
+<tr>
+<td>Query enhancer</td>
+<td><code>BaseQueryEnhancer</code></td>
+<td>how the query is rewritten before retrieval</td>
+</tr>
+<tr>
+<td>Retriever</td>
+<td><code>BaseRetriever</code></td>
+<td>how candidates are fetched</td>
+</tr>
+<tr>
+<td>Reranker</td>
+<td><code>BaseReranker</code></td>
+<td>the ordering of retrieved candidates</td>
+</tr>
+<tr>
+<td>Document processor</td>
+<td><code>BaseDocumentProcessor</code></td>
+<td>how files are parsed</td>
+</tr>
+<tr>
+<td>Agentic pipeline</td>
+<td><code>BaseAgenticPipeline</code></td>
+<td>the multi-step retrieval loop</td>
+</tr>
+<tr>
+<td>Generator</td>
+<td><code>BaseGenerator</code></td>
+<td>how the answer is written from the retrieved passages</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="4-write-a-component">4. Write a component<a class="headerlink" href="#4-write-a-component" title="Permanent link">&para;</a></h2>
+<p>A reranker takes a query and a list of candidates, and returns them reordered.
+That is the entire interface:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">lasagna.core.base_components</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseReranker</span><span class="p">,</span> <span class="n">ScoredDocument</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">LengthReranker</span><span class="p">(</span><span class="n">BaseReranker</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Ranks by word count. Deliberately unlike retrieval-score order.</span>
+
+<span class="sd">    A real component would score query-document relevance. This one is</span>
+<span class="sd">    obviously wrong on purpose, so that when the ordering changes below you</span>
+<span class="sd">    know the change came from the swap and not from chance.</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">rerank</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query</span><span class="p">,</span> <span class="n">documents</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+
+        <span class="c1"># Copy first. A stage must not mutate what it was handed: the</span>
+        <span class="c1"># caller may still be holding those objects, and a component that</span>
+        <span class="c1"># edits them in place makes results depend on execution order.</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="p">[</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">documents</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">out</span><span class="p">:</span>
+            <span class="n">d</span><span class="o">.</span><span class="n">score</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">split</span><span class="p">()))</span>
+        <span class="n">out</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">d</span><span class="p">:</span> <span class="n">d</span><span class="o">.</span><span class="n">score</span><span class="p">,</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">out</span><span class="p">[:</span><span class="n">top_k</span><span class="p">]</span>
+
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">"defined:"</span><span class="p">,</span> <span class="n">LengthReranker</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+</code></pre></div>
+<p>Two things that matter more than they look:</p>
+<p><strong>Deep-copy before you touch anything.</strong> The pipeline may hand the same objects
+to more than one component. A stage that mutates its input makes the result
+depend on the order stages ran in, which is exactly the kind of hidden coupling
+this design exists to prevent.</p>
+<p><strong>Return at most <code>top_k</code>.</strong> The caller decides how many results it wants.</p>
+<p>A function is enough for most techniques: <code>@lasagna.reranker("name")</code> on
+<code>f(query, text) -&gt; score</code> wraps it in this interface, and the other stages have
+decorators of their own. The <a href="https://github.com/dolev31/lasagna/blob/main/README.md#compare-a-component">README</a> shows
+one, and <a href="../contributing-components/">Contributing components</a> lists every
+stage's function signature.</p>
+<hr />
+<h2 id="5-register-it-and-see-it-listed">5. Register it, and see it listed<a class="headerlink" href="#5-register-it-and-see-it-listed" title="Permanent link">&para;</a></h2>
+<p>Registration is one decorator. The <code>paper</code> and <code>claims</code> arguments are optional
+but worth filling in: they are carried through to the listing API and recorded
+by every run, and on a run of the benchmark a claim names, the leaderboards and
+<code>results view</code> show the claimed number next to the one you reproduced. Claims
+are keyed by benchmark (with <code>"split"</code> inside if the paper names one). A metric
+name runs do not record (<code>ndgc@10</code>) is refused when the component registers,
+and a benchmark no registry has (<code>beir/scifcat</code>) is a warning naming the
+closest one.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">lasagna.core.base_components</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseReranker</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">lasagna.core.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">registry</span>
+
+
+<span class="nd">@registry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span>
+    <span class="s2">"reranker"</span><span class="p">,</span>
+    <span class="s2">"length_demo"</span><span class="p">,</span>
+    <span class="n">paper</span><span class="o">=</span><span class="s2">"Nobody et al. 2026"</span><span class="p">,</span>
+    <span class="n">claims</span><span class="o">=</span><span class="p">{</span><span class="s2">"beir/scifact"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"ndcg@10"</span><span class="p">:</span> <span class="mf">0.42</span><span class="p">}},</span>
+<span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">LengthDemoReranker</span><span class="p">(</span><span class="n">BaseReranker</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">rerank</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query</span><span class="p">,</span> <span class="n">documents</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+
+        <span class="n">out</span> <span class="o">=</span> <span class="p">[</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">documents</span><span class="p">]</span>
+        <span class="n">out</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">d</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">split</span><span class="p">()),</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">out</span><span class="p">[:</span><span class="n">top_k</span><span class="p">]</span>
+
+
+<span class="n">entry</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">registry</span><span class="o">.</span><span class="n">list_rerankers</span><span class="p">()</span> <span class="k">if</span> <span class="n">e</span><span class="p">[</span><span class="s2">"name"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"length_demo"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"implements_contract:"</span><span class="p">,</span> <span class="n">entry</span><span class="p">[</span><span class="s2">"implements_contract"</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"paper:"</span><span class="p">,</span> <span class="n">entry</span><span class="p">[</span><span class="s2">"paper"</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"claims:"</span><span class="p">,</span> <span class="n">entry</span><span class="p">[</span><span class="s2">"claims"</span><span class="p">])</span>
+</code></pre></div>
+<p><code>implements_contract</code> is the field to look at. It is <code>True</code> when the class
+satisfies the abstract base class, not merely when it was registered. A
+component that registers but does not conform is listed with
+<code>implements_contract: False</code>, which is how you find out before your results
+depend on it.</p>
+<h3 id="already-built-in-langchain-or-llamaindex">Already built in LangChain or LlamaIndex?<a class="headerlink" href="#already-built-in-langchain-or-llamaindex" title="Permanent link">&para;</a></h3>
+<p><code>lasagna.from_langchain</code> and <code>lasagna.from_llamaindex</code> register an object you
+already have. A document compressor or node postprocessor becomes a reranker,
+embeddings become an embedder, and a retriever becomes a retriever. The listing
+describes the entry as <code>wrapped: langchain.&lt;Class&gt;</code>.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">lasagna</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">langchain_core.embeddings</span><span class="w"> </span><span class="kn">import</span> <span class="n">DeterministicFakeEmbedding</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">lasagna.core.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">registry</span>
+
+<span class="n">name</span> <span class="o">=</span> <span class="n">lasagna</span><span class="o">.</span><span class="n">from_langchain</span><span class="p">(</span><span class="n">DeterministicFakeEmbedding</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="mi">64</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>  <span class="c1"># langchain.DeterministicFakeEmbedding</span>
+<span class="n">entry</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">registry</span><span class="o">.</span><span class="n">list_embedders</span><span class="p">()</span> <span class="k">if</span> <span class="n">e</span><span class="p">[</span><span class="s2">"name"</span><span class="p">]</span> <span class="o">==</span> <span class="n">name</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">"description"</span><span class="p">])</span>  <span class="c1"># wrapped: langchain.DeterministicFakeEmbedding</span>
+</code></pre></div>
+<p>A sweep run from Python names the returned name like any other component. A
+sweep file run with <code>lasagna benchmark experiment</code> names the object where you
+defined it instead: with <code>cohere = CohereRerank(top_n=10)</code> in
+<code>my_rerankers.py</code>, the arm <code>"my_rerankers:cohere"</code> is wrapped the same way.</p>
+<p>Three things to know:</p>
+<ul>
+<li><strong>A wrapped retriever brings its own index.</strong> It searches whatever the
+  object was built over, not the corpus Lasagna ingested. For a benchmark, its
+  index must hold that benchmark's corpus with each corpus id in the metadata
+  (<code>doc_id</code>, or the key you pass as <code>id_key=</code>). A document with no id gets a
+  hash of its text as its id, which matches no relevance judgment.</li>
+<li><strong>The object's own limits apply.</strong> A compressor's <code>top_n</code> or a retriever's
+  <code>k</code> caps how many documents come back; set it at least as high as the
+  pipeline's depth, or the arm is scored on shorter lists than the others.</li>
+<li><strong>LlamaIndex is an extra:</strong> <code>pip install "lasagna-rag[llamaindex]"</code>.
+  LangChain needs nothing more.</li>
+</ul>
+<hr />
+<h2 id="6-compare-it-against-a-baseline">6. Compare it against a baseline<a class="headerlink" href="#6-compare-it-against-a-baseline" title="Permanent link">&para;</a></h2>
+<p>This is the part that makes a number defensible. Run the same input through two
+components and compare the outputs. Nothing else varies, so any difference is
+the component.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">lasagna.core.base_components</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseReranker</span><span class="p">,</span> <span class="n">ScoredDocument</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ByLength</span><span class="p">(</span><span class="n">BaseReranker</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">rerank</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query</span><span class="p">,</span> <span class="n">documents</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="p">[</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">documents</span><span class="p">]</span>
+        <span class="n">out</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">d</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">split</span><span class="p">()),</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">out</span><span class="p">[:</span><span class="n">top_k</span><span class="p">]</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Identity</span><span class="p">(</span><span class="n">BaseReranker</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Returns candidates untouched, in retrieval order.</span>
+
+<span class="sd">    The control. Without it you cannot tell "my component reordered things"</span>
+<span class="sd">    from "the pipeline never called my component at all": the two look</span>
+<span class="sd">    identical from the outside.</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">rerank</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query</span><span class="p">,</span> <span class="n">documents</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">documents</span><span class="p">][:</span><span class="n">top_k</span><span class="p">]</span>
+
+
+<span class="n">candidates</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">ScoredDocument</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="s2">"short one"</span><span class="p">,</span> <span class="n">score</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">document_id</span><span class="o">=</span><span class="s2">"d1"</span><span class="p">,</span> <span class="n">chunk_id</span><span class="o">=</span><span class="s2">"c1"</span><span class="p">),</span>
+    <span class="n">ScoredDocument</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="s2">"a rather longer passage with more words in it"</span><span class="p">,</span> <span class="n">score</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+                   <span class="n">document_id</span><span class="o">=</span><span class="s2">"d2"</span><span class="p">,</span> <span class="n">chunk_id</span><span class="o">=</span><span class="s2">"c2"</span><span class="p">),</span>
+    <span class="n">ScoredDocument</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="s2">"middling length text here"</span><span class="p">,</span> <span class="n">score</span><span class="o">=</span><span class="mf">0.7</span><span class="p">,</span>
+                   <span class="n">document_id</span><span class="o">=</span><span class="s2">"d3"</span><span class="p">,</span> <span class="n">chunk_id</span><span class="o">=</span><span class="s2">"c3"</span><span class="p">),</span>
+<span class="p">]</span>
+
+<span class="n">baseline</span> <span class="o">=</span> <span class="p">[</span><span class="n">d</span><span class="o">.</span><span class="n">document_id</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">Identity</span><span class="p">()</span><span class="o">.</span><span class="n">rerank</span><span class="p">(</span><span class="s2">"q"</span><span class="p">,</span> <span class="n">candidates</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">3</span><span class="p">)]</span>
+<span class="n">mine</span> <span class="o">=</span> <span class="p">[</span><span class="n">d</span><span class="o">.</span><span class="n">document_id</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">ByLength</span><span class="p">()</span><span class="o">.</span><span class="n">rerank</span><span class="p">(</span><span class="s2">"q"</span><span class="p">,</span> <span class="n">candidates</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">3</span><span class="p">)]</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="s2">"baseline order:"</span><span class="p">,</span> <span class="n">baseline</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"mine:          "</span><span class="p">,</span> <span class="n">mine</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"changed:       "</span><span class="p">,</span> <span class="n">baseline</span> <span class="o">!=</span> <span class="n">mine</span><span class="p">)</span>
+
+<span class="c1"># The inputs were not mutated: verify, do not assume.</span>
+<span class="k">assert</span> <span class="p">[</span><span class="n">d</span><span class="o">.</span><span class="n">score</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">candidates</span><span class="p">]</span> <span class="o">==</span> <span class="p">[</span><span class="mf">0.9</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.7</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"inputs intact:  True"</span><span class="p">)</span>
+</code></pre></div>
+<p>Always run the control. <code>changed: False</code> has two very different causes (your
+component agreed with retrieval order, or it never ran), and only the control
+tells them apart.</p>
+<h3 id="picking-a-baseline-that-means-something">Picking a baseline that means something<a class="headerlink" href="#picking-a-baseline-that-means-something" title="Permanent link">&para;</a></h3>
+<p>Comparing against <em>any</em> baseline is easy; comparing against a fair one is the
+work. <code>implements_contract</code> tells you which registered components are
+interchangeable with yours, which is the set worth comparing against:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">lasagna.core.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">registry</span>
+
+<span class="n">conforming</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span><span class="p">[</span><span class="s2">"name"</span><span class="p">]</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">registry</span><span class="o">.</span><span class="n">list_rerankers</span><span class="p">()</span> <span class="k">if</span> <span class="n">e</span><span class="p">[</span><span class="s2">"implements_contract"</span><span class="p">]]</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">conforming</span><span class="p">)</span><span class="si">}</span><span class="s2"> interchangeable rerankers available as baselines"</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="7-swap-it-into-a-pipeline">7. Swap it into a pipeline<a class="headerlink" href="#7-swap-it-into-a-pipeline" title="Permanent link">&para;</a></h2>
+<p>Outside a test you want the component running in a real pipeline. <code>replace()</code>
+swaps one stage and leaves the rest alone.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">lasagna.core.base_components</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseReranker</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">lasagna.core.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">KnowledgePipeline</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">lasagna.core.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">registry</span>
+
+
+<span class="nd">@registry</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="s2">"reranker"</span><span class="p">,</span> <span class="s2">"guide_swap_demo"</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SwapDemo</span><span class="p">(</span><span class="n">BaseReranker</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">rerank</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query</span><span class="p">,</span> <span class="n">documents</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">documents</span><span class="p">][:</span><span class="n">top_k</span><span class="p">]</span>
+
+
+<span class="n">pipeline</span> <span class="o">=</span> <span class="n">KnowledgePipeline</span><span class="p">(</span><span class="n">reranker</span><span class="o">=</span><span class="s2">"cross_encoder"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"before:"</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">pipeline</span><span class="o">.</span><span class="n">get_component</span><span class="p">(</span><span class="s2">"reranker"</span><span class="p">))</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="n">pipeline</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">"reranker"</span><span class="p">,</span> <span class="s2">"guide_swap_demo"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"after: "</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">pipeline</span><span class="o">.</span><span class="n">get_component</span><span class="p">(</span><span class="s2">"reranker"</span><span class="p">))</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
+</code></pre></div>
+<p>Check <code>get_component()</code> after replacing, as above. It confirms the swap reached
+execution rather than only updating a name: a pipeline that kept serving a
+cached instance would leave you measuring the old component while believing you
+had changed it.</p>
+<hr />
+<h2 id="8-measure-it-on-a-benchmark">8. Measure it on a benchmark<a class="headerlink" href="#8-measure-it-on-a-benchmark" title="Permanent link">&para;</a></h2>
+<p>Sections 4 to 7 prove your component behaves. This section is about whether it
+<em>helps</em>, which needs a corpus and real metrics.</p>
+<h3 id="check-the-setup-first">Check the setup first<a class="headerlink" href="#check-the-setup-first" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>lasagna<span class="w"> </span>benchmark<span class="w"> </span>run<span class="w"> </span>smoke<span class="w"> </span>--profile<span class="w"> </span>speed
+</code></pre></div>
+<p><code>smoke</code> is 24 documents and 12 queries held inside the package: no dataset
+download and no API key, and on <code>speed</code> the only model is a 92 MB embedder. It
+runs the real retrieval pipeline end to end, so a green run means the stack is
+wired up. <code>lasagna benchmark run</code> measures retrieval unless asked for more; add
+<code>--tracks retrieval,generation</code> once an LLM key and the <code>[eval]</code> extra are set
+up, to check answer generation too. It is deliberately easy, so the scores mean
+"this works", never "this is good".</p>
+<p><code>lasagna benchmark list</code> names every benchmark and <code>lasagna benchmark info</code>
+describes one. To run on your own questions, see
+<a href="../own-data/">Your own data</a>: a JSONL or CSV file, or a BEIR folder, runs with
+no adapter to write.</p>
+<h3 id="then-the-real-thing">Then the real thing<a class="headerlink" href="#then-the-real-thing" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">lasagna.knowledge_evaluation_sdk</span><span class="w"> </span><span class="kn">import</span> <span class="n">Experiment</span><span class="p">,</span> <span class="n">ExperimentConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">lasagna.knowledge_evaluation_sdk.experiment</span><span class="w"> </span><span class="kn">import</span> <span class="n">BenchmarkSpec</span><span class="p">,</span> <span class="n">PipelineSweepSpec</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="n">ExperimentConfig</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"does my reranker help"</span><span class="p">,</span>
+    <span class="n">benchmarks</span><span class="o">=</span><span class="p">[</span><span class="n">BenchmarkSpec</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"beir/scifact"</span><span class="p">,</span> <span class="n">n_samples</span><span class="o">=</span><span class="mi">200</span><span class="p">)],</span>
+    <span class="n">tracks</span><span class="o">=</span><span class="p">[</span><span class="s2">"retrieval"</span><span class="p">],</span>  <span class="c1"># NDCG, recall and the rest; no LLM, no judge</span>
+    <span class="n">pipeline</span><span class="o">=</span><span class="n">PipelineSweepSpec</span><span class="p">(</span>
+        <span class="n">base_profile</span><span class="o">=</span><span class="s2">"speed"</span><span class="p">,</span>  <span class="c1"># a 92 MB embedder and no API key</span>
+        <span class="c1"># Sweep across rerankers with everything else fixed. The comparison is</span>
+        <span class="c1"># only meaningful because the other seven stages do not move.</span>
+        <span class="n">rerankers</span><span class="o">=</span><span class="p">[</span><span class="s2">"cross_encoder"</span><span class="p">,</span> <span class="s2">"length_demo"</span><span class="p">],</span>
+    <span class="p">),</span>
+    <span class="c1"># `mode` defaults to "auto": live when the benchmark ships a corpus, so</span>
+    <span class="c1"># retrieval is actually measured. Say mode="generation_only" only when you</span>
+    <span class="c1"># want answer quality scored against gold context, with no retrieval.</span>
+    <span class="n">n_runs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>  <span class="c1"># retrieval with fixed models gives the same lists every run</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">mode</span><span class="p">,</span> <span class="s2">"-&gt;"</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">benchmarks</span><span class="p">),</span> <span class="s2">"benchmark(s)"</span><span class="p">)</span>
+</code></pre></div>
+<p>This one is keyless: <code>speed</code> embeds with a 92 MB model and the cross-encoder
+control is 92 MB. Name <code>base_profile</code> in every sweep: one without it starts each
+arm from <code>standard</code> (a 3.2 GB download), while <code>lasagna benchmark run</code> starts
+from <code>speed</code>. <code>--dry-run</code> and the run header print the profile each arm starts
+from. The same file in YAML runs with
+<code>lasagna benchmark experiment sweep.yaml</code>, which is what the
+<a href="https://github.com/dolev31/lasagna/blob/main/README.md#compare-a-component">README</a> and
+<a href="../contributing-components/#4-check-it-helps">Contributing components</a> show.
+Run it, and look at the failed tasks before the scores: a task that failed is
+listed there, not in the table.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+
+<span class="n">results</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">Experiment</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">run</span><span class="p">())</span>
+<span class="k">for</span> <span class="n">task</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">failed_tasks</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"failed:"</span><span class="p">,</span> <span class="n">task</span><span class="o">.</span><span class="n">task_key</span><span class="p">,</span> <span class="n">task</span><span class="o">.</span><span class="n">error</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">results</span><span class="o">.</span><span class="n">to_markdown</span><span class="p">(</span><span class="s2">"ndcg@10"</span><span class="p">))</span>
+</code></pre></div>
+<p><strong>A component override is only measured in live mode.</strong> <code>generation_only</code> never
+constructs the pipeline, so passing <code>reranker=</code> there is a hard error rather
+than a plausible number scored from gold context. <code>auto</code> picks the right mode
+and logs which it chose and why.</p>
+<p><strong>Benchmarks with no corpus can still measure retrieval, against a pooled
+corpus, which is easier.</strong> SQuAD v2, HotpotQA, MuSiQue and RAGBench ship each
+question's supporting passages inline and no corpus to search. <code>auto</code> assembles
+one by pooling those passages across every sample in the run, so each query has
+to find its own among all the others'. This is a real retrieval task, but a
+gentler one: HotpotQA and MuSiQue drop their distractor paragraphs at
+conversion, so the pool holds no hard negatives and recall reads higher than it
+would against a corpus of the same size. Runs are stamped
+<code>corpus_provenance: pooled_gold</code>, which is part of the comparability key, so a
+pooled number can never share a leaderboard row with a BEIR one. For the same
+questions against a real corpus, use <code>beir/hotpotqa</code>.</p>
+<p>Natural Questions and TriviaQA carry no context at all and stay
+<code>generation_only</code>. There is nothing to pool.</p>
+<h3 id="how-many-runs">How many runs<a class="headerlink" href="#how-many-runs" title="Permanent link">&para;</a></h3>
+<p>Retrieval with fixed models is deterministic: the same queries return the same
+ranked lists on every run. Significance tests pair arms query by query, so the
+spread they need comes from the queries, and <code>n_runs: 1</code> gives the same answer
+as three runs, three times faster. A sweep that repeats identical runs says so
+when it ends.</p>
+<p>Repeat runs when an LLM stage is in the loop. An answer generator, an LLM
+reranker, HyDE or an agentic pipeline samples, and a model that takes no
+temperature (see <a href="../configuration/#temperature-and-repeatable-runs">Configuration</a>)
+varies from run to run whatever you ask for. There, <code>n_runs: 3</code> or more
+measures that spread, and <code>variance_source: run</code> keeps the queries fixed so the
+spread is run to run rather than a resampled subset.</p>
+<h3 id="when-corpus-documents-fail-to-ingest">When corpus documents fail to ingest<a class="headerlink" href="#when-corpus-documents-fail-to-ingest" title="Permanent link">&para;</a></h3>
+<p>A document that cannot be chunked (an error, or more than 120 s) is left out of
+the corpus, and the log names it. A partial corpus scores lower than the
+benchmark would, so every task on it fails, naming the count, the first
+documents and the setting that accepts it:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">ingest_failure_tolerance</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.02</span><span class="w">   </span><span class="c1"># up to 2% of the corpus may be missing (at most 0.1)</span>
+</code></pre></div>
+<p>A run that accepts a partial corpus records it in each result as
+<code>corpus_ingest_gap</code> (how many documents were ingested, how many failed, and a
+digest of the ingested ids). That is part of the comparability key, so the run
+never shares a leaderboard group with one on the complete corpus, and the
+bundle carries a <code>PARTIAL_CORPUS</code> warning. A later run that reuses the same
+corpus records the same gap.</p>
+<h3 id="sweep-the-other-stages">Sweep the other stages<a class="headerlink" href="#sweep-the-other-stages" title="Permanent link">&para;</a></h3>
+<p>The same sweep file swaps any stage. Two you will often want:</p>
+<p><strong>A retriever.</strong> Name it in a <code>config_overrides</code> entry. Put <code>dense</code>, the default
+vector search as a component, in as the control. Then every arm names its first
+stage, and the comparison is between retrieval methods:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># retrievers.yaml</span>
+<span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">which first stage</span>
+<span class="nt">benchmarks</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">beir/scifact</span>
+<span class="w">    </span><span class="nt">n_samples</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span>
+<span class="nt">tracks</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">retrieval</span><span class="p p-Indicator">]</span>
+<span class="nt">pipeline</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">base_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">speed</span>
+<span class="w">  </span><span class="nt">config_overrides</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">dense</span><span class="p p-Indicator">,</span><span class="nt"> retriever</span><span class="p">:</span><span class="w"> </span><span class="nv">dense</span><span class="p p-Indicator">}</span><span class="w">           </span><span class="c1"># the control</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">bm25</span><span class="p p-Indicator">,</span><span class="nt"> retriever</span><span class="p">:</span><span class="w"> </span><span class="nv">bm25</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">hybrid_rrf</span><span class="p p-Indicator">,</span><span class="nt"> retriever</span><span class="p">:</span><span class="w"> </span><span class="nv">hybrid_rrf</span><span class="p p-Indicator">}</span>
+<span class="nt">n_runs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+</code></pre></div>
+<p>This one is keyless: BM25 needs no model, and <code>speed</code> embeds with the 92 MB one.</p>
+<p><strong>A generator.</strong> List the answer strategies under <code>generators:</code>. Every arm
+retrieves the same way, so a difference comes from how the answer was written.
+<code>concise</code> is the harness's own prompt, word for word, so it is the control:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># generators.yaml</span>
+<span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">how the answer is written</span>
+<span class="nt">benchmarks</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hotpotqa</span>
+<span class="w">    </span><span class="nt">n_samples</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span>
+<span class="nt">tracks</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">generation</span><span class="p p-Indicator">]</span>
+<span class="nt">pipeline</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">base_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">speed</span>
+<span class="w">  </span><span class="nt">generators</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">concise</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">cited</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">chain_of_note</span><span class="p p-Indicator">]</span>
+<span class="nt">n_runs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">          </span><span class="c1"># repeat runs when an LLM stage is in the loop</span>
+</code></pre></div>
+<p>This one needs an LLM API key and the <code>[eval]</code> extra. <code>cited</code> answers carry
+<code>[n]</code> markers, and the citation metrics score them. From the shell,
+<code>lasagna benchmark run &lt;name&gt; --generator cited</code> runs one generator.</p>
+<p><strong>An ensemble of rerankers.</strong> <code>ensemble</code> averages the scores of the
+cross-encoders an arm names in <code>ensemble_reranker_models</code> (weights in
+<code>ensemble_reranker_weights</code>, equal when left out). An arm with fewer than two
+models, or with one that cannot load, fails instead of scoring as one model:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">pipeline</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">base_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">speed</span>
+<span class="w">  </span><span class="nt">config_overrides</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">minilm</span><span class="p p-Indicator">,</span><span class="nt"> reranker</span><span class="p">:</span><span class="w"> </span><span class="nv">cross_encoder</span><span class="p p-Indicator">}</span><span class="w">       </span><span class="c1"># the control</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ensemble</span>
+<span class="w">      </span><span class="nt">reranker</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ensemble</span>
+<span class="w">      </span><span class="nt">ensemble_reranker_models</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">cross-encoder/ms-marco-MiniLM-L-6-v2</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">cross-encoder/ms-marco-TinyBERT-L-2-v2</span><span class="p p-Indicator">]</span>
+</code></pre></div>
+<p><code>mmr</code> and <code>combined</code> (the cross-encoder followed by MMR) run MMR whatever
+<code>enable_mmr</code> says, since naming them is what turns it on.</p>
+<p><strong>Chunkers and embedders sweep as components too</strong> (<code>chunkers:</code>,
+<code>embedders:</code>). Each arm's corpus is chunked or embedded by its own component and
+kept apart from the other arms' corpora; an embedder also gets its own
+collection. Every chunking or embedding setting (<code>chunk_size</code>, <code>chunk_unit</code>,
+<code>embedding_model</code> and so on) gets its own corpus in the same way. An agentic
+loop is named like a retriever (<code>{name: ircot, agentic_pipeline: ircot}</code>), and
+each hop it makes searches with the arm's components. Document processors do not
+sweep: benchmark corpora are loaded as text, so check a processor on your own
+files.</p>
+<h3 id="the-baselines-a-reviewer-asks-for">The baselines a reviewer asks for<a class="headerlink" href="#the-baselines-a-reviewer-asks-for" title="Permanent link">&para;</a></h3>
+<p>"Does retrieval help at all?" and "would a long context window do as well?" are
+answered by arms, not by a separate tool:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># baselines.yaml</span>
+<span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">is retrieval worth it</span>
+<span class="nt">benchmarks</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hotpotqa</span>
+<span class="w">    </span><span class="nt">n_samples</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span>
+<span class="nt">tracks</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">generation</span><span class="p p-Indicator">]</span>
+<span class="nt">pipeline</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">base_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">speed</span>
+<span class="w">  </span><span class="nt">config_overrides</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">rag</span><span class="p p-Indicator">}</span><span class="w">                                </span><span class="c1"># the pipeline as configured</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">no_retrieval</span><span class="p p-Indicator">,</span><span class="nt"> no_rag</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">}</span><span class="w">         </span><span class="c1"># answers from the question alone</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="nv">long_context</span><span class="p p-Indicator">,</span><span class="nt"> generator</span><span class="p">:</span><span class="w"> </span><span class="nv">long_context</span><span class="p p-Indicator">}</span>
+<span class="nt">n_runs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+</code></pre></div>
+<ul>
+<li><code>no_rag: true</code> retrieves nothing: the arm's retrieval track is skipped and it
+  answers with the <code>closed_book</code> generator. It is scored on generation only, so
+  a sweep with <code>tracks: [retrieval]</code> refuses it before anything runs.</li>
+<li><code>closed_book</code> is that generator on its own, if you name it under
+  <code>generators:</code>.</li>
+<li><code>long_context</code> reads all ten retrieved passages, in rank order, where the
+  default reads five, and the judge sees the same ten.</li>
+</ul>
+<p>An arm whose generator reads no passages is not scored on faithfulness or the
+context metrics, which would be meaningless with no context; the report and the
+leaderboard say so and point at exact match, token F1 and factual correctness
+instead. The isolation check files a <code>no_rag</code> arm under the retriever stage.</p>
+<h3 id="before-a-long-run-dry-run">Before a long run: <code>--dry-run</code><a class="headerlink" href="#before-a-long-run-dry-run" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>lasagna<span class="w"> </span>benchmark<span class="w"> </span>experiment<span class="w"> </span>sweep.yaml<span class="w"> </span>--dry-run<span class="w">              </span><span class="c1"># with a 3-sample probe</span>
+lasagna<span class="w"> </span>benchmark<span class="w"> </span>experiment<span class="w"> </span>sweep.yaml<span class="w"> </span>--dry-run<span class="w"> </span>--no-probe<span class="w">   </span><span class="c1"># nothing runs at all</span>
+</code></pre></div>
+<p>A dry run prints the arms, the tasks, the models the run loads and whether each
+is already downloaded, and a token estimate. Unless <code>--no-probe</code> is given it
+runs three samples per benchmark and extrapolates tokens and time to the whole
+sweep. Every number is labeled an estimate, and nothing is written under the
+results folder. For the plugin template's sweep it printed:</p>
+<div class="highlight"><pre><span></span><code>Arms (2): reranker=cross_encoder, reranker=template_length
+Tasks (2): 1 benchmark x 2 arms x 1 run
+  smoke  split=test  12 samples
+Models:
+  embedder           all-MiniLM-L6-v2  cached
+  reranker           cross-encoder/ms-marco-MiniLM-L-6-v2  cached
+  reranker           component template_length
+Tokens: no generation track, so no answer is generated or judged; an arm still calls an LLM if its pipeline does (HyDE, an agentic pipeline, an LLM reranker).
+Probe of smoke (estimate): arm 'reranker=cross_encoder' on 3 samples took 2.8 s including setup (loading models, ingesting), 0.12 s per query, 0 LLM calls
+  Extrapolated to 24 queries (estimate, every arm assumed to spend what this one did): about 3 s of query time plus setup, 0 system tokens and 0 judge tokens
+</code></pre></div>
+<p><strong>Dollars only if you ask.</strong> A run records tokens, which are observed. Add
+<code>prices:</code> to the sweep file for an estimate in dollars:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">prices</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">builtin</span><span class="w">          </span><span class="c1"># the dated table in the package (builtin-2026-10)</span>
+<span class="c1"># or your own rates, in USD per million tokens, which win over the table:</span>
+<span class="c1"># prices: {gpt-6-luna: {input_per_1m: 0.10, output_per_1m: 0.50}}</span>
+</code></pre></div>
+<p>Each task whose tokens all have a rate gets <code>cost_usd_estimate</code>, and the run
+metadata records the table and the rates used. A rate that holds only for
+shorter prompts gives no estimate for a task whose calls average longer. With
+no <code>prices:</code>, a run reports tokens only.</p>
+<h3 id="re-running-a-sweep-replays-llm-calls">Re-running a sweep replays LLM calls<a class="headerlink" href="#re-running-a-sweep-replays-llm-calls" title="Permanent link">&para;</a></h3>
+<p>Inside <code>lasagna benchmark experiment</code>, a request asked at temperature 0 that an
+earlier run made with the same seed is answered from
+<code>~/.lasagna/cache/llm.sqlite</code>. A second run of the same sweep, after a crash or
+with one arm added, then spends no tokens on what it already asked. Token
+counts read as in the cold run; <code>llm_cache_hits</code> and <code>llm_cache_misses</code> on each
+task and a hit rate in <code>results.json</code> and the bundle say what was replayed.</p>
+<p>What is never replayed:</p>
+<ul>
+<li><strong>Sampled calls.</strong> A response at temperature 0.7 is one draw; replaying it
+  would make repeated runs identical and hide the spread <code>n_runs</code> is meant to
+  measure.</li>
+<li><strong>The RAGAS judge</strong>, which asks for temperature 0.01, unless you set
+  <code>llm_cache: {deterministic_only: false}</code>.</li>
+<li><strong>Models that take no temperature.</strong> The cache replays a call only when
+  temperature 0 was actually sent, so a model the request builder sends no
+  temperature (Claude 4.7 and later, some OpenAI reasoning models) is always
+  called.</li>
+</ul>
+<p>A provider of your own, set with <code>set_llm_provider</code>, gets the cache too: the
+chat model its <code>get_chat_model</code> returns is replayed when temperature 0 was asked
+for and the model's <code>temperature</code> is 0. A returned object that is not a
+LangChain chat model cannot carry the cache, and <code>results.json</code> then says
+<code>"applied": false</code> with the reason under <code>llm_cache</code>.</p>
+<p>Turn it off with <code>llm_cache: false</code> in the sweep, <code>--no-cache</code> on the command,
+or <code>LASAGNA_LLM_CACHE=0</code>. <code>llm_cache: {path: ...}</code> puts the file elsewhere.
+Nothing is cached outside an experiment, so <code>lasagna serve</code> and the MCP server
+write no prompt to disk.</p>
+<h3 id="a-development-set-from-your-own-documents">A development set from your own documents<a class="headerlink" href="#a-development-set-from-your-own-documents" title="Permanent link">&para;</a></h3>
+<p><code>lasagna benchmark synthesize ./docs --n 200</code> has an LLM write factoid,
+multi-hop and unanswerable questions from your files, checks each one with a
+second call, and writes a JSONL file that <code>lasagna benchmark run</code> takes as is.
+It is for comparing configurations while you build, not for reported results:
+questions a model wrote favor systems like that model.
+<a href="../own-data/#synthetic-questions-from-your-documents">Your own data</a> explains
+why and shows the options.</p>
+<p>For what the metrics mean and which are trustworthy, see
+<a href="https://github.com/dolev31/lasagna/blob/main/src/lasagna/knowledge_evaluation_sdk/docs/metrics.md">metrics</a>; for the
+available datasets, see
+<a href="https://github.com/dolev31/lasagna/blob/main/src/lasagna/knowledge_evaluation_sdk/docs/benchmarks.md">benchmarks</a>.</p>
+<hr />
+<h2 id="9-read-and-publish-the-result">9. Read and publish the result<a class="headerlink" href="#9-read-and-publish-the-result" title="Permanent link">&para;</a></h2>
+<p>Every run writes a <code>results.json</code> and prints its path. Each command below takes
+it.</p>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Command</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Is the gap real, across every pair of arms?</td>
+<td><code>lasagna results significance results.json --all</code></td>
+</tr>
+<tr>
+<td>Could this run have detected the effect I care about?</td>
+<td><code>lasagna results power results.json baseline candidate</code></td>
+</tr>
+<tr>
+<td>Do two techniques compose, or overlap?</td>
+<td><code>lasagna results interaction results.json</code> (a 2x2 run)</td>
+</tr>
+<tr>
+<td>Which queries did an arm lose, at retrieval or generation?</td>
+<td><code>lasagna results per-query results.json --sort-by ndcg@10</code></td>
+</tr>
+<tr>
+<td>Are two runs comparable at all?</td>
+<td><code>lasagna results compare a.json b.json</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>significance</code> runs a paired sign-flip test on every pair of arms and corrects
+the p-values with Holm-Bonferroni, then ends in a box that says what the table
+supports: green names each pair that survives and which side won; yellow says
+nothing survived and points at <code>power</code>.</p>
+<p><strong>Hand someone the whole run as one page:</strong></p>
+<div class="highlight"><pre><span></span><code>lasagna<span class="w"> </span>results<span class="w"> </span>view<span class="w"> </span>results.json<span class="w"> </span>-o<span class="w"> </span>view.html
+</code></pre></div>
+<p>The page carries the versions and run id, the stage isolation check, and per
+benchmark the leaderboard, the significance table with its verdict, every
+metric per arm, and a per-query diff between two arms (<code>--diff A B</code>, default the
+top two) with what each one retrieved. It is one file with no external
+requests, so it opens offline and can be attached to a review.</p>
+<p><strong>Put a leaderboard in a paper:</strong></p>
+<div class="highlight"><pre><span></span><code>mkdir<span class="w"> </span>-p<span class="w"> </span>bundles
+lasagna<span class="w"> </span>results<span class="w"> </span>bundle<span class="w"> </span>results.json<span class="w"> </span>-o<span class="w"> </span>bundles/run.json
+lasagna<span class="w"> </span>results<span class="w"> </span>leaderboard<span class="w"> </span>bundles/<span class="w"> </span>--format<span class="w"> </span>latex
+</code></pre></div>
+<p><code>--format latex</code> prints one booktabs table per comparability group (rows in
+one table held the same configuration fixed; rows in different tables are
+never ranked together), or writes one <code>.tex</code> file per benchmark with <code>-o</code>.
+Arm names are escaped for LaTeX.</p>
+<p>Every <code>results</code> command that reads a bundle checks it as <code>results validate</code>
+does. A bundle that fails (a number edited after it was made, missing
+provenance) is refused with its problems listed, or left out of a folder's
+leaderboard with its name printed. <code>--allow-invalid</code> on <code>leaderboard</code> and
+<code>view</code> shows it anyway, every number marked INVALID. A <code>results.json</code> is not a
+bundle, and is shown as not validated.</p>
+<p><strong>Publish a number someone else can check:</strong></p>
+<div class="highlight"><pre><span></span><code>lasagna<span class="w"> </span>results<span class="w"> </span>bundle<span class="w"> </span>results.json<span class="w"> </span>-o<span class="w"> </span>run.json
+lasagna<span class="w"> </span>results<span class="w"> </span>validate<span class="w"> </span>run.json
+</code></pre></div>
+<p>The bundle carries the library versions, hardware, resolved sweep, corpus
+fingerprint and comparability key, and <code>validate</code> recomputes the key, the run
+id and every aggregate from the per-query scores. It also lists integrity
+warnings that do not invalidate a bundle, such as <code>SINGLE_RUN</code> (one run of a
+pipeline in which something samples) or <code>UNRESOLVED_JUDGE_ALIAS</code> (a judge named
+by a floating alias); <code>--strict</code> turns them into failures. A run records
+<code>nothing_samples</code> when only retrieval ran and no task called an LLM; one run of
+it is complete and raises no <code>SINGLE_RUN</code>. The <a href="https://github.com/dolev31/lasagna/blob/main/hub/README.md">results hub</a>
+runs a public leaderboard from such bundles, and marks a row verified only when
+someone else's bundle reproduces it: within its spread, which needs at least two
+runs, or by equalling its mean when nothing in the run samples.</p>
+<hr />
+<h2 id="10-where-to-go-next">10. Where to go next<a class="headerlink" href="#10-where-to-go-next" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>I want to...</th>
+<th>Read</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Run on my own questions or documents</strong></td>
+<td><a href="../own-data/">Your own data</a></td>
+</tr>
+<tr>
+<td><strong>Publish my component as a package</strong></td>
+<td><a href="https://github.com/dolev31/lasagna/tree/main/examples/lasagna-plugin-template">Plugin template</a></td>
+</tr>
+<tr>
+<td><strong>Check my component satisfies its contract</strong></td>
+<td><code>lasagna component validate &lt;module:Class&gt;</code></td>
+</tr>
+<tr>
+<td><strong>See which plugins are installed (and which failed)</strong></td>
+<td><code>lasagna plugins list</code></td>
+</tr>
+<tr>
+<td><strong>Know a dataset's terms before publishing</strong></td>
+<td><a href="https://github.com/dolev31/lasagna/blob/main/src/lasagna/knowledge_evaluation_sdk/research/DATASETS.md">Dataset licenses</a></td>
+</tr>
+<tr>
+<td>Know which settings apply, and where data lives</td>
+<td><a href="../configuration/">Configuration</a></td>
+</tr>
+<tr>
+<td>Look up any setting</td>
+<td><a href="../reference/settings/">Settings reference</a></td>
+</tr>
+<tr>
+<td>Use the Python SDK in an application</td>
+<td><a href="https://github.com/dolev31/lasagna/blob/main/src/lasagna/sdk/docs/user_guide.md">SDK user guide</a></td>
+</tr>
+<tr>
+<td>Add a component type, not just an implementation</td>
+<td><a href="https://github.com/dolev31/lasagna/blob/main/src/lasagna/sdk/docs/extending.md">Extending</a></td>
+</tr>
+<tr>
+<td>Call it over HTTP</td>
+<td><a href="https://github.com/dolev31/lasagna/blob/main/src/lasagna/api/docs/endpoints.md">REST endpoints</a></td>
+</tr>
+<tr>
+<td>Give an agent search over documents</td>
+<td><a href="https://github.com/dolev31/lasagna/blob/main/src/lasagna/mcp/README.md">MCP server</a></td>
+</tr>
+<tr>
+<td>Run a different vector database</td>
+<td><a href="https://github.com/dolev31/lasagna/blob/main/src/lasagna/vector_backends/README.md">Vector backends</a></td>
+</tr>
+<tr>
+<td>Understand the retrieval internals</td>
+<td><a href="https://github.com/dolev31/lasagna/blob/main/src/lasagna/core/docs/architecture.md">Architecture</a></td>
+</tr>
+<tr>
+<td>Deploy it</td>
+<td><a href="https://github.com/dolev31/lasagna/blob/main/src/lasagna/deploy/README.md">Deployment</a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="two-warnings">Two warnings<a class="headerlink" href="#two-warnings" title="Permanent link">&para;</a></h3>
+<p><strong>Check the model license before publishing.</strong> Several strong rerankers are
+non-commercial. <code>lasagna.core.model_licenses</code> warns once at load, and
+<a href="../model-licenses/">model-licenses</a> lists the terms per model.</p>
+<p><strong>A component that conforms is not a component that helps.</strong> Everything up to
+section 7 proves your code is wired in correctly. Only section 8 tells you
+whether it improves retrieval, and only a significance test over enough queries
+tells a real gap from noise.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../get-started/offline-demo/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Offline demo and notebook">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Offline demo and notebook
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../guides/write-a-component/" class="md-footer__link md-footer__link--next" aria-label="Next: Write a component">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Write a component
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Apache License 2.0
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.footer", "navigation.instant", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tabs.link", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

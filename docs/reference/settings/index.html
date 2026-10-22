@@ -1,0 +1,5085 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Develop a RAG technique and test it inside a full pipeline.">
+      
+      
+        <meta name="author" content="Ido Levy, Segev Shlomov, Leshem Choshen">
+      
+      
+        <link rel="canonical" href="https://dolev31.github.io/lasagna/docs/reference/settings/">
+      
+      
+        <link rel="prev" href="../python-api/">
+      
+      
+        <link rel="next" href="../metrics/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/brand/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Settings - Lasagna</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#settings-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Lasagna" class="md-header__button md-logo" aria-label="Lasagna" data-md-component="logo">
+      
+  <img src="../../assets/brand/lasagna-mark.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Lasagna
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Settings
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dolev31/lasagna" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    dolev31/lasagna
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../get-started/installation/" class="md-tabs__link">
+          
+  
+  
+  Get started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guide/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../serving/mcp/" class="md-tabs__link">
+          
+  
+  
+  Agents and serving
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../catalog/stages/" class="md-tabs__link">
+          
+  
+  
+  Catalog
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../cli/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../concepts/stage-isolation/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../project/changelog/" class="md-tabs__link">
+          
+  
+  
+  Project
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Lasagna" class="md-nav__button md-logo" aria-label="Lasagna" data-md-component="logo">
+      
+  <img src="../../assets/brand/lasagna-mark.svg" alt="logo">
+
+    </a>
+    Lasagna
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dolev31/lasagna" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    dolev31/lasagna
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../get-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../get-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../get-started/first-comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your first comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../get-started/offline-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Offline demo and notebook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The long-form guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/write-a-component/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Write a component
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/compare-a-component/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compare a component
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../own-data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use your own data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/synthetic-data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synthetic dev sets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/baselines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Baselines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/dry-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dry runs and cost estimates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/llm-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM response cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Read and publish results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/langchain-llamaindex/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LangChain and LlamaIndex
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/vector-backends/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vector backends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Profiles and configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing-components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Component contribution rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/reproduce-beir/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproduce BEIR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents and serving
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Agents and serving
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/rest-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker and Compose
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Catalog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Catalog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../catalog/stages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stages
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../catalog/components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../catalog/benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#vector-database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vector Database
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#embedding-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Embedding Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chunking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chunking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hybrid-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hybrid Search
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reranking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reranking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#query-enhancement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Query Enhancement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#query-routing-adaptive-rag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Query Routing (Adaptive-RAG)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#citation-tracking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Citation Tracking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Storage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parallel-upload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parallel Upload
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ocr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OCR
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Processing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docling-document-processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docling Document Processing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#caching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Caching
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#observability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observability
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-tenancy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Tenancy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rate-limiting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rate Limiting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#database-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Database Backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#redis-distributed-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Redis / Distributed Cache
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#celery-background-processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Celery / Background Processing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connection-pooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection Pooling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-storage-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Storage Backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fast-ingestion-eval-only-pipeline-tuning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fast Ingestion (eval-only pipeline tuning)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agentic-retrieval-and-document-awareness-settings-file-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agentic retrieval and document awareness (settings file only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#variables-that-are-not-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variables that are not settings
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Variables that are not settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rest-api-and-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        REST API and authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mcp-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP server
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vector-store-connections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vector store connections
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#paths-and-the-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Paths and the process
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../results-schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results schema
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/stage-isolation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage isolation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/significance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Significance testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/comparability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparability and provenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/the-paper-study/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How the paper used Lasagna
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../project/changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../project/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../project/governance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Governance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../project/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../project/citing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Citing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model-licenses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model licenses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#vector-database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vector Database
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#embedding-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Embedding Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chunking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chunking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hybrid-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hybrid Search
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reranking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reranking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#query-enhancement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Query Enhancement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#query-routing-adaptive-rag" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Query Routing (Adaptive-RAG)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#citation-tracking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Citation Tracking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Storage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parallel-upload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parallel Upload
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ocr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OCR
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Processing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docling-document-processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docling Document Processing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#caching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Caching
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#observability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observability
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-tenancy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Tenancy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rate-limiting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rate Limiting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#database-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Database Backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#redis-distributed-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Redis / Distributed Cache
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#celery-background-processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Celery / Background Processing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connection-pooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection Pooling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-storage-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Storage Backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fast-ingestion-eval-only-pipeline-tuning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fast Ingestion (eval-only pipeline tuning)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agentic-retrieval-and-document-awareness-settings-file-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agentic retrieval and document awareness (settings file only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#variables-that-are-not-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variables that are not settings
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Variables that are not settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rest-api-and-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        REST API and authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mcp-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP server
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vector-store-connections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vector store connections
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#paths-and-the-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Paths and the process
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="settings-reference">Settings reference<a class="headerlink" href="#settings-reference" title="Permanent link">&para;</a></h1>
+<p>Generated by <code>scripts/gen_settings_doc.py</code> from <code>src/lasagna/core/config.py</code> and
+<code>src/lasagna/settings.lasagna.toml</code>. Do not edit by hand: run the script.</p>
+<p>Where a setting comes from, lowest priority first:</p>
+<ol>
+<li>the default below;</li>
+<li><code>settings.lasagna.toml</code>, <code>[rag]</code> table (<code>LASAGNA_SETTINGS_FILE</code> names another file);</li>
+<li>the environment variable: <code>LASAGNA_&lt;NAME&gt;</code>, or <code>RAG_&lt;NAME&gt;</code> (the older name, still
+   read; <code>LASAGNA_</code> wins when both are set);</li>
+<li>the session (<code>lasagna configure --profile &lt;name&gt; -s &lt;session&gt;</code>, the REST API or MCP).</li>
+</ol>
+<p>The settings file and environment variables are the process defaults. A
+session's profile and overrides are kept in the session database and win over
+both for that session only.</p>
+<p>An environment variable that does not parse, or is outside the allowed values,
+stops the process with an error naming it, except <code>log_level</code>, which warns and
+keeps its default: it is also the <code>lasagna</code> command's console level (<code>WARNING</code>
+unless set), and a typo in it must not stop <code>lasagna doctor</code>. A <code>RAG_</code> variable that is not a
+setting is ignored with a warning that suggests the closest one. Booleans take
+<code>true</code>/<code>false</code>, <code>1</code>/<code>0</code>, <code>yes</code>/<code>no</code> or <code>on</code>/<code>off</code>; lists and objects take JSON.</p>
+<p>Data lives in <code>~/.lasagna</code> (<code>LASAGNA_DATA_DIR</code>): the databases in <code>dbs/</code>
+(<code>LASAGNA_DB_DIR</code>) and uploads in <code>uploads/</code> (<code>LASAGNA_UPLOAD_DIR</code>). A
+<code>~/.rag_knowledge</code> from an earlier version is moved there on first use.</p>
+<h2 id="vector-database">Vector Database<a class="headerlink" href="#vector-database" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vector_backend</code></td>
+<td>str</td>
+<td><code>"milvus"</code></td>
+<td><code>LASAGNA_VECTOR_BACKEND</code>, <code>RAG_VECTOR_BACKEND</code></td>
+<td>Vector database backend to use.</td>
+</tr>
+<tr>
+<td><code>vector_backend_config</code></td>
+<td>object</td>
+<td><code>{}</code></td>
+<td><code>LASAGNA_VECTOR_BACKEND_CONFIG</code>, <code>RAG_VECTOR_BACKEND_CONFIG</code></td>
+<td>Backend-specific configuration.</td>
+</tr>
+<tr>
+<td><code>collection_name</code></td>
+<td>str</td>
+<td><code>"rag_documents_v2"</code></td>
+<td><code>LASAGNA_COLLECTION_NAME</code>, <code>RAG_COLLECTION_NAME</code></td>
+<td>The vector collection this configuration reads and writes.</td>
+</tr>
+<tr>
+<td><code>embedding_dim</code></td>
+<td>int, 1 to 16384</td>
+<td><code>1024</code></td>
+<td><code>LASAGNA_EMBEDDING_DIM</code>, <code>RAG_EMBEDDING_DIM</code></td>
+<td>Vector size; an embedding_model set without one brings its own size.</td>
+</tr>
+<tr>
+<td><code>metric_type</code></td>
+<td>str</td>
+<td><code>"COSINE"</code></td>
+<td><code>LASAGNA_METRIC_TYPE</code>, <code>RAG_METRIC_TYPE</code></td>
+<td>vector similarity: COSINE, L2 or IP.</td>
+</tr>
+<tr>
+<td><code>index_type</code></td>
+<td>str</td>
+<td><code>"HNSW"</code></td>
+<td><code>LASAGNA_INDEX_TYPE</code>, <code>RAG_INDEX_TYPE</code></td>
+<td>dense index on servers; Milvus Lite always uses FLAT.</td>
+</tr>
+<tr>
+<td><code>index_params</code></td>
+<td>object</td>
+<td><code>{"M": 16, "efConstruction": 256}</code></td>
+<td><code>LASAGNA_INDEX_PARAMS</code>, <code>RAG_INDEX_PARAMS</code></td>
+<td>HNSW build parameters.</td>
+</tr>
+<tr>
+<td><code>search_params</code></td>
+<td>object</td>
+<td><code>{"ef": 128}</code></td>
+<td><code>LASAGNA_SEARCH_PARAMS</code>, <code>RAG_SEARCH_PARAMS</code></td>
+<td>HNSW search breadth.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="embedding-model">Embedding Model<a class="headerlink" href="#embedding-model" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>embedding_provider</code></td>
+<td>str</td>
+<td><code>"huggingface"</code></td>
+<td><code>LASAGNA_EMBEDDING_PROVIDER</code>, <code>RAG_EMBEDDING_PROVIDER</code></td>
+<td>where embeddings are computed.</td>
+</tr>
+<tr>
+<td><code>embedding_model</code></td>
+<td>str</td>
+<td><code>"BAAI/bge-m3"</code></td>
+<td><code>LASAGNA_EMBEDDING_MODEL</code>, <code>RAG_EMBEDDING_MODEL</code></td>
+<td>dense+sparse+ColBERT, 8K context, 100+ languages.</td>
+</tr>
+<tr>
+<td><code>embedding_model_fallback</code></td>
+<td>str</td>
+<td><code>"BAAI/bge-large-en-v1.5"</code></td>
+<td><code>LASAGNA_EMBEDDING_MODEL_FALLBACK</code>, <code>RAG_EMBEDDING_MODEL_FALLBACK</code></td>
+<td>loaded if the model fails; never during evaluation.</td>
+</tr>
+<tr>
+<td><code>embedding_backend</code></td>
+<td>str</td>
+<td><code>"auto"</code></td>
+<td><code>LASAGNA_EMBEDDING_BACKEND</code>, <code>RAG_EMBEDDING_BACKEND</code></td>
+<td>Embedding backend: 'auto', 'sentence-transformers', or 'flag-embedding'.</td>
+</tr>
+<tr>
+<td><code>normalize_embeddings</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_NORMALIZE_EMBEDDINGS</code>, <code>RAG_NORMALIZE_EMBEDDINGS</code></td>
+<td>Normalize embedding vectors for cosine similarity. Required for most models.</td>
+</tr>
+<tr>
+<td><code>batch_size</code></td>
+<td>int</td>
+<td><code>32</code></td>
+<td><code>LASAGNA_BATCH_SIZE</code>, <code>RAG_BATCH_SIZE</code></td>
+<td>How many text pieces to process at once. Higher = faster but uses more memory.</td>
+</tr>
+<tr>
+<td><code>use_gpu</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_USE_GPU</code>, <code>RAG_USE_GPU</code></td>
+<td>Process documents faster using your graphics card, if available.</td>
+</tr>
+<tr>
+<td><code>embedding_truncate_dim</code></td>
+<td>int or none</td>
+<td>none</td>
+<td><code>LASAGNA_EMBEDDING_TRUNCATE_DIM</code>, <code>RAG_EMBEDDING_TRUNCATE_DIM</code></td>
+<td>Matryoshka dimension truncation. None = use full dim.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="chunking">Chunking<a class="headerlink" href="#chunking" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>chunking_strategy</code></td>
+<td>str</td>
+<td><code>"hierarchical"</code></td>
+<td><code>LASAGNA_CHUNKING_STRATEGY</code>, <code>RAG_CHUNKING_STRATEGY</code></td>
+<td>what runs: enable_hierarchical, then preserve_headers or preserve_tables, override another name.</td>
+</tr>
+<tr>
+<td><code>chunk_size</code></td>
+<td>int, 1 to 100000</td>
+<td><code>800</code></td>
+<td><code>LASAGNA_CHUNK_SIZE</code>, <code>RAG_CHUNK_SIZE</code></td>
+<td>How large each piece of content should be (in characters). Smaller = more precise, larger = more context.</td>
+</tr>
+<tr>
+<td><code>chunk_overlap</code></td>
+<td>int, 0 to 100000</td>
+<td><code>0</code></td>
+<td><code>LASAGNA_CHUNK_OVERLAP</code>, <code>RAG_CHUNK_OVERLAP</code></td>
+<td>Research: no measurable benefit from overlap (arXiv:2601.14123)</td>
+</tr>
+<tr>
+<td><code>semantic_threshold</code></td>
+<td>float</td>
+<td><code>0.75</code></td>
+<td><code>LASAGNA_SEMANTIC_THRESHOLD</code>, <code>RAG_SEMANTIC_THRESHOLD</code></td>
+<td>How sensitive the smart splitter is to topic changes. Lower = more splits, higher = fewer splits.</td>
+</tr>
+<tr>
+<td><code>semantic_breakpoint_method</code></td>
+<td>str</td>
+<td><code>"absolute"</code></td>
+<td><code>LASAGNA_SEMANTIC_BREAKPOINT_METHOD</code>, <code>RAG_SEMANTIC_BREAKPOINT_METHOD</code></td>
+<td>How the semantic chunker picks breakpoints: 'absolute' or a Kamradt method.</td>
+</tr>
+<tr>
+<td><code>semantic_breakpoint_amount</code></td>
+<td>float or none</td>
+<td>none</td>
+<td><code>LASAGNA_SEMANTIC_BREAKPOINT_AMOUNT</code>, <code>RAG_SEMANTIC_BREAKPOINT_AMOUNT</code></td>
+<td>The breakpoint method's parameter; None uses the method's default.</td>
+</tr>
+<tr>
+<td><code>semantic_buffer_size</code></td>
+<td>int</td>
+<td><code>1</code></td>
+<td><code>LASAGNA_SEMANTIC_BUFFER_SIZE</code>, <code>RAG_SEMANTIC_BUFFER_SIZE</code></td>
+<td>Neighbouring sentences embedded with each sentence, on either side.</td>
+</tr>
+<tr>
+<td><code>min_chunk_size</code></td>
+<td>int</td>
+<td><code>200</code></td>
+<td><code>LASAGNA_MIN_CHUNK_SIZE</code>, <code>RAG_MIN_CHUNK_SIZE</code></td>
+<td>Pieces smaller than this are merged with their neighbors.</td>
+</tr>
+<tr>
+<td><code>max_chunk_size</code></td>
+<td>int</td>
+<td><code>1500</code></td>
+<td><code>LASAGNA_MAX_CHUNK_SIZE</code>, <code>RAG_MAX_CHUNK_SIZE</code></td>
+<td>Pieces larger than this are force-split to keep them manageable.</td>
+</tr>
+<tr>
+<td><code>window_size</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td><code>LASAGNA_WINDOW_SIZE</code>, <code>RAG_WINDOW_SIZE</code></td>
+<td>Number of sentences per chunk in sentence_window strategy.</td>
+</tr>
+<tr>
+<td><code>sentence_overlap</code></td>
+<td>int</td>
+<td><code>1</code></td>
+<td><code>LASAGNA_SENTENCE_OVERLAP</code>, <code>RAG_SENTENCE_OVERLAP</code></td>
+<td>Number of sentences to overlap in sentence_window strategy.</td>
+</tr>
+<tr>
+<td><code>enable_hierarchical</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_ENABLE_HIERARCHICAL</code>, <code>RAG_ENABLE_HIERARCHICAL</code></td>
+<td>Keeps related pieces of a document together so answers include full context, not just fragments.</td>
+</tr>
+<tr>
+<td><code>parent_chunk_size</code></td>
+<td>int</td>
+<td><code>2000</code></td>
+<td><code>LASAGNA_PARENT_CHUNK_SIZE</code>, <code>RAG_PARENT_CHUNK_SIZE</code></td>
+<td>Size of the broader context pieces (in characters). Provides surrounding context when needed.</td>
+</tr>
+<tr>
+<td><code>child_chunk_size</code></td>
+<td>int</td>
+<td><code>500</code></td>
+<td><code>LASAGNA_CHILD_CHUNK_SIZE</code>, <code>RAG_CHILD_CHUNK_SIZE</code></td>
+<td>Size of the precise matching pieces (in characters). Used for initial search.</td>
+</tr>
+<tr>
+<td><code>auto_merge_threshold</code></td>
+<td>float</td>
+<td><code>0.5</code></td>
+<td><code>LASAGNA_AUTO_MERGE_THRESHOLD</code>, <code>RAG_AUTO_MERGE_THRESHOLD</code></td>
+<td>When enough small pieces match from the same section, automatically use the full section instead.</td>
+</tr>
+<tr>
+<td><code>enable_late_chunking</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_LATE_CHUNKING</code>, <code>RAG_ENABLE_LATE_CHUNKING</code></td>
+<td>Late chunking: embed full doc, pool per chunk (Jina, arxiv:2409.04701)</td>
+</tr>
+<tr>
+<td><code>late_chunking_overlap</code></td>
+<td>int</td>
+<td><code>512</code></td>
+<td><code>LASAGNA_LATE_CHUNKING_OVERLAP</code>, <code>RAG_LATE_CHUNKING_OVERLAP</code></td>
+<td>Tokens shared by consecutive windows in long late chunking.</td>
+</tr>
+<tr>
+<td><code>chunk_unit</code></td>
+<td>str</td>
+<td><code>"chars"</code></td>
+<td><code>LASAGNA_CHUNK_UNIT</code>, <code>RAG_CHUNK_UNIT</code></td>
+<td>What chunk_size and chunk_overlap count: 'chars', 'words' or 'tokens'.</td>
+</tr>
+<tr>
+<td><code>chunk_tokenizer</code></td>
+<td>str or none</td>
+<td>none</td>
+<td><code>LASAGNA_CHUNK_TOKENIZER</code>, <code>RAG_CHUNK_TOKENIZER</code></td>
+<td>Tokenizer for chunk_unit='tokens': a Hugging Face name, or 'tiktoken:<encoding>'.</td>
+</tr>
+<tr>
+<td><code>recursive_separators</code></td>
+<td>list</td>
+<td><code>["\n\n", "\n", ". ", "? ", "! ", " ", ""]</code></td>
+<td><code>LASAGNA_RECURSIVE_SEPARATORS</code>, <code>RAG_RECURSIVE_SEPARATORS</code></td>
+<td>Separators the recursive chunker tries, coarsest first.</td>
+</tr>
+<tr>
+<td><code>recursive_keep_separator</code></td>
+<td>str</td>
+<td><code>"end"</code></td>
+<td><code>LASAGNA_RECURSIVE_KEEP_SEPARATOR</code>, <code>RAG_RECURSIVE_KEEP_SEPARATOR</code></td>
+<td>Whether a separator ends the piece before it ('end') or starts the next ('start').</td>
+</tr>
+<tr>
+<td><code>markdown_header_levels</code></td>
+<td>int</td>
+<td><code>6</code></td>
+<td><code>LASAGNA_MARKDOWN_HEADER_LEVELS</code>, <code>RAG_MARKDOWN_HEADER_LEVELS</code></td>
+<td>Deepest Markdown header level the markdown_header chunker splits on (1-6).</td>
+</tr>
+<tr>
+<td><code>markdown_strip_headers</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_MARKDOWN_STRIP_HEADERS</code>, <code>RAG_MARKDOWN_STRIP_HEADERS</code></td>
+<td>Leave header lines out of markdown_header chunk text (they are in metadata).</td>
+</tr>
+<tr>
+<td><code>markdown_split_long_sections</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_MARKDOWN_SPLIT_LONG_SECTIONS</code>, <code>RAG_MARKDOWN_SPLIT_LONG_SECTIONS</code></td>
+<td>Split Markdown sections longer than chunk_size with the recursive chunker.</td>
+</tr>
+<tr>
+<td><code>proposition_model</code></td>
+<td>str or none</td>
+<td>none</td>
+<td><code>LASAGNA_PROPOSITION_MODEL</code>, <code>RAG_PROPOSITION_MODEL</code></td>
+<td>LLM that writes propositions; None uses the configured default.</td>
+</tr>
+<tr>
+<td><code>proposition_passage_size</code></td>
+<td>int</td>
+<td><code>100</code></td>
+<td><code>LASAGNA_PROPOSITION_PASSAGE_SIZE</code>, <code>RAG_PROPOSITION_PASSAGE_SIZE</code></td>
+<td>Words per passage the proposition chunker hands to the LLM.</td>
+</tr>
+<tr>
+<td><code>contextual_base_chunker</code></td>
+<td>str</td>
+<td><code>"recursive"</code></td>
+<td><code>LASAGNA_CONTEXTUAL_BASE_CHUNKER</code>, <code>RAG_CONTEXTUAL_BASE_CHUNKER</code></td>
+<td>Registered chunker whose chunks the contextual chunker situates.</td>
+</tr>
+<tr>
+<td><code>contextual_model</code></td>
+<td>str or none</td>
+<td>none</td>
+<td><code>LASAGNA_CONTEXTUAL_MODEL</code>, <code>RAG_CONTEXTUAL_MODEL</code></td>
+<td>LLM that writes each chunk's context; None uses the configured default.</td>
+</tr>
+<tr>
+<td><code>contextual_max_document_chars</code></td>
+<td>int or none</td>
+<td><code>50000</code></td>
+<td><code>LASAGNA_CONTEXTUAL_MAX_DOCUMENT_CHARS</code>, <code>RAG_CONTEXTUAL_MAX_DOCUMENT_CHARS</code></td>
+<td>Characters of the document in each context prompt; None for all of it.</td>
+</tr>
+<tr>
+<td><code>preserve_tables</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_PRESERVE_TABLES</code>, <code>RAG_PRESERVE_TABLES</code></td>
+<td>Prevents tables from being split across multiple pieces.</td>
+</tr>
+<tr>
+<td><code>preserve_headers</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_PRESERVE_HEADERS</code>, <code>RAG_PRESERVE_HEADERS</code></td>
+<td>Attaches section headings to their content so context is never lost.</td>
+</tr>
+<tr>
+<td><code>extract_metadata</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_EXTRACT_METADATA</code>, <code>RAG_EXTRACT_METADATA</code></td>
+<td>keep page, section and file metadata on each chunk.</td>
+</tr>
+<tr>
+<td><code>max_file_size</code></td>
+<td>int</td>
+<td><code>52428800</code></td>
+<td><code>LASAGNA_MAX_FILE_SIZE</code>, <code>RAG_MAX_FILE_SIZE</code></td>
+<td>50MB.</td>
+</tr>
+<tr>
+<td><code>max_content_length</code></td>
+<td>int</td>
+<td><code>4000</code></td>
+<td><code>LASAGNA_MAX_CONTENT_LENGTH</code>, <code>RAG_MAX_CONTENT_LENGTH</code></td>
+<td>Maximum content length per chunk in storage (characters).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="hybrid-search">Hybrid Search<a class="headerlink" href="#hybrid-search" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enable_hybrid_search</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_ENABLE_HYBRID_SEARCH</code>, <code>RAG_ENABLE_HYBRID_SEARCH</code></td>
+<td>Finds results by both meaning and exact keywords, so it catches acronyms, IDs, and rare terms that pure AI search misses.</td>
+</tr>
+<tr>
+<td><code>hybrid_alpha</code></td>
+<td>float, 0.0 to 1.0</td>
+<td><code>0.7</code></td>
+<td><code>LASAGNA_HYBRID_ALPHA</code>, <code>RAG_HYBRID_ALPHA</code></td>
+<td>Balance between understanding meaning (right) and matching exact words (left). Most documents work best around 0.7.</td>
+</tr>
+<tr>
+<td><code>sparse_method</code></td>
+<td>str</td>
+<td><code>"bm25"</code></td>
+<td><code>LASAGNA_SPARSE_METHOD</code>, <code>RAG_SPARSE_METHOD</code></td>
+<td>Which keyword-based retrieval method to use alongside AI vector search.</td>
+</tr>
+<tr>
+<td><code>default_top_k</code></td>
+<td>int, 1 to 10000</td>
+<td><code>20</code></td>
+<td><code>LASAGNA_DEFAULT_TOP_K</code>, <code>RAG_DEFAULT_TOP_K</code></td>
+<td>Research: 75+ introduces hard negatives (ICLR 2025)</td>
+</tr>
+<tr>
+<td><code>similarity_threshold</code></td>
+<td>float, 0.0 to 1.0</td>
+<td><code>0.3</code></td>
+<td><code>LASAGNA_SIMILARITY_THRESHOLD</code>, <code>RAG_SIMILARITY_THRESHOLD</code></td>
+<td>Cut applied to the per-query normalized score when the agentic loop or an evaluation's generation track searches. Searches from the CLI, REST, MCP and the SDK apply no threshold unless the request sets min_score.</td>
+</tr>
+<tr>
+<td><code>rrf_k</code></td>
+<td>int</td>
+<td><code>60</code></td>
+<td><code>LASAGNA_RRF_K</code>, <code>RAG_RRF_K</code></td>
+<td>RRF constant for Reciprocal Rank Fusion.</td>
+</tr>
+<tr>
+<td><code>enable_bm25_stemming</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_ENABLE_BM25_STEMMING</code>, <code>RAG_ENABLE_BM25_STEMMING</code></td>
+<td>Enable Porter stemming for BM25.</td>
+</tr>
+<tr>
+<td><code>bm25_max_sessions</code></td>
+<td>int</td>
+<td><code>1000</code></td>
+<td><code>LASAGNA_BM25_MAX_SESSIONS</code>, <code>RAG_BM25_MAX_SESSIONS</code></td>
+<td>Maximum number of in-memory BM25 session indices to keep.</td>
+</tr>
+<tr>
+<td><code>bm25_session_ttl_seconds</code></td>
+<td>int</td>
+<td><code>86400</code></td>
+<td><code>LASAGNA_BM25_SESSION_TTL_SECONDS</code>, <code>RAG_BM25_SESSION_TTL_SECONDS</code></td>
+<td>Idle TTL for BM25 session indices in seconds.</td>
+</tr>
+<tr>
+<td><code>bm25_k1</code></td>
+<td>float</td>
+<td><code>1.2</code></td>
+<td><code>LASAGNA_BM25_K1</code>, <code>RAG_BM25_K1</code></td>
+<td>BM25 term-frequency saturation for the bm25 and hybrid retrievers.</td>
+</tr>
+<tr>
+<td><code>bm25_b</code></td>
+<td>float</td>
+<td><code>0.75</code></td>
+<td><code>LASAGNA_BM25_B</code>, <code>RAG_BM25_B</code></td>
+<td>BM25 document-length normalisation for the bm25 and hybrid retrievers.</td>
+</tr>
+<tr>
+<td><code>splade_model</code></td>
+<td>str</td>
+<td><code>"naver/splade-cocondenser-ensembledistil"</code></td>
+<td><code>LASAGNA_SPLADE_MODEL</code>, <code>RAG_SPLADE_MODEL</code></td>
+<td>Masked-language-model checkpoint the splade retriever encodes with.</td>
+</tr>
+<tr>
+<td><code>hybrid_fusion_depth</code></td>
+<td>int</td>
+<td><code>1000</code></td>
+<td><code>LASAGNA_HYBRID_FUSION_DEPTH</code>, <code>RAG_HYBRID_FUSION_DEPTH</code></td>
+<td>Candidates each list contributes to hybrid_rrf / hybrid_convex fusion.</td>
+</tr>
+<tr>
+<td><code>hybrid_convex_normalization</code></td>
+<td>str</td>
+<td><code>"tmm"</code></td>
+<td><code>LASAGNA_HYBRID_CONVEX_NORMALIZATION</code>, <code>RAG_HYBRID_CONVEX_NORMALIZATION</code></td>
+<td>Score normalisation for hybrid_convex: 'tmm', 'minmax' or 'zscore'.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="reranking">Reranking<a class="headerlink" href="#reranking" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enable_reranking</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_ENABLE_RERANKING</code>, <code>RAG_ENABLE_RERANKING</code></td>
+<td>Double-checks results with a precision model to put the most relevant ones first.</td>
+</tr>
+<tr>
+<td><code>reranker_model</code></td>
+<td>str</td>
+<td><code>"mixedbread-ai/mxbai-rerank-large-v1"</code></td>
+<td><code>LASAGNA_RERANKER_MODEL</code>, <code>RAG_RERANKER_MODEL</code></td>
+<td>BEIR NDCG@10 = 57.49.</td>
+</tr>
+<tr>
+<td><code>rerank_top_k</code></td>
+<td>int, 1 to 1000</td>
+<td><code>5</code></td>
+<td><code>LASAGNA_RERANK_TOP_K</code>, <code>RAG_RERANK_TOP_K</code></td>
+<td>Research: context cliff at ~2,500 tokens.</td>
+</tr>
+<tr>
+<td><code>reranker_batch_size</code></td>
+<td>int</td>
+<td><code>16</code></td>
+<td><code>LASAGNA_RERANKER_BATCH_SIZE</code>, <code>RAG_RERANKER_BATCH_SIZE</code></td>
+<td>How many results to score at once. Higher = faster but uses more memory.</td>
+</tr>
+<tr>
+<td><code>custom_reranker</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td><code>LASAGNA_CUSTOM_RERANKER</code>, <code>RAG_CUSTOM_RERANKER</code></td>
+<td>Registry name for a custom reranker component (empty string = use default).</td>
+</tr>
+<tr>
+<td><code>custom_query_enhancer</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td><code>LASAGNA_CUSTOM_QUERY_ENHANCER</code>, <code>RAG_CUSTOM_QUERY_ENHANCER</code></td>
+<td>Registry name for a custom query enhancer component (empty string = use default).</td>
+</tr>
+<tr>
+<td><code>llm_reranker_model</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td><code>LASAGNA_LLM_RERANKER_MODEL</code>, <code>RAG_LLM_RERANKER_MODEL</code></td>
+<td>Model for LLM listwise reranker (empty config = configured default).</td>
+</tr>
+<tr>
+<td><code>llm_reranker_window_size</code></td>
+<td>int</td>
+<td><code>20</code></td>
+<td><code>LASAGNA_LLM_RERANKER_WINDOW_SIZE</code>, <code>RAG_LLM_RERANKER_WINDOW_SIZE</code></td>
+<td>Sliding window size for listwise reranking.</td>
+</tr>
+<tr>
+<td><code>llm_reranker_step_size</code></td>
+<td>int</td>
+<td><code>10</code></td>
+<td><code>LASAGNA_LLM_RERANKER_STEP_SIZE</code>, <code>RAG_LLM_RERANKER_STEP_SIZE</code></td>
+<td>How far the listwise reranker's window moves toward the top each step.</td>
+</tr>
+<tr>
+<td><code>colbert_model</code></td>
+<td>str</td>
+<td><code>"colbert-ir/colbertv2.0"</code></td>
+<td><code>LASAGNA_COLBERT_MODEL</code>, <code>RAG_COLBERT_MODEL</code></td>
+<td>ColBERT late-interaction model name.</td>
+</tr>
+<tr>
+<td><code>monot5_model</code></td>
+<td>str</td>
+<td><code>"castorini/monot5-base-msmarco-10k"</code></td>
+<td><code>LASAGNA_MONOT5_MODEL</code>, <code>RAG_MONOT5_MODEL</code></td>
+<td>Sequence-to-sequence checkpoint the monot5 reranker scores with.</td>
+</tr>
+<tr>
+<td><code>flashrank_model</code></td>
+<td>str</td>
+<td><code>"ms-marco-TinyBERT-L-2-v2"</code></td>
+<td><code>LASAGNA_FLASHRANK_MODEL</code>, <code>RAG_FLASHRANK_MODEL</code></td>
+<td>FlashRank model name for the flashrank reranker.</td>
+</tr>
+<tr>
+<td><code>cohere_rerank_model</code></td>
+<td>str</td>
+<td><code>"rerank-v3.5"</code></td>
+<td><code>LASAGNA_COHERE_RERANK_MODEL</code>, <code>RAG_COHERE_RERANK_MODEL</code></td>
+<td>Cohere Rerank model for the cohere reranker.</td>
+</tr>
+<tr>
+<td><code>reranker_trust_remote_code</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_RERANKER_TRUST_REMOTE_CODE</code>, <code>RAG_RERANKER_TRUST_REMOTE_CODE</code></td>
+<td>Let the cross-encoder run modelling code shipped with its checkpoint.</td>
+</tr>
+<tr>
+<td><code>enable_context_reordering</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_ENABLE_CONTEXT_REORDERING</code>, <code>RAG_ENABLE_CONTEXT_REORDERING</code></td>
+<td>Lost-in-the-middle fix: reorder results so best are at start and end.</td>
+</tr>
+<tr>
+<td><code>enable_context_compression</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_CONTEXT_COMPRESSION</code>, <code>RAG_ENABLE_CONTEXT_COMPRESSION</code></td>
+<td>Enable context compression to reduce noise/tokens after reranking.</td>
+</tr>
+<tr>
+<td><code>compression_method</code></td>
+<td>str</td>
+<td><code>"extractive"</code></td>
+<td><code>LASAGNA_COMPRESSION_METHOD</code>, <code>RAG_COMPRESSION_METHOD</code></td>
+<td>Compression method: 'extractive' or 'abstractive'.</td>
+</tr>
+<tr>
+<td><code>compression_ratio</code></td>
+<td>float</td>
+<td><code>0.3</code></td>
+<td><code>LASAGNA_COMPRESSION_RATIO</code>, <code>RAG_COMPRESSION_RATIO</code></td>
+<td>Target compression ratio (0.3 = keep 30%).</td>
+</tr>
+<tr>
+<td><code>enable_graph_retrieval</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_GRAPH_RETRIEVAL</code>, <code>RAG_ENABLE_GRAPH_RETRIEVAL</code></td>
+<td>Enable GraphRAG entity-linked retrieval.</td>
+</tr>
+<tr>
+<td><code>graph_max_hops</code></td>
+<td>int</td>
+<td><code>2</code></td>
+<td><code>LASAGNA_GRAPH_MAX_HOPS</code>, <code>RAG_GRAPH_MAX_HOPS</code></td>
+<td>Max traversal depth in knowledge graph.</td>
+</tr>
+<tr>
+<td><code>graph_entity_types</code></td>
+<td>list</td>
+<td><code>["PERSON", "ORG", "CONCEPT", "LOCATION", "TECHNOLOGY", "E...</code></td>
+<td><code>LASAGNA_GRAPH_ENTITY_TYPES</code>, <code>RAG_GRAPH_ENTITY_TYPES</code></td>
+<td>Entity types for graph extraction.</td>
+</tr>
+<tr>
+<td><code>graph_extraction_model</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td><code>LASAGNA_GRAPH_EXTRACTION_MODEL</code>, <code>RAG_GRAPH_EXTRACTION_MODEL</code></td>
+<td>Model for entity extraction (empty config = configured default).</td>
+</tr>
+<tr>
+<td><code>agentic_prompts</code></td>
+<td>object</td>
+<td><code>{}</code></td>
+<td><code>LASAGNA_AGENTIC_PROMPTS</code>, <code>RAG_AGENTIC_PROMPTS</code></td>
+<td>Per-node prompt overrides for the agentic graph, keyed by node name.</td>
+</tr>
+<tr>
+<td><code>agentic_models</code></td>
+<td>object</td>
+<td><code>{}</code></td>
+<td><code>LASAGNA_AGENTIC_MODELS</code>, <code>RAG_AGENTIC_MODELS</code></td>
+<td>Per-node model overrides for the agentic graph, keyed by node name.</td>
+</tr>
+<tr>
+<td><code>enable_raptor</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_RAPTOR</code>, <code>RAG_ENABLE_RAPTOR</code></td>
+<td>Enable RAPTOR recursive summary tree indexing.</td>
+</tr>
+<tr>
+<td><code>raptor_max_cluster_size</code></td>
+<td>int</td>
+<td><code>10</code></td>
+<td><code>LASAGNA_RAPTOR_MAX_CLUSTER_SIZE</code>, <code>RAG_RAPTOR_MAX_CLUSTER_SIZE</code></td>
+<td>Max chunks per cluster in RAPTOR tree.</td>
+</tr>
+<tr>
+<td><code>raptor_max_levels</code></td>
+<td>int</td>
+<td><code>5</code></td>
+<td><code>LASAGNA_RAPTOR_MAX_LEVELS</code>, <code>RAG_RAPTOR_MAX_LEVELS</code></td>
+<td>Max tree depth.</td>
+</tr>
+<tr>
+<td><code>enable_speculative_rag</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_SPECULATIVE_RAG</code>, <code>RAG_ENABLE_SPECULATIVE_RAG</code></td>
+<td>Enable speculative RAG: parallel draft generation + verification.</td>
+</tr>
+<tr>
+<td><code>speculative_n_drafts</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td><code>LASAGNA_SPECULATIVE_N_DRAFTS</code>, <code>RAG_SPECULATIVE_N_DRAFTS</code></td>
+<td>Number of parallel draft answers for speculative RAG.</td>
+</tr>
+<tr>
+<td><code>speculative_subset_size</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td><code>LASAGNA_SPECULATIVE_SUBSET_SIZE</code>, <code>RAG_SPECULATIVE_SUBSET_SIZE</code></td>
+<td>Number of context chunks per draft in speculative RAG.</td>
+</tr>
+<tr>
+<td><code>self_ask_max_follow_ups</code></td>
+<td>int</td>
+<td><code>5</code></td>
+<td><code>LASAGNA_SELF_ASK_MAX_FOLLOW_UPS</code>, <code>RAG_SELF_ASK_MAX_FOLLOW_UPS</code></td>
+<td>Self-Ask: follow-up questions searched before the model must conclude.</td>
+</tr>
+<tr>
+<td><code>ircot_paragraphs_per_step</code></td>
+<td>int</td>
+<td><code>6</code></td>
+<td><code>LASAGNA_IRCOT_PARAGRAPHS_PER_STEP</code>, <code>RAG_IRCOT_PARAGRAPHS_PER_STEP</code></td>
+<td>IRCoT: paragraphs retrieved per step (K).</td>
+</tr>
+<tr>
+<td><code>ircot_max_steps</code></td>
+<td>int</td>
+<td><code>8</code></td>
+<td><code>LASAGNA_IRCOT_MAX_STEPS</code>, <code>RAG_IRCOT_MAX_STEPS</code></td>
+<td>IRCoT: reasoning steps before the loop stops.</td>
+</tr>
+<tr>
+<td><code>ircot_max_paragraphs</code></td>
+<td>int</td>
+<td><code>15</code></td>
+<td><code>LASAGNA_IRCOT_MAX_PARAGRAPHS</code>, <code>RAG_IRCOT_MAX_PARAGRAPHS</code></td>
+<td>IRCoT: cap on the paragraphs collected across steps.</td>
+</tr>
+<tr>
+<td><code>flare_retrieval_threshold</code></td>
+<td>float</td>
+<td><code>0.8</code></td>
+<td><code>LASAGNA_FLARE_RETRIEVAL_THRESHOLD</code>, <code>RAG_FLARE_RETRIEVAL_THRESHOLD</code></td>
+<td>FLARE theta: retrieve when any token of the next sentence is below it.</td>
+</tr>
+<tr>
+<td><code>flare_mask_threshold</code></td>
+<td>float</td>
+<td><code>0.4</code></td>
+<td><code>LASAGNA_FLARE_MASK_THRESHOLD</code>, <code>RAG_FLARE_MASK_THRESHOLD</code></td>
+<td>FLARE beta: tokens below it are masked out of the retrieval query.</td>
+</tr>
+<tr>
+<td><code>flare_max_sentences</code></td>
+<td>int</td>
+<td><code>8</code></td>
+<td><code>LASAGNA_FLARE_MAX_SENTENCES</code>, <code>RAG_FLARE_MAX_SENTENCES</code></td>
+<td>FLARE: sentences generated before the loop stops.</td>
+</tr>
+<tr>
+<td><code>flare_docs_per_retrieval</code></td>
+<td>int</td>
+<td><code>2</code></td>
+<td><code>LASAGNA_FLARE_DOCS_PER_RETRIEVAL</code>, <code>RAG_FLARE_DOCS_PER_RETRIEVAL</code></td>
+<td>FLARE: documents retrieved per retrieval.</td>
+</tr>
+<tr>
+<td><code>flare_confidence_source</code></td>
+<td>str</td>
+<td><code>"auto"</code></td>
+<td><code>LASAGNA_FLARE_CONFIDENCE_SOURCE</code>, <code>RAG_FLARE_CONFIDENCE_SOURCE</code></td>
+<td>FLARE: 'auto', 'logprobs' or 'self_reported' confidence.</td>
+</tr>
+<tr>
+<td><code>adaptive_rag_classifier_model</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td><code>LASAGNA_ADAPTIVE_RAG_CLASSIFIER_MODEL</code>, <code>RAG_ADAPTIVE_RAG_CLASSIFIER_MODEL</code></td>
+<td>Adaptive-RAG: model for the complexity classifier (empty = the loop's).</td>
+</tr>
+<tr>
+<td><code>adaptive_rag_single_step_docs</code></td>
+<td>int</td>
+<td><code>5</code></td>
+<td><code>LASAGNA_ADAPTIVE_RAG_SINGLE_STEP_DOCS</code>, <code>RAG_ADAPTIVE_RAG_SINGLE_STEP_DOCS</code></td>
+<td>Adaptive-RAG: documents retrieved on the single-step route.</td>
+</tr>
+<tr>
+<td><code>self_rag_passages</code></td>
+<td>int</td>
+<td><code>5</code></td>
+<td><code>LASAGNA_SELF_RAG_PASSAGES</code>, <code>RAG_SELF_RAG_PASSAGES</code></td>
+<td>Self-RAG: passages retrieved, each answered from and critiqued.</td>
+</tr>
+<tr>
+<td><code>self_rag_weight_rel</code></td>
+<td>float</td>
+<td><code>1.0</code></td>
+<td><code>LASAGNA_SELF_RAG_WEIGHT_REL</code>, <code>RAG_SELF_RAG_WEIGHT_REL</code></td>
+<td>Self-RAG: weight of the relevance critique (ISREL).</td>
+</tr>
+<tr>
+<td><code>self_rag_weight_sup</code></td>
+<td>float</td>
+<td><code>1.0</code></td>
+<td><code>LASAGNA_SELF_RAG_WEIGHT_SUP</code>, <code>RAG_SELF_RAG_WEIGHT_SUP</code></td>
+<td>Self-RAG: weight of the support critique (ISSUP).</td>
+</tr>
+<tr>
+<td><code>self_rag_weight_use</code></td>
+<td>float</td>
+<td><code>0.5</code></td>
+<td><code>LASAGNA_SELF_RAG_WEIGHT_USE</code>, <code>RAG_SELF_RAG_WEIGHT_USE</code></td>
+<td>Self-RAG: weight of the utility critique (ISUSE).</td>
+</tr>
+<tr>
+<td><code>self_rag_retrieval</code></td>
+<td>str</td>
+<td><code>"adaptive"</code></td>
+<td><code>LASAGNA_SELF_RAG_RETRIEVAL</code>, <code>RAG_SELF_RAG_RETRIEVAL</code></td>
+<td>Self-RAG: 'adaptive' (the model judges) or 'always' retrieve.</td>
+</tr>
+<tr>
+<td><code>enable_mmr</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_ENABLE_MMR</code>, <code>RAG_ENABLE_MMR</code></td>
+<td>Avoids showing repetitive or near-duplicate results, so answers draw on varied sources.</td>
+</tr>
+<tr>
+<td><code>mmr_lambda</code></td>
+<td>float, 0.0 to 1.0</td>
+<td><code>0.5</code></td>
+<td><code>LASAGNA_MMR_LAMBDA</code>, <code>RAG_MMR_LAMBDA</code></td>
+<td>LangChain and LlamaIndex default; a pre-MMR filter keeps only relevant items.</td>
+</tr>
+<tr>
+<td><code>mmr_score_normalization</code></td>
+<td>str</td>
+<td><code>"sigmoid"</code></td>
+<td><code>LASAGNA_MMR_SCORE_NORMALIZATION</code>, <code>RAG_MMR_SCORE_NORMALIZATION</code></td>
+<td>MMR score normalization strategy.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="query-enhancement">Query Enhancement<a class="headerlink" href="#query-enhancement" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enable_hyde</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_HYDE</code>, <code>RAG_ENABLE_HYDE</code></td>
+<td>Uses AI to imagine what the ideal answer looks like, then searches for content matching that answer.</td>
+</tr>
+<tr>
+<td><code>hyde_model</code></td>
+<td>str</td>
+<td><code>"default"</code></td>
+<td><code>LASAGNA_HYDE_MODEL</code>, <code>RAG_HYDE_MODEL</code></td>
+<td>Which AI model powers the AI-Enhanced Search feature. 'default' uses your main model.</td>
+</tr>
+<tr>
+<td><code>hyde_n_docs</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td><code>LASAGNA_HYDE_N_DOCS</code>, <code>RAG_HYDE_N_DOCS</code></td>
+<td>Number of hypothetical documents for multi-HyDE.</td>
+</tr>
+<tr>
+<td><code>hyde_embedding_strategy</code></td>
+<td>str</td>
+<td><code>"average"</code></td>
+<td><code>LASAGNA_HYDE_EMBEDDING_STRATEGY</code>, <code>RAG_HYDE_EMBEDDING_STRATEGY</code></td>
+<td>Strategy for combining multi-HyDE embeddings.</td>
+</tr>
+<tr>
+<td><code>enable_query_expansion</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_QUERY_EXPANSION</code>, <code>RAG_ENABLE_QUERY_EXPANSION</code></td>
+<td>Automatically rephrase your question in different ways to find more results.</td>
+</tr>
+<tr>
+<td><code>max_query_variations</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td><code>LASAGNA_MAX_QUERY_VARIATIONS</code>, <code>RAG_MAX_QUERY_VARIATIONS</code></td>
+<td>How many alternative phrasings to try when Search Variations is enabled.</td>
+</tr>
+<tr>
+<td><code>enable_query_decomposition</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_QUERY_DECOMPOSITION</code>, <code>RAG_ENABLE_QUERY_DECOMPOSITION</code></td>
+<td>Split multi-part questions into simpler sub-questions and search each separately.</td>
+</tr>
+<tr>
+<td><code>enable_query_classification</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_ENABLE_QUERY_CLASSIFICATION</code>, <code>RAG_ENABLE_QUERY_CLASSIFICATION</code></td>
+<td>Enable adaptive query-type classification.</td>
+</tr>
+<tr>
+<td><code>agentic_hyde_strategy</code></td>
+<td>str</td>
+<td><code>"adaptive"</code></td>
+<td><code>LASAGNA_AGENTIC_HYDE_STRATEGY</code>, <code>RAG_AGENTIC_HYDE_STRATEGY</code></td>
+<td>When to use AI-Enhanced Search during multi-step searches.</td>
+</tr>
+<tr>
+<td><code>enable_contextual_retrieval</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_CONTEXTUAL_RETRIEVAL</code>, <code>RAG_ENABLE_CONTEXTUAL_RETRIEVAL</code></td>
+<td>Enable Anthropic-style contextual retrieval.</td>
+</tr>
+<tr>
+<td><code>enable_rag_fusion</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_RAG_FUSION</code>, <code>RAG_ENABLE_RAG_FUSION</code></td>
+<td>Enable RAG Fusion: multi-query generation + Reciprocal Rank Fusion.</td>
+</tr>
+<tr>
+<td><code>rag_fusion_n_queries</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td><code>LASAGNA_RAG_FUSION_N_QUERIES</code>, <code>RAG_RAG_FUSION_N_QUERIES</code></td>
+<td>Number of query variations to generate for RAG Fusion.</td>
+</tr>
+<tr>
+<td><code>query2doc_format</code></td>
+<td>str</td>
+<td><code>"dense"</code></td>
+<td><code>LASAGNA_QUERY2DOC_FORMAT</code>, <code>RAG_QUERY2DOC_FORMAT</code></td>
+<td>Query2doc: 'dense' (q [SEP] d') or 'sparse' (q repeated, then d').</td>
+</tr>
+<tr>
+<td><code>query2doc_query_repeats</code></td>
+<td>int</td>
+<td><code>5</code></td>
+<td><code>LASAGNA_QUERY2DOC_QUERY_REPEATS</code>, <code>RAG_QUERY2DOC_QUERY_REPEATS</code></td>
+<td>Query2doc: how many times the query precedes its pseudo-document (sparse form).</td>
+</tr>
+<tr>
+<td><code>query2doc_max_tokens</code></td>
+<td>int</td>
+<td><code>128</code></td>
+<td><code>LASAGNA_QUERY2DOC_MAX_TOKENS</code>, <code>RAG_QUERY2DOC_MAX_TOKENS</code></td>
+<td>Query2doc: token budget for the generated pseudo-document.</td>
+</tr>
+<tr>
+<td><code>enable_crag</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_CRAG</code>, <code>RAG_ENABLE_CRAG</code></td>
+<td>Enable Corrective RAG: LLM grades retrieval quality post-search.</td>
+</tr>
+<tr>
+<td><code>crag_web_search_fallback</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_CRAG_WEB_SEARCH_FALLBACK</code>, <code>RAG_CRAG_WEB_SEARCH_FALLBACK</code></td>
+<td>Enable web search fallback for Corrective RAG.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="query-routing-adaptive-rag">Query Routing (Adaptive-RAG)<a class="headerlink" href="#query-routing-adaptive-rag" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enable_query_routing</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_ENABLE_QUERY_ROUTING</code>, <code>RAG_ENABLE_QUERY_ROUTING</code></td>
+<td>Route each query to the fast, standard or comprehensive tier by its estimated complexity.</td>
+</tr>
+<tr>
+<td><code>routing_strategy</code></td>
+<td>str: <code>rule_based</code>, <code>adaptive</code></td>
+<td><code>"rule_based"</code></td>
+<td><code>LASAGNA_ROUTING_STRATEGY</code>, <code>RAG_ROUTING_STRATEGY</code></td>
+<td>Routing strategy: 'rule_based' (deterministic) or 'adaptive' (confidence-aware).</td>
+</tr>
+<tr>
+<td><code>routing_default_tier</code></td>
+<td>str: <code>fast</code>, <code>standard</code>, <code>comprehensive</code></td>
+<td><code>"standard"</code></td>
+<td><code>LASAGNA_ROUTING_DEFAULT_TIER</code>, <code>RAG_ROUTING_DEFAULT_TIER</code></td>
+<td>Default routing tier when routing is disabled.</td>
+</tr>
+<tr>
+<td><code>routing_confidence_threshold</code></td>
+<td>float, 0.0 to 1.0</td>
+<td><code>0.5</code></td>
+<td><code>LASAGNA_ROUTING_CONFIDENCE_THRESHOLD</code>, <code>RAG_ROUTING_CONFIDENCE_THRESHOLD</code></td>
+<td>Confidence threshold below which the adaptive strategy escalates the tier.</td>
+</tr>
+<tr>
+<td><code>routing_allow_tier_override</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_ROUTING_ALLOW_TIER_OVERRIDE</code>, <code>RAG_ROUTING_ALLOW_TIER_OVERRIDE</code></td>
+<td>Allow API callers to force a specific routing tier.</td>
+</tr>
+<tr>
+<td><code>routing_log_decisions</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_ROUTING_LOG_DECISIONS</code>, <code>RAG_ROUTING_LOG_DECISIONS</code></td>
+<td>Log routing decisions for observability.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="citation-tracking">Citation Tracking<a class="headerlink" href="#citation-tracking" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>citation_format</code></td>
+<td>str</td>
+<td><code>"stable_id"</code></td>
+<td><code>LASAGNA_CITATION_FORMAT</code>, <code>RAG_CITATION_FORMAT</code></td>
+<td>How citations are identified.</td>
+</tr>
+<tr>
+<td><code>citation_id_length</code></td>
+<td>int</td>
+<td><code>8</code></td>
+<td><code>LASAGNA_CITATION_ID_LENGTH</code>, <code>RAG_CITATION_ID_LENGTH</code></td>
+<td>Length of stable citation IDs (when using stable_id format).</td>
+</tr>
+<tr>
+<td><code>verify_citations</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_VERIFY_CITATIONS</code>, <code>RAG_VERIFY_CITATIONS</code></td>
+<td>Verify that cited chunks actually exist.</td>
+</tr>
+<tr>
+<td><code>track_citations_db</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_TRACK_CITATIONS_DB</code>, <code>RAG_TRACK_CITATIONS_DB</code></td>
+<td>Persist citation history to the database.</td>
+</tr>
+<tr>
+<td><code>show_page_numbers</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_SHOW_PAGE_NUMBERS</code>, <code>RAG_SHOW_PAGE_NUMBERS</code></td>
+<td>Include page numbers in citations (when available).</td>
+</tr>
+<tr>
+<td><code>include_source_preview</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_INCLUDE_SOURCE_PREVIEW</code>, <code>RAG_INCLUDE_SOURCE_PREVIEW</code></td>
+<td>a short excerpt of the source with each citation.</td>
+</tr>
+<tr>
+<td><code>citation_db_max_age_hours</code></td>
+<td>int</td>
+<td><code>168</code></td>
+<td><code>LASAGNA_CITATION_DB_MAX_AGE_HOURS</code>, <code>RAG_CITATION_DB_MAX_AGE_HOURS</code></td>
+<td>1 week.</td>
+</tr>
+<tr>
+<td><code>citation_db_max_per_session</code></td>
+<td>int</td>
+<td><code>1000</code></td>
+<td><code>LASAGNA_CITATION_DB_MAX_PER_SESSION</code>, <code>RAG_CITATION_DB_MAX_PER_SESSION</code></td>
+<td>oldest citations beyond this are removed.</td>
+</tr>
+<tr>
+<td><code>citation_normalize_scores</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_CITATION_NORMALIZE_SCORES</code>, <code>RAG_CITATION_NORMALIZE_SCORES</code></td>
+<td>scale citation scores to 0-1.</td>
+</tr>
+<tr>
+<td><code>citation_score_method</code></td>
+<td>str</td>
+<td><code>"minmax"</code></td>
+<td><code>LASAGNA_CITATION_SCORE_METHOD</code>, <code>RAG_CITATION_SCORE_METHOD</code></td>
+<td>'minmax', 'sigmoid', 'clamp'.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="file-types">File Types<a class="headerlink" href="#file-types" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>supported_extensions</code></td>
+<td>list</td>
+<td><code>[".pdf", ".docx", ".txt", ".md", ".csv", ".json", ".html"...</code></td>
+<td><code>LASAGNA_SUPPORTED_EXTENSIONS</code>, <code>RAG_SUPPORTED_EXTENSIONS</code></td>
+<td>Only formats DocumentProcessor can identify and extract. .doc, .rtf and .epub have no extractor, and .pptx and .xlsx are refused by the upload type check before Docling could convert them, so listing them advertised uploads that always failed.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="storage">Storage<a class="headerlink" href="#storage" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>upload_dir_name</code></td>
+<td>str</td>
+<td><code>"rag_uploads"</code></td>
+<td><code>LASAGNA_UPLOAD_DIR_NAME</code>, <code>RAG_UPLOAD_DIR_NAME</code></td>
+<td>folder name for stored uploads.</td>
+</tr>
+<tr>
+<td><code>db_name</code></td>
+<td>str</td>
+<td><code>"rag.db"</code></td>
+<td><code>LASAGNA_DB_NAME</code>, <code>RAG_DB_NAME</code></td>
+<td>Unified database (consolidated from rag_metadata.db + rag_citations.db)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="parallel-upload">Parallel Upload<a class="headerlink" href="#parallel-upload" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>max_concurrent_uploads</code></td>
+<td>int, 1 to 20</td>
+<td><code>5</code></td>
+<td><code>LASAGNA_MAX_CONCURRENT_UPLOADS</code>, <code>RAG_MAX_CONCURRENT_UPLOADS</code></td>
+<td>Maximum number of parallel document uploads (1-20).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="ocr">OCR<a class="headerlink" href="#ocr" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enable_ocr</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_OCR</code>, <code>RAG_ENABLE_OCR</code></td>
+<td>Read text from scanned PDFs and images. Useful for old documents or photos of text.</td>
+</tr>
+<tr>
+<td><code>ocr_engine</code></td>
+<td>str</td>
+<td><code>"easyocr"</code></td>
+<td><code>LASAGNA_OCR_ENGINE</code>, <code>RAG_OCR_ENGINE</code></td>
+<td>Which engine reads text from scanned documents and images.</td>
+</tr>
+<tr>
+<td><code>ocr_languages</code></td>
+<td>list</td>
+<td><code>["en"]</code></td>
+<td><code>LASAGNA_OCR_LANGUAGES</code>, <code>RAG_OCR_LANGUAGES</code></td>
+<td>Language codes for OCR text extraction.</td>
+</tr>
+<tr>
+<td><code>ocr_confidence_threshold</code></td>
+<td>float</td>
+<td><code>0.5</code></td>
+<td><code>LASAGNA_OCR_CONFIDENCE_THRESHOLD</code>, <code>RAG_OCR_CONFIDENCE_THRESHOLD</code></td>
+<td>How confident the OCR must be before accepting text. Lower = more text (possibly noisy), higher = cleaner.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="processing">Processing<a class="headerlink" href="#processing" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>extract_images</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_EXTRACT_IMAGES</code>, <code>RAG_EXTRACT_IMAGES</code></td>
+<td>extract images from documents.</td>
+</tr>
+<tr>
+<td><code>preserve_formatting</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_PRESERVE_FORMATTING</code>, <code>RAG_PRESERVE_FORMATTING</code></td>
+<td>keep layout such as lists and line breaks in extracted text.</td>
+</tr>
+<tr>
+<td><code>async_processing</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_ASYNC_PROCESSING</code>, <code>RAG_ASYNC_PROCESSING</code></td>
+<td>process uploads in the background.</td>
+</tr>
+<tr>
+<td><code>processing_timeout</code></td>
+<td>int</td>
+<td><code>300</code></td>
+<td><code>LASAGNA_PROCESSING_TIMEOUT</code>, <code>RAG_PROCESSING_TIMEOUT</code></td>
+<td>seconds a document may take to process.</td>
+</tr>
+<tr>
+<td><code>allow_model_download_in_requests</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS</code>, <code>RAG_ALLOW_MODEL_DOWNLOAD_IN_REQUESTS</code></td>
+<td>Whether a server may download a missing model while it handles a request.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="docling-document-processing">Docling Document Processing<a class="headerlink" href="#docling-document-processing" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docling_enabled</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_DOCLING_ENABLED</code>, <code>RAG_DOCLING_ENABLED</code></td>
+<td>Enable Docling for structure-aware document processing.</td>
+</tr>
+<tr>
+<td><code>docling_mode</code></td>
+<td>str</td>
+<td><code>"auto"</code></td>
+<td><code>LASAGNA_DOCLING_MODE</code>, <code>RAG_DOCLING_MODE</code></td>
+<td>Docling deployment mode: 'auto', 'local', or 'production'.</td>
+</tr>
+<tr>
+<td><code>docling_pdf_backend</code></td>
+<td>str</td>
+<td><code>"docling_parse"</code></td>
+<td><code>LASAGNA_DOCLING_PDF_BACKEND</code>, <code>RAG_DOCLING_PDF_BACKEND</code></td>
+<td>Docling PDF backend: 'docling_parse' or 'pypdfium2'.</td>
+</tr>
+<tr>
+<td><code>docling_ocr_enabled</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_DOCLING_OCR_ENABLED</code>, <code>RAG_DOCLING_OCR_ENABLED</code></td>
+<td>Enable OCR within Docling pipeline.</td>
+</tr>
+<tr>
+<td><code>docling_table_structure</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_DOCLING_TABLE_STRUCTURE</code>, <code>RAG_DOCLING_TABLE_STRUCTURE</code></td>
+<td>Enable TableFormer table structure extraction.</td>
+</tr>
+<tr>
+<td><code>docling_max_tokens</code></td>
+<td>int, 64 to 32768</td>
+<td><code>512</code></td>
+<td><code>LASAGNA_DOCLING_MAX_TOKENS</code>, <code>RAG_DOCLING_MAX_TOKENS</code></td>
+<td>Max tokens per chunk for Docling HybridChunker.</td>
+</tr>
+<tr>
+<td><code>docling_timeout</code></td>
+<td>int</td>
+<td><code>300</code></td>
+<td><code>LASAGNA_DOCLING_TIMEOUT</code>, <code>RAG_DOCLING_TIMEOUT</code></td>
+<td>Per-document processing timeout in seconds.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="caching">Caching<a class="headerlink" href="#caching" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enable_embedding_cache</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_ENABLE_EMBEDDING_CACHE</code>, <code>RAG_ENABLE_EMBEDDING_CACHE</code></td>
+<td>Cache computed embeddings to avoid recomputation.</td>
+</tr>
+<tr>
+<td><code>embedding_cache_size</code></td>
+<td>int</td>
+<td><code>10000</code></td>
+<td><code>LASAGNA_EMBEDDING_CACHE_SIZE</code>, <code>RAG_EMBEDDING_CACHE_SIZE</code></td>
+<td>Maximum number of cached embeddings.</td>
+</tr>
+<tr>
+<td><code>enable_search_cache</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_ENABLE_SEARCH_CACHE</code>, <code>RAG_ENABLE_SEARCH_CACHE</code></td>
+<td>Cache search results for repeated queries.</td>
+</tr>
+<tr>
+<td><code>search_cache_ttl</code></td>
+<td>int</td>
+<td><code>300</code></td>
+<td><code>LASAGNA_SEARCH_CACHE_TTL</code>, <code>RAG_SEARCH_CACHE_TTL</code></td>
+<td>How long cached search results remain valid (seconds).</td>
+</tr>
+<tr>
+<td><code>search_cache_max_size</code></td>
+<td>int</td>
+<td><code>1000</code></td>
+<td><code>LASAGNA_SEARCH_CACHE_MAX_SIZE</code>, <code>RAG_SEARCH_CACHE_MAX_SIZE</code></td>
+<td>Maximum number of cached search results.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="security-limits">Security Limits<a class="headerlink" href="#security-limits" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>max_document_ids_filter</code></td>
+<td>int</td>
+<td><code>100</code></td>
+<td><code>LASAGNA_MAX_DOCUMENT_IDS_FILTER</code>, <code>RAG_MAX_DOCUMENT_IDS_FILTER</code></td>
+<td>Maximum document IDs allowed in filter expressions.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="observability">Observability<a class="headerlink" href="#observability" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enable_prometheus</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_PROMETHEUS</code>, <code>RAG_ENABLE_PROMETHEUS</code></td>
+<td>Enable Prometheus metrics collection.</td>
+</tr>
+<tr>
+<td><code>enable_tracing</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_TRACING</code>, <code>RAG_ENABLE_TRACING</code></td>
+<td>Enable OpenTelemetry distributed tracing.</td>
+</tr>
+<tr>
+<td><code>tracing_exporter</code></td>
+<td>str</td>
+<td><code>"otlp"</code></td>
+<td><code>LASAGNA_TRACING_EXPORTER</code>, <code>RAG_TRACING_EXPORTER</code></td>
+<td>Tracing exporter: 'otlp', 'jaeger', 'zipkin', or 'console'.</td>
+</tr>
+<tr>
+<td><code>tracing_endpoint</code></td>
+<td>str</td>
+<td><code>"http://localhost:4317"</code></td>
+<td><code>LASAGNA_TRACING_ENDPOINT</code>, <code>RAG_TRACING_ENDPOINT</code></td>
+<td>OTLP/Jaeger/Zipkin collector endpoint.</td>
+</tr>
+<tr>
+<td><code>tracing_service_name</code></td>
+<td>str</td>
+<td><code>"rag-knowledge"</code></td>
+<td><code>LASAGNA_TRACING_SERVICE_NAME</code>, <code>RAG_TRACING_SERVICE_NAME</code></td>
+<td>Service name reported in traces.</td>
+</tr>
+<tr>
+<td><code>log_level</code></td>
+<td>str: <code>TRACE</code>, <code>DEBUG</code>, <code>INFO</code>, <code>SUCCESS</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code></td>
+<td><code>"INFO"</code></td>
+<td><code>LASAGNA_LOG_LEVEL</code>, <code>RAG_LOG_LEVEL</code></td>
+<td>Logging verbosity.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="multi-tenancy">Multi-Tenancy<a class="headerlink" href="#multi-tenancy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tenant_isolation</code></td>
+<td>str: <code>none</code>, <code>partition</code></td>
+<td><code>"none"</code></td>
+<td><code>LASAGNA_TENANT_ISOLATION</code>, <code>RAG_TENANT_ISOLATION</code></td>
+<td>Tenant isolation mode: 'none' or 'partition'.</td>
+</tr>
+<tr>
+<td><code>quota_enabled</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_QUOTA_ENABLED</code>, <code>RAG_QUOTA_ENABLED</code></td>
+<td>Enable per-tenant resource quotas (documents, storage, rate limits).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="rate-limiting">Rate Limiting<a class="headerlink" href="#rate-limiting" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rate_limiting_enabled</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_RATE_LIMITING_ENABLED</code>, <code>RAG_RATE_LIMITING_ENABLED</code></td>
+<td>Enable adaptive rate limiting per tenant.</td>
+</tr>
+<tr>
+<td><code>rate_limiting_strategy</code></td>
+<td>str</td>
+<td><code>"adaptive"</code></td>
+<td><code>LASAGNA_RATE_LIMITING_STRATEGY</code>, <code>RAG_RATE_LIMITING_STRATEGY</code></td>
+<td>Rate limiting strategy: 'adaptive' or 'fixed'.</td>
+</tr>
+<tr>
+<td><code>rate_limiting_rpm</code></td>
+<td>float</td>
+<td><code>60.0</code></td>
+<td><code>LASAGNA_RATE_LIMITING_RPM</code>, <code>RAG_RATE_LIMITING_RPM</code></td>
+<td>Base requests per minute per tenant.</td>
+</tr>
+<tr>
+<td><code>rate_limiting_burst</code></td>
+<td>float</td>
+<td><code>10.0</code></td>
+<td><code>LASAGNA_RATE_LIMITING_BURST</code>, <code>RAG_RATE_LIMITING_BURST</code></td>
+<td>Maximum burst token capacity per tenant.</td>
+</tr>
+<tr>
+<td><code>rate_limiting_burst_multiplier</code></td>
+<td>float</td>
+<td><code>2.0</code></td>
+<td><code>LASAGNA_RATE_LIMITING_BURST_MULTIPLIER</code>, <code>RAG_RATE_LIMITING_BURST_MULTIPLIER</code></td>
+<td>Capacity multiplier when system is idle (allows bursting).</td>
+</tr>
+<tr>
+<td><code>rate_limiting_overload_threshold</code></td>
+<td>float</td>
+<td><code>0.8</code></td>
+<td><code>LASAGNA_RATE_LIMITING_OVERLOAD_THRESHOLD</code>, <code>RAG_RATE_LIMITING_OVERLOAD_THRESHOLD</code></td>
+<td>System load score that triggers throttling (0.0 to 1.0).</td>
+</tr>
+<tr>
+<td><code>rate_limiting_idle_threshold</code></td>
+<td>float</td>
+<td><code>0.3</code></td>
+<td><code>LASAGNA_RATE_LIMITING_IDLE_THRESHOLD</code>, <code>RAG_RATE_LIMITING_IDLE_THRESHOLD</code></td>
+<td>System load score below which bursting is allowed (0.0 to 1.0).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="database-backend">Database Backend<a class="headerlink" href="#database-backend" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database_backend</code></td>
+<td>str: <code>sqlite</code>, <code>postgresql</code></td>
+<td><code>"sqlite"</code></td>
+<td><code>LASAGNA_DATABASE_BACKEND</code>, <code>RAG_DATABASE_BACKEND</code></td>
+<td>Database backend: 'sqlite' (default) or 'postgresql'.</td>
+</tr>
+<tr>
+<td><code>database_dsn</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td><code>LASAGNA_DATABASE_DSN</code>, <code>RAG_DATABASE_DSN</code></td>
+<td>PostgreSQL connection string (DSN). Required when database_backend='postgresql'.</td>
+</tr>
+<tr>
+<td><code>database_pool_min</code></td>
+<td>int</td>
+<td><code>2</code></td>
+<td><code>LASAGNA_DATABASE_POOL_MIN</code>, <code>RAG_DATABASE_POOL_MIN</code></td>
+<td>Minimum database connection pool size (PostgreSQL).</td>
+</tr>
+<tr>
+<td><code>database_pool_max</code></td>
+<td>int</td>
+<td><code>10</code></td>
+<td><code>LASAGNA_DATABASE_POOL_MAX</code>, <code>RAG_DATABASE_POOL_MAX</code></td>
+<td>Maximum database connection pool size (PostgreSQL).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="redis-distributed-cache">Redis / Distributed Cache<a class="headerlink" href="#redis-distributed-cache" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cache_backend</code></td>
+<td>str: <code>memory</code>, <code>redis</code></td>
+<td><code>"memory"</code></td>
+<td><code>LASAGNA_CACHE_BACKEND</code>, <code>RAG_CACHE_BACKEND</code></td>
+<td>Cache backend: 'memory' (default) or 'redis'.</td>
+</tr>
+<tr>
+<td><code>redis_url</code></td>
+<td>str</td>
+<td><code>"redis://localhost:6379"</code></td>
+<td><code>LASAGNA_REDIS_URL</code>, <code>RAG_REDIS_URL</code></td>
+<td>Redis connection URL.</td>
+</tr>
+<tr>
+<td><code>redis_pool_size</code></td>
+<td>int</td>
+<td><code>10</code></td>
+<td><code>LASAGNA_REDIS_POOL_SIZE</code>, <code>RAG_REDIS_POOL_SIZE</code></td>
+<td>Redis connection pool size.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="celery-background-processing">Celery / Background Processing<a class="headerlink" href="#celery-background-processing" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>celery_enabled</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_CELERY_ENABLED</code>, <code>RAG_CELERY_ENABLED</code></td>
+<td>Enable Celery for background document processing.</td>
+</tr>
+<tr>
+<td><code>celery_broker_url</code></td>
+<td>str</td>
+<td><code>"redis://localhost:6379/0"</code></td>
+<td><code>LASAGNA_CELERY_BROKER_URL</code>, <code>RAG_CELERY_BROKER_URL</code></td>
+<td>Celery broker URL (typically Redis).</td>
+</tr>
+<tr>
+<td><code>celery_result_backend</code></td>
+<td>str</td>
+<td><code>"redis://localhost:6379/1"</code></td>
+<td><code>LASAGNA_CELERY_RESULT_BACKEND</code>, <code>RAG_CELERY_RESULT_BACKEND</code></td>
+<td>Celery result backend URL (typically Redis).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="connection-pooling">Connection Pooling<a class="headerlink" href="#connection-pooling" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>connection_pool_size</code></td>
+<td>int, 1 to 500</td>
+<td><code>1</code></td>
+<td><code>LASAGNA_CONNECTION_POOL_SIZE</code>, <code>RAG_CONNECTION_POOL_SIZE</code></td>
+<td>Vector backend connection pool size. 1 = no pooling (default).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="file-storage-backend">File Storage Backend<a class="headerlink" href="#file-storage-backend" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>storage_backend</code></td>
+<td>str</td>
+<td><code>"local"</code></td>
+<td><code>LASAGNA_STORAGE_BACKEND</code>, <code>RAG_STORAGE_BACKEND</code></td>
+<td>File storage backend: 'local' (default), 's3', or 'fsspec'.</td>
+</tr>
+<tr>
+<td><code>storage_backend_config</code></td>
+<td>object</td>
+<td><code>{}</code></td>
+<td><code>LASAGNA_STORAGE_BACKEND_CONFIG</code>, <code>RAG_STORAGE_BACKEND_CONFIG</code></td>
+<td>Backend-specific storage configuration.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="fast-ingestion-eval-only-pipeline-tuning">Fast Ingestion (eval-only pipeline tuning)<a class="headerlink" href="#fast-ingestion-eval-only-pipeline-tuning" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ingest_extract_workers</code></td>
+<td>int</td>
+<td><code>min(os.cpu_count() or 4, 8)</code></td>
+<td><code>LASAGNA_INGEST_EXTRACT_WORKERS</code>, <code>RAG_INGEST_EXTRACT_WORKERS</code></td>
+<td>Number of parallel workers for text extraction/chunking in fast ingest.</td>
+</tr>
+<tr>
+<td><code>ingest_embed_batch_size</code></td>
+<td>int</td>
+<td><code>64</code></td>
+<td><code>LASAGNA_INGEST_EMBED_BATCH_SIZE</code>, <code>RAG_INGEST_EMBED_BATCH_SIZE</code></td>
+<td>Cross-document embedding batch size for fast ingest.</td>
+</tr>
+<tr>
+<td><code>ingest_insert_batch_size</code></td>
+<td>int</td>
+<td><code>500</code></td>
+<td><code>LASAGNA_INGEST_INSERT_BATCH_SIZE</code>, <code>RAG_INGEST_INSERT_BATCH_SIZE</code></td>
+<td>Chunks per vector store insert call in fast ingest.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="agentic-retrieval-and-document-awareness-settings-file-only">Agentic retrieval and document awareness (settings file only)<a class="headerlink" href="#agentic-retrieval-and-document-awareness-settings-file-only" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Type</th>
+<th>Default</th>
+<th>Environment variables</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>use_agentic_rag</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>LASAGNA_USE_AGENTIC_RAG</code>, <code>RAG_USE_AGENTIC_RAG</code></td>
+<td>Agentic RAG with multi-hop reasoning.</td>
+</tr>
+<tr>
+<td><code>use_final_search</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_USE_FINAL_SEARCH</code>, <code>RAG_USE_FINAL_SEARCH</code></td>
+<td>Do final search after refinement for complete citations.</td>
+</tr>
+<tr>
+<td><code>max_agent_iterations</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td><code>LASAGNA_MAX_AGENT_ITERATIONS</code>, <code>RAG_MAX_AGENT_ITERATIONS</code></td>
+<td>Maximum number of search iterations for agentic RAG.</td>
+</tr>
+<tr>
+<td><code>chunk_refinement_method</code></td>
+<td>str</td>
+<td><code>"auto"</code></td>
+<td><code>LASAGNA_CHUNK_REFINEMENT_METHOD</code>, <code>RAG_CHUNK_REFINEMENT_METHOD</code></td>
+<td>Whether the AI cleans up and highlights the most relevant parts of found content.</td>
+</tr>
+<tr>
+<td><code>agent_temperature</code></td>
+<td>float</td>
+<td><code>0.1</code></td>
+<td><code>LASAGNA_AGENT_TEMPERATURE</code>, <code>RAG_AGENT_TEMPERATURE</code></td>
+<td>Temperature for agent/refinement model (low for determinism).</td>
+</tr>
+<tr>
+<td><code>max_query_length</code></td>
+<td>int</td>
+<td><code>12</code></td>
+<td><code>LASAGNA_MAX_QUERY_LENGTH</code>, <code>RAG_MAX_QUERY_LENGTH</code></td>
+<td>Maximum query length in tokens for refinement queries.</td>
+</tr>
+<tr>
+<td><code>auto_refine_avg_length_threshold</code></td>
+<td>int</td>
+<td><code>1000</code></td>
+<td><code>LASAGNA_AUTO_REFINE_AVG_LENGTH_THRESHOLD</code>, <code>RAG_AUTO_REFINE_AVG_LENGTH_THRESHOLD</code></td>
+<td>Average chunk length threshold to trigger auto-refinement.</td>
+</tr>
+<tr>
+<td><code>auto_refine_avg_score_threshold</code></td>
+<td>float</td>
+<td><code>0.5</code></td>
+<td><code>LASAGNA_AUTO_REFINE_AVG_SCORE_THRESHOLD</code>, <code>RAG_AUTO_REFINE_AVG_SCORE_THRESHOLD</code></td>
+<td>Average score threshold below which to trigger auto-refinement.</td>
+</tr>
+<tr>
+<td><code>auto_refine_chunk_count_threshold</code></td>
+<td>int</td>
+<td><code>7</code></td>
+<td><code>LASAGNA_AUTO_REFINE_CHUNK_COUNT_THRESHOLD</code>, <code>RAG_AUTO_REFINE_CHUNK_COUNT_THRESHOLD</code></td>
+<td>Chunk count threshold above which to trigger auto-refinement.</td>
+</tr>
+<tr>
+<td><code>use_structured_graph</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_USE_STRUCTURED_GRAPH</code>, <code>RAG_USE_STRUCTURED_GRAPH</code></td>
+<td>Use structured StateGraph instead of flat ReAct agent.</td>
+</tr>
+<tr>
+<td><code>enable_hallucination_check</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_HALLUCINATION_CHECK</code>, <code>RAG_ENABLE_HALLUCINATION_CHECK</code></td>
+<td>Enable post-generation hallucination grounding check (ISSUP).</td>
+</tr>
+<tr>
+<td><code>enable_answer_quality_check</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>LASAGNA_ENABLE_ANSWER_QUALITY_CHECK</code>, <code>RAG_ENABLE_ANSWER_QUALITY_CHECK</code></td>
+<td>Enable post-generation answer quality check (ISUSE).</td>
+</tr>
+<tr>
+<td><code>max_quality_check_attempts</code></td>
+<td>int, 1 to 20</td>
+<td><code>2</code></td>
+<td><code>LASAGNA_MAX_QUALITY_CHECK_ATTEMPTS</code>, <code>RAG_MAX_QUALITY_CHECK_ATTEMPTS</code></td>
+<td>Maximum retry attempts for quality gate failures.</td>
+</tr>
+<tr>
+<td><code>coverage_scorer_mode</code></td>
+<td>str</td>
+<td><code>"keyword"</code></td>
+<td><code>LASAGNA_COVERAGE_SCORER_MODE</code>, <code>RAG_COVERAGE_SCORER_MODE</code></td>
+<td>Coverage assessment mode: 'keyword' (fast) or 'llm' (accurate).</td>
+</tr>
+<tr>
+<td><code>final_search_mode</code></td>
+<td>str</td>
+<td><code>"merge"</code></td>
+<td><code>LASAGNA_FINAL_SEARCH_MODE</code>, <code>RAG_FINAL_SEARCH_MODE</code></td>
+<td>Final search behavior: 'merge' (combine hop + final) or 'replace' (legacy).</td>
+</tr>
+<tr>
+<td><code>chunk_cite_retrieval</code></td>
+<td>object</td>
+<td><code>{"strategy": "adaptive", "fixed_size": 5, "threshold_scor...</code></td>
+<td><code>LASAGNA_CHUNK_CITE_RETRIEVAL</code>, <code>RAG_CHUNK_CITE_RETRIEVAL</code></td>
+<td>How many retrieved chunks are kept: a fixed count, or cut at a score gap.</td>
+</tr>
+<tr>
+<td><code>document_awareness</code></td>
+<td>object</td>
+<td><code>{"enabled": true, "enrichment_strategy": "first_tokens", ...</code></td>
+<td><code>LASAGNA_DOCUMENT_AWARENESS</code>, <code>RAG_DOCUMENT_AWARENESS</code></td>
+<td>What the agent is told about each document: a preview of its first tokens, an LLM summary, or both.</td>
+</tr>
+<tr>
+<td><code>agentic_pipeline</code></td>
+<td>str</td>
+<td>none</td>
+<td><code>LASAGNA_AGENTIC_PIPELINE</code>, <code>RAG_AGENTIC_PIPELINE</code></td>
+<td>Name of the registered agentic pipeline to use.</td>
+</tr>
+<tr>
+<td><code>refinement_model</code></td>
+<td>str</td>
+<td>none</td>
+<td><code>LASAGNA_REFINEMENT_MODEL</code>, <code>RAG_REFINEMENT_MODEL</code></td>
+<td>Which AI model refines the search results. A fast, affordable model works well here.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="variables-that-are-not-settings">Variables that are not settings<a class="headerlink" href="#variables-that-are-not-settings" title="Permanent link">&para;</a></h2>
+<p>The servers, the MCP server and the vector stores read these from the
+environment only: not from the settings file, and not per session.</p>
+<h3 id="rest-api-and-authentication">REST API and authentication<a class="headerlink" href="#rest-api-and-authentication" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RAG_REQUIRE_AUTH</code></td>
+<td><code>false</code></td>
+<td>When true, only a verified X-Session-Token names a session, and POST /api/v1/sessions needs an X-API-Key. When false, binding beyond loopback is refused at startup unless RAG_BIND_IS_PROTECTED is set.</td>
+</tr>
+<tr>
+<td><code>RAG_API_KEYS</code></td>
+<td>unset</td>
+<td>Comma-separated keys, each at least 32 characters, that may mint session tokens when RAG_REQUIRE_AUTH is on. Rate limits and quotas are counted per key, over all the sessions it minted.</td>
+</tr>
+<tr>
+<td><code>RAG_JWT_SECRET</code></td>
+<td>a random secret per process</td>
+<td>Signs session tokens (HMAC-SHA256). Unset, tokens stop working when the process restarts; with RAG_REQUIRE_AUTH on, an unset, placeholder or shorter-than-32-character secret stops the server at startup.</td>
+</tr>
+<tr>
+<td><code>RAG_SESSION_TOKEN_TTL_SECONDS</code></td>
+<td><code>604800</code></td>
+<td>How long a session token is valid, in seconds (7 days).</td>
+</tr>
+<tr>
+<td><code>RAG_ADMIN_TOKEN</code></td>
+<td>unset</td>
+<td>The X-Admin-Token for /api/v1/admin/* and for naming a session in POST /api/v1/sessions. Unset, a placeholder or shorter than 32 characters: the admin routes answer 503.</td>
+</tr>
+<tr>
+<td><code>RAG_ALLOW_ANONYMOUS_SESSION</code></td>
+<td><code>false</code></td>
+<td>With RAG_REQUIRE_AUTH on, keep the anonymous default session usable.</td>
+</tr>
+<tr>
+<td><code>RAG_BIND_IS_PROTECTED</code></td>
+<td><code>false</code></td>
+<td>Says that something outside the process (a loopback port mapping, a NetworkPolicy, a firewall) restricts access, so the server may bind beyond loopback with auth off.</td>
+</tr>
+<tr>
+<td><code>RAG_ALLOW_HEADER_IDENTITY</code></td>
+<td><code>false</code></td>
+<td>Accept the X-User-ID header as the user identity; otherwise it is refused with 401.</td>
+</tr>
+<tr>
+<td><code>RAG_CORS_ORIGINS</code></td>
+<td>empty</td>
+<td>Comma-separated origins allowed cross-origin requests (REST and MCP over HTTP). Empty allows none; * is refused at startup when RAG_REQUIRE_AUTH is on.</td>
+</tr>
+<tr>
+<td><code>RAG_ALLOWED_HOSTS</code></td>
+<td>unset</td>
+<td>Extra Host names the REST API and MCP over HTTP answer to with auth off, comma-separated (name, or name:* for any port), such as a container's service name. Otherwise only localhost, 127.0.0.1 and [::1].</td>
+</tr>
+<tr>
+<td><code>RAG_FORWARDED_ALLOW_IPS</code></td>
+<td><code>127.0.0.1</code></td>
+<td>Proxy addresses whose X-Forwarded-For is trusted. The image reads gunicorn's FORWARDED_ALLOW_IPS first.</td>
+</tr>
+<tr>
+<td><code>RAG_MAX_BATCH_FILES</code></td>
+<td><code>20</code></td>
+<td>Files in one POST /api/v1/documents/batch; more is refused with 400.</td>
+</tr>
+<tr>
+<td><code>RAG_MAX_BATCH_BYTES</code></td>
+<td><code>209715200</code></td>
+<td>Total body of one batch upload (200 MiB); more is refused with 413 before the body is read.</td>
+</tr>
+<tr>
+<td><code>RAG_SEARCH_TIMEOUT</code></td>
+<td><code>120</code></td>
+<td>Seconds a REST search may run before it answers 504.</td>
+</tr>
+<tr>
+<td><code>RAG_MAX_SESSIONS_PER_KEY</code></td>
+<td><code>100</code></td>
+<td>With RAG_REQUIRE_AUTH on, how many sessions one API key may mint per token lifetime (RAG_SESSION_TOKEN_TTL_SECONDS); one more answers 429. Raise it for an application that makes a session per end user.</td>
+</tr>
+<tr>
+<td><code>RAG_EMBED_MCP</code></td>
+<td><code>false</code></td>
+<td>Mount the MCP server at /mcp inside the REST process, for single-process deployments such as Milvus Lite.</td>
+</tr>
+<tr>
+<td><code>RAG_CONFIGURATOR</code></td>
+<td><code>false</code></td>
+<td>Mount the configurator UI at /configurator, with its API routes.</td>
+</tr>
+<tr>
+<td><code>LASAGNA_LOG_FORMAT</code></td>
+<td><code>text</code></td>
+<td>json writes one JSON object per log line; text shows a request's id before the message. Any other value stops the server at startup.</td>
+</tr>
+<tr>
+<td><code>PROMETHEUS_MULTIPROC_DIR</code></td>
+<td>unset</td>
+<td>The directory gunicorn workers share for Prometheus metrics (set in the image).</td>
+</tr>
+<tr>
+<td><code>RAG_WORKER_METRICS_PORT</code></td>
+<td>unset</td>
+<td>The port a Celery worker serves its Prometheus /metrics on, with RAG_ENABLE_PROMETHEUS on (lasagna_ingests_total for the documents it processed). Unset, the worker serves none. Compose and Kubernetes set 9100.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="mcp-server">MCP server<a class="headerlink" href="#mcp-server" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LASAGNA_MCP_TOOLS</code></td>
+<td><code>safe</code></td>
+<td>safe leaves out the six tools that delete data or reset configuration; all serves every tool. The same as lasagna-mcp --tools.</td>
+</tr>
+<tr>
+<td><code>LASAGNA_ENABLE_DOCS_API</code></td>
+<td><code>false</code></td>
+<td>Turn on the /api/call tool tester, which calls any tool without authentication. For development only.</td>
+</tr>
+<tr>
+<td><code>RAG_SESSION_ID</code></td>
+<td>unset</td>
+<td>The session an MCP tool call, or a REST request without X-Session-ID, uses when it names none (else default). lasagna serve -s sets it.</td>
+</tr>
+<tr>
+<td><code>RAG_MCP_UPLOAD_ROOT</code></td>
+<td>unset</td>
+<td>The directory a networked MCP server may ingest server-side files from; unset, it reads none.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="vector-store-connections">Vector store connections<a class="headerlink" href="#vector-store-connections" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MILVUS_URI</code></td>
+<td>unset</td>
+<td>A Milvus server's address, used when vector_backend_config has no uri. Without one the milvus backend opens Milvus Lite in the data directory.</td>
+</tr>
+<tr>
+<td><code>MILVUS_TOKEN</code></td>
+<td>unset</td>
+<td>The token for MILVUS_URI.</td>
+</tr>
+<tr>
+<td><code>QDRANT_URL</code></td>
+<td>unset</td>
+<td>A Qdrant server's address; without one the qdrant backend stores its data in the data directory.</td>
+</tr>
+<tr>
+<td><code>QDRANT_API_KEY</code></td>
+<td>unset</td>
+<td>The API key for QDRANT_URL.</td>
+</tr>
+<tr>
+<td><code>WEAVIATE_URL</code></td>
+<td>unset</td>
+<td>A Weaviate server's address.</td>
+</tr>
+<tr>
+<td><code>WEAVIATE_API_KEY</code></td>
+<td>unset</td>
+<td>The API key for WEAVIATE_URL.</td>
+</tr>
+<tr>
+<td><code>PINECONE_API_KEY</code></td>
+<td>unset</td>
+<td>The Pinecone API key the pinecone backend needs.</td>
+</tr>
+<tr>
+<td><code>PGVECTOR_DSN</code></td>
+<td><code>postgresql://rag:rag@localhost:5432/rag</code></td>
+<td>The PostgreSQL DSN of the pgvector backend; RAG_DATABASE_DSN is used when it is unset.</td>
+</tr>
+<tr>
+<td><code>OPENSEARCH_HOSTS</code></td>
+<td><code>http://localhost:9200</code></td>
+<td>Comma-separated OpenSearch hosts, with OPENSEARCH_USER and OPENSEARCH_PASSWORD.</td>
+</tr>
+<tr>
+<td><code>OPENSEARCH_USE_SSL</code></td>
+<td><code>false</code></td>
+<td>Connect to OpenSearch over SSL.</td>
+</tr>
+<tr>
+<td><code>OPENSEARCH_VERIFY_CERTS</code></td>
+<td><code>false</code></td>
+<td>Verify the OpenSearch server's certificate.</td>
+</tr>
+<tr>
+<td><code>OPENSEARCH_TIMEOUT</code></td>
+<td><code>30</code></td>
+<td>Seconds an OpenSearch request may take.</td>
+</tr>
+<tr>
+<td><code>OPENSEARCH_ENABLE_NEURAL_SPARSE</code></td>
+<td><code>false</code></td>
+<td>Add neural sparse vectors to OpenSearch hybrid search (dense, sparse and BM25).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="paths-and-the-process">Paths and the process<a class="headerlink" href="#paths-and-the-process" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LASAGNA_DATA_DIR</code>, <code>RAG_DATA_DIR</code></td>
+<td><code>~/.lasagna</code></td>
+<td>Where Lasagna keeps its data.</td>
+</tr>
+<tr>
+<td><code>LASAGNA_DB_DIR</code>, <code>RAG_DB_DIR</code></td>
+<td><data dir>/dbs</td>
+<td>The databases and the local vector stores.</td>
+</tr>
+<tr>
+<td><code>LASAGNA_UPLOAD_DIR</code>, <code>RAG_UPLOAD_DIR</code></td>
+<td><data dir>/uploads</td>
+<td>Stored uploads.</td>
+</tr>
+<tr>
+<td><code>LASAGNA_SETTINGS_FILE</code>, <code>RAG_SETTINGS_FILE</code></td>
+<td>the packaged settings.lasagna.toml</td>
+<td>The settings file to read instead of the packaged one; a path with no file there stops the process with an error.</td>
+</tr>
+<tr>
+<td><code>LASAGNA_LLM_CACHE</code></td>
+<td><code>on</code></td>
+<td>0, false, no or off turns the LLM response cache off for every run.</td>
+</tr>
+<tr>
+<td><code>RAG_STORE_LOCK_TIMEOUT</code></td>
+<td><code>300</code></td>
+<td>Seconds a process waits for a lock another process holds in a PostgreSQL metadata store (a document's during a reindex, a session's during a profile switch) before the operation fails and says so, with nothing changed.</td>
+</tr>
+<tr>
+<td><code>LASAGNA_STRICT_PLUGINS</code></td>
+<td>unset</td>
+<td>Set: a plugin that fails to load raises instead of being reported and skipped.</td>
+</tr>
+<tr>
+<td><code>RAG_LANGFUSE_TRACING</code></td>
+<td><code>false</code></td>
+<td>Send LLM traces to Langfuse (needs the langfuse package and its keys).</td>
+</tr>
+<tr>
+<td><code>RAG_LLM_CACHE_MAX_SIZE</code></td>
+<td><code>50</code></td>
+<td>How many LLM clients the process keeps for reuse.</td>
+</tr>
+<tr>
+<td><code>RAG_CRAG_GRADING_CONCURRENCY</code></td>
+<td><code>4</code></td>
+<td>Parallel relevance-grading calls in corrective RAG (CRAG).</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../python-api/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Python API">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Python API
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../metrics/" class="md-footer__link md-footer__link--next" aria-label="Next: Metrics">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Metrics
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Apache License 2.0
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.footer", "navigation.instant", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tabs.link", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

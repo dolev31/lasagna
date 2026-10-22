@@ -1,0 +1,4622 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Develop a RAG technique and test it inside a full pipeline.">
+      
+      
+        <meta name="author" content="Ido Levy, Segev Shlomov, Leshem Choshen">
+      
+      
+        <link rel="canonical" href="https://dolev31.github.io/lasagna/docs/reference/cli/">
+      
+      
+        <link rel="prev" href="../../catalog/benchmarks/">
+      
+      
+        <link rel="next" href="../python-api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/brand/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Command line - Lasagna</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#command-line-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Lasagna" class="md-header__button md-logo" aria-label="Lasagna" data-md-component="logo">
+      
+  <img src="../../assets/brand/lasagna-mark.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Lasagna
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Command line
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dolev31/lasagna" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    dolev31/lasagna
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../get-started/installation/" class="md-tabs__link">
+          
+  
+  
+  Get started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guide/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../serving/mcp/" class="md-tabs__link">
+          
+  
+  
+  Agents and serving
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../catalog/stages/" class="md-tabs__link">
+          
+  
+  
+  Catalog
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../concepts/stage-isolation/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../project/changelog/" class="md-tabs__link">
+          
+  
+  
+  Project
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Lasagna" class="md-nav__button md-logo" aria-label="Lasagna" data-md-component="logo">
+      
+  <img src="../../assets/brand/lasagna-mark.svg" alt="logo">
+
+    </a>
+    Lasagna
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dolev31/lasagna" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    dolev31/lasagna
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../get-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../get-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../get-started/first-comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your first comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../get-started/offline-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Offline demo and notebook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The long-form guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/write-a-component/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Write a component
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/compare-a-component/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compare a component
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../own-data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use your own data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/synthetic-data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Synthetic dev sets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/baselines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Baselines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/dry-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dry runs and cost estimates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/llm-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM response cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Read and publish results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/langchain-llamaindex/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LangChain and LlamaIndex
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/vector-backends/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vector backends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Profiles and configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing-components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Component contribution rules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/reproduce-beir/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reproduce BEIR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents and serving
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Agents and serving
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/rest-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker and Compose
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Catalog
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Catalog
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../catalog/stages/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stages
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../catalog/components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../catalog/benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#documents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documents
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Documents">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-export" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna export
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-import" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna import
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-init" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna init
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna search
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-upload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna upload
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmarks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmarks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Benchmarks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-experiment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark experiment
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark info
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-licenses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark licenses
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-synthesize" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark synthesize
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-validate-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark validate-data
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Results">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-bundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results bundle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-compare" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results compare
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-interaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results interaction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-leaderboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results leaderboard
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-per-query" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results per-query
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-power" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results power
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results schema
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-significance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results significance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-validate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results validate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results view
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Components
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Components">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-component-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna component list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-component-validate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna component validate
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plugins" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plugins
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plugins">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-plugins-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna plugins list
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipelines
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pipelines">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-pipelines-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna pipelines list
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skills">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-skills-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna skills install
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-skills-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna skills list
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setup-and-serving" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup and serving
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setup and serving">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-configure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna configure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-doctor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna doctor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-serve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna serve
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../results-schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results schema
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/stage-isolation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage isolation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/significance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Significance testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/comparability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparability and provenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/the-paper-study/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How the paper used Lasagna
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../project/changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../project/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../project/governance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Governance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../project/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../project/citing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Citing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model-licenses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model licenses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#documents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documents
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Documents">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-export" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna export
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-import" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna import
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-init" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna init
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna search
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-upload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna upload
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmarks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmarks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Benchmarks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-experiment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark experiment
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark info
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-licenses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark licenses
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-synthesize" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark synthesize
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-benchmark-validate-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna benchmark validate-data
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Results">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-bundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results bundle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-compare" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results compare
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-interaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results interaction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-leaderboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results leaderboard
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-per-query" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results per-query
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-power" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results power
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results schema
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-significance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results significance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-validate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results validate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-results-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna results view
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Components
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Components">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-component-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna component list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-component-validate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna component validate
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plugins" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plugins
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plugins">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-plugins-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna plugins list
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pipelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipelines
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pipelines">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-pipelines-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna pipelines list
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skills
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Skills">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-skills-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna skills install
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-skills-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna skills list
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setup-and-serving" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup and serving
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setup and serving">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-configure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna configure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-doctor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna doctor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lasagna-serve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lasagna serve
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="command-line-reference">Command line reference<a class="headerlink" href="#command-line-reference" title="Permanent link">&para;</a></h1>
+<p>Generated by <code>scripts/gen_cli_doc.py</code> from the Typer app in <code>src/lasagna/cli.py</code>.
+Do not edit by hand: run the script.</p>
+<p>Every command is <code>lasagna &lt;command&gt; [options]</code>. <code>lasagna &lt;command&gt; --help</code> prints
+the same text in your terminal. Commands are grouped by what they work on:</p>
+<table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Commands</th>
+<th>What it is for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#documents">Documents</a></td>
+<td><code>export</code>, <code>import</code>, <code>init</code>, <code>search</code>, <code>status</code>, <code>upload</code></td>
+<td>Put documents into a session and search them.</td>
+</tr>
+<tr>
+<td><a href="#benchmarks">Benchmarks</a></td>
+<td><code>benchmark experiment</code>, <code>benchmark info</code>, <code>benchmark licenses</code>, <code>benchmark list</code>, <code>benchmark run</code>, <code>benchmark synthesize</code>, <code>benchmark validate-data</code></td>
+<td>Run benchmarks and sweeps, and read what they say about your change.</td>
+</tr>
+<tr>
+<td><a href="#results">Results</a></td>
+<td><code>results bundle</code>, <code>results compare</code>, <code>results interaction</code>, <code>results leaderboard</code>, <code>results per-query</code>, <code>results power</code>, <code>results schema</code>, <code>results significance</code>, <code>results validate</code>, <code>results view</code></td>
+<td>Read, compare, test and publish what a run wrote.</td>
+</tr>
+<tr>
+<td><a href="#components">Components</a></td>
+<td><code>component list</code>, <code>component validate</code></td>
+<td>List the components that fill each stage, and check one of yours.</td>
+</tr>
+<tr>
+<td><a href="#plugins">Plugins</a></td>
+<td><code>plugins list</code></td>
+<td>See which installed packages add components or benchmarks.</td>
+</tr>
+<tr>
+<td><a href="#pipelines">Pipelines</a></td>
+<td><code>pipelines list</code></td>
+<td>See the agentic RAG pipelines you can select.</td>
+</tr>
+<tr>
+<td><a href="#skills">Skills</a></td>
+<td><code>skills install</code>, <code>skills list</code></td>
+<td>Install the agent skill that teaches a coding agent to use Lasagna.</td>
+</tr>
+<tr>
+<td><a href="#setup-and-serving">Setup and serving</a></td>
+<td><code>configure</code>, <code>doctor</code>, <code>serve</code></td>
+<td>Set up, configure, diagnose and serve.</td>
+</tr>
+</tbody>
+</table>
+<p>Options that apply before any command:</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--verbose</code>, <code>-v</code></td>
+<td>Show INFO and DEBUG logs (default: warnings only)</td>
+</tr>
+<tr>
+<td><code>--version</code></td>
+<td>Print the installed version and exit.</td>
+</tr>
+<tr>
+<td><code>--install-completion</code>, <code>--show-completion</code></td>
+<td>Install shell completion, or print it to copy.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="documents">Documents<a class="headerlink" href="#documents" title="Permanent link">&para;</a></h2>
+<p>Put documents into a session and search them.</p>
+<h3 id="lasagna-export"><code>lasagna export</code><a class="headerlink" href="#lasagna-export" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span><span class="nb">export</span><span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</code></pre></div>
+<p>Export current RAG configuration to JSON.</p>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--output</code>, <code>-o</code></td>
+<td>str</td>
+<td><code>rag-config.json</code></td>
+<td>Output file</td>
+</tr>
+<tr>
+<td><code>--session</code>, <code>-s</code></td>
+<td>str</td>
+<td><code>default</code></td>
+<td>Session ID</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-import"><code>lasagna import</code><a class="headerlink" href="#lasagna-import" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>import<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>INPUT_FILE
+</code></pre></div>
+<p>Import RAG configuration from JSON.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>INPUT_FILE</code></td>
+<td style="text-align: center;">yes</td>
+<td>JSON config file to import</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--session</code>, <code>-s</code></td>
+<td>str</td>
+<td><code>default</code></td>
+<td>Session ID</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-init"><code>lasagna init</code><a class="headerlink" href="#lasagna-init" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>init
+</code></pre></div>
+<p>Interactive setup wizard for RAG knowledge base.</p>
+<p>Asks for a vector backend and a quality profile, writes the backend to ./settings.lasagna.toml and applies the profile to the default session. The profile decides the embedding model. The LLM provider is not asked for: Lasagna picks it from the API key exported in the shell, so init names the provider that key selects, or which variable to export. API keys are not asked for or written anywhere.</p>
+<h3 id="lasagna-search"><code>lasagna search</code><a class="headerlink" href="#lasagna-search" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>search<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>QUERY
+</code></pre></div>
+<p>Search the knowledge base.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>QUERY</code></td>
+<td style="text-align: center;">yes</td>
+<td>Search query</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--top-k</code>, <code>-k</code></td>
+<td>int</td>
+<td><code>5</code></td>
+<td>Number of results</td>
+</tr>
+<tr>
+<td><code>--session</code>, <code>-s</code></td>
+<td>str</td>
+<td><code>default</code></td>
+<td>Session ID</td>
+</tr>
+<tr>
+<td><code>--context</code>, <code>-c</code></td>
+<td></td>
+<td>off</td>
+<td>Show formatted LLM context</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-status"><code>lasagna status</code><a class="headerlink" href="#lasagna-status" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>status<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</code></pre></div>
+<p>Show knowledge base status.</p>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--session</code>, <code>-s</code></td>
+<td>str</td>
+<td><code>default</code></td>
+<td>Session ID</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-upload"><code>lasagna upload</code><a class="headerlink" href="#lasagna-upload" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>upload<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>FILE_PATHS...
+</code></pre></div>
+<p>Upload and index documents.</p>
+<p>Name several files, a folder, or a glob such as 'docs/*.md', in one command: they go through one client, so the models load once instead of once per file.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FILE_PATHS...</code></td>
+<td style="text-align: center;">yes</td>
+<td>Files to upload: one or more paths, folders (their readable files, subfolders included), or glob patterns such as 'docs/*.md'</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--session</code>, <code>-s</code></td>
+<td>str</td>
+<td><code>default</code></td>
+<td>Session ID</td>
+</tr>
+<tr>
+<td><code>--force</code></td>
+<td></td>
+<td>off</td>
+<td>Upload the file again even when the session already holds the same content.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="benchmarks">Benchmarks<a class="headerlink" href="#benchmarks" title="Permanent link">&para;</a></h2>
+<p>Run benchmarks and sweeps, and read what they say about your change.</p>
+<h3 id="lasagna-benchmark-experiment"><code>lasagna benchmark experiment</code><a class="headerlink" href="#lasagna-benchmark-experiment" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>benchmark<span class="w"> </span>experiment<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>CONFIG_FILE
+</code></pre></div>
+<p>Run a multi-benchmark experiment from a config file.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CONFIG_FILE</code></td>
+<td style="text-align: center;">yes</td>
+<td>YAML or TOML config file</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--resume</code></td>
+<td></td>
+<td>off</td>
+<td>Resume from checkpoints</td>
+</tr>
+<tr>
+<td><code>--concurrency</code>, <code>-c</code></td>
+<td>int</td>
+<td></td>
+<td>Max parallel tasks</td>
+</tr>
+<tr>
+<td><code>--no-cache</code></td>
+<td></td>
+<td>off</td>
+<td>Call the LLM for every request instead of replaying responses cached by an earlier run (same as llm_cache: false)</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td></td>
+<td>off</td>
+<td>Print the arms, tasks and models, and estimate tokens, time and cost from a 3-sample probe per benchmark, without running the sweep or writing results</td>
+</tr>
+<tr>
+<td><code>--no-probe</code></td>
+<td></td>
+<td>off</td>
+<td>With --dry-run, skip the probe, so nothing runs at all</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-benchmark-info"><code>lasagna benchmark info</code><a class="headerlink" href="#lasagna-benchmark-info" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>benchmark<span class="w"> </span>info<span class="w"> </span>NAME
+</code></pre></div>
+<p>Show detailed information about a benchmark.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NAME</code></td>
+<td style="text-align: center;">yes</td>
+<td>Benchmark name (e.g. beir/nfcorpus)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-benchmark-licenses"><code>lasagna benchmark licenses</code><a class="headerlink" href="#lasagna-benchmark-licenses" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>benchmark<span class="w"> </span>licenses<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</code></pre></div>
+<p>List every benchmark with its license and citation.</p>
+<p>Generated from the benchmark adapters. Lasagna redistributes no benchmark data: each dataset is fetched from its own source under its own terms, and those terms are yours to honor.</p>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--output</code>, <code>-o</code></td>
+<td>str</td>
+<td></td>
+<td>Write markdown to this path</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-benchmark-list"><code>lasagna benchmark list</code><a class="headerlink" href="#lasagna-benchmark-list" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>benchmark<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</code></pre></div>
+<p>List all available benchmarks.</p>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--category</code></td>
+<td>str</td>
+<td></td>
+<td>Filter by category (single_hop, multi_hop, fact_verification, passage_ranking)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-benchmark-run"><code>lasagna benchmark run</code><a class="headerlink" href="#lasagna-benchmark-run" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>benchmark<span class="w"> </span>run<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>NAME
+</code></pre></div>
+<p>Run one benchmark, or a data file of your own, and print its leaderboard.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NAME</code></td>
+<td style="text-align: center;">yes</td>
+<td>A benchmark name, as <code>lasagna benchmark list</code> shows it, or your own data: a .jsonl or .csv file or a BEIR folder (docs/own-data.md).</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--samples</code>, <code>-n</code></td>
+<td>int</td>
+<td><code>100</code></td>
+<td>Queries to evaluate, at most.</td>
+</tr>
+<tr>
+<td><code>--runs</code>, <code>-r</code></td>
+<td>int</td>
+<td><code>1</code></td>
+<td>Runs per arm. Repeat runs when an LLM stage is in the loop.</td>
+</tr>
+<tr>
+<td><code>--mode</code></td>
+<td>str</td>
+<td><code>auto</code></td>
+<td>auto, live (retrieve from the benchmark's corpus) or generation_only (answer from the gold passages).</td>
+</tr>
+<tr>
+<td><code>--split</code></td>
+<td>str</td>
+<td><code>test</code></td>
+<td>Dataset split.</td>
+</tr>
+<tr>
+<td><code>--output</code>, <code>-o</code></td>
+<td>str</td>
+<td></td>
+<td>Output directory (default: a new folder under ~/.lasagna).</td>
+</tr>
+<tr>
+<td><code>--seed</code></td>
+<td>int</td>
+<td><code>42</code></td>
+<td>Random seed for sampling queries.</td>
+</tr>
+<tr>
+<td><code>--profile</code>, <code>-p</code></td>
+<td>str</td>
+<td><code>speed</code></td>
+<td>Profile every arm starts from. speed needs no API key and downloads 92 MB; standard downloads 3.2 GB and sends complex queries to an LLM.</td>
+</tr>
+<tr>
+<td><code>--tracks</code></td>
+<td>str</td>
+<td></td>
+<td>retrieval, generation, or both, comma-separated. Default: retrieval, or both with --generator. Generation needs an LLM API key and the answer-scoring models, so it runs only when asked for.</td>
+</tr>
+<tr>
+<td><code>--reranker</code></td>
+<td>str</td>
+<td></td>
+<td>Run with this registered reranker.</td>
+</tr>
+<tr>
+<td><code>--query-enhancer</code></td>
+<td>str</td>
+<td></td>
+<td>Run with this registered query enhancer.</td>
+</tr>
+<tr>
+<td><code>--generator</code></td>
+<td>str</td>
+<td></td>
+<td>Write answers with this registered generator.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-benchmark-synthesize"><code>lasagna benchmark synthesize</code><a class="headerlink" href="#lasagna-benchmark-synthesize" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>benchmark<span class="w"> </span>synthesize<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>CORPUS
+</code></pre></div>
+<p>Write a question set from your own documents with an LLM, for development.</p>
+<p>Each question is checked by a second call, and rows that fail are dropped. The output runs with <code>lasagna benchmark run &lt;out&gt;</code>. Synthetic questions favor the phrasing of the model that wrote them: report results on human-written benchmarks (docs/own-data.md).</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CORPUS</code></td>
+<td style="text-align: center;">yes</td>
+<td>A folder of your documents (.md, .txt, .pdf, .docx, .html, ...), or one file</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--n</code></td>
+<td>int</td>
+<td><code>100</code></td>
+<td>Number of questions to write</td>
+</tr>
+<tr>
+<td><code>--out</code></td>
+<td>str</td>
+<td><code>synthetic_qa.jsonl</code></td>
+<td>JSONL file to write</td>
+</tr>
+<tr>
+<td><code>--mix</code></td>
+<td>str</td>
+<td><code>factoid=0.6,multihop=0.3,unanswerable=0.1</code></td>
+<td>Share of each question type: factoid, multihop, unanswerable</td>
+</tr>
+<tr>
+<td><code>--seed</code></td>
+<td>int</td>
+<td><code>42</code></td>
+<td>Seed for choosing the source passages</td>
+</tr>
+<tr>
+<td><code>--model</code></td>
+<td>str</td>
+<td></td>
+<td>LLM that writes and checks the questions (default: MODEL_NAME)</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td></td>
+<td>off</td>
+<td>Print the plan and a token estimate; call no LLM, write nothing</td>
+</tr>
+<tr>
+<td><code>--overwrite</code></td>
+<td></td>
+<td>off</td>
+<td>Replace --out if it exists</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-benchmark-validate-data"><code>lasagna benchmark validate-data</code><a class="headerlink" href="#lasagna-benchmark-validate-data" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>benchmark<span class="w"> </span>validate-data<span class="w"> </span>PATH
+</code></pre></div>
+<p>Check your own benchmark data and say which tracks it supports.</p>
+<p>Exits 0 when the data can be run, 1 with every problem listed when not. The formats are in docs/own-data.md.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PATH</code></td>
+<td style="text-align: center;">yes</td>
+<td>A .jsonl or .csv file, or a BEIR folder (corpus.jsonl, queries.jsonl, qrels/test.tsv)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
+<p>Read, compare, test and publish what a run wrote.</p>
+<h3 id="lasagna-results-bundle"><code>lasagna results bundle</code><a class="headerlink" href="#lasagna-results-bundle" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>results<span class="w"> </span>bundle<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>RESULTS_PATH
+</code></pre></div>
+<p>Package a run into a self-contained, publishable bundle.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RESULTS_PATH</code></td>
+<td style="text-align: center;">yes</td>
+<td>results.json from a run</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--output</code>, <code>-o</code></td>
+<td>str</td>
+<td><code>run.json</code></td>
+<td>Bundle path to write</td>
+</tr>
+<tr>
+<td><code>--name</code></td>
+<td>str</td>
+<td></td>
+<td>Submitter name</td>
+</tr>
+<tr>
+<td><code>--affiliation</code></td>
+<td>str</td>
+<td></td>
+<td>Submitter affiliation</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-results-compare"><code>lasagna results compare</code><a class="headerlink" href="#lasagna-results-compare" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>results<span class="w"> </span>compare<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>A<span class="w"> </span>B
+</code></pre></div>
+<p>Compare two runs, reporting whether they are comparable at all.</p>
+<p>Each side is a run's results.json (or its folder) or a bundle. A bundle is checked first, as <code>results validate</code> checks it, and one that fails is refused. Per benchmark, configs are comparable when their comparability keys match: the keys <code>results bundle</code> prints and the leaderboard groups by.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>A</code></td>
+<td style="text-align: center;">yes</td>
+<td>First bundle or results.json</td>
+</tr>
+<tr>
+<td><code>B</code></td>
+<td style="text-align: center;">yes</td>
+<td>Second bundle or results.json</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--metric</code>, <code>-m</code></td>
+<td>str</td>
+<td><code>ndcg@10</code></td>
+<td>Metric to compare.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-results-interaction"><code>lasagna results interaction</code><a class="headerlink" href="#lasagna-results-interaction" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>results<span class="w"> </span>interaction<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>RESULTS_PATH
+</code></pre></div>
+<p>Do two techniques compose, or do they overlap?</p>
+<p>Estimates <code>(AB - neither) - (A - neither) - (B - neither)</code> from a 2x2 run. The p-value is a paired sign-flip permutation test on each query's interaction, and the confidence interval a t interval. A is reported against a baseline, B is reported against a baseline, and whether A+B is worth A alone cannot be recovered from the two, because the interaction is not a function of the main effects.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RESULTS_PATH</code></td>
+<td style="text-align: center;">yes</td>
+<td>results.json from a factorial run</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--benchmark</code></td>
+<td>str</td>
+<td></td>
+<td>Which benchmark (default: the only one)</td>
+</tr>
+<tr>
+<td><code>--metric</code>, <code>-m</code></td>
+<td>str</td>
+<td><code>ndcg@10</code></td>
+<td>Metric to test.</td>
+</tr>
+<tr>
+<td><code>--neither</code></td>
+<td>str</td>
+<td><code>neither</code></td>
+<td>Config with both techniques off</td>
+</tr>
+<tr>
+<td><code>--only-a</code></td>
+<td>str</td>
+<td></td>
+<td>Config with technique A only</td>
+</tr>
+<tr>
+<td><code>--only-b</code></td>
+<td>str</td>
+<td></td>
+<td>Config with technique B only</td>
+</tr>
+<tr>
+<td><code>--both</code></td>
+<td>str</td>
+<td></td>
+<td>Config with both on</td>
+</tr>
+<tr>
+<td><code>--alpha</code></td>
+<td>float</td>
+<td><code>0.05</code></td>
+<td>Significance level of the test.</td>
+</tr>
+<tr>
+<td><code>--resamples</code></td>
+<td>int</td>
+<td><code>10000</code></td>
+<td>Random sign patterns for the sign-flip permutation test when more than 30 queries differ; with 30 or fewer it is exact. The interval is a t interval.</td>
+</tr>
+<tr>
+<td><code>--bootstrap</code></td>
+<td>int</td>
+<td></td>
+<td>Old name of --resamples, removed in 0.2.0.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-results-leaderboard"><code>lasagna results leaderboard</code><a class="headerlink" href="#lasagna-results-leaderboard" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>results<span class="w"> </span>leaderboard<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>DIRECTORY
+</code></pre></div>
+<p>Leaderboards of bundles or a run's results.json, by comparability key.</p>
+<p>Rows inside a group held the same configuration fixed, so they are comparable by construction. Rows in different groups are not, and are never put in the same table. A results.json with no --output prints the run's own leaderboard, the one <code>benchmark experiment</code> prints when it finishes. Bundles are checked as <code>results validate</code> checks them: one that fails is refused when named on its own and left out of a folder, unless --allow-invalid shows it marked INVALID. A results.json is not validated.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DIRECTORY</code></td>
+<td style="text-align: center;">yes</td>
+<td>A directory of validated bundles, one bundle, or a run's results.json (or its folder)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--metric</code>, <code>-m</code></td>
+<td>str</td>
+<td><code>ndcg@10</code></td>
+<td>Metric to rank by.</td>
+</tr>
+<tr>
+<td><code>--output</code>, <code>-o</code></td>
+<td>str</td>
+<td></td>
+<td>Folder to write one page per benchmark into (.md, or .tex with --format latex), plus index.json</td>
+</tr>
+<tr>
+<td><code>--format</code></td>
+<td>str</td>
+<td><code>markdown</code></td>
+<td>markdown, or latex: one booktabs table per comparability group, printed when no --output is given</td>
+</tr>
+<tr>
+<td><code>--allow-invalid</code></td>
+<td></td>
+<td>off</td>
+<td>Show bundles <code>results validate</code> rejects, each number marked INVALID</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-results-per-query"><code>lasagna results per-query</code><a class="headerlink" href="#lasagna-results-per-query" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>results<span class="w"> </span>per-query<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>RESULTS_PATH
+</code></pre></div>
+<p>One row per query, retrieval and generation metrics side by side.</p>
+<p>Turns "config A lost" into "config A lost on the multi-hop questions, at retrieval rather than generation".</p>
+<p>In the JSONL export, <code>_retrieved</code> lists each document's <code>score</code> and <code>rank</code>. The rank is authoritative: scores can tie, so sorting by score does not rebuild the ranking the metrics were computed on.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RESULTS_PATH</code></td>
+<td style="text-align: center;">yes</td>
+<td>results.json from a run</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--output</code>, <code>-o</code></td>
+<td>str</td>
+<td></td>
+<td>Write to .csv or .jsonl</td>
+</tr>
+<tr>
+<td><code>--benchmark</code></td>
+<td>str</td>
+<td></td>
+<td>Restrict to one benchmark</td>
+</tr>
+<tr>
+<td><code>--config</code></td>
+<td>str</td>
+<td></td>
+<td>Restrict to one config</td>
+</tr>
+<tr>
+<td><code>--limit</code></td>
+<td>int</td>
+<td><code>20</code></td>
+<td>Rows to print when not writing a file</td>
+</tr>
+<tr>
+<td><code>--sort-by</code></td>
+<td>str</td>
+<td></td>
+<td>Metric to sort ascending (worst first)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-results-power"><code>lasagna results power</code><a class="headerlink" href="#lasagna-results-power" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>results<span class="w"> </span>power<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>RESULTS_PATH<span class="w"> </span>CONFIG_A<span class="w"> </span>CONFIG_B
+</code></pre></div>
+<p>Could this run have detected the effect you care about?</p>
+<p>A non-significant result has two readings: the techniques are the same, or the run was too small to tell. They call for opposite next steps. Reports the smallest difference this run could have detected, and how many queries the observed difference would need.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RESULTS_PATH</code></td>
+<td style="text-align: center;">yes</td>
+<td>results.json from a run</td>
+</tr>
+<tr>
+<td><code>CONFIG_A</code></td>
+<td style="text-align: center;">yes</td>
+<td>Baseline config</td>
+</tr>
+<tr>
+<td><code>CONFIG_B</code></td>
+<td style="text-align: center;">yes</td>
+<td>Candidate config</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--metric</code>, <code>-m</code></td>
+<td>str</td>
+<td><code>ndcg@10</code></td>
+<td>Metric to test.</td>
+</tr>
+<tr>
+<td><code>--benchmark</code></td>
+<td>str</td>
+<td></td>
+<td>Which benchmark</td>
+</tr>
+<tr>
+<td><code>--alpha</code></td>
+<td>float</td>
+<td><code>0.05</code></td>
+<td>Significance level of the test.</td>
+</tr>
+<tr>
+<td><code>--power</code></td>
+<td>float</td>
+<td><code>0.8</code></td>
+<td>Chance of detecting the effect, for the smallest one reported.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-results-schema"><code>lasagna results schema</code><a class="headerlink" href="#lasagna-results-schema" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>results<span class="w"> </span>schema<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</code></pre></div>
+<p>Print the JSON Schema for a results bundle.</p>
+<p>Generated from the same constants the bundler uses, so a hub validating against it can never require a different set of fields from the one this package writes.</p>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--output</code>, <code>-o</code></td>
+<td>str</td>
+<td></td>
+<td>Write to a file</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-results-significance"><code>lasagna results significance</code><a class="headerlink" href="#lasagna-results-significance" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>results<span class="w"> </span>significance<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>RESULTS_PATH
+</code></pre></div>
+<p>Test every pair of configs at once, correcting for having asked N times.</p>
+<p>Running <code>results compare</code> across a grid one pair at a time is the standard way to manufacture a false positive: at alpha=0.05, six configs make fifteen comparisons and roughly a 54% chance that at least one clears the bar by luck alone. Holm-Bonferroni controls the family-wise error rate over the whole set, so what comes out is a claim about the grid rather than about the pair that happened to look best. Each pair is a paired sign-flip test.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RESULTS_PATH</code></td>
+<td style="text-align: center;">yes</td>
+<td>results.json from a run</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--metric</code>, <code>-m</code></td>
+<td>str</td>
+<td><code>ndcg@10</code></td>
+<td>Metric to test.</td>
+</tr>
+<tr>
+<td><code>--benchmark</code></td>
+<td>str</td>
+<td></td>
+<td>Which benchmark</td>
+</tr>
+<tr>
+<td><code>--correction</code></td>
+<td>str</td>
+<td><code>holm</code></td>
+<td>'holm' (Holm-Bonferroni) or 'none'</td>
+</tr>
+<tr>
+<td><code>--alpha</code></td>
+<td>float</td>
+<td><code>0.05</code></td>
+<td>Family-wise significance level</td>
+</tr>
+<tr>
+<td><code>--all</code></td>
+<td></td>
+<td>off</td>
+<td>Include pairs that did not reach significance</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-results-validate"><code>lasagna results validate</code><a class="headerlink" href="#lasagna-results-validate" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>results<span class="w"> </span>validate<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>BUNDLE_PATH
+</code></pre></div>
+<p>Check a bundle is well-formed, complete, and internally consistent.</p>
+<p>Recomputes the comparability key, the run id and every aggregate from the recorded fields, so a number edited after the run no longer matches its bundle. It detects mistakes and accidental edits, not tampering: the run id is a content hash, not a signature, and anyone who edits a number can recompute it.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BUNDLE_PATH</code></td>
+<td style="text-align: center;">yes</td>
+<td>run.json bundle to check</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--strict</code></td>
+<td></td>
+<td>off</td>
+<td>Treat integrity warnings as failures</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-results-view"><code>lasagna results view</code><a class="headerlink" href="#lasagna-results-view" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>results<span class="w"> </span>view<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>RESULTS_PATH
+</code></pre></div>
+<p>Write one HTML page with everything a run measured.</p>
+<p>The header names the experiment, its date and versions; then the stage isolation check, and per benchmark the leaderboard, the Holm-corrected significance table with its verdict, every metric per arm, and a per-query diff between two arms with what each retrieved. The page is one file with no external requests, so it opens offline and can be attached anywhere. A bundle is checked as <code>results validate</code> checks it, and one that fails is refused unless --allow-invalid; a results.json is not validated.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RESULTS_PATH</code></td>
+<td style="text-align: center;">yes</td>
+<td>results.json from a run (or its folder), or a bundle from <code>results bundle</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--metric</code>, <code>-m</code></td>
+<td>str</td>
+<td></td>
+<td>Metric to rank, test and compare queries by (default: ndcg@10 when recorded)</td>
+</tr>
+<tr>
+<td><code>--benchmark</code></td>
+<td>str</td>
+<td></td>
+<td>Show one benchmark only</td>
+</tr>
+<tr>
+<td><code>--diff</code></td>
+<td><str str></td>
+<td></td>
+<td>The two arms the per-query table compares (default: the top two)</td>
+</tr>
+<tr>
+<td><code>--output</code>, <code>-o</code></td>
+<td>str</td>
+<td><code>view.html</code></td>
+<td>HTML file to write</td>
+</tr>
+<tr>
+<td><code>--open</code></td>
+<td></td>
+<td>off</td>
+<td>Open the page in your browser</td>
+</tr>
+<tr>
+<td><code>--allow-invalid</code></td>
+<td></td>
+<td>off</td>
+<td>Show a bundle <code>results validate</code> rejects, the page marked INVALID</td>
+</tr>
+</tbody>
+</table>
+<h2 id="components">Components<a class="headerlink" href="#components" title="Permanent link">&para;</a></h2>
+<p>List the components that fill each stage, and check one of yours.</p>
+<h3 id="lasagna-component-list"><code>lasagna component list</code><a class="headerlink" href="#lasagna-component-list" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>component<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>STAGE<span class="o">]</span>
+</code></pre></div>
+<p>List the components a sweep can name, by stage.</p>
+<p>Built-in components and those of installed plugins, with the paper each one implements, or the docs page of a method that has none. A component of your own module is named as module:function and does not appear here.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>STAGE</code></td>
+<td style="text-align: center;">no</td>
+<td>Show one stage only: agentic_pipeline, chunker, document_processor, embedder, generator, query_enhancer, reranker or retriever.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-component-validate"><code>lasagna component validate</code><a class="headerlink" href="#lasagna-component-validate" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>component<span class="w"> </span>validate<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>TARGET
+</code></pre></div>
+<p>Check a component satisfies its stage contract.</p>
+<p>Checks what makes a component safe to swap: it returns the declared type, survives empty input, and does not change what it was handed. The last is what makes a comparison attributable: a component that edits its input changes the results of whatever runs after it.</p>
+<p>The target is resolved from the working directory, as a sweep resolves it, so the function you name in a sweep is the one checked here. A function decorated with @lasagna.reranker (or another stage decorator) is checked as the component the sweep would run.</p>
+<p><strong>Arguments</strong></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th style="text-align: center;">Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TARGET</code></td>
+<td style="text-align: center;">yes</td>
+<td>What a sweep would name: a registered component (cross_encoder), my_ideas:keyword_overlap (a decorated function), my_pkg.rerankers:MyReranker (a class) or path/to/file.py:name</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--stage</code></td>
+<td>str</td>
+<td></td>
+<td>The stage a plain, undecorated function implements: reranker, query_enhancer, chunker, embedder, retriever, document_processor, generator</td>
+</tr>
+<tr>
+<td><code>--profile</code>, <code>-p</code></td>
+<td>str</td>
+<td><code>speed</code></td>
+<td>Profile whose model a registered component is built with (default speed: the 92 MB cross-encoder, not the settings file's 881 MB one)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="plugins">Plugins<a class="headerlink" href="#plugins" title="Permanent link">&para;</a></h2>
+<p>See which installed packages add components or benchmarks.</p>
+<h3 id="lasagna-plugins-list"><code>lasagna plugins list</code><a class="headerlink" href="#lasagna-plugins-list" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>plugins<span class="w"> </span>list
+</code></pre></div>
+<p>Show discovered plugins, including the ones that failed to load.</p>
+<p>One broken plugin does not stop the others loading, so a plugin that fails is simply absent from the registry. This lists it with its error. Set LASAGNA_STRICT_PLUGINS=1 to make a failure raise instead.</p>
+<h2 id="pipelines">Pipelines<a class="headerlink" href="#pipelines" title="Permanent link">&para;</a></h2>
+<p>See the agentic RAG pipelines you can select.</p>
+<h3 id="lasagna-pipelines-list"><code>lasagna pipelines list</code><a class="headerlink" href="#lasagna-pipelines-list" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>pipelines<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</code></pre></div>
+<p>List all registered agentic pipelines.</p>
+<p>Shows name, description, implementing class, and which pipeline the session runs when a query reaches the agentic tier (from its profile). Use it to check that a pipeline you registered with @registry.register("agentic_pipeline", ...) is there.</p>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--session</code>, <code>-s</code></td>
+<td>str</td>
+<td><code>default</code></td>
+<td>Session whose pipeline to mark as the one that runs.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="skills">Skills<a class="headerlink" href="#skills" title="Permanent link">&para;</a></h2>
+<p>Install the agent skill that teaches a coding agent to use Lasagna.</p>
+<h3 id="lasagna-skills-install"><code>lasagna skills install</code><a class="headerlink" href="#lasagna-skills-install" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</code></pre></div>
+<p>Copy the bundled skills where a coding agent will find them.</p>
+<p>Skills teach an agent how to use Lasagna: which mode to run a benchmark in, why the first search is slow, how to file a useful bug report.</p>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--target</code>, <code>-t</code></td>
+<td>str</td>
+<td><code>.claude/skills</code></td>
+<td>Where to write them (Claude Code/Desktop use .claude/skills)</td>
+</tr>
+<tr>
+<td><code>--force</code></td>
+<td></td>
+<td>off</td>
+<td>Overwrite existing files</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-skills-list"><code>lasagna skills list</code><a class="headerlink" href="#lasagna-skills-list" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>skills<span class="w"> </span>list
+</code></pre></div>
+<p>Show the agent skills this package ships.</p>
+<h2 id="setup-and-serving">Setup and serving<a class="headerlink" href="#setup-and-serving" title="Permanent link">&para;</a></h2>
+<p>Set up, configure, diagnose and serve.</p>
+<h3 id="lasagna-configure"><code>lasagna configure</code><a class="headerlink" href="#lasagna-configure" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>configure<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</code></pre></div>
+<p>Configure RAG settings.</p>
+<p>With --profile, applies a preset; with --reset, drops the session's own settings. Without arguments, lists available profiles.</p>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--profile</code>, <code>-p</code></td>
+<td>str</td>
+<td></td>
+<td>Apply a profile: speed, standard, balanced, max_quality, or default (the settings file)</td>
+</tr>
+<tr>
+<td><code>--session</code>, <code>-s</code></td>
+<td>str</td>
+<td><code>default</code></td>
+<td>Session ID</td>
+</tr>
+<tr>
+<td><code>--force</code></td>
+<td></td>
+<td>off</td>
+<td>Apply even if the session's stored documents would no longer be searched (they stay where they are until reindexed); the new models must load</td>
+</tr>
+<tr>
+<td><code>--reindex</code></td>
+<td></td>
+<td>off</td>
+<td>Reindex the session's documents with the new profile, then apply it; if one fails, the session keeps its profile and every document stays searchable</td>
+</tr>
+<tr>
+<td><code>--resume-switch</code></td>
+<td></td>
+<td>off</td>
+<td>Finish a profile switch with --reindex whose process stopped before it ended (doctor reports one): runs the same switch again</td>
+</tr>
+<tr>
+<td><code>--reset</code></td>
+<td></td>
+<td>off</td>
+<td>Drop the session's own settings (set by an SDK client, a patch or an import), so its profile's apply as they are; with --profile, switch as well. The same documents check, --force and --reindex apply</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-doctor"><code>lasagna doctor</code><a class="headerlink" href="#lasagna-doctor" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>doctor<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</code></pre></div>
+<p>Check this installation and say what to fix.</p>
+<p>Answers the questions every support thread opens with: version, install source, backend, credentials, model cache, and anything that failed to load quietly.</p>
+<p>Output is redacted: no absolute paths, no credential values. <code>--json</code> is for agents; <code>--issue</code> produces a collapsible block for a GitHub issue.</p>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--json</code></td>
+<td></td>
+<td>off</td>
+<td>Machine-readable output</td>
+</tr>
+<tr>
+<td><code>--issue</code></td>
+<td></td>
+<td>off</td>
+<td>Print a block to paste into a bug report</td>
+</tr>
+<tr>
+<td><code>--session</code>, <code>-s</code></td>
+<td>str</td>
+<td><code>default</code></td>
+<td>Session whose profile to report.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lasagna-serve"><code>lasagna serve</code><a class="headerlink" href="#lasagna-serve" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="gp">$ </span>lasagna<span class="w"> </span>serve<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</code></pre></div>
+<p>Start the REST API server, with the configurator web page.</p>
+<p>While it runs it holds the local store; <code>lasagna status</code>, <code>search</code>, <code>upload</code> and <code>configure</code> go through it, and <code>benchmark run</code> and <code>benchmark experiment</code> use a store of their own.</p>
+<p><strong>Options</strong></p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--port</code></td>
+<td>int</td>
+<td><code>8000</code></td>
+<td>Port to listen on.</td>
+</tr>
+<tr>
+<td><code>--host</code></td>
+<td>str</td>
+<td><code>127.0.0.1</code></td>
+<td>Bind address. Default is loopback; --host 0.0.0.0 exposes the API on every interface, and it is UNAUTHENTICATED (see https://github.com/dolev31/lasagna/blob/main/SECURITY.md).</td>
+</tr>
+<tr>
+<td><code>--configurator</code> / <code>--no-configurator</code></td>
+<td></td>
+<td>on</td>
+<td>Serve the configurator web page at /configurator.</td>
+</tr>
+<tr>
+<td><code>--open</code> / <code>--no-open</code></td>
+<td></td>
+<td>off</td>
+<td>Open the configurator in a browser once the server starts.</td>
+</tr>
+<tr>
+<td><code>--mcp</code></td>
+<td></td>
+<td>off</td>
+<td>Also serve the MCP server (SSE) at /mcp/sse, from this process. Milvus Lite admits one process per store, so this is how an agent and the REST API share one.</td>
+</tr>
+<tr>
+<td><code>--session</code>, <code>-s</code></td>
+<td>str</td>
+<td></td>
+<td>The session for MCP tool calls and REST requests that name none (default: RAG_SESSION_ID, else 'default').</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../../catalog/benchmarks/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Benchmarks">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Benchmarks
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../python-api/" class="md-footer__link md-footer__link--next" aria-label="Next: Python API">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Python API
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Apache License 2.0
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.footer", "navigation.instant", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tabs.link", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
