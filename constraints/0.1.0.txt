@@ -1,6 +1,6 @@
 # Exact versions the 0.1.0 release was tested with (Python 3.12, [eval] extra).
 # Reproduce: pip install "lasagna-rag[eval]==0.1.0" -c constraints/0.1.0.txt
-# How it is made: RELEASING.md, "Constraints file".
+# How it is made: `uv pip compile pyproject.toml --extra eval --python-version 3.12`, constrained by the tested venv.
 agent-detector==2.0.0
 aiofile==3.12.3
 aiohappyeyeballs==2.7.1

@@ -24,7 +24,7 @@ url: "https://dolev31.github.io/lasagna/"
 license: Apache-2.0
 version: "0.1.0"
 # MUST match the date of the release tag. Set it on release day, together with
-# the CHANGELOG date (RELEASING.md); the release workflow refuses a tag where
+# the CHANGELOG date; the release workflow refuses a tag where
 # the two differ.
 date-released: "2026-10-21"
 # The Zenodo DOI of this version. 10.5281/zenodo.23548068 names every version

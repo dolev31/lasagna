@@ -1,7 +1,0 @@
-name: does keyword overlap help
-benchmarks: [{name: beir/scifact, n_samples: 100}]
-tracks: [retrieval]
-pipeline:
-  base_profile: speed
-  rerankers: [cross_encoder, "my_ideas:keyword_overlap"]
-output_dir: runs/keyword_overlap

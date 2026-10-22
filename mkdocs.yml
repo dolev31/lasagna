@@ -12,9 +12,7 @@ docs_dir: docs
 site_dir: site
 
 exclude_docs: |
-  assets/demo/
   assets/demo.gif
-  assets/demo.mp4
   assets/hero-*.png
   assets/brand/lasagna-lockup-*.svg
   assets/brand/lasagna-layers.svg

@@ -143,7 +143,6 @@ def test_the_example_reranker_has_one_name_everywhere():
         "component validate --help": runner.invoke(
             cli.app, ["component", "validate", "--help"], terminal_width=200
         ).output,
-        "docs/assets/demo/my_ideas.py": (REPO / "docs/assets/demo/my_ideas.py").read_text(),
     }
     for page, text in pages.items():
         assert "keyword_overlap" in text, page

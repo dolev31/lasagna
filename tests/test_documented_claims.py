@@ -509,15 +509,17 @@ class TestAgentInstructionsAreTrue:
         missing = [p for p in cited if not (REPO_ROOT / p).exists()]
         assert not missing, f"AGENTS.md cites missing test files: {missing}"
 
-    def test_the_mcp_config_is_valid_and_names_a_real_script(self):
-        """`.mcp.json` is what makes cloning the repo enough to get the tools."""
+    def test_the_readme_mcp_config_is_valid_and_names_a_real_script(self):
+        """The README's `.mcp.json` block is what a user pastes to get the tools."""
         import json
 
-        config = json.loads((REPO_ROOT / ".mcp.json").read_text())
+        block = re.search(r'```json\n(\{\n  "mcpServers".*?)```', _read(README), re.S)
+        assert block, "README.md should show the MCP server config"
+        config = json.loads(block.group(1))
         scripts = tomllib.loads(_read(PYPROJECT))["project"]["scripts"]
         for name, server in config["mcpServers"].items():
             assert server["command"] in scripts, (
-                f".mcp.json server '{name}' runs '{server['command']}', "
+                f"README server '{name}' runs '{server['command']}', "
                 f"which is not a console script this package installs"
             )
 

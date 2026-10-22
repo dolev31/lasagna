@@ -89,3 +89,9 @@ htmlcov/
 
 # Release-gate reports record the local environment; CI uploads them as artifacts.
 e2e/reports/
+
+# Maintainer-only files (release runbook, demo recording scripts, a local MCP
+# session config). They live outside the public tree.
+/RELEASING.md
+/.mcp.json
+/docs/assets/demo/

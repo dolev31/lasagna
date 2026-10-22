@@ -3,7 +3,7 @@
     python scripts/check_release.py v0.1.0
 
 Run by `.github/workflows/release.yml` before anything is built, and by hand
-before `gh release create` (RELEASING.md). A PyPI filename can never be
+before `gh release create`. A PyPI filename can never be
 reused, so a release cut from a tree that still says another version, or whose
 changelog date is the `YYYY-MM-DD` placeholder, has to be caught before the
 upload rather than after.

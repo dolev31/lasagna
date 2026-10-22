@@ -1,9 +1,9 @@
 name: Release
 
-# Publishes lasagna-rag to PyPI when a GitHub Release is published. RELEASING.md
-# is the runbook, including the one-time setup this needs: a PyPI trusted
-# publisher for this workflow file and the `pypi` environment below. There is no
-# API token anywhere; PyPI trusts this workflow's OIDC identity.
+# Publishes lasagna-rag to PyPI when a GitHub Release is published. It needs a
+# PyPI trusted publisher for this workflow file and the `pypi` environment
+# below. There is no API token anywhere; PyPI trusts this workflow's OIDC
+# identity.
 #
 # Only a published Release triggers it, not a tag push: `gh release create`
 # pushes the tag too, and a second trigger would publish twice, which PyPI
