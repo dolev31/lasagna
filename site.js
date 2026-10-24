@@ -268,6 +268,11 @@
       }
     }
     audio.addEventListener("play", function () { dockDismissed = false; syncDock(); });
+    audio.addEventListener("play", function () {
+      if (window.goatcounter && window.goatcounter.count) {
+        window.goatcounter.count({ path: "podcast-play", title: "Podcast play", event: true });
+      }
+    }, { once: true });
     ["pause", "ended", "seeked"].forEach(function (e) { audio.addEventListener(e, syncDock); });
 
     if ("mediaSession" in navigator && window.MediaMetadata) {
