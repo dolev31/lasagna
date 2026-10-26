@@ -1,40 +1,89 @@
 name: Component contribution
-description: Propose a retrieval component for Lasagna
+description: Bring a retrieval method into Lasagna, so it can be compared with everything else
 labels: ["component"]
 body:
   - type: markdown
     attributes:
       value: |
-        You may not need this. Publishing your own package with a
-        `lasagna_components` entry point makes your component available to
-        anyone who installs it, without going through review (see
-        [the plugin template](../../examples/lasagna-plugin-template/)).
-        Open this issue if you think the component belongs in Lasagna itself.
-  - type: input
+        A method that is in Lasagna can be swapped into any pipeline and measured
+        against every other component of its stage on the same benchmarks. Check
+        [Wanted](https://dolev31.github.io/lasagna/docs/project/wanted/) first: if
+        your method is listed there, comment on its tracker issue to claim it.
+
+        You may not need a pull request. A package of your own with a
+        `lasagna_components` entry point makes the component available to anyone
+        who installs it, without review (see
+        [the plugin template](https://github.com/dolev31/lasagna/tree/main/examples/lasagna-plugin-template)).
+        Open this issue if you think it belongs in Lasagna itself.
+
+        The bar a pull request meets is in
+        [CONTRIBUTING.md](https://github.com/dolev31/lasagna/blob/main/CONTRIBUTING.md#quality-bar).
+  - type: dropdown
     id: stage
     attributes:
       label: Stage
-      description: reranker, embedder, chunker, retriever, query_enhancer, ...
+      options:
+        - document_processor
+        - chunker
+        - embedder
+        - retriever
+        - query_enhancer
+        - reranker
+        - agentic_pipeline
+        - generator
+        - None of these (say why in the description)
     validations:
       required: true
+  - type: input
+    id: method
+    attributes:
+      label: Method
+      description: The method's name, and the name it would have in Lasagna.
+      placeholder: "RAPTOR, as retriever raptor"
+    validations:
+      required: true
+  - type: input
+    id: paper
+    attributes:
+      label: Paper
+      description: An arXiv ID or DOI, or "none" for a method with no paper. It becomes the component's `paper=`.
+      placeholder: "arXiv:2401.18059"
+    validations:
+      required: true
+  - type: textarea
+    id: claims
+    attributes:
+      label: What the paper reports
+      description: >-
+        The numbers the paper reports on a benchmark Lasagna ships, with the
+        table they come from. They become the component's `claims=`, and every
+        leaderboard prints them beside the number Lasagna reproduces. Leave it
+        empty if the paper reports none on a shipped benchmark.
+      placeholder: |
+        beir/scifact, ndcg@10: 0.456 (Table 3)
   - type: checkboxes
     id: contract
     attributes:
       label: Contract
       options:
-        - label: "`lasagna component validate <path>` passes"
+        - label: "`lasagna component validate <target>` passes"
           required: true
         - label: It does not mutate the documents it is handed
           required: true
         - label: It is constructible with no required arguments
+          required: true
+        - label: Any weights it downloads are listed with their license in `model_licenses.py`, or it downloads none
           required: true
   - type: textarea
     id: evidence
     attributes:
       label: Evidence it helps
       description: >-
-        A comparison against a control on a real benchmark, with n_runs >= 3.
-        Attach the results bundle if you have one. "It should help" is a
-        hypothesis; this framework exists to turn that into a number.
+        A comparison against a built-in control on a real benchmark: the output
+        of `lasagna results significance`, or the bundle from `lasagna results
+        bundle`. Use n_runs 1 when every stage is deterministic (retrieval with
+        fixed models) and 3 or more when an LLM is in the loop. "It should help"
+        is a hypothesis; this framework exists to turn it into a number.
+      render: text
     validations:
       required: true

@@ -691,6 +691,7 @@ the release gate on each run.
 
 **Project:** [Changelog](https://github.com/dolev31/lasagna/blob/main/CHANGELOG.md) ·
 [Contributing](https://github.com/dolev31/lasagna/blob/main/CONTRIBUTING.md) ·
+[Wanted](https://dolev31.github.io/lasagna/docs/project/wanted/) ·
 [Security](https://github.com/dolev31/lasagna/blob/main/SECURITY.md) ·
 [Governance](https://github.com/dolev31/lasagna/blob/main/GOVERNANCE.md) ·
 [Code of conduct](https://github.com/dolev31/lasagna/blob/main/CODE_OF_CONDUCT.md) ·

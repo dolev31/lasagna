@@ -1,0 +1,63 @@
+name: Research proposal
+description: Propose a study to run with Lasagna, stated so its result can be checked
+labels: ["research"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A study run with Lasagna can be repeated by anyone with the same config
+        and compared to the result you publish. Write the plan before the run:
+        a question, what changes, what is held fixed, and the result that would
+        prove you wrong. A finding that was planned this way is worth more than
+        one found by looking.
+
+        Open questions the project would like answered are labeled
+        [research](https://github.com/dolev31/lasagna/issues?q=is%3Aopen+label%3Aresearch).
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: One sentence, answerable with a number.
+      placeholder: "Does a cross-encoder reranker help less as the corpus grows from 5K to 200K documents?"
+    validations:
+      required: true
+  - type: textarea
+    id: arms
+    attributes:
+      label: What changes
+      description: The arms of the sweep, by component and setting. A sketch of the YAML is welcome.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: fixed
+    attributes:
+      label: What is held fixed
+      description: Models, benchmarks and their splits, sample counts, the judge, seeds.
+    validations:
+      required: true
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Metrics and runs
+      description: >-
+        The metric that answers the question, and how many runs per arm: 1 when
+        every stage is deterministic, 3 or more when an LLM is in the loop. Run
+        `lasagna results power` on a pilot to check the run can detect the
+        effect you care about.
+    validations:
+      required: true
+  - type: textarea
+    id: falsify
+    attributes:
+      label: What would prove it wrong
+      description: The result that would make you conclude the answer is no.
+    validations:
+      required: true
+  - type: textarea
+    id: needs
+    attributes:
+      label: What it needs from Lasagna
+      description: Anything missing (a component, a benchmark, a flag), or "nothing".
+    validations:
+      required: true

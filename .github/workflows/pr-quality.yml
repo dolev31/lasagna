@@ -1,0 +1,54 @@
+name: PR quality
+
+# Checks a pull request against the bar in CONTRIBUTING.md ("Quality bar")
+# before a person reads it: the description fills in every section of
+# .github/PULL_REQUEST_TEMPLATE.md, names who read the diff, and ticks the
+# checklist; the lines the diff adds give a reason for every suppression, link
+# every TODO to an issue, and code under src/lasagna/ comes with a CHANGELOG
+# line and a test. The check is scripts/check_pr_body.py; run it before you
+# open the pull request to see what it will say.
+#
+# It runs again when the description is edited or a label changes, so fixing
+# the description is enough to clear it. Drafts are skipped until they are
+# marked ready for review. The workflow reads the pull request and the
+# repository and writes nothing: it runs on `pull_request`, never
+# `pull_request_target`, so a fork's code runs with a read-only token.
+#
+# Actions are pinned by commit SHA, the tag in the trailing comment, as in
+# release.yml.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Description and diff meet the bar
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      # The description, the base branch and the labels reach the script only
+      # through the environment, never by expanding into the command line.
+      - name: Check the description and the diff
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.base_ref }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: python scripts/check_pr_body.py --diff "origin/$BASE_REF" --labels "$LABELS"

@@ -1,0 +1,17 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/dolev31/lasagna/discussions/categories/q-a
+    about: How to run, configure or extend Lasagna. Search the answered questions first.
+  - name: Suggest an idea
+    url: https://github.com/dolev31/lasagna/discussions/categories/ideas
+    about: Something that is not yet a component, benchmark or study. Ideas that gather support become issues.
+  - name: See what is wanted
+    url: https://dolev31.github.io/lasagna/docs/project/wanted/
+    about: Components, benchmarks and studies Lasagna needs, each with a definition of done.
+  - name: Report a vulnerability
+    url: https://github.com/dolev31/lasagna/security/advisories/new
+    about: Privately. Never in a public issue.
+  - name: Read the docs
+    url: https://dolev31.github.io/lasagna/docs/
+    about: The guide, the reference and the contributor guide.

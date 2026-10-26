@@ -1,0 +1,68 @@
+name: Benchmark request
+description: Propose a dataset for Lasagna to ship as a built-in benchmark
+labels: ["benchmark"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every built-in benchmark loads at a pinned revision, states its license,
+        and is listed in `DATASETS.md`, so a number measured on it means the same
+        thing to everyone who measures it. The answers below are what a reviewer
+        checks first.
+
+        To evaluate on data of your own, you need no issue: see
+        [Your own data](https://dolev31.github.io/lasagna/docs/own-data/).
+  - type: input
+    id: dataset
+    attributes:
+      label: Dataset
+      description: Its name, the paper that introduced it, and its Hugging Face ID.
+      placeholder: "MIRACL (arXiv:2210.09984), miracl/miracl"
+    validations:
+      required: true
+  - type: input
+    id: license
+    attributes:
+      label: License
+      description: The SPDX identifier and a link to where the dataset states it. A dataset with no stated license cannot ship.
+      placeholder: "CC-BY-SA-4.0, https://huggingface.co/datasets/OWNER/NAME"
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Revision to pin
+      description: The commit on the Hugging Face hub the adapter would load. It becomes the benchmark's `hf_revision`.
+    validations:
+      required: true
+  - type: dropdown
+    id: corpus
+    attributes:
+      label: Corpus
+      options:
+        - It ships a corpus and relevance judgments (retrieval and generation)
+        - Its samples carry gold passages that can be pooled (retrieval labeled pooled_gold, and generation)
+        - Questions and answers only (generation only)
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: Size and splits
+      description: Queries, documents, and the splits it ships. Say if a full run needs more than about 10 GB of disk or memory.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it belongs in Lasagna
+      description: What it measures that the benchmarks `lasagna benchmark list` shows do not, and who reports on it.
+    validations:
+      required: true
+  - type: checkboxes
+    id: work
+    attributes:
+      label: Will you open the pull request?
+      description: The adapter, its offline tests, `DATASETS.md` and the README's count, as CONTRIBUTING.md describes.
+      options:
+        - label: I would like to write it

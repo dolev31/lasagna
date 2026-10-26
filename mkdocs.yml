@@ -149,6 +149,7 @@ nav:
   - Project:
       - Changelog: project/changelog.md
       - Contributing: project/contributing.md
+      - Wanted: project/wanted.md
       - Governance: project/governance.md
       - Security: project/security.md
       - Citing: project/citing.md

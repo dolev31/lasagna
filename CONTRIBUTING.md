@@ -100,13 +100,83 @@ checked.
 Non-commercial models are welcome; comparing them is the point. They just have to
 be labeled.
 
-## Pull requests
+## Quality bar
 
-- One logical change per PR, with tests.
-- Run `ruff check .` and `ruff format .` (pre-commit does this).
-- Explain *why* in the description; the diff already shows what.
+A person who will maintain your code after you move on reads every pull
+request, so the bar is the same for everyone: a first-time contributor, a
+maintainer, or an AI coding agent working for either. The "PR quality" check
+([`scripts/check_pr_body.py`](scripts/check_pr_body.py)) tests what a machine
+can test before a reviewer opens the diff. Run it yourself first:
+
+```bash
+python scripts/check_pr_body.py --file body.md --diff origin/main
+```
+
+Looking for something to work on? [Wanted](docs/project/wanted.md) lists what
+Lasagna needs, with a definition of done for each.
+
+### Every pull request
+
+- One logical change, with tests. A refactor and a feature are two pull
+  requests. For a new stage, a change to the core, or anything over about 500
+  lines, open an issue first, so the design is agreed before the code is
+  written.
+- The [template](.github/PULL_REQUEST_TEMPLATE.md) is filled in: why, what
+  changed, how it was tested, evidence, agent use, and the checklist. Explain
+  *why*; the diff already shows what.
+- `scripts/ci-local.sh` passes, or at least `ruff check .`, `ruff format --check .`
+  and the suite. Pre-commit runs ruff for you.
+- New behavior and every bug fix come with a test that fails without the change.
+  A change under `src/lasagna/` with nothing changed under `tests/` fails the
+  check, unless a maintainer adds `no-new-test` to a pure refactor.
+- Anything a user sees gets a line in `CHANGELOG.md` under Unreleased. A
+  maintainer adds `no-changelog` when nothing changed for users.
+- Every suppression says why: `# noqa: BLE001 - reason`,
+  `# type: ignore[arg-type]`, `# pragma: no cover - reason`,
+  `pytest.skip("reason")`. An `except` that only passes says in a comment why the
+  error is safe to ignore.
+- A TODO links its issue, as `TODO(#12)`. A new module under `src/lasagna/` opens
+  with a docstring that says what it is for.
+- No benchmark number moves unless that is the point, and then the description
+  says which numbers and why. A change to a metric's definition bumps
+  `METRICS_VERSION` (see [GOVERNANCE.md](GOVERNANCE.md#breaking-changes)). A
+  maintainer adds `needs-evidence` when a description says a number moves but
+  does not show it.
 - Never commit credentials, real corpora, or absolute paths from your machine.
   CI rejects all three.
+
+### Done, by kind of change
+
+| Change | Done when |
+|---|---|
+| Component | `lasagna component validate` passes; `paper=` and `claims=` are declared when it implements a published method; any weights it downloads have a license entry ([above](#if-it-downloads-model-weights)); a results bundle compares it with a built-in control, at `n_runs: 1` for retrieval with fixed models and 3 or more with an LLM in the loop. |
+| Benchmark | It loads at a pinned `hf_revision`; its terms are in `DATASETS.md` (`lasagna benchmark licenses -o ...`); its tests run offline, as the whole suite does; the README's benchmark count is updated (the suite fails until it is). |
+| Bug fix | The test that reproduces the bug is in the same pull request and fails on `main`. |
+| Docs | `mkdocs build --strict` passes, and every command shown was run. |
+| REST API or MCP | `tests/snapshots/` is updated in the same pull request, and an incompatible change follows the deprecation rule in [GOVERNANCE.md](GOVERNANCE.md#breaking-changes). |
+
+### AI coding agents
+
+Agents are welcome, and the bar does not move for them.
+
+- A person opens the pull request, reads every line of the diff, and names
+  themselves under "Read in full by:". That person answers review comments.
+- "Written with:" names the agent, or "none". Using an agent is not a mark
+  against a pull request; hiding it is. A maintainer may add `agent-assisted`,
+  for the record.
+- An agent's confidence is not evidence. A test that was run is, and so is the
+  output of `lasagna results significance`.
+- [AGENTS.md](AGENTS.md) gives an agent this repository's rules. Point yours at
+  it.
+
+### Below the bar
+
+The check fails and says what is missing. Fix the description or the diff and it
+runs again. A pull request a reviewer still finds below the bar (no reason for
+the change, untested behavior, a diff its author cannot explain) is closed with
+a link to this section. That is a statement about the pull request, not about
+you: open it again once it meets the bar. A pull request whose description does
+not match its diff, or one of many opened at once, is closed without review.
 
 ## Reporting bugs
 

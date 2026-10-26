@@ -238,9 +238,9 @@ def test_the_generated_pages_have_none(tmp_path):
 
 
 #: Shipped text a user reads as written: every page of the docs, the legal
-#: notice, and the issue forms GitHub shows a reporter. The changelog quotes
-#: old text, so it is left out. Only tracked files: a built frontend's
-#: node_modules holds READMEs that ship nowhere.
+#: notice, and the issue forms and pull request template GitHub shows a
+#: contributor. The changelog quotes old text, so it is left out. Only tracked
+#: files: a built frontend's node_modules holds READMEs that ship nowhere.
 _SHIPPED_TEXT = tracked(
     {
         *REPO.glob("*.md"),
@@ -250,6 +250,7 @@ _SHIPPED_TEXT = tracked(
         *PACKAGE_DIR.rglob("*.md"),
         REPO / "NOTICE",
         *REPO.glob(".github/ISSUE_TEMPLATE/*.yml"),
+        *REPO.glob(".github/*.md"),
     }
     - {REPO / "CHANGELOG.md"},
     REPO,

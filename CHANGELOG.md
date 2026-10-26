@@ -6,6 +6,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A "PR quality" check on every pull request (`scripts/check_pr_body.py`). It
+  fails until the description fills in the template, a person names themselves
+  as having read the whole diff, every suppression in the added lines gives a
+  reason, every TODO links an issue, and a change to `src/lasagna/` comes with a
+  test and a line here. The `no-changelog` and `no-new-test` labels waive the
+  last two. CONTRIBUTING.md has the full bar under "Quality bar".
+- A pull request template, and `CODEOWNERS`.
+- Issue forms for a benchmark request and a research proposal. The component
+  form now asks for the stage, the paper and the number it reports, and a
+  comparison with a built-in control. Blank issues are off; questions go to
+  Discussions.
+- A [Wanted](https://dolev31.github.io/lasagna/docs/project/wanted/) page: the
+  components, benchmarks, studies and deployment work the project would like to
+  have, each with what "done" means.
+- A pull request checklist in `docs/contributing-components.md`.
+
 ## [0.1.0] - 2026-10-21
 
 The first public release. Lasagna is a RAG framework built for comparing one

@@ -294,6 +294,30 @@ the failure with its exception.
 
 ---
 
+## Pull request checklist
+
+For a component that goes into Lasagna itself rather than a package of your
+own. The "PR quality" check tests the description and the diff; a reviewer
+tests the rest.
+
+- The component is registered, with `paper=` and `claims=` when it implements a
+  published method, so every leaderboard prints the paper's number beside yours.
+- `lasagna component validate <target>` passes.
+- Any weights it downloads are listed in `src/lasagna/core/model_licenses.py`.
+- A test under `tests/` runs it offline, on a fixture small enough to read.
+- A bundle from `lasagna results bundle` compares it with a built-in control of
+  its stage, at `n_runs: 1` for retrieval with fixed models and 3 or more with an
+  LLM in the loop, and `lasagna results validate run.json --strict` passes.
+- `CHANGELOG.md` has a line under Unreleased.
+- The pull request template is filled in, including who read every line of the
+  diff.
+
+The full bar, for every kind of change, is
+[in CONTRIBUTING.md](https://github.com/dolev31/lasagna/blob/main/CONTRIBUTING.md#quality-bar).
+Methods the project would like to have are listed on [Wanted](project/wanted.md).
+
+---
+
 ## Known friction
 
 Stated rather than hidden, because you will hit these.

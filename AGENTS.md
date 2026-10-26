@@ -94,3 +94,25 @@ default. Use `get_default_model_name()`. A test enforces this.
 
 Read `CONTRIBUTING.md`. Explain *why* in the commit message; the diff already
 shows what.
+
+## Before you open a pull request
+
+The bar is in `CONTRIBUTING.md` under "Quality bar", and it is the same for an
+agent as for a person. Check the description and the diff the way CI will:
+
+```bash
+python scripts/check_pr_body.py --file body.md --diff origin/main
+```
+
+`tests/test_pr_body_check.py` shows what passes and what fails. In particular:
+
+- Fill in every section of `.github/PULL_REQUEST_TEMPLATE.md`. Under "Agent use",
+  "Written with:" names you, truthfully. Leave "Read in full by:" for the person
+  who reads every line of the diff; never fill it in for them.
+- Never tick a checklist box for something you did not do or run.
+- A test that fails without the change. A line in `CHANGELOG.md` under
+  Unreleased for anything a user sees.
+- Every `noqa`, `type: ignore`, `pragma: no cover` and skip gives its reason;
+  every TODO links its issue. An `except` that only passes says why.
+- "Evidence" is a result you ran (`lasagna results significance`), or "No number
+  can move:" with the reason. Never a number you did not measure.
