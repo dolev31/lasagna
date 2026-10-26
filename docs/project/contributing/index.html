@@ -18,7 +18,7 @@
         <link rel="prev" href="../changelog/">
       
       
-        <link rel="next" href="../governance/">
+        <link rel="next" href="../wanted/">
       
       
         
@@ -1913,6 +1913,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#find-something-to-work-on" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Find something to work on
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-bar-for-a-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The bar for a pull request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-rest" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1927,6 +1949,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../wanted/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wanted
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -2167,6 +2217,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#find-something-to-work-on" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Find something to work on
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-bar-for-a-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The bar for a pull request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-rest" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2224,9 +2296,34 @@ the <a href="../../catalog/stages/">catalog</a> and the <a href="../../reference
 Do not edit them by hand. Each has a script in <code>scripts/</code> and a test that fails
 when the page is stale. Every <code>lasagna ...</code> command in a docs code block is
 checked against the real command line.</p>
+<h2 id="find-something-to-work-on">Find something to work on<a class="headerlink" href="#find-something-to-work-on" title="Permanent link">&para;</a></h2>
+<p><a href="../wanted/">Wanted</a> lists the components, benchmarks and studies the project
+would like to have, each with what "done" means. Comment on an item's issue to
+claim it.</p>
+<h2 id="the-bar-for-a-pull-request">The bar for a pull request<a class="headerlink" href="#the-bar-for-a-pull-request" title="Permanent link">&para;</a></h2>
+<p>Every pull request is read in full by a person who will maintain it, so the bar
+is the same whoever or whatever wrote the code. A check runs on every pull
+request and fails until:</p>
+<ul>
+<li>the description fills in the template: why, what changed, how it was tested,
+  the evidence, and which agent was used, if any;</li>
+<li>a person names themselves, by GitHub handle, as having read every line of the
+  diff;</li>
+<li>every suppression in the lines added names its code and gives a reason, and
+  every TODO links its issue;</li>
+<li>a change to <code>src/lasagna/</code> comes with a test and a changelog line.</li>
+</ul>
+<p>Run it before you open the pull request:</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>scripts/check_pr_body.py<span class="w"> </span>--file<span class="w"> </span>body.md<span class="w"> </span>--diff<span class="w"> </span>origin/main
+</code></pre></div>
+<p>AI coding agents are welcome under the same bar. A pull request below it is
+closed with a link to
+<a href="https://github.com/dolev31/lasagna/blob/main/CONTRIBUTING.md#quality-bar">the quality bar</a>,
+and can be opened again once it meets it.</p>
 <h2 id="the-rest">The rest<a class="headerlink" href="#the-rest" title="Permanent link">&para;</a></h2>
 <p>The <a href="https://github.com/dolev31/lasagna/blob/main/CONTRIBUTING.md">contributing guide</a>
-covers pull requests, bug reports and how to disagree about a number. The
+covers the definition of done for each kind of change, bug reports and how to
+disagree about a number. The
 <a href="https://github.com/dolev31/lasagna/blob/main/CODE_OF_CONDUCT.md">code of conduct</a>
 applies to every space.</p>
 
@@ -2283,13 +2380,13 @@ applies to every space.</p>
         
         
           
-          <a href="../governance/" class="md-footer__link md-footer__link--next" aria-label="Next: Governance">
+          <a href="../wanted/" class="md-footer__link md-footer__link--next" aria-label="Next: Wanted">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Governance
+                Wanted
               </div>
             </div>
             <div class="md-footer__button md-icon">

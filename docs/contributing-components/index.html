@@ -1203,6 +1203,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#pull-request-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pull request checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#known-friction" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2039,6 +2050,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../project/wanted/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wanted
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../project/governance/" class="md-nav__link">
         
   
@@ -2349,6 +2388,17 @@
     <span class="md-ellipsis">
       
         Shipping it as a package
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pull-request-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pull request checklist
       
     </span>
   </a>
@@ -2679,6 +2729,27 @@ snippet that no longer works.</p>
 raise: your component is simply never used, and the results quietly come from
 the built-in default. <code>lasagna plugins list</code> and <code>lasagna doctor</code> both surface
 the failure with its exception.</p>
+<hr />
+<h2 id="pull-request-checklist">Pull request checklist<a class="headerlink" href="#pull-request-checklist" title="Permanent link">&para;</a></h2>
+<p>For a component that goes into Lasagna itself rather than a package of your
+own. The "PR quality" check tests the description and the diff; a reviewer
+tests the rest.</p>
+<ul>
+<li>The component is registered, with <code>paper=</code> and <code>claims=</code> when it implements a
+  published method, so every leaderboard prints the paper's number beside yours.</li>
+<li><code>lasagna component validate &lt;target&gt;</code> passes.</li>
+<li>Any weights it downloads are listed in <code>src/lasagna/core/model_licenses.py</code>.</li>
+<li>A test under <code>tests/</code> runs it offline, on a fixture small enough to read.</li>
+<li>A bundle from <code>lasagna results bundle</code> compares it with a built-in control of
+  its stage, at <code>n_runs: 1</code> for retrieval with fixed models and 3 or more with an
+  LLM in the loop, and <code>lasagna results validate run.json --strict</code> passes.</li>
+<li><code>CHANGELOG.md</code> has a line under Unreleased.</li>
+<li>The pull request template is filled in, including who read every line of the
+  diff.</li>
+</ul>
+<p>The full bar, for every kind of change, is
+<a href="https://github.com/dolev31/lasagna/blob/main/CONTRIBUTING.md#quality-bar">in CONTRIBUTING.md</a>.
+Methods the project would like to have are listed on <a href="../project/wanted/">Wanted</a>.</p>
 <hr />
 <h2 id="known-friction">Known friction<a class="headerlink" href="#known-friction" title="Permanent link">&para;</a></h2>
 <p>Stated rather than hidden, because you will hit these.</p>

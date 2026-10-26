@@ -2,162 +2,166 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/configuration/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/contributing-components/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/guide/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/model-licenses/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/own-data/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/catalog/benchmarks/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/catalog/components/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/catalog/stages/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/concepts/comparability/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/concepts/significance/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/concepts/stage-isolation/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/concepts/the-paper-study/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/get-started/first-comparison/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/get-started/installation/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/get-started/offline-demo/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/get-started/quickstart/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/guides/baselines/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/guides/compare-a-component/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/guides/dry-run/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/guides/langchain-llamaindex/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/guides/llm-cache/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/guides/reproduce-beir/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/guides/results/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/guides/synthetic-data/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/guides/vector-backends/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/guides/write-a-component/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/project/changelog/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/project/citing/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/project/contributing/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/project/governance/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/project/security/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
+    </url>
+    <url>
+         <loc>https://dolev31.github.io/lasagna/docs/project/wanted/</loc>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/reference/cli/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/reference/metrics/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/reference/python-api/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/reference/results-schema/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/reference/settings/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/serving/docker/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/serving/mcp/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
     <url>
          <loc>https://dolev31.github.io/lasagna/docs/serving/rest-api/</loc>
-         <lastmod>2026-10-22</lastmod>
+         <lastmod>2026-10-26</lastmod>
     </url>
 </urlset>
