@@ -2948,7 +2948,9 @@ def component_validate(
     stage: Optional[str] = typer.Option(
         None,
         "--stage",
-        help="The stage a plain, undecorated function implements: " + ", ".join(_FUNCTION_STAGES),
+        help="Component stage: "
+        + ", ".join((*_FUNCTION_STAGES, "agentic_pipeline"))
+        + ". agentic_pipeline requires a BaseAgenticPipeline class, not a plain function.",
     ),
     profile: str = typer.Option(
         "speed",
@@ -2977,8 +2979,9 @@ def component_validate(
 
     module_path, _, attr = target.rpartition(":")
     found_stage = None  # the stage of a registered component
-    if stage is not None and stage not in _FUNCTION_STAGES:
-        _error(f"--stage must be one of {', '.join(_FUNCTION_STAGES)}, got {stage!r}")
+    stages = (*_FUNCTION_STAGES, "agentic_pipeline")
+    if stage is not None and stage not in stages:
+        _error(f"--stage must be one of {', '.join(stages)}, got {stage!r}")
     if not module_path or not attr:
         # A registered name, as a sweep's arm names one: `component validate
         # cross_encoder` was refused as not being module:function.
@@ -2996,6 +2999,8 @@ def component_validate(
     if not inspect.isclass(obj) and callable(obj):
         tagged = getattr(obj, "__lasagna_component__", None)
         chosen = stage or (tagged[0] if tagged else None)
+        if chosen == "agentic_pipeline":
+            _error("An agentic pipeline is a class inheriting BaseAgenticPipeline, not a function.")
         if chosen is None:
             _error(
                 f"{target} is a plain function, so its stage is unknown. Decorate it "
