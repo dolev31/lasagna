@@ -9,7 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - A pinned `2wikimultihopqa` benchmark adapter with a validation corpus that
-  retains gold paragraphs, distractors and distinct versions of shared titles.
+  retains gold paragraphs and distractors, with exact version-specific IDs.
 - A "PR quality" check on every pull request (`scripts/check_pr_body.py`). It
   fails until the description fills in the template, a person names themselves
   as having read the whole diff, every suppression in the added lines gives a

@@ -12,7 +12,7 @@ can only score generation against gold context; see `mode` in the guide.
 
 | Benchmark | License | Live | Paper | Description |
 |---|---|:--:|---|---|
-| `2wikimultihopqa` | Apache-2.0 | yes | arxiv:2011.01060 | 2WikiMultihopQA: multi-hop QA with gold and distractor paragraphs |
+| `2wikimultihopqa` | Apache-2.0 | yes | arxiv:2011.01060 | 2WikiMultihopQA: retrieval and generation over full validation contexts |
 | `bamboogle` | MIT | - | arxiv:2304.09848 | Bamboogle: 125 multi-hop questions that Google cannot answer directly |
 | `beir/arguana` | Varies by dataset | yes | - | ArguAna: argument retrieval (1.4K queries, 8.7K docs) |
 | `beir/climate-fever` | Varies by dataset | yes | - | Climate-FEVER: climate claim verification (1.5K queries) |
@@ -44,7 +44,7 @@ can only score generation against gold context; see `mode` in the guide.
 | `smoke` | Apache-2.0 | yes | - | Self-contained 24-document smoke test. No download. Verifies a pipeline is wired up correctly and runs end to end; it is far too small and too easy to measure retrieval quality, and a score here should never be reported as a result. |
 | `squad_v2` | CC BY-SA 4.0 | yes | arxiv:1806.03822 | SQuAD v2: reading comprehension with unanswerable questions |
 | `triviaqa` | Apache 2.0 | - | arxiv:1705.03551 | TriviaQA: trivia question answering (95K QA pairs) |
-| `wiki_multihop` | Apache 2.0 | - | arxiv:2011.01060 | 2WikiMultiHopQA: multi-hop reasoning over two Wikipedia articles |
+| `wiki_multihop` | Apache 2.0 | - | arxiv:2011.01060 | 2WikiMultihopQA: generation-only question/answer samples (no corpus) |
 
 ## Model licenses
 

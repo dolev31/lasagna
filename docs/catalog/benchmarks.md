@@ -21,7 +21,7 @@ wired in. A score on it is never a result.
 
 | Benchmark | Task | Scores | Queries | Documents | License | Live | Source |
 |---|---|---|--:|--:|---|:--:|---|
-| `2wikimultihopqa` | Multi-hop QA | Retrieval and generation | 13K | 55K | Apache-2.0 | yes | [arXiv:2011.01060](https://arxiv.org/abs/2011.01060) |
+| `2wikimultihopqa` | Multi-hop QA | Retrieval and generation | 13K | 57K | Apache-2.0 | yes | [arXiv:2011.01060](https://arxiv.org/abs/2011.01060) |
 | `bamboogle` | Multi-hop QA | Generation | 125 |  | MIT | - | [arXiv:2304.09848](https://arxiv.org/abs/2304.09848) |
 | `beir/arguana` | Single-hop QA | Retrieval | 1.4K | 8.7K | Varies by dataset | yes |  |
 | `beir/climate-fever` | Single-hop QA | Retrieval | 1.5K | 5.4M | Varies by dataset | yes |  |
@@ -58,7 +58,7 @@ wired in. A score on it is never a result.
 
 | Benchmark | Description |
 |---|---|
-| `2wikimultihopqa` | 2WikiMultihopQA: multi-hop QA with gold and distractor paragraphs |
+| `2wikimultihopqa` | 2WikiMultihopQA: retrieval and generation over full validation contexts |
 | `bamboogle` | Bamboogle: 125 multi-hop questions that Google cannot answer directly |
 | `beir/arguana` | ArguAna: argument retrieval (1.4K queries, 8.7K docs) |
 | `beir/climate-fever` | Climate-FEVER: climate claim verification (1.5K queries) |
@@ -89,4 +89,4 @@ wired in. A score on it is never a result.
 | `ragbench/techqa` | RAGBench (techqa): TRACe-style RAG evaluation |
 | `squad_v2` | SQuAD v2: reading comprehension with unanswerable questions |
 | `triviaqa` | TriviaQA: trivia question answering (95K QA pairs) |
-| `wiki_multihop` | 2WikiMultiHopQA: multi-hop reasoning over two Wikipedia articles |
+| `wiki_multihop` | 2WikiMultihopQA: generation-only question/answer samples (no corpus) |

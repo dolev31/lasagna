@@ -64,8 +64,11 @@ def test_samples_and_corpus_keep_gold_and_distractor_paragraphs(dataset_files):
     assert samples[0].hops == 2
     assert samples[0].metadata["type"] == "compositional"
     assert samples[0].expected_docs == {"A": 1, "B": 1}
-    assert set(corpus) == {"A", "B", "X", "Y"}
-    assert corpus["X"] == "X\n\nNoise.\n\nAdditional evidence."
+    x_version = next(doc for doc in corpus if doc.startswith("X#"))
+    assert set(corpus) == {"A", "B", "X", x_version, "Y"}
+    assert corpus["X"] == "X\n\nNoise."
+    assert corpus[x_version] == "X\n\nAdditional evidence."
+    assert samples[1].expected_docs == {"A": 1, x_version: 1}
     assert corpus["A"].count("First fact.") == 1
     assert all(set(s.expected_docs) <= set(corpus) for s in samples)
 
@@ -100,15 +103,15 @@ def test_sampling_is_repeatable_and_train_does_not_change_the_default_corpus(dat
     assert calls[-1][1] == "dev.parquet"
 
 
-def test_corpus_limit_is_truthful_and_does_not_drop_later_versions(dataset_files):
+def test_corpus_limit_counts_versions_as_distinct_documents(dataset_files):
     adapter = TwoWikiMultihopQAAdapter()
     corpus = adapter.load_corpus(max_docs=3)
     assert set(corpus) == {"A", "B", "X"}
-    assert "Additional evidence." in corpus["X"]
+    assert "Additional evidence." not in corpus["X"]
     assert adapter.corpus_truncated
-    assert len(adapter.load_corpus(max_docs=4)) == 4
+    assert len(adapter.load_corpus(max_docs=5)) == 5
     assert not adapter.corpus_truncated
-    assert len(adapter.load_corpus(max_docs=0)) == 4
+    assert len(adapter.load_corpus(max_docs=0)) == 5
     assert not adapter.corpus_truncated
 
 
@@ -144,9 +147,24 @@ def test_two_versions_of_a_title_in_the_same_question_are_retained(dataset_files
     import pyarrow.parquet as pq
 
     context = json.loads(rows[0]["context"])
-    context.append(["A", ["Another paragraph from the same article."]])
+    context.append(["X", ["Another paragraph from the same article."]])
     rows[0]["context"] = json.dumps(context)
     pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
     corpus = TwoWikiMultihopQAAdapter().load_corpus()
-    assert "First fact." in corpus["A"]
-    assert "Another paragraph from the same article." in corpus["A"]
+    versions = [text for doc_id, text in corpus.items() if doc_id == "X" or doc_id.startswith("X#")]
+    assert len(versions) == 3
+    assert any(text == "X\n\nNoise." for text in versions)
+    assert any(text == "X\n\nAnother paragraph from the same article." for text in versions)
+
+
+def test_a_gold_title_with_conflicting_versions_in_one_question_is_refused(dataset_files):
+    rows, _, folder, _ = dataset_files
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    context = json.loads(rows[0]["context"])
+    context.append(["A", ["A different version of the gold paragraph."]])
+    rows[0]["context"] = json.dumps(context)
+    pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
+    with pytest.raises(ValueError, match="q1.*ambiguous.*A"):
+        TwoWikiMultihopQAAdapter().load()
