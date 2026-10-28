@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- `lasagna component validate` now recognizes `BaseAgenticPipeline` implementations and supports `--stage agentic_pipeline`.
 
 ### Added
 
