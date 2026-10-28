@@ -73,9 +73,6 @@ Open items are labeled
 Small, with the files named and a test to write. Labeled
 [good first issue](https://github.com/dolev31/lasagna/issues?q=is%3Aopen+label%3A%22good+first+issue%22).
 
-- **`lasagna component validate` for an agentic pipeline.** The stage is
-  registrable, but the validator has no case for it yet, so a contributor gets a
-  failure that says nothing about their code.
 - **Claims for the built-in components.** A component can declare the number its
   paper reports; no built-in declares one yet. Each one filled in puts a
   published number beside a reproduced one.

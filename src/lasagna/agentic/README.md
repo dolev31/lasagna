@@ -83,8 +83,8 @@ raise `ValueError`.
 
 Subclass `LoopPipeline` in `loops/`, register it in `core/registry.py` next to the other five
 (with its `paper` id), and add its settings to `core/config.py`. `loops/self_ask.py` is the
-shortest example. `lasagna component validate` does not check agentic pipelines, so test a loop
-by running it in a sweep.
+shortest example. `lasagna component validate` checks only that a pipeline's `run` is `async def`
+and takes the input, so test a loop by running it in a sweep.
 
 ## Callers
 

@@ -322,8 +322,11 @@ Methods the project would like to have are listed on [Wanted](project/wanted.md)
 
 Stated rather than hidden, because you will hit these.
 
-- **`agentic_pipeline` is registrable but `lasagna component validate` rejects
-  it.** The type is real and documented; the validator has no case for it yet.
+- **`lasagna component validate` checks an `agentic_pipeline` only for its
+  shape.** It confirms `run` is `async def` and takes the pipeline input, which
+  is what the orchestrator awaits. It does not call `run`, because a pipeline
+  needs a model and a search index, so the return type and input mutation are
+  not checked: test a pipeline by running it in a sweep.
 - **Not every benchmark has a corpus of its own.** BEIR benchmarks run live
   against their own corpus. SQuAD v2, HotpotQA, MuSiQue and RAGBench also run
   live, against a corpus pooled from the samples' gold passages: an easier task

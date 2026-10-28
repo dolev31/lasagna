@@ -27,12 +27,14 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import inspect
 import time
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Type
 
 
 from .base_components import (
+    BaseAgenticPipeline,
     BaseChunker,
     BaseEmbedder,
     BaseReranker,
@@ -97,6 +99,7 @@ _ABC_MAP = {
     BaseDocumentProcessor: "document_processor",
     BaseQueryEnhancer: "query_enhancer",
     BaseGenerator: "generator",
+    BaseAgenticPipeline: "agentic_pipeline",
 }
 
 
@@ -465,6 +468,33 @@ def _validate_generator(component: Any, report: ValidationReport) -> None:
     _profile_latency(report, lambda: component.generate("q", contexts, llm=llm))
 
 
+def _validate_agentic_pipeline(component: BaseAgenticPipeline, report: ValidationReport) -> None:
+    """Validate a BaseAgenticPipeline implementation.
+
+    Only what can be checked without running it. A pipeline runs a model and
+    searches the session's index, so calling ``run()`` here would need a key and
+    a corpus, and a built-in would fail for that and not for its contract. What
+    the orchestrator relies on is checked instead: it ``await``s
+    ``run(pipeline_input)``, so ``run`` must be a coroutine function that takes
+    the input. The return type and input mutation are not checked.
+    """
+    _check(
+        report,
+        "run() is a coroutine function",
+        lambda: _assert_true(
+            inspect.iscoroutinefunction(component.run),
+            "run() must be declared `async def`: the pipeline is awaited, and a "
+            "plain method returns a result that cannot be awaited",
+        ),
+    )
+    # TypeError (a call that does not fit the signature) is what `_check` records.
+    _check(
+        report,
+        "run() accepts the AgenticPipelineInput",
+        lambda: inspect.signature(component.run).bind(object()),
+    )
+
+
 _VALIDATORS = {
     "reranker": _validate_reranker,
     "chunker": _validate_chunker,
@@ -473,6 +503,7 @@ _VALIDATORS = {
     "document_processor": _validate_document_processor,
     "query_enhancer": _validate_query_enhancer,
     "generator": _validate_generator,
+    "agentic_pipeline": _validate_agentic_pipeline,
 }
 
 
