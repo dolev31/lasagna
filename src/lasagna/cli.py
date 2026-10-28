@@ -2361,7 +2361,7 @@ def _next_steps(results, results_file: str, *, factorial: bool) -> List[str]:
 
 
 def _print_isolation(results) -> None:
-    """Say whether the arms differed only in the stages they named."""
+    """Say whether the arms differed only in the settings they named."""
     from .knowledge_evaluation_sdk.stages import compared_pairs, isolation_report
 
     rows = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results._results]
@@ -2369,8 +2369,8 @@ def _print_isolation(results) -> None:
     pairs = compared_pairs(rows)
     if report["undeclared"]:
         console.print(
-            "[red]Stage isolation FAILED: the arms differ outside the stages they "
-            "name, so the comparison is not attributable.[/red]"
+            "[red]Stage isolation FAILED: the arms differ in settings neither names, "
+            "so the comparison is not attributable.[/red]"
         )
         for line in report["undeclared"]:
             console.print(f"  - {escape(line)}")
@@ -2379,13 +2379,13 @@ def _print_isolation(results) -> None:
         # verdict on the rest of the comparison.
         console.print(
             f"[yellow]Stage isolation: the configuration that reached each stage differs "
-            f"only in the stages the arms name ({_count(pairs, 'pair')} compared), but "
+            f"only in the settings the arms name ({_count(pairs, 'pair')} compared), but "
             f"{_count(len(report['inert']), 'arm')} changed nothing there:[/yellow]"
         )
     elif pairs:
         console.print(
             f"[green]Stage isolation: the configuration that reached each stage differs "
-            f"only in the stages the arms name ({_count(pairs, 'pair')} compared).[/green]"
+            f"only in the settings the arms name ({_count(pairs, 'pair')} compared).[/green]"
         )
     elif not pairs and len(rows) > 1:
         console.print(

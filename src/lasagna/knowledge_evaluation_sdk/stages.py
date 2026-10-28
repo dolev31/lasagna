@@ -7,10 +7,11 @@ each task records a **stage manifest** (a digest of every setting and component
 that reached each stage), and :func:`isolation_report` compares the manifests
 of a sweep's arms against what each arm declared it would change.
 
-* A stage whose configuration differs between two arms although neither arm
-  named it is an **undeclared change**: a setting leaked across a stage
-  boundary (a profile default, a harness bug). The run says so and
-  ``lasagna results validate`` refuses the bundle.
+* A setting that differs between two arms although neither arm named it, and
+  the harness does not set on a named change's account, is an **undeclared
+  change**: a setting leaked across a stage boundary, or into a stage an arm
+  names for another reason (a profile default, a harness bug). The run says
+  so and ``lasagna results validate`` refuses the bundle.
 * An arm that names a change its manifest does not show is **inert**: the
   setting or component never reached the pipeline, so its number is the
   baseline's under another name.
@@ -270,6 +271,28 @@ CHUNKER_DISPATCH_KEYS = (
     "preserve_tables",
 )
 
+#: What the harness sets on an arm's account when the arm declares a key, so
+#: the check charges it to the declaration rather than calling it a leak:
+#: naming a reranker turns reranking on and naming an agentic pipeline the
+#: loop; an embedder, named or set, gets a collection of its own at its
+#: dimension; ``metric_k`` and the over-fetch set the depth retrieval is asked
+#: for; a structural chunker setting decides which chunker runs; and context
+#: reordering is recorded per track. Each is traced to ``experiment.py``. A
+#: key the harness starts setting for a new declaration belongs here, or the
+#: arms that declare it block their bundle.
+_ENTAILED: Dict[str, Tuple[str, ...]] = {
+    "reranker": ("enable_reranking",),
+    "ensemble_reranker_models": ("enable_reranking",),
+    "agentic_pipeline": ("use_agentic_rag",),
+    "embedder": ("embedding_dim", "collection_name"),
+    "embedding_model": ("embedding_dim", "collection_name"),
+    "embedding_dim": ("collection_name",),
+    "metric_k": ("default_top_k",),
+    "retrieval_chunk_overfetch": ("default_top_k",),
+    "enable_context_reordering": ("context_order",),
+    **{key: ("chunking_strategy",) for key in CHUNKER_DISPATCH_KEYS},
+}
+
 
 def effective_chunking_strategy(settings: Mapping[str, Any]) -> Optional[str]:
     """The built-in chunker that runs for these chunker settings.
@@ -400,6 +423,22 @@ def declared_stages(overrides: Optional[Mapping[str, Any]]) -> Set[str]:
         stage = stage_of(key)
         if stage is not None:
             out.add(stage)
+    return out
+
+
+def declared_keys(overrides: Optional[Mapping[str, Any]]) -> Set[str]:
+    """The manifest keys an arm's overrides account for.
+
+    Each override that belongs to a stage, and what the harness sets because
+    of it (:data:`_ENTAILED`). A component slot is declared under its stage's
+    name, which is the name the manifest files it under too.
+    """
+    out: Set[str] = set()
+    for key in overrides or {}:
+        if stage_of(key) is None:
+            continue
+        out.add(key)
+        out.update(_ENTAILED.get(key, ()))
     return out
 
 
@@ -589,17 +628,29 @@ def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
             for name_b, b in entries[i + 1 :]:
                 if a.get("profile") != b.get("profile"):
                     continue
-                declared = declared_stages(a.get("config_overrides")) | declared_stages(
+                declared = declared_keys(a.get("config_overrides")) | declared_keys(
                     b.get("config_overrides")
                 )
                 ma, mb = a["system"]["stages"], b["system"]["stages"]
                 for stage in (*STAGES, OTHER):
                     sa, sb = ma.get(stage) or {}, mb.get(stage) or {}
-                    if sa.get("digest") == sb.get("digest") or stage in declared:
+                    if sa.get("digest") == sb.get("digest"):
+                        continue
+                    # The keys the arms declared are excused, not the stage
+                    # they sit in. A stage either arm named was skipped whole:
+                    # an arm naming hybrid_alpha hid a leaked default_top_k,
+                    # and a reranker sweep, where every arm names a reranker,
+                    # hid a leaked rerank_top_k.
+                    leaked = [
+                        key
+                        for key in _differing_keys(sa, sb)
+                        if key not in declared and not (key == "component" and stage in declared)
+                    ]
+                    if not leaked:
                         continue
                     report["undeclared"].append(
                         f"{bench}: arms {name_a!r} and {name_b!r} differ at the {stage} "
-                        f"stage, which neither names ({', '.join(_differing_keys(sa, sb))})"
+                        f"stage in settings neither names ({', '.join(leaked)})"
                     )
 
         # An arm whose declared change shows up nowhere in its manifest, against
