@@ -330,12 +330,13 @@ Stated rather than hidden, because you will hit these.
   generation against gold context only.
 - **`lasagna component validate` checks input mutation for rerankers (the
   documents), embedders (the list of texts) and generators (the list of
-  contexts), and agentic pipelines (the input data and model reference).**
+  contexts), and agentic pipelines (the input data and configuration/model
+  references).**
   Agentic validation supplies a local stub model; pipelines that retrieve still
   need their retrieval dependencies. Plain functions are not supported for
   this stage: implement `BaseAgenticPipeline`. The other stages are handed
-  strings or a file path, which cannot be changed in place. A class component that keeps state should still copy what
-  it is handed before changing it.
+  strings or a file path, which cannot be changed in place. A class component
+  that keeps state should still copy what it is handed before changing it.
 - **A single-run row is never marked verified on the results hub**, because it
   reports no spread for another submission to land inside, even when the arms
   are deterministic. Publish two or more runs if you want a row others can

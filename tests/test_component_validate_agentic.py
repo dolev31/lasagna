@@ -38,6 +38,32 @@ def test_an_agentic_pipeline_validates():
     assert any("does not modify its input" in c for c in report.checks)
 
 
+def test_pipeline_can_read_an_ordinary_config_setting():
+    from lasagna.core.config import RAGConfig
+
+    class ReadsConfig(GoodPipeline):
+        async def run(self, input):
+            assert isinstance(input.session_config, RAGConfig)
+            assert isinstance(input.session_config.enable_hyde, bool)
+            return await super().run(input)
+
+    report = ComponentTestHarness().validate(ReadsConfig())
+    assert report.passed, report.summary()
+
+
+def test_replacing_the_config_reference_is_rejected():
+    from lasagna.core.config import RAGConfig
+
+    class ReplacesConfig(GoodPipeline):
+        async def run(self, input):
+            input.session_config = RAGConfig()
+            return await super().run(input)
+
+    report = ComponentTestHarness().validate(ReplacesConfig())
+    assert not report.passed
+    assert any("modified" in f for f in report.failures)
+
+
 def test_wrong_result_names_the_expected_type():
     report = ComponentTestHarness().validate(WrongResult())
     assert not report.passed
@@ -78,6 +104,19 @@ def test_registered_agentic_stage_is_accepted():
         cli.app, ["component", "validate", "self_ask", "--stage", "agentic_pipeline"]
     )
     assert result.exit_code == 0, result.output
+
+
+def test_registered_agentic_name_without_a_stage_is_accepted():
+    result = CliRunner().invoke(cli.app, ["component", "validate", "self_ask"])
+    assert result.exit_code == 0, result.output
+    assert "Contract satisfied" in result.output
+
+
+def test_ambiguous_registered_name_still_requires_a_stage():
+    result = CliRunner().invoke(cli.app, ["component", "validate", "default"])
+    assert result.exit_code == 1
+    assert "agentic_pipeline" in result.output
+    assert "pick one with --stage" in result.output
 
 
 def test_plain_agentic_functions_are_refused_with_the_class_to_implement(tmp_path):

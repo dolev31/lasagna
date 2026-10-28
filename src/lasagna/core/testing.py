@@ -483,6 +483,8 @@ def _agentic_stub_llm():
         def bind_tools(self, tools, **kwargs):
             return self
 
+        # The prompt matches below serve Adaptive RAG, FLARE and Self-RAG,
+        # respectively; the fallback finishes Self-Ask and IRCoT.
         def _generate(self, messages, stop=None, run_manager=None, **kwargs):
             prompt = str(messages[-1].content)
             if "Class (A, B or C):" in prompt:
@@ -505,33 +507,31 @@ def _validate_agentic_pipeline(component: BaseAgenticPipeline, report: Validatio
     with other validators, infrastructure failures are allowed to surface.
     """
     from concurrent.futures import ThreadPoolExecutor
-    from types import SimpleNamespace
 
     from lasagna.agentic.agentic_rag import AgenticRAGResult
+    from lasagna.core.config import RAGConfig
 
     def run(question):
         handed = AgenticPipelineInput(
             question=question,
             session_id="component-validation",
             document_filter=["synthetic-document"],
-            session_config=SimpleNamespace(
-                agentic_models={},
-                adaptive_rag_classifier_model="",
-                chunk_cite_retrieval={},
-                _query_overrides={},
-            ),
+            session_config=RAGConfig(),
             llm=_agentic_stub_llm(),
         )
         model = handed.llm
-        # A chat model may update its own call state. Check the data handed
-        # to the component separately, and that the model reference survives.
-        before = _state(dataclasses.replace(handed, llm=None))
+        config = handed.session_config
+        # Models and configurations may update internal state (e.g. lazy
+        # providers). Check their identity separately from the input data.
+        before = _state(dataclasses.replace(handed, llm=None, session_config=None))
         started = time.perf_counter()
         result = asyncio.run(component.run(handed))
         report.latency_ms = (time.perf_counter() - started) * 1000
         _assert_type(result, AgenticRAGResult)
         _assert_true(
-            handed.llm is model and _state(dataclasses.replace(handed, llm=None)) == before,
+            handed.llm is model
+            and handed.session_config is config
+            and _state(dataclasses.replace(handed, llm=None, session_config=None)) == before,
             "run() modified the input it was handed; copy it before changing it",
         )
 

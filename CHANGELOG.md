@@ -6,11 +6,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed
-
-- Validate `BaseAgenticPipeline` components with an async contract check and
-  report incorrect results or input mutation instead of rejecting the stage.
-
 ### Added
 
 - A "PR quality" check on every pull request (`scripts/check_pr_body.py`). It
@@ -28,6 +23,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   components, benchmarks, studies and deployment work the project would like to
   have, each with what "done" means.
 - A pull request checklist in `docs/contributing-components.md`.
+
+### Fixed
+
+- Validate `BaseAgenticPipeline` components with an async contract check and
+  report incorrect results or input mutation instead of rejecting the stage.
 
 ## [0.1.0] - 2026-10-21
 

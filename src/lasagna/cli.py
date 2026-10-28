@@ -2821,6 +2821,9 @@ _FUNCTION_STAGES = (
     "generator",
 )
 
+# Registered agentic pipelines can be validated, but remain class components.
+_VALIDATED_STAGES = (*_FUNCTION_STAGES, "agentic_pipeline")
+
 
 @component_app.command("list")
 def component_list(
@@ -2887,7 +2890,7 @@ def _registered_component_and_stage(name: str, stage: Optional[str]) -> tuple:
     from .core._text import did_you_mean
     from .core.registry import registry
 
-    stages = [stage] if stage else list(_FUNCTION_STAGES)
+    stages = [stage] if stage else list(_VALIDATED_STAGES)
     found = [s for s in stages if registry.has(s, name)]
     if not found:
         known = sorted({n for s in stages for n in registry.list(s).get(s, [])})
@@ -2949,7 +2952,7 @@ def component_validate(
         None,
         "--stage",
         help="Component stage: "
-        + ", ".join((*_FUNCTION_STAGES, "agentic_pipeline"))
+        + ", ".join(_VALIDATED_STAGES)
         + ". agentic_pipeline requires a BaseAgenticPipeline class, not a plain function.",
     ),
     profile: str = typer.Option(
@@ -2979,9 +2982,8 @@ def component_validate(
 
     module_path, _, attr = target.rpartition(":")
     found_stage = None  # the stage of a registered component
-    stages = (*_FUNCTION_STAGES, "agentic_pipeline")
-    if stage is not None and stage not in stages:
-        _error(f"--stage must be one of {', '.join(stages)}, got {stage!r}")
+    if stage is not None and stage not in _VALIDATED_STAGES:
+        _error(f"--stage must be one of {', '.join(_VALIDATED_STAGES)}, got {stage!r}")
     if not module_path or not attr:
         # A registered name, as a sweep's arm names one: `component validate
         # cross_encoder` was refused as not being module:function.
