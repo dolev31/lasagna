@@ -24,6 +24,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   have, each with what "done" means.
 - A pull request checklist in `docs/contributing-components.md`.
 
+### Fixed
+
+- Validate `BaseAgenticPipeline` components with an async contract check and
+  report incorrect results or input mutation instead of rejecting the stage.
+
 ## [0.1.0] - 2026-10-21
 
 The first public release. Lasagna is a RAG framework built for comparing one

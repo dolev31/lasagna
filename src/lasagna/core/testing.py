@@ -26,6 +26,7 @@ Example:
 from __future__ import annotations
 
 import copy
+import asyncio
 import dataclasses
 import time
 from dataclasses import dataclass, field
@@ -40,6 +41,8 @@ from .base_components import (
     BaseDocumentProcessor,
     BaseQueryEnhancer,
     BaseGenerator,
+    BaseAgenticPipeline,
+    AgenticPipelineInput,
     Chunk,
     ScoredDocument,
 )
@@ -97,6 +100,7 @@ _ABC_MAP = {
     BaseDocumentProcessor: "document_processor",
     BaseQueryEnhancer: "query_enhancer",
     BaseGenerator: "generator",
+    BaseAgenticPipeline: "agentic_pipeline",
 }
 
 
@@ -465,6 +469,94 @@ def _validate_generator(component: Any, report: ValidationReport) -> None:
     _profile_latency(report, lambda: component.generate("q", contexts, llm=llm))
 
 
+def _agentic_stub_llm():
+    """A local chat model that concludes without tools or external LLM calls."""
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+
+    class StubChatModel(BaseChatModel):
+        @property
+        def _llm_type(self):
+            return "component-validation-stub"
+
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+        # The prompt matches below serve Adaptive RAG, FLARE and Self-RAG,
+        # respectively; the fallback finishes Self-Ask and IRCoT.
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            prompt = str(messages[-1].content)
+            if "Class (A, B or C):" in prompt:
+                answer = "A"
+            elif "reply with exactly: NONE" in prompt:
+                answer = "NONE"
+            elif "[Yes]" in prompt and "[No]" in prompt:
+                answer = "[No]"
+            else:
+                answer = "So the final answer is: stub answer"
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=answer))])
+
+    return StubChatModel()
+
+
+def _validate_agentic_pipeline(component: BaseAgenticPipeline, report: ValidationReport) -> None:
+    """Exercise the async stage with synthetic input and a local model.
+
+    A pipeline's own retrieval dependencies still need to be available; as
+    with other validators, infrastructure failures are allowed to surface.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from lasagna.agentic.agentic_rag import AgenticRAGResult
+    from lasagna.core.config import RAGConfig
+
+    def run(question):
+        handed = AgenticPipelineInput(
+            question=question,
+            session_id="component-validation",
+            document_filter=["synthetic-document"],
+            # Keep real settings, but let the stub answer every model call.
+            session_config=RAGConfig().with_query_overrides(
+                {"agentic_models": {}, "adaptive_rag_classifier_model": ""}
+            ),
+            llm=_agentic_stub_llm(),
+        )
+        model = handed.llm
+        config = handed.session_config
+        # Models and configurations may update internal state (e.g. lazy
+        # providers). Check their identity separately from the input data.
+        before = _state(dataclasses.replace(handed, llm=None, session_config=None))
+        started = time.perf_counter()
+        result = asyncio.run(component.run(handed))
+        report.latency_ms = (time.perf_counter() - started) * 1000
+        _assert_type(result, AgenticRAGResult)
+        _assert_true(
+            handed.llm is model
+            and handed.session_config is config
+            and _state(dataclasses.replace(handed, llm=None, session_config=None)) == before,
+            "run() modified the input it was handed; copy it before changing it",
+        )
+
+    def check(question):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:  # No running loop: a normal synchronous caller.
+            run(question)
+        else:
+            # validate() is synchronous, but can also be called from a notebook
+            # or async sweep. Do not nest asyncio.run in their running loop.
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                pool.submit(run, question).result()
+
+    _check(
+        report,
+        "run() returns AgenticRAGResult and does not modify its input",
+        lambda: check("What is the capital of France?"),
+    )
+    _check(report, "run() handles an empty question", lambda: check(""))
+
+
 _VALIDATORS = {
     "reranker": _validate_reranker,
     "chunker": _validate_chunker,
@@ -473,6 +565,7 @@ _VALIDATORS = {
     "document_processor": _validate_document_processor,
     "query_enhancer": _validate_query_enhancer,
     "generator": _validate_generator,
+    "agentic_pipeline": _validate_agentic_pipeline,
 }
 
 

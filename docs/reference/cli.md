@@ -571,7 +571,7 @@ The target is resolved from the working directory, as a sweep resolves it, so th
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--stage` | str |  | The stage a plain, undecorated function implements: reranker, query_enhancer, chunker, embedder, retriever, document_processor, generator |
+| `--stage` | str |  | Component stage: reranker, query_enhancer, chunker, embedder, retriever, document_processor, generator, agentic_pipeline. agentic_pipeline requires a BaseAgenticPipeline class, not a plain function. |
 | `--profile`, `-p` | str | `speed` | Profile whose model a registered component is built with (default speed: the 92 MB cross-encoder, not the settings file's 881 MB one) |
 
 ## Plugins
