@@ -24,6 +24,7 @@ def register_all(registry: "BenchmarkRegistry") -> None:
     from .ms_marco import register as register_msmarco
     from .triviaqa import register as register_triviaqa
     from .hotpotqa_multihop import register as register_hotpotqa
+    from .twowikimultihopqa import register as register_twowiki
     from .musique import register as register_musique
     from .wiki_multihop import register as register_wiki_multihop
     from .multihop_rag import register as register_multihop_rag
@@ -42,6 +43,7 @@ def register_all(registry: "BenchmarkRegistry") -> None:
     register_msmarco(registry)
     register_triviaqa(registry)
     register_hotpotqa(registry)
+    register_twowiki(registry)
     register_musique(registry)
     register_wiki_multihop(registry)
     register_multihop_rag(registry)

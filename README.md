@@ -450,7 +450,7 @@ from lasagna.core.registry import registry
 ```
 
 [The guide](https://github.com/dolev31/lasagna/blob/main/docs/guide.md#8-measure-it-on-a-benchmark)
-covers the 31 benchmarks, your own data, baseline arms (`closed_book`,
+covers the 32 benchmarks, your own data, baseline arms (`closed_book`,
 `long_context`, `no_rag: true`), `--dry-run` with a cost estimate, the LLM
 response cache, and how to read, view and publish a result.
 
@@ -570,15 +570,24 @@ mode, which run in-process; the others need their service running
 Each embedding model gets a vector collection of its own, so sessions on
 different profiles never mix vectors.
 
-### RAG evaluation: 31 benchmarks, retrieval and generation metrics
+### RAG evaluation: 32 benchmarks, retrieval and generation metrics
 
-31 benchmark entries over about 22 datasets (BEIR, RAGBench and KILT subsets
+32 benchmark entries over about 22 datasets (BEIR, RAGBench and KILT subsets
 count separately; `lasagna benchmark list` also shows `smoke`, a 24-document
 wiring check that is not counted, and any benchmark a plugin adds): BEIR (NFCorpus, FiQA, SciFact, ArguAna, HotpotQA), HotpotQA,
 SQuAD v2, MuSiQue, TriviaQA, Natural Questions, MS MARCO, FEVER, PopQA,
 Bamboogle, MultiHop-RAG, RAGBench, KILT, 2WikiMultihop. Your own JSONL, CSV or
 BEIR folder runs with no adapter
 ([own data](https://github.com/dolev31/lasagna/blob/main/docs/own-data.md)).
+
+`2wikimultihopqa` adds retrieval over the validation split's full contexts,
+including distractors, alongside the existing generation-only `wiki_multihop`
+entry. It reads the Apache-2.0
+[official mirror](https://huggingface.co/datasets/xanhho/2WikiMultihopQA) at a
+fixed revision. Titles identify documents; distinct paragraph versions under
+the same title are retained together. `validation` is the default. `train`
+can be loaded as samples, but `load_corpus()` always supplies validation's
+corpus, so use `--split validation` for retrieval evaluation.
 
 | Family | Metrics |
 |---|---|

@@ -9,7 +9,7 @@ Three pages come out of it:
   component, read from the abstract base classes in ``lasagna.core.base_components``.
 * ``docs/catalog/components.md``: every component the package registers, by stage,
   with its description and paper from the registry.
-* ``docs/catalog/benchmarks.md``: the 31 public benchmarks, with their task, size,
+* ``docs/catalog/benchmarks.md``: the 32 public benchmarks, with their task, size,
   license and whether they ship a retrievable corpus, from the benchmark registry.
 
 Nothing is downloaded and no model is loaded: building the registries imports

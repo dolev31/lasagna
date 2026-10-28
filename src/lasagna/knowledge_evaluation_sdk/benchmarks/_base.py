@@ -141,7 +141,7 @@ class BaseBenchmarkAdapter(ABC):
     ) -> Optional[Dict[str, str]]:
         """A corpus assembled from the gold context of *all* the samples.
 
-        Eight of the thirty-one public benchmarks ship questions with
+        Eight of the thirty-two public benchmarks ship questions with
         their gold context attached and no corpus to search: SQuAD v2,
         HotpotQA, MuSiQue and the five RAGBench domains. Retrieval could not be
         measured on any of them, whatever a researcher wanted to test.

@@ -12,6 +12,7 @@ can only score generation against gold context; see `mode` in the guide.
 
 | Benchmark | License | Live | Paper | Description |
 |---|---|:--:|---|---|
+| `2wikimultihopqa` | Apache-2.0 | yes | arxiv:2011.01060 | 2WikiMultihopQA: multi-hop QA with gold and distractor paragraphs |
 | `bamboogle` | MIT | - | arxiv:2304.09848 | Bamboogle: 125 multi-hop questions that Google cannot answer directly |
 | `beir/arguana` | Varies by dataset | yes | - | ArguAna: argument retrieval (1.4K queries, 8.7K docs) |
 | `beir/climate-fever` | Varies by dataset | yes | - | Climate-FEVER: climate claim verification (1.5K queries) |
