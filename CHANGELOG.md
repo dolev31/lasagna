@@ -5,8 +5,6 @@ All notable changes to this project are documented here. The format follows
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-### Fixed
-- `lasagna component validate` now recognizes `BaseAgenticPipeline` implementations and supports `--stage agentic_pipeline`.
 
 ### Added
 
@@ -25,6 +23,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   components, benchmarks, studies and deployment work the project would like to
   have, each with what "done" means.
 - A pull request checklist in `docs/contributing-components.md`.
+
+### Fixed
+
+- `lasagna component validate` accepts an agentic pipeline: a registered
+  `agentic_pipeline` name, a `BaseAgenticPipeline` subclass, or `--stage
+  agentic_pipeline`. It checks that `run` is `async def` and takes the pipeline
+  input; it does not call `run`. Before, the validator had no case for the stage
+  and failed with an error that said nothing about the pipeline.
 
 ## [0.1.0] - 2026-10-21
 
