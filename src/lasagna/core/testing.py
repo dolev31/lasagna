@@ -516,7 +516,10 @@ def _validate_agentic_pipeline(component: BaseAgenticPipeline, report: Validatio
             question=question,
             session_id="component-validation",
             document_filter=["synthetic-document"],
-            session_config=RAGConfig(),
+            # Keep real settings, but let the stub answer every model call.
+            session_config=RAGConfig().with_query_overrides(
+                {"agentic_models": {}, "adaptive_rag_classifier_model": ""}
+            ),
             llm=_agentic_stub_llm(),
         )
         model = handed.llm

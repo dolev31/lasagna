@@ -119,6 +119,20 @@ def test_ambiguous_registered_name_still_requires_a_stage():
     assert "pick one with --stage" in result.output
 
 
+@pytest.mark.parametrize(
+    "setting, value, name",
+    [
+        ("LASAGNA_AGENTIC_MODELS", '{"self_ask": "some-real-model"}', "self_ask"),
+        ("LASAGNA_ADAPTIVE_RAG_CLASSIFIER_MODEL", "some-real-model", "adaptive"),
+    ],
+)
+def test_model_settings_cannot_replace_the_validation_stub(monkeypatch, setting, value, name):
+    monkeypatch.setenv(setting, value)
+    result = CliRunner().invoke(cli.app, ["component", "validate", name])
+    assert result.exit_code == 0, result.output
+    assert "Contract satisfied" in result.output
+
+
 def test_plain_agentic_functions_are_refused_with_the_class_to_implement(tmp_path):
     module = tmp_path / "agentic_function.py"
     module.write_text("async def run(input):\n    return None\n", encoding="utf-8")
