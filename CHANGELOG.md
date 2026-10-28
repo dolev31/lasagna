@@ -28,6 +28,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Validate `BaseAgenticPipeline` components with an async contract check and
   report incorrect results or input mutation instead of rejecting the stage.
+- The stage isolation check excuses only the settings an arm declares, and
+  what the harness sets on their account, rather than every setting in a
+  stage an arm names. An arm that named `hybrid_alpha` hid a `default_top_k`
+  that leaked into the retriever stage, and a reranker sweep, where every arm
+  names a reranker, hid a leaked `rerank_top_k`. Both now mark the bundle
+  `UNDECLARED_STAGE_CHANGE`, naming the settings. The run's isolation line and
+  `results view` say the arms differ only in the *settings* they name, which
+  is what is checked.
+- The stage manifest records the routing and retrieval-depth settings the
+  generation track ran with (`use_agentic_rag`, `agentic_pipeline`,
+  `routing_default_tier`, `similarity_threshold`, `chunk_cite_retrieval`,
+  `default_top_k`). It digested the values the retrieval track forces on every
+  arm, so on a generation track an arm that set `use_agentic_rag: true` ran
+  the loop, digested like its control, and was called inert; two arms that
+  differed only in `routing_default_tier` could not be told apart. Without a
+  generation track the forced values stand, since they are what ran.
 
 ## [0.1.0] - 2026-10-21
 

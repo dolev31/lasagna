@@ -123,7 +123,7 @@ class TestThePageSaysWhatTheCommandsSay:
         assert "Passage 7 as mine found it." in words
         assert (
             "Stage isolation: the configuration that reached each stage differs only in "
-            "the stages the arms name (1 pair compared)."
+            "the settings the arms name (1 pair compared)."
         ) in words
 
     def test_the_verdict_is_the_one_the_cli_prints(self, two_arms):

@@ -356,15 +356,15 @@ def _isolation(run: _Run) -> str:
     if report["undeclared"]:
         items = "".join(f"<li>{_e(line)}</li>" for line in report["undeclared"])
         parts.append(
-            '<div class="note bad"><p>Stage isolation FAILED: the arms differ outside the '
-            "stages they name, so the comparison is not attributable.</p>"
+            '<div class="note bad"><p>Stage isolation FAILED: the arms differ in settings '
+            "neither names, so the comparison is not attributable.</p>"
             f"<ul>{items}</ul></div>"
         )
     elif pairs and not report["inert"]:
         noun = "pair" if pairs == 1 else "pairs"
         parts.append(
             '<div class="note good"><p>Stage isolation: the configuration that reached each '
-            f"stage differs only in the stages the arms name ({pairs} {noun} compared).</p></div>"
+            f"stage differs only in the settings the arms name ({pairs} {noun} compared).</p></div>"
         )
     elif not pairs and len(rows) > 1:
         parts.append(

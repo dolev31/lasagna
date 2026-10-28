@@ -263,3 +263,108 @@ def test_an_override_without_a_default_reaches_the_manifest():
     arm = stage_manifest(_Overridden(BASE, {"document_awareness": {"mode": "first_tokens"}}), {})
     assert base["chunker"]["digest"] != arm["chunker"]["digest"]
     assert arm["chunker"]["settings"]["document_awareness"] == {"mode": "first_tokens"}
+
+
+# A declared change excuses the settings it names and what the harness sets on
+# their account, not the whole stage. A stage either arm named was skipped
+# whole: an arm naming hybrid_alpha hid a leaked default_top_k, and a reranker
+# sweep, where every arm names a reranker, hid a leaked rerank_top_k.
+
+
+def test_a_leak_inside_a_named_stage_is_caught():
+    rows = [
+        _row("control", {}, _manifest(hybrid_alpha=0.7, default_top_k=10)),
+        _row(
+            "sparse",
+            {"hybrid_alpha": 0.3},
+            _manifest(hybrid_alpha=0.3, default_top_k=50),  # default_top_k leaked
+        ),
+    ]
+    report = isolation_report(rows)
+    assert len(report["undeclared"]) == 1
+    line = report["undeclared"][0]
+    assert "retriever" in line and "default_top_k" in line and "hybrid_alpha" not in line
+    assert "UNDECLARED_STAGE_CHANGE" in _integrity(rows, {})["blocking"]
+
+
+def test_two_component_arms_that_also_differ_in_a_setting_are_caught():
+    rows = [
+        _row(
+            "a",
+            {"reranker": "a"},
+            _manifest({"reranker": "a"}, enable_reranking=True, rerank_top_k=5),
+        ),
+        _row(
+            "b",
+            {"reranker": "b"},
+            _manifest({"reranker": "b"}, enable_reranking=True, rerank_top_k=20),
+        ),
+    ]
+    report = isolation_report(rows)
+    assert len(report["undeclared"]) == 1
+    assert "rerank_top_k" in report["undeclared"][0]
+    assert "component" not in report["undeclared"][0]
+
+
+_CONTROL = dict(
+    BASE,
+    chunking_strategy="semantic",
+    default_top_k=40,
+    embedding_dim=1024,
+    collection_name="c",
+    use_agentic_rag=False,
+)
+_CONTROL_HARNESS = {
+    "metric_k": 10,
+    "context_order": {"retrieval": "ranked", "generation": "ranked"},
+}
+
+
+@pytest.mark.parametrize(
+    ("overrides", "components", "changes", "harness"),
+    [
+        # metric_k raises the depth the harness asks retrieval for
+        ({"metric_k": 100}, {}, {"default_top_k": 400}, {"metric_k": 100}),
+        # context reordering is recorded per track
+        (
+            {"enable_context_reordering": True},
+            {},
+            {},
+            {"context_order": {"retrieval": "ranked", "generation": "lost_in_the_middle"}},
+        ),
+        # a structural chunker setting decides which chunker runs
+        ({"enable_hierarchical": True}, {}, {"enable_hierarchical": True}, {}),
+        # an embedder component gets a collection of its own, at its dimension
+        (
+            {"embedder": "mine"},
+            {"embedder": "mine"},
+            {"embedding_dim": 384, "collection_name": "m"},
+            {},
+        ),
+        # so does an embedding model named as a setting
+        (
+            {"embedding_model": "other"},
+            {},
+            {"embedding_model": "other", "embedding_dim": 384, "collection_name": "o"},
+            {},
+        ),
+        # an agentic pipeline named as a component turns the loop on
+        (
+            {"agentic_pipeline": "self_ask"},
+            {"agentic_pipeline": "self_ask"},
+            {"use_agentic_rag": True},
+            {},
+        ),
+    ],
+)
+def test_what_the_harness_sets_for_a_declared_change_is_not_a_leak(
+    overrides, components, changes, harness
+):
+    # Each of these the harness does in experiment.py on the arm's account;
+    # the check must charge them to the declaration, or every such arm blocks.
+    control = stage_manifest(_Config(**_CONTROL), {}, harness=_CONTROL_HARNESS)
+    arm = stage_manifest(
+        _Config(**{**_CONTROL, **changes}), components, harness={**_CONTROL_HARNESS, **harness}
+    )
+    rows = [_row("control", {}, control), _row("arm", overrides, arm)]
+    assert isolation_report(rows)["undeclared"] == []

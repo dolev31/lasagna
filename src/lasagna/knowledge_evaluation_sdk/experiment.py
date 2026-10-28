@@ -38,7 +38,7 @@ from datetime import datetime
 from functools import lru_cache
 from itertools import product
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
 
 from loguru import logger
 
@@ -1318,6 +1318,61 @@ def _fix_retrieval_depth(task_config: Dict[str, Any], depth: int) -> None:
     ccr["strategy"] = "fixed"
     task_config["chunk_cite_retrieval"] = ccr
     task_config["default_top_k"] = max(int(task_config.get("default_top_k") or 0), depth)
+
+
+def _fix_retrieval_routing(task_config: Dict[str, Any]) -> None:
+    """Send every retrieval-track query through the standard tier.
+
+    The agentic loop runs multi-hop retrieval and an LLM synthesis; retrieval
+    metrics need the chunk-level results of one search, with stable document
+    ids, and the loop's are neither. The generation track puts the arm's own
+    routing back.
+    """
+    task_config["use_agentic_rag"] = False
+    task_config["agentic_pipeline"] = "legacy_react"
+    task_config["routing_default_tier"] = "standard"
+
+
+#: What the retrieval track sets on every arm whatever the arm says: the
+#: routing (:func:`_fix_retrieval_routing`) and the depth policies
+#: (:func:`_fix_retrieval_depth`), less the two the manifest handles otherwise
+#: (the search cache is operational, and context order is recorded per
+#: track). The generation track reads the arm's own values, so it is the only
+#: place two arms can differ in these.
+_RETRIEVAL_TRACK_FORCED = frozenset(
+    {
+        "use_agentic_rag",
+        "agentic_pipeline",
+        "routing_default_tier",
+        "similarity_threshold",
+        "chunk_cite_retrieval",
+        "default_top_k",
+    }
+)
+
+
+def _manifest_settings(
+    task_config: Mapping[str, Any], gen_config: Optional[Mapping[str, Any]]
+) -> Dict[str, Any]:
+    """The settings the stage manifest digests.
+
+    The retrieval track's, with the keys it forces taken from the generation
+    track when that ran (``gen_config``), since those are what the arm's
+    generation ran with. Digesting the forced values made every arm alike in
+    them: on a generation track an arm that set ``use_agentic_rag: true``
+    digested like its control at the agentic stage and was called inert, and
+    two arms that differed only in ``routing_default_tier`` could not be told
+    apart. Without a generation track the forced values stand, since they are
+    what ran.
+    """
+    settings = dict(task_config)
+    if gen_config is None:
+        return settings
+    for key in _RETRIEVAL_TRACK_FORCED:
+        settings.pop(key, None)
+        if key in gen_config:
+            settings[key] = gen_config[key]
+    return settings
 
 
 def _context_order(gen_config: Any) -> Dict[str, str]:
@@ -4470,9 +4525,7 @@ async def _eval_live(
     # (Note: agentic DOES return SearchResult objects via _convert_agentic_results,
     # but their document_ids may differ and latency is high — not suitable for IR eval.)
     if ir_samples:
-        pipeline._config["use_agentic_rag"] = False
-        pipeline._config["agentic_pipeline"] = "legacy_react"
-        pipeline._config["routing_default_tier"] = "standard"
+        _fix_retrieval_routing(pipeline._config)
         # Clear component name so pipeline.query() doesn't force comprehensive
         # tier; the generation path below puts it back.
         _agentic_name = pipeline._component_names.pop("agentic_pipeline", None)
@@ -5366,7 +5419,8 @@ async def _eval_live(
         per_sample_scores = per_sample_scores[:_retrieval_rows]
         _eval_failures = []
     # What reached each stage, from the config the search actually resolved
-    # (session plus this arm's overrides) and the components it named; the
+    # (session plus this arm's overrides, and the generation track's values
+    # for what the retrieval track forces) and the components it named; the
     # bundle's isolation check compares these across arms.
     try:
         from lasagna.core.config import rag_config as _rc
@@ -5374,7 +5428,9 @@ async def _eval_live(
         from .stages import stage_manifest
 
         _system["stages"] = stage_manifest(
-            _rc.with_session(shared_session_id).with_query_overrides(task_config),
+            _rc.with_session(shared_session_id).with_query_overrides(
+                _manifest_settings(task_config, gen_config if gen_samples else None)
+            ),
             {
                 k: v
                 for k, v in (task.config_overrides or {}).items()
