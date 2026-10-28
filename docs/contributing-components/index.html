@@ -2754,8 +2754,6 @@ Methods the project would like to have are listed on <a href="../project/wanted/
 <h2 id="known-friction">Known friction<a class="headerlink" href="#known-friction" title="Permanent link">&para;</a></h2>
 <p>Stated rather than hidden, because you will hit these.</p>
 <ul>
-<li><strong><code>agentic_pipeline</code> is registrable but <code>lasagna component validate</code> rejects
-  it.</strong> The type is real and documented; the validator has no case for it yet.</li>
 <li><strong>Not every benchmark has a corpus of its own.</strong> BEIR benchmarks run live
   against their own corpus. SQuAD v2, HotpotQA, MuSiQue and RAGBench also run
   live, against a corpus pooled from the samples' gold passages: an easier task
@@ -2764,9 +2762,13 @@ Methods the project would like to have are listed on <a href="../project/wanted/
   generation against gold context only.</li>
 <li><strong><code>lasagna component validate</code> checks input mutation for rerankers (the
   documents), embedders (the list of texts) and generators (the list of
-  contexts).</strong> The other stages are handed strings or a file path, which cannot
-  be changed in place. A class component that keeps state should still copy what
-  it is handed before changing it.</li>
+  contexts), and agentic pipelines (the input data and configuration/model
+  references).</strong>
+  Agentic validation supplies a local stub model; pipelines that retrieve still
+  need their retrieval dependencies. Plain functions are not supported for
+  this stage: implement <code>BaseAgenticPipeline</code>. The other stages are handed
+  strings or a file path, which cannot be changed in place. A class component
+  that keeps state should still copy what it is handed before changing it.</li>
 <li><strong>A single-run row is never marked verified on the results hub</strong>, because it
   reports no spread for another submission to land inside, even when the arms
   are deterministic. Publish two or more runs if you want a row others can
