@@ -3,7 +3,7 @@
 This package holds the `agentic_pipeline` stage: retrieval that searches more than once per
 question, refines or grades what it found, and returns an answer with the passages it read.
 It ships two built-in pipelines (a LangChain ReAct agent and a LangGraph structured graph) and
-five published loops (Self-Ask, IRCoT, FLARE, Adaptive-RAG, Self-RAG), all registered in
+six published loops (Self-Ask, IRCoT, FLARE, Adaptive-RAG, Self-RAG, Search-o1), all registered in
 `lasagna.core.registry` under the `agentic_pipeline` namespace.
 
 Settings and their defaults are in [docs/reference/settings.md](../../../docs/reference/settings.md);
@@ -18,7 +18,7 @@ how to write a component is in [docs/guide.md](../../../docs/guide.md#4-write-a-
 | `graph_state.py` | `RAGGraphState` TypedDict and `build_initial_state()` |
 | `edges.py` | The six `route_after_*` functions that pick the next node |
 | `nodes/` | One file per graph node (12 files, 13 nodes: `quality_gates.py` holds `check_hallucination` and `check_answer_quality`) |
-| `loops/` | The five published loops, one file each, and `_base.py` (`LoopPipeline`): LLM and settings resolution, search through the pipeline, result building |
+| `loops/` | The six published loops, one file each, and `_base.py` (`LoopPipeline`): LLM and settings resolution, search through the pipeline, result building |
 | `prompts.py` | Every graph prompt, overridable through the `agentic_prompts` setting; `NODE_PLACEHOLDERS` lists the fields each node supplies |
 | `citation_manager.py` | `Citation`, `CitationManager`, `CitationVerifier`, stable citation ids, highlight ranges, deduplication |
 | `document_awareness.py` | Per-session document snippets and the awareness context given to the agent |

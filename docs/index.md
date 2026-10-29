@@ -110,7 +110,7 @@ output, and shows the same sweep on a real benchmark.
 
     ---
 
-    The eight stages, all 55 components and 31 benchmarks, generated from the code.
+    The eight stages, all 56 components and 31 benchmarks, generated from the code.
 
     [:octicons-arrow-right-24: Stages](catalog/stages.md)
 
