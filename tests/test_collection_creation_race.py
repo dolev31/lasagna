@@ -88,6 +88,19 @@ def test_ensure_collection_for_config_survives_a_lost_creation_race(monkeypatch)
     assert backend.index_created
 
 
+def test_ensure_backend_collection_survives_a_lost_creation_race(monkeypatch):
+    """The third check-then-create: `ensure_backend_collection` checks
+    `has_collection` and then creates, so a concurrent creator (the API
+    process racing a Celery worker) wins in between. The loser must not
+    fail: it treats the winner's collection as "already exists" and still
+    ensures the index instead of dropping anything.
+    """
+    backend = _RacingBackend()
+    manager, config = _manager(monkeypatch, backend)
+    manager.ensure_backend_collection(backend, config)
+    assert backend.index_created
+
+
 def test_qdrant_create_on_existing_name_raises_collection_exists_error():
     from lasagna.vector_backends.qdrant_backend import QdrantBackend
 
