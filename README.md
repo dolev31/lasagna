@@ -586,6 +586,8 @@ entry. It reads the Apache-2.0
 [official mirror](https://huggingface.co/datasets/xanhho/2WikiMultihopQA) at a
 fixed revision. Paragraph identity collapses whitespace and removes spacing
 around punctuation/symbols, preserving case and all non-whitespace characters.
+The exact rule first applies `" ".join(text.split())`, then
+`re.sub(r"\s*([^\w\s])\s*", r"\1", text)` before hashing.
 The first version of a title uses the title as its document ID; other versions
 add a stable hash of that normalized text. Formatting copies share one ID and
 the first original text is stored unchanged, giving 55,020 validation documents.

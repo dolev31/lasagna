@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 
 class TwoWikiMultihopQAAdapter(BaseBenchmarkAdapter):
-    """Validation queries and their full context corpus, plus training queries.
+    r"""Validation queries and their full context corpus, plus training queries.
 
     ``load_corpus`` has no split parameter: it always reads validation, the
     default of ``load``, even after a call that explicitly loads train. The
@@ -40,6 +40,10 @@ class TwoWikiMultihopQAAdapter(BaseBenchmarkAdapter):
     and all non-whitespace characters. The first original text in source order is
     stored, not the normalized text. Genuine versions remain separate, and labels
     identify the question's version after this formatting-only deduplication.
+
+    Identity first uses ``" ".join(text.split())``, then replaces the regex
+    ``r"\s*([^\w\s])\s*"`` with ``r"\1"`` before hashing. Neither step changes
+    the first original paragraph text retained in the corpus.
     """
 
     hf_revision = "612bc5039a457880d9e7d84c3b0a4cf154b70e4f"  # pragma: allowlist secret
