@@ -160,7 +160,7 @@ When two of them set it, the level in the last column decides, in the order Lasa
 python -m lasagna pipelines list
 ```
 
-Output (shortened; the five published loops `self_ask`, `ircot`, `flare`, `adaptive` and `self_rag` are also listed):
+Output (shortened; the six published loops `self_ask`, `ircot`, `flare`, `adaptive`, `self_rag` and `search_o1` are also listed):
 ```
 ┏━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┓
 ┃ Name          ┃ Description                            ┃ Class                     ┃ Active ┃

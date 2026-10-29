@@ -188,6 +188,7 @@ NEEDS: Dict[Tuple[str, str], str] = {
     ("agentic_pipeline", "flare"): LLM,
     ("agentic_pipeline", "adaptive"): LLM,
     ("agentic_pipeline", "self_rag"): LLM,
+    ("agentic_pipeline", "search_o1"): LLM,
     ("generator", "concise"): LLM,
     ("generator", "closed_book"): LLM,
     ("generator", "long_context"): LLM,

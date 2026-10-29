@@ -37,7 +37,7 @@ looked up with `registry.get_class("agentic_pipeline", name)`; an unknown name r
 - `legacy_react`: a LangChain agent with two tools; the LLM decides when to stop.
 - `default`: the structured graph. Routing between nodes is rule-based, with quality gates
   (`enable_crag`, `enable_hallucination_check`, `enable_answer_quality_check`) switching branches on.
-- `self_ask`, `ircot`, `flare`, `adaptive`, `self_rag`: the published loops below.
+- `self_ask`, `ircot`, `flare`, `adaptive`, `self_rag`, `search_o1`: the published loops below.
 - Any other registered name: a user `BaseAgenticPipeline` subclass
   (see [../sdk/docs/custom_pipelines.md](../sdk/docs/custom_pipelines.md)).
 
@@ -51,13 +51,19 @@ LLM raises rather than scoring plain retrieval under its name.
 
 **Budgets are per loop.** `max_agent_iterations` applies to the built-in pipelines only. Each
 published loop has its own settings (`self_ask_*`, `ircot_*`, `flare_*`, `adaptive_rag_*`,
-`self_rag_*`); the defaults follow each paper.
+`self_rag_*`, `search_o1_*`); the defaults follow each paper, or the authors' code where the
+paper sets none.
 
 **Adaptive-RAG and Self-RAG are prompted variants.** The papers train a T5 classifier and a
 reflection-token model. Here `adaptive` prompts an LLM with the paper's class definitions, and
 `self_rag` prompts an LLM with the authors' critic instructions: no reflection-token
 probabilities, a yes/no retrieve decision, and no segment-level beam search. A number from
 either loop describes the prompted variant.
+
+**Search-o1 needs the reasoning text.** `search_o1` finds the model's queries in its reply, so
+it needs an open-weight reasoning model served through a local provider, with the reasoning left
+in the reply's text. A hosted API that hides the reasoning, or a vLLM server started with
+`--reasoning-parser` (which moves it to a separate field), leaves the loop nothing to search.
 
 **FLARE confidence.** With `flare_confidence_source = "auto"`, FLARE uses token log probabilities
 when the model returns them and falls back to self-reported unsure spans. The signal used is

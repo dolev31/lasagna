@@ -236,6 +236,7 @@ _PREFIXES: Tuple[Tuple[str, str], ...] = (
     ("flare_", "agentic_pipeline"),
     ("adaptive_rag_", "agentic_pipeline"),
     ("self_rag_", "agentic_pipeline"),
+    ("search_o1_", "agentic_pipeline"),
     ("recursive_", "chunker"),
     ("markdown_", "chunker"),
     ("semantic_", "chunker"),

@@ -10,7 +10,7 @@ Set via `settings.lasagna.toml`, environment variables, or the session config AP
 | ------ | ---- | ------- | ----------- |
 | `use_agentic_rag` | bool | `true` | Enable agentic multi-hop retrieval |
 | `max_agent_iterations` | int | `3` | Maximum retrieval hops per query |
-| `agentic_pipeline` | str | `"legacy_react"` | Pipeline selection: `"legacy_react"`, `"default"` (structured graph), a published loop (`"self_ask"`, `"ircot"`, `"flare"`, `"adaptive"`, `"self_rag"`), or any registered `BaseAgenticPipeline` name |
+| `agentic_pipeline` | str | `"legacy_react"` | Pipeline selection: `"legacy_react"`, `"default"` (structured graph), a published loop (`"self_ask"`, `"ircot"`, `"flare"`, `"adaptive"`, `"self_rag"`, `"search_o1"`), or any registered `BaseAgenticPipeline` name |
 | `agentic_models` | dict | `{}` | Model pins keyed by graph node name or by published loop name; empty uses the pipeline's model |
 | `agentic_prompts` | dict | `{}` | Prompt overrides keyed by graph node name (the published loops keep their papers' prompts) |
 | `use_structured_graph` | bool | `false` | *Legacy alias*: `true` maps to `agentic_pipeline="default"`, `false` maps to `"legacy_react"` |
@@ -63,6 +63,9 @@ Each published loop reads its own settings, with its paper's defaults, instead o
 | `self_rag_weight_sup` | float | `1.0` | `self_rag` | Weight of the support critique (ISSUP) |
 | `self_rag_weight_use` | float | `0.5` | `self_rag` | Weight of the usefulness critique (ISUSE) |
 | `self_rag_retrieval` | str | `"adaptive"` | `self_rag` | `adaptive` asks the model whether to retrieve; `always` always retrieves |
+| `search_o1_max_searches` | int | `10` | `search_o1` | Searches before further queries get the authors' refusal message (their code's multi-hop default; 5 for single-hop QA) |
+| `search_o1_max_turns` | int | `15` | `search_o1` | Generations before the loop stops (the authors' code; the paper sets none) |
+| `search_o1_docs_per_search` | int | `10` | `search_o1` | Passages retrieved per search, each read by Reason-in-Documents (the code's `top_k`) |
 
 `adaptive` and `self_rag` are prompted variants: their papers train a classifier and a critic model, and these prompt a general LLM instead. See [the agentic README](../README.md#design-notes) for what that leaves out.
 

@@ -4,7 +4,7 @@
 
 The structured graph (enabled via `use_structured_graph = true`, or `agentic_pipeline = "default"`) is a LangGraph `StateGraph` with 13 nodes and 6 conditional edges, built by `build_rag_graph()` in `agentic/graph_builder.py`. All nodes read from and write to `RAGGraphState`.
 
-This document covers that graph and the legacy ReAct mode (`agentic_pipeline = "legacy_react"`, the default). The five published loops (`self_ask`, `ircot`, `flare`, `adaptive`, `self_rag`) do not use this graph. Each is a short loop in `agentic/loops/`, listed in [the agentic README](../README.md#which-pipeline-runs).
+This document covers that graph and the legacy ReAct mode (`agentic_pipeline = "legacy_react"`, the default). The six published loops (`self_ask`, `ircot`, `flare`, `adaptive`, `self_rag`, `search_o1`) do not use this graph. Each is a short loop in `agentic/loops/`, listed in [the agentic README](../README.md#which-pipeline-runs).
 
 ```
 START

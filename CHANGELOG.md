@@ -69,6 +69,12 @@ the stack's own Qdrant.
   environment"). The "PR quality" check fails while "How it was tested" shows
   no `docker compose` command, and the template has a box for it.
 
+- **Agentic pipeline:** `search_o1`, Search-o1 (arXiv:2501.05366) with the
+  authors' prompts: a reasoning model writes search queries mid-reasoning, and
+  Reason-in-Documents reads each search's passages back into the reasoning.
+  Its bounds (`search_o1_max_searches`, `search_o1_max_turns`,
+  `search_o1_docs_per_search`) default to the authors' code's.
+
 ### Fixed
 
 - On a Milvus server, the benchmark's corpus census and pre-flight see the

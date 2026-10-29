@@ -12,6 +12,9 @@ Registered in the core registry under the ``agentic_pipeline`` stage:
   routes each question to no retrieval, one retrieval or IRCoT.
 * ``self_rag`` -- Self-RAG (Asai et al. 2023), prompting variant: retrieval on
   demand and a per-passage critique of relevance, support and usefulness.
+* ``search_o1`` -- Search-o1 (Li et al. 2025): a reasoning model writes search
+  queries mid-reasoning; Reason-in-Documents reads each search's passages into
+  the reasoning.
 
 Every loop searches through the pipeline's own search (see ``_base``), so an
 agentic arm measures the loop inside the complete pipeline.
