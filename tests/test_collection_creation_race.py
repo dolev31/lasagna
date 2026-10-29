@@ -100,26 +100,35 @@ def test_qdrant_create_on_existing_name_raises_collection_exists_error():
     assert isinstance(excinfo.value, ValueError)
 
 
-def _qdrant_backend_with_client(client):
+def _qdrant_backend_with_client(monkeypatch, client):
     """QdrantBackend with a fake client, stubbing client-only names.
 
     When qdrant-client is not installed, the module never binds Distance
     or VectorParams, and reaching the create call NameErrors before the
     mapping under test. The mapping itself does not use those names, so
     stub them only when they are missing; a real client keeps its own.
+    The stubs go through monkeypatch, so the module is left as it was
+    found once the test ends instead of leaking into later tests.
     """
     import lasagna.vector_backends.qdrant_backend as qmod
 
     if not hasattr(qmod, "Distance"):
-        qmod.Distance = SimpleNamespace(COSINE="cosine", EUCLID="euclid", DOT="dot")
+        monkeypatch.setattr(
+            qmod,
+            "Distance",
+            SimpleNamespace(COSINE="cosine", EUCLID="euclid", DOT="dot"),
+            raising=False,
+        )
     if not hasattr(qmod, "VectorParams"):
-        qmod.VectorParams = lambda **kwargs: SimpleNamespace(**kwargs)
+        monkeypatch.setattr(
+            qmod, "VectorParams", lambda **kwargs: SimpleNamespace(**kwargs), raising=False
+        )
     backend = qmod.QdrantBackend.__new__(qmod.QdrantBackend)
     backend._client = client
     return backend
 
 
-def test_qdrant_create_maps_a_lost_race_to_collection_exists_error():
+def test_qdrant_create_maps_a_lost_race_to_collection_exists_error(monkeypatch):
     """The check passes (empty list) but another process wins the create.
 
     This is the narrower Qdrant window: the client raises its own error,
@@ -130,17 +139,18 @@ def test_qdrant_create_maps_a_lost_race_to_collection_exists_error():
         raise Exception("Collection c1 already exists")
 
     backend = _qdrant_backend_with_client(
+        monkeypatch,
         SimpleNamespace(
             get_collections=lambda: SimpleNamespace(collections=[]),
             create_collection=_create_collection,
-        )
+        ),
     )
     with pytest.raises(CollectionExistsError) as excinfo:
         backend.create_collection("c1", _schema())
     assert isinstance(excinfo.value, ValueError)
 
 
-def test_qdrant_create_maps_a_409_conflict_to_collection_exists_error():
+def test_qdrant_create_maps_a_409_conflict_to_collection_exists_error(monkeypatch):
     class _Conflict(Exception):
         status_code = 409
 
@@ -148,10 +158,11 @@ def test_qdrant_create_maps_a_409_conflict_to_collection_exists_error():
         raise _Conflict("Unexpected Response: 409")
 
     backend = _qdrant_backend_with_client(
+        monkeypatch,
         SimpleNamespace(
             get_collections=lambda: SimpleNamespace(collections=[]),
             create_collection=_create_collection,
-        )
+        ),
     )
     with pytest.raises(CollectionExistsError) as excinfo:
         backend.create_collection("c1", _schema())
