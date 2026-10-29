@@ -34,7 +34,7 @@ import pytest
 QDRANT_URL = os.environ.get("QDRANT_URL")
 
 try:
-    import qdrant_client  # noqa: F401
+    import qdrant_client  # noqa: F401 - imported only to check availability
 
     QDRANT_AVAILABLE = True
 except ImportError:
@@ -96,7 +96,7 @@ def _worker_main(barrier, collection_name, qdrant_url, result_queue):
     try:
         # Fresh worker process: rebind module state directly (no monkeypatch
         # fixture out here). Stamps stay out of the stress run.
-        cm._stamp_store = lambda: None  # noqa: E731
+        cm._stamp_store = lambda: None  # noqa: E731 - rebind module state in a fresh worker process
         cm.rag_config = SimpleNamespace(
             collection_name=collection_name,
             index_type="AUTOINDEX",
