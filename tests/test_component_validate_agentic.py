@@ -145,7 +145,8 @@ def test_plain_agentic_functions_are_refused_with_the_class_to_implement(tmp_pat
 
 
 @pytest.mark.parametrize(
-    "name", ["default", "legacy_react", "self_ask", "ircot", "flare", "adaptive", "self_rag"]
+    "name",
+    ["default", "legacy_react", "self_ask", "ircot", "flare", "adaptive", "self_rag", "search_o1"],
 )
 def test_built_in_pipeline_against_stub_dependencies(name, monkeypatch):
     from tests._loop_stubs import install_backend

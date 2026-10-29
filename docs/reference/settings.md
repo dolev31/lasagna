@@ -161,6 +161,9 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `self_rag_weight_sup` | float | `1.0` | `LASAGNA_SELF_RAG_WEIGHT_SUP`, `RAG_SELF_RAG_WEIGHT_SUP` | Self-RAG: weight of the support critique (ISSUP). |
 | `self_rag_weight_use` | float | `0.5` | `LASAGNA_SELF_RAG_WEIGHT_USE`, `RAG_SELF_RAG_WEIGHT_USE` | Self-RAG: weight of the utility critique (ISUSE). |
 | `self_rag_retrieval` | str | `"adaptive"` | `LASAGNA_SELF_RAG_RETRIEVAL`, `RAG_SELF_RAG_RETRIEVAL` | Self-RAG: 'adaptive' (the model judges) or 'always' retrieve. |
+| `search_o1_max_searches` | int | `10` | `LASAGNA_SEARCH_O1_MAX_SEARCHES`, `RAG_SEARCH_O1_MAX_SEARCHES` | Search-o1: searches made before further queries are refused. |
+| `search_o1_max_turns` | int | `15` | `LASAGNA_SEARCH_O1_MAX_TURNS`, `RAG_SEARCH_O1_MAX_TURNS` | Search-o1: generations before the loop stops. |
+| `search_o1_docs_per_search` | int | `10` | `LASAGNA_SEARCH_O1_DOCS_PER_SEARCH`, `RAG_SEARCH_O1_DOCS_PER_SEARCH` | Search-o1: passages retrieved per search. |
 | `enable_mmr` | bool | `true` | `LASAGNA_ENABLE_MMR`, `RAG_ENABLE_MMR` | Avoids showing repetitive or near-duplicate results, so answers draw on varied sources. |
 | `mmr_lambda` | float, 0.0 to 1.0 | `0.5` | `LASAGNA_MMR_LAMBDA`, `RAG_MMR_LAMBDA` | LangChain and LlamaIndex default; a pre-MMR filter keeps only relevant items. |
 | `mmr_score_normalization` | str | `"sigmoid"` | `LASAGNA_MMR_SCORE_NORMALIZATION`, `RAG_MMR_SCORE_NORMALIZATION` | MMR score normalization strategy. |

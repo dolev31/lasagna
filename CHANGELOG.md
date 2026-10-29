@@ -24,6 +24,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   have, each with what "done" means.
 - A pull request checklist in `docs/contributing-components.md`.
 
+- **Agentic pipeline:** `search_o1`, Search-o1 (arXiv:2501.05366) with the
+  authors' prompts: a reasoning model writes search queries mid-reasoning, and
+  Reason-in-Documents reads each search's passages back into the reasoning.
+  Its bounds (`search_o1_max_searches`, `search_o1_max_turns`,
+  `search_o1_docs_per_search`) default to the authors' code's.
+
 ### Fixed
 
 - Validate `BaseAgenticPipeline` components with an async contract check and
