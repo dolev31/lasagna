@@ -19,7 +19,7 @@ ingest, chunk, embed, retrieve, enhance the query, rerank, agentic loop, generat
 | [Retriever](#retriever) | query time | how candidates are fetched | [5](components.md#retriever) | `config_overrides` |
 | [Query enhancer](#query-enhancer) | query time | how the query is rewritten before retrieval | [8](components.md#query-enhancer) | `query_enhancers:` |
 | [Reranker](#reranker) | query time | the ordering of retrieved candidates | [10](components.md#reranker) | `rerankers:` |
-| [Agentic pipeline](#agentic-pipeline) | query time | the multi-step retrieval loop | [7](components.md#agentic-pipeline) | `config_overrides` |
+| [Agentic pipeline](#agentic-pipeline) | query time | the multi-step retrieval loop | [8](components.md#agentic-pipeline) | `config_overrides` |
 | [Generator](#generator) | answer time | how the answer is written from the retrieved passages | [6](components.md#generator) | `generators:` |
 
 Every stage can be named in a `config_overrides` entry with its stage name, for
@@ -125,7 +125,7 @@ async def run(input: AgenticPipelineInput) -> AgenticRAGResult
 
 Function form with `@lasagna.agentic_pipeline`: none: a loop is a class.
 
-The 7 built-in components are listed in the [component catalog](components.md#agentic-pipeline).
+The 8 built-in components are listed in the [component catalog](components.md#agentic-pipeline).
 
 ## Generator
 

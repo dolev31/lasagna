@@ -57,7 +57,9 @@ SEARCH_O1_QUESTION = (
 )
 
 #: The Reason-in-Documents prompt, verbatim
-#: (``get_webpage_to_reasonchain_instruction``).
+#: (``get_webpage_to_reasonchain_instruction``). The three input labels end in
+#: two spaces, as the authors' do; written as ``  `` because the
+#: trailing-whitespace hook strips them from the end of a source line.
 REASON_IN_DOCUMENTS_PROMPT = """**Task Instruction:**
 
 You are tasked with reading and analyzing web pages based on the following inputs: **Previous Reasoning Steps**, **Current Search Query**, and **Searched Web Pages**. Your objective is to extract relevant and helpful information for **Current Search Query** from the **Searched Web Pages** and seamlessly integrate this information into the **Previous Reasoning Steps** to continue reasoning for the original question.
@@ -85,13 +87,13 @@ You are tasked with reading and analyzing web pages based on the following input
 No helpful information found.
 
 **Inputs:**
-- **Previous Reasoning Steps:**
+- **Previous Reasoning Steps:**  
 {prev_reasoning}
 
-- **Current Search Query:**
+- **Current Search Query:**  
 {search_query}
 
-- **Searched Web Pages:**
+- **Searched Web Pages:**  
 {document}
 
 Now you should analyze each web page and find helpful information based on the current search query "{search_query}" and previous reasoning steps.
