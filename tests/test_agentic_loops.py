@@ -566,6 +566,46 @@ def test_search_o1_shortens_long_reasoning_as_the_authors_do():
     )
 
 
+async def test_search_o1_reads_a_query_written_in_thinking_the_provider_returns_apart(
+    monkeypatch,
+):
+    from langchain_core.messages import AIMessage
+
+    backend = install_backend(monkeypatch, {"Jaws director": [hit("j", "Spielberg.")]})
+    llm = ScriptedLLM(
+        [
+            # Ollama with reasoning=True: the thinking, cut at the stop, comes
+            # back in its own field and the reply text is empty.
+            AIMessage(
+                content="",
+                additional_kwargs={"reasoning_content": f"First the director.\n{BQ}Jaws director"},
+            ),
+            "**Final Information**\n\nSteven Spielberg.",
+            "\\boxed{Steven Spielberg}",
+        ]
+    )
+    result = await _loop("search_o1").run(pipeline_input("Who directed Jaws?", llm))
+    assert [c["query"] for c in backend.calls] == ["Jaws director"]
+    assert f"First the director.\n{BQ}Jaws director{EQ}" in llm.prompts[2]
+    assert result.agent_summary == "Steven Spielberg"
+
+
+def test_search_o1_asks_ollama_for_its_thinking():
+    from lasagna.agentic.loops.search_o1 import _thinking_llm
+
+    class ChatOllama:  # the name the loop recognises; the real class is pydantic
+        def __init__(self, reasoning):
+            self.reasoning = reasoning
+
+        def model_copy(self, update):
+            return ChatOllama(**update)
+
+    assert _thinking_llm(ChatOllama(None)).reasoning is True
+    assert _thinking_llm(ChatOllama(False)).reasoning is False  # an explicit choice is kept
+    other = ScriptedLLM([])
+    assert _thinking_llm(other) is other
+
+
 LOOP_SETTINGS["search_o1"] = [
     "search_o1_max_searches",
     "search_o1_max_turns",
