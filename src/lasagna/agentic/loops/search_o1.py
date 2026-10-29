@@ -8,12 +8,19 @@ from __future__ import annotations
 
 import json
 import re
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 from loguru import logger
 
 from lasagna.agentic.agentic_rag import AgenticRAGResult, RetrievedChunkData
-from lasagna.agentic.loops._base import LoopPipeline, LoopRun, interleave, setting
+from lasagna.agentic.loops._base import (
+    LoopPipeline,
+    LoopRun,
+    cut_at,
+    interleave,
+    message_text,
+    setting,
+)
 
 BEGIN_SEARCH_QUERY = "<|begin_search_query|>"
 END_SEARCH_QUERY = "<|end_search_query|>"
@@ -196,6 +203,28 @@ def _boxed_answer(output: str) -> str:
     return answer.strip("()")
 
 
+def _thinking_llm(llm: Any) -> Any:
+    """``llm``, asked to return its thinking when it would otherwise drop it.
+
+    Ollama strips a reasoning model's ``<think>`` block from the reply, and
+    returns it only when the request asks for it (``reasoning=True`` on
+    ``ChatOllama``). Search-o1's queries are written in that thinking.
+    """
+    if type(llm).__name__ == "ChatOllama" and getattr(llm, "reasoning", False) is None:
+        return llm.model_copy(update={"reasoning": True})
+    return llm
+
+
+def _reasoning_and_text(response: Any) -> str:
+    """The reply's thinking, when the provider returns it apart, then its text."""
+    kwargs = getattr(response, "additional_kwargs", None) or {}
+    reasoning = str(kwargs.get("reasoning_content") or "").strip()
+    text = message_text(response)
+    if not reasoning:
+        return text
+    return f"{reasoning}\n\n{text.lstrip()}" if text.strip() else reasoning
+
+
 class SearchO1Pipeline(LoopPipeline):
     """Search-o1: a reasoning model searches mid-reasoning; Reason-in-Documents reads.
 
@@ -231,9 +260,11 @@ class SearchO1Pipeline(LoopPipeline):
     * The authors continue one assistant turn as a raw completion. A chat
       provider here gets the instruction, the question and the reasoning so
       far as one user message, as ``self_ask`` sends its transcript. The
-      model's reasoning must be in the reply's text: a server that moves it to
-      a separate reasoning field (vLLM's ``--reasoning-parser``) hides the
-      queries from the loop.
+      queries are written in the model's thinking, so the loop reads it: a
+      ``reasoning_content`` the provider returns apart from the text comes
+      first, and Ollama is asked to return it (``_thinking_llm``). A server
+      that drops the thinking (vLLM's ``--reasoning-parser`` behind an
+      OpenAI client that discards the field) hides the queries.
     * The instruction is the multi-hop one for every benchmark. The authors
       use it for HotpotQA, MuSiQue, Bamboogle and 2Wiki, and a single-hop
       variant (a one-search example) for NQ and TriviaQA; a loop does not
@@ -264,6 +295,7 @@ class SearchO1Pipeline(LoopPipeline):
             max_searches=max_searches
         ) + SEARCH_O1_QUESTION.format(question=question)
         stops = [END_SEARCH_QUERY]
+        reasoner = _thinking_llm(run.llm)
         output = ""  # the model's reasoning, with the search results inserted
         searched: List[str] = []
         per_hop: List[List[RetrievedChunkData]] = []
@@ -273,7 +305,8 @@ class SearchO1Pipeline(LoopPipeline):
         stop_reason = "max_turns"
         while turns < max_turns:
             turns += 1
-            text = await run.complete(prompt + output, stop=stops)
+            response = await run.ask(prompt + output, stop=stops, llm=reasoner)
+            text = cut_at(_reasoning_and_text(response), stops)
             query = _open_query(text)
             if query is None:
                 output += text
