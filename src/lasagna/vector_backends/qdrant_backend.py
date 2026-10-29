@@ -264,14 +264,22 @@ class QdrantBackend(VectorStoreAdapter):
         if index_config:
             distance = metric_map.get(index_config.metric_type, Distance.COSINE)
 
-        # Create collection
-        client.create_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(
-                size=dimension,
-                distance=distance,
-            ),
-        )
+        # Create collection. Another process may have created it after the
+        # has_collection check: Qdrant then raises its own error (a 409, or
+        # a message naming an existing collection), so map that to
+        # CollectionExistsError the way Milvus does and re-raise the rest.
+        try:
+            client.create_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(
+                    size=dimension,
+                    distance=distance,
+                ),
+            )
+        except Exception as exc:
+            if "already exist" in str(exc).lower() or getattr(exc, "status_code", None) == 409:
+                raise CollectionExistsError(f"Collection {collection_name} already exists") from exc
+            raise
 
         logger.info(f"Created Qdrant collection: {collection_name}")
 

@@ -100,6 +100,64 @@ def test_qdrant_create_on_existing_name_raises_collection_exists_error():
     assert isinstance(excinfo.value, ValueError)
 
 
+def _qdrant_backend_with_client(client):
+    """QdrantBackend with a fake client, stubbing client-only names.
+
+    When qdrant-client is not installed, the module never binds Distance
+    or VectorParams, and reaching the create call NameErrors before the
+    mapping under test. The mapping itself does not use those names, so
+    stub them only when they are missing; a real client keeps its own.
+    """
+    import lasagna.vector_backends.qdrant_backend as qmod
+
+    if not hasattr(qmod, "Distance"):
+        qmod.Distance = SimpleNamespace(COSINE="cosine", EUCLID="euclid", DOT="dot")
+    if not hasattr(qmod, "VectorParams"):
+        qmod.VectorParams = lambda **kwargs: SimpleNamespace(**kwargs)
+    backend = qmod.QdrantBackend.__new__(qmod.QdrantBackend)
+    backend._client = client
+    return backend
+
+
+def test_qdrant_create_maps_a_lost_race_to_collection_exists_error():
+    """The check passes (empty list) but another process wins the create.
+
+    This is the narrower Qdrant window: the client raises its own error,
+    so the backend must map it to CollectionExistsError itself.
+    """
+
+    def _create_collection(**kwargs):
+        raise Exception("Collection c1 already exists")
+
+    backend = _qdrant_backend_with_client(
+        SimpleNamespace(
+            get_collections=lambda: SimpleNamespace(collections=[]),
+            create_collection=_create_collection,
+        )
+    )
+    with pytest.raises(CollectionExistsError) as excinfo:
+        backend.create_collection("c1", _schema())
+    assert isinstance(excinfo.value, ValueError)
+
+
+def test_qdrant_create_maps_a_409_conflict_to_collection_exists_error():
+    class _Conflict(Exception):
+        status_code = 409
+
+    def _create_collection(**kwargs):
+        raise _Conflict("Unexpected Response: 409")
+
+    backend = _qdrant_backend_with_client(
+        SimpleNamespace(
+            get_collections=lambda: SimpleNamespace(collections=[]),
+            create_collection=_create_collection,
+        )
+    )
+    with pytest.raises(CollectionExistsError) as excinfo:
+        backend.create_collection("c1", _schema())
+    assert isinstance(excinfo.value, ValueError)
+
+
 def test_pgvector_create_on_existing_name_raises_collection_exists_error():
     from lasagna.vector_backends.pgvector_backend import PgVectorBackend
 

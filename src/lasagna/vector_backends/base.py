@@ -307,10 +307,9 @@ class VectorStoreAdapter(ABC):
             index_config: Optional index configuration
 
         Raises:
-            CollectionExistsError: If collection already exists.
-
-            This subclasses ``ValueError``, so existing ``except
-            ValueError`` handlers keep working.
+            CollectionExistsError: If the collection already exists. It
+                subclasses ``ValueError``, so existing ``except ValueError``
+                handlers keep working.
         """
         pass
 
