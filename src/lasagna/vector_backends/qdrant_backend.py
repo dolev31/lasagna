@@ -27,6 +27,7 @@ from lasagna.core.provenance import redact_url
 from .base import (
     BackendCapabilities,
     LASAGNA_UUID_NAMESPACE,
+    CollectionExistsError,
     CollectionInfo,
     CollectionSchema,
     IndexConfig,
@@ -240,7 +241,7 @@ class QdrantBackend(VectorStoreAdapter):
         client = self._ensure_connected()
 
         if self.has_collection(collection_name):
-            raise ValueError(f"Collection {collection_name} already exists")
+            raise CollectionExistsError(f"Collection {collection_name} already exists")
 
         # Find vector dimension from schema
         dimension = None

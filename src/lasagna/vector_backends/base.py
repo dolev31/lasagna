@@ -200,6 +200,16 @@ class VectorSearchResult:
         return max(0.0, 1.0 - self.score)
 
 
+class CollectionExistsError(ValueError):
+    """A collection already exists.
+
+    Raised by ``VectorStoreAdapter.create_collection`` when the name is
+    already taken. It subclasses ``ValueError``, so code that catches
+    ``ValueError`` keeps working; callers that can continue when another
+    process created the collection first catch this type instead.
+    """
+
+
 class VectorStoreAdapter(ABC):
     """Abstract base class for vector database backends.
 
@@ -297,7 +307,10 @@ class VectorStoreAdapter(ABC):
             index_config: Optional index configuration
 
         Raises:
-            ValueError: If collection already exists
+            CollectionExistsError: If collection already exists.
+
+            This subclasses ``ValueError``, so existing ``except
+            ValueError`` handlers keep working.
         """
         pass
 

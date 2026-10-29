@@ -26,6 +26,7 @@ from ..vector_backends import (
     get_backend,
     VectorStoreAdapter,
 )
+from ..vector_backends.base import CollectionExistsError
 from ..infrastructure.embedding import EmbeddingManager
 
 
@@ -299,10 +300,18 @@ class CollectionManager:
 
         if not self._default_backend.has_collection(collection_name):
             logger.info(f"Creating vector collection: {collection_name} (dim={embedding_dim})")
-            self.create_collection_on_backend(
-                self._default_backend, collection_name, embedding_dim, rag_config
-            )
-            self.create_index_on_backend(self._default_backend, collection_name, rag_config)
+            try:
+                self.create_collection_on_backend(
+                    self._default_backend, collection_name, embedding_dim, rag_config
+                )
+            except CollectionExistsError:
+                logger.info(f"Collection '{collection_name}' was created by another process first")
+                if self.needs_schema_migration(self._default_backend, collection_name):
+                    self.recreate_collection_for_config(rag_config)
+                else:
+                    self.ensure_index_exists(collection_name)
+            else:
+                self.create_index_on_backend(self._default_backend, collection_name, rag_config)
         else:
             logger.info(f"Collection '{collection_name}' already exists")
             if self.needs_schema_migration(self._default_backend, collection_name):
@@ -323,10 +332,18 @@ class CollectionManager:
             return
 
         logger.info(f"Creating vector collection: {collection_name} (dim={embedding_dim})")
-        self.create_collection_on_backend(
-            self._default_backend, collection_name, embedding_dim, config
-        )
-        self.create_index_on_backend(self._default_backend, collection_name, config)
+        try:
+            self.create_collection_on_backend(
+                self._default_backend, collection_name, embedding_dim, config
+            )
+        except CollectionExistsError:
+            logger.info(f"Collection '{collection_name}' was created by another process first")
+            if self.needs_schema_migration(self._default_backend, collection_name):
+                self.recreate_collection_for_config(config)
+            else:
+                self.ensure_index_exists(collection_name)
+        else:
+            self.create_index_on_backend(self._default_backend, collection_name, config)
 
     def recreate_collection_for_config(
         self, config: RAGConfig, backend: VectorStoreAdapter = None

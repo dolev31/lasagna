@@ -26,6 +26,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Two services starting together no longer fail when the other creates the
+  collection first: `create_collection` raises `CollectionExistsError` (a
+  `ValueError` subclass) on an existing name, and collection initialization
+  continues as the "already exists" branch does instead of failing to start.
 - Validate `BaseAgenticPipeline` components with an async contract check and
   report incorrect results or input mutation instead of rejecting the stage.
 

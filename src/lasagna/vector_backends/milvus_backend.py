@@ -25,6 +25,7 @@ from loguru import logger
 from .base import (
     VectorStoreAdapter,
     VectorSearchResult,
+    CollectionExistsError,
     CollectionInfo,
     IndexConfig,
     SearchParams,
@@ -457,13 +458,21 @@ class MilvusBackend(VectorStoreAdapter):
                 embedding_dim = field.dimension
                 break
 
-        # Create collection
-        client.create_collection(
-            collection_name=collection_name,
-            schema=milvus_schema,
-            dimension=embedding_dim,
-            auto_id=any(f.auto_id for f in schema.fields if f.is_primary),
-        )
+        # Create collection. Another process may have created it after
+        # the caller's check: map that native error to CollectionExistsError
+        # (its message, or its class name, names an existing collection) so
+        # the caller can continue as the "already exists" branch does.
+        try:
+            client.create_collection(
+                collection_name=collection_name,
+                schema=milvus_schema,
+                dimension=embedding_dim,
+                auto_id=any(f.auto_id for f in schema.fields if f.is_primary),
+            )
+        except Exception as exc:
+            if "already exist" in str(exc).lower() or "AlreadyExist" in type(exc).__name__:
+                raise CollectionExistsError(f"Collection {collection_name} already exists") from exc
+            raise
 
         # Create index if provided
         if index_config:
