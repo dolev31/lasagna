@@ -21,7 +21,7 @@ wired in. A score on it is never a result.
 
 | Benchmark | Task | Scores | Queries | Documents | License | Live | Source |
 |---|---|---|--:|--:|---|:--:|---|
-| `2wikimultihopqa` | Multi-hop QA | Retrieval and generation | 13K | 57K | Apache-2.0 | yes | [arXiv:2011.01060](https://arxiv.org/abs/2011.01060) |
+| `2wikimultihopqa` | Multi-hop QA | Retrieval and generation | 13K | 55K | Apache-2.0 | yes | [arXiv:2011.01060](https://arxiv.org/abs/2011.01060) |
 | `bamboogle` | Multi-hop QA | Generation | 125 |  | MIT | - | [arXiv:2304.09848](https://arxiv.org/abs/2304.09848) |
 | `beir/arguana` | Single-hop QA | Retrieval | 1.4K | 8.7K | Varies by dataset | yes |  |
 | `beir/climate-fever` | Single-hop QA | Retrieval | 1.5K | 5.4M | Varies by dataset | yes |  |

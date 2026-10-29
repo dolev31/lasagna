@@ -584,8 +584,12 @@ BEIR folder runs with no adapter
 including distractors, alongside the existing generation-only `wiki_multihop`
 entry. It reads the Apache-2.0
 [official mirror](https://huggingface.co/datasets/xanhho/2WikiMultihopQA) at a
-fixed revision. The first version of a title uses the title as its document ID;
-other paragraph versions add a stable text hash. `validation` is the default.
+fixed revision. Paragraph identity collapses whitespace and removes spacing
+around punctuation/symbols, preserving case and all non-whitespace characters.
+The first version of a title uses the title as its document ID; other versions
+add a stable hash of that normalized text. Formatting copies share one ID and
+the first original text is stored unchanged, giving 55,020 validation documents.
+`validation` is the default.
 `train` can be loaded as samples, but `load_corpus()` always supplies validation's
 corpus, so use `--split validation` for retrieval evaluation.
 

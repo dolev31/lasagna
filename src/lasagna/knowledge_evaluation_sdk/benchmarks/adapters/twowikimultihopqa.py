@@ -3,6 +3,7 @@
 Reads the official Apache-2.0 mirror's pinned Parquet files directly, without
 executing its dataset script. Unlike a pooled-gold corpus, every context
 paragraph is retained, including distractors and distinct versions of a title.
+Identity ignores formatting-only whitespace differences; stored text stays original.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import re
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 
 from loguru import logger
@@ -33,8 +35,11 @@ class TwoWikiMultihopQAAdapter(BaseBenchmarkAdapter):
     default of ``load``, even after a call that explicitly loads train. The
     train split is available for sample export; its retrieval evaluation needs
     a separate matching corpus. The first paragraph version uses its title as
-    ID; later versions append a stable text hash. This keeps paragraph lengths
-    intact and lets relevance labels identify the question's exact version.
+    ID; later versions append a stable hash of normalized text. Identity collapses
+    whitespace and removes spacing around punctuation/symbols, preserving case
+    and all non-whitespace characters. The first original text in source order is
+    stored, not the normalized text. Genuine versions remain separate, and labels
+    identify the question's version after this formatting-only deduplication.
     """
 
     hf_revision = "612bc5039a457880d9e7d84c3b0a4cf154b70e4f"  # pragma: allowlist secret
@@ -46,7 +51,7 @@ class TwoWikiMultihopQAAdapter(BaseBenchmarkAdapter):
             category=BenchmarkCategory.MULTI_HOP,
             eval_mode=BenchmarkEvalMode.END_TO_END,
             num_queries=12_576,
-            num_documents=56_687,
+            num_documents=55_020,
             paper="arxiv:2011.01060",
             license="Apache-2.0",
             tags=["multi_hop", "qa", "distractors"],
@@ -74,6 +79,11 @@ class TwoWikiMultihopQAAdapter(BaseBenchmarkAdapter):
         # The mirror stores these nested fields as JSON strings in Parquet.
         return [(title, " ".join(sentences)) for title, sentences in json.loads(row["context"])]
 
+    @staticmethod
+    def _identity_text(text: str) -> str:
+        """Normalize formatting for identity only, not the stored source text."""
+        return re.sub(r"\s*([^\w\s])\s*", r"\1", " ".join(text.split()))
+
     def _identified_rows(
         self, split: str, cache_dir: Optional[str]
     ) -> Iterator[Tuple[Dict[str, Any], List[Tuple[str, str, str]]]]:
@@ -83,7 +93,7 @@ class TwoWikiMultihopQAAdapter(BaseBenchmarkAdapter):
         for row in self._rows(split, cache_dir):
             paragraphs = []
             for title, text in self._paragraphs(row):
-                digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                digest = hashlib.sha256(self._identity_text(text).encode("utf-8")).hexdigest()
                 known = versions.setdefault(title, {})
                 if digest not in known:
                     identifier = title if not known else f"{title}#{digest[:16]}"
@@ -146,10 +156,10 @@ class TwoWikiMultihopQAAdapter(BaseBenchmarkAdapter):
     def load_corpus(
         self, cache_dir: Optional[str] = None, max_docs: int = 100_000
     ) -> Optional[Dict[str, str]]:
-        """The validation split's full contexts, deduplicated by paragraph version.
+        """Full validation contexts, deduplicated by normalized paragraph identity.
 
         A cap limits distinct paragraphs. Zero means unlimited; truncation is
-        explicit. Identical paragraphs shared by questions reuse the same ID.
+        explicit. Formatting copies share an ID; the first original text is kept.
         """
         if max_docs < 0:
             raise ValueError("max_docs must be non-negative")

@@ -168,3 +168,85 @@ def test_a_gold_title_with_conflicting_versions_in_one_question_is_refused(datas
     pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
     with pytest.raises(ValueError, match="q1.*ambiguous.*A"):
         TwoWikiMultihopQAAdapter().load()
+
+
+@pytest.mark.parametrize(
+    ("original", "equivalent"),
+    [
+        ("First fact.", "  First\t fact .  "),
+        (
+            'He said "hello" (born 1049), count of Weimar-Orlamünde.',
+            ' He said " hello "( born 1049 ) , count of Weimar- Orlamünde . ',
+        ),
+        ("A [note]; next: yes!", "A[ note ] ; next : yes !"),
+        ("A/B, C—D.", "A / B , C — D ."),
+    ],
+)
+def test_formatting_copies_share_gold_id_and_keep_first_source_text(
+    dataset_files, original, equivalent
+):
+    rows, _, folder, _ = dataset_files
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    for index, text in enumerate((original, equivalent)):
+        context = json.loads(rows[index]["context"])
+        context[0] = ["A", [text]]
+        rows[index]["context"] = json.dumps(context)
+    pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
+    adapter = TwoWikiMultihopQAAdapter()
+    samples = adapter.load()
+    corpus = adapter.load_corpus()
+    assert samples[0].expected_docs == {"A": 1, "B": 1}
+    assert samples[1].expected_docs["A"] == 1
+    assert [doc for doc in corpus if doc == "A" or doc.startswith("A#")] == ["A"]
+    assert corpus["A"] == "A\n\n" + original
+
+
+def test_equivalent_gold_copies_in_one_question_are_not_ambiguous(dataset_files):
+    rows, _, folder, _ = dataset_files
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    context = json.loads(rows[0]["context"])
+    context.append(["A", [" First\t fact . "]])
+    rows[0]["context"] = json.dumps(context)
+    pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
+    sample = TwoWikiMultihopQAAdapter().load()[0]
+    assert sample.expected_docs == {"A": 1, "B": 1}
+
+
+def test_corpus_cap_counts_normalized_versions_and_preserves_relevance(dataset_files):
+    rows, _, folder, make_row = dataset_files
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    rows[:] = [
+        make_row("q1", [["A", ["First fact."]]], ["A"]),
+        make_row("q2", [["A", [" First fact . "]]], ["A"]),
+    ]
+    pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
+    adapter = TwoWikiMultihopQAAdapter()
+    corpus = adapter.load_corpus(max_docs=1)
+    assert corpus == {"A": "A\n\nFirst fact."}
+    assert not adapter.corpus_truncated
+    assert all(sample.expected_docs == {"A": 1} for sample in adapter.load())
+
+
+@pytest.mark.parametrize("different", ["first fact.", "First facts.", "Firstfact."])
+def test_normalized_identity_preserves_case_words_and_content(dataset_files, different):
+    rows, _, folder, _ = dataset_files
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    context = json.loads(rows[1]["context"])
+    context[0] = ["A", [different]]
+    rows[1]["context"] = json.dumps(context)
+    pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
+    adapter = TwoWikiMultihopQAAdapter()
+    samples = adapter.load()
+    corpus = adapter.load_corpus()
+    version = next(doc for doc in corpus if doc.startswith("A#"))
+    assert samples[1].expected_docs[version] == 1
+    assert corpus["A"] == "A\n\nFirst fact."
+    assert corpus[version] == "A\n\n" + different
