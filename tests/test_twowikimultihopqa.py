@@ -1,0 +1,252 @@
+"""The 2Wiki adapter keeps distractors and stable title-based relevance IDs."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from lasagna.knowledge_evaluation_sdk.benchmarks import benchmark_registry
+from lasagna.knowledge_evaluation_sdk.benchmarks.adapters.twowikimultihopqa import (
+    TwoWikiMultihopQAAdapter,
+)
+
+
+@pytest.fixture
+def dataset_files(tmp_path, monkeypatch):
+    pa = pytest.importorskip("pyarrow", reason="Parquet fixture requires the eval extra")
+    pq = pytest.importorskip("pyarrow.parquet", reason="Parquet fixture requires the eval extra")
+    import huggingface_hub
+
+    def row(identifier, context, gold):
+        return {
+            "_id": identifier,
+            "question": f"Question {identifier}?",
+            "answer": f"Answer {identifier}",
+            "type": "compositional",
+            "context": json.dumps(context),
+            "supporting_facts": json.dumps([[title, 0] for title in gold]),
+        }
+
+    rows = [
+        row("q1", [["A", ["First fact."]], ["B", ["Second fact."]], ["X", ["Noise."]]], ["A", "B"]),
+        row("q2", [["A", ["First fact."]], ["X", ["Additional evidence."]]], ["A", "X"]),
+        row("q3", [["B", ["Second fact."]], ["Y", ["More noise."]]], ["B"]),
+    ]
+    for filename in ("dev.parquet", "train.parquet"):
+        pq.write_table(pa.Table.from_pylist(rows), tmp_path / filename)
+    calls = []
+
+    def download(repo_id, filename, **kwargs):
+        calls.append((repo_id, filename, kwargs))
+        return str(tmp_path / filename)
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", download)
+    return rows, calls, tmp_path, row
+
+
+def test_registered_metadata_needs_no_download():
+    adapter = benchmark_registry.get("2wikimultihopqa")
+    info = adapter.info()
+    assert isinstance(adapter, TwoWikiMultihopQAAdapter)
+    assert info.license == "Apache-2.0"
+    assert info.paper == "arxiv:2011.01060"
+    assert adapter.available_splits() == ["train", "validation"]
+    assert adapter.corpus_provenance == "native"
+
+
+def test_samples_and_corpus_keep_gold_and_distractor_paragraphs(dataset_files):
+    adapter = TwoWikiMultihopQAAdapter()
+    samples = adapter.load()
+    corpus = adapter.load_corpus()
+    assert [s.query_id for s in samples] == ["q1", "q2", "q3"]
+    assert samples[0].ground_truth == "Answer q1"
+    assert samples[0].hops == 2
+    assert samples[0].metadata["type"] == "compositional"
+    assert samples[0].expected_docs == {"A": 1, "B": 1}
+    x_version = next(doc for doc in corpus if doc.startswith("X#"))
+    assert set(corpus) == {"A", "B", "X", x_version, "Y"}
+    assert corpus["X"] == "X\n\nNoise."
+    assert corpus[x_version] == "X\n\nAdditional evidence."
+    assert samples[1].expected_docs == {"A": 1, x_version: 1}
+    assert corpus["A"].count("First fact.") == 1
+    assert all(set(s.expected_docs) <= set(corpus) for s in samples)
+
+
+def test_both_load_paths_use_the_same_pinned_validation_file(dataset_files):
+    _, calls, _, _ = dataset_files
+    adapter = TwoWikiMultihopQAAdapter()
+    adapter.load(cache_dir="chosen-cache")
+    adapter.load_corpus(cache_dir="chosen-cache")
+    assert len(calls) == 2
+    for repo, filename, kwargs in calls:
+        assert repo == "xanhho/2WikiMultihopQA"
+        assert filename == "dev.parquet"
+        assert kwargs["revision"] == adapter.hf_revision
+        assert kwargs["cache_dir"] == "chosen-cache"
+        assert kwargs["repo_type"] == "dataset"
+
+
+def test_sampling_is_repeatable_and_train_does_not_change_the_default_corpus(dataset_files):
+    _, calls, _, _ = dataset_files
+    adapter = TwoWikiMultihopQAAdapter()
+    first = adapter.load(n_samples=2, seed=42)
+    second = adapter.load(n_samples=2, seed=42)
+    assert first == second
+    assert len(first) == 2
+    assert len({s.query_id for s in first}) == 2
+    assert adapter.load(n_samples=0) == []
+    assert len(adapter.load(n_samples=10)) == 3
+    adapter.load(split="train")
+    assert calls[-1][1] == "train.parquet"
+    adapter.load_corpus()
+    assert calls[-1][1] == "dev.parquet"
+
+
+def test_corpus_limit_counts_versions_as_distinct_documents(dataset_files):
+    adapter = TwoWikiMultihopQAAdapter()
+    corpus = adapter.load_corpus(max_docs=3)
+    assert set(corpus) == {"A", "B", "X"}
+    assert "Additional evidence." not in corpus["X"]
+    assert adapter.corpus_truncated
+    assert len(adapter.load_corpus(max_docs=5)) == 5
+    assert not adapter.corpus_truncated
+    assert len(adapter.load_corpus(max_docs=0)) == 5
+    assert not adapter.corpus_truncated
+
+
+@pytest.mark.parametrize("kwargs", [{"split": "test"}, {"n_samples": -1}, {"filters": {"x": 1}}])
+def test_invalid_load_options_fail_before_download(dataset_files, kwargs):
+    _, calls, _, _ = dataset_files
+    with pytest.raises(ValueError):
+        TwoWikiMultihopQAAdapter().load(**kwargs)
+    assert calls == []
+
+
+def test_negative_corpus_limit_is_rejected_before_download(dataset_files):
+    _, calls, _, _ = dataset_files
+    with pytest.raises(ValueError, match="max_docs"):
+        TwoWikiMultihopQAAdapter().load_corpus(max_docs=-1)
+    assert calls == []
+
+
+def test_missing_gold_paragraph_is_an_error_not_a_silent_metric_change(dataset_files):
+    rows, _, folder, _ = dataset_files
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    rows[0]["supporting_facts"] = json.dumps([["Absent", 0]])
+    pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
+    with pytest.raises(ValueError, match="q1.*Absent"):
+        TwoWikiMultihopQAAdapter().load()
+
+
+def test_two_versions_of_a_title_in_the_same_question_are_retained(dataset_files):
+    rows, _, folder, _ = dataset_files
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    context = json.loads(rows[0]["context"])
+    context.append(["X", ["Another paragraph from the same article."]])
+    rows[0]["context"] = json.dumps(context)
+    pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
+    corpus = TwoWikiMultihopQAAdapter().load_corpus()
+    versions = [text for doc_id, text in corpus.items() if doc_id == "X" or doc_id.startswith("X#")]
+    assert len(versions) == 3
+    assert any(text == "X\n\nNoise." for text in versions)
+    assert any(text == "X\n\nAnother paragraph from the same article." for text in versions)
+
+
+def test_a_gold_title_with_conflicting_versions_in_one_question_is_refused(dataset_files):
+    rows, _, folder, _ = dataset_files
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    context = json.loads(rows[0]["context"])
+    context.append(["A", ["A different version of the gold paragraph."]])
+    rows[0]["context"] = json.dumps(context)
+    pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
+    with pytest.raises(ValueError, match="q1.*ambiguous.*A"):
+        TwoWikiMultihopQAAdapter().load()
+
+
+@pytest.mark.parametrize(
+    ("original", "equivalent"),
+    [
+        ("First fact.", "  First\t fact .  "),
+        (
+            'He said "hello" (born 1049), count of Weimar-Orlamünde.',
+            ' He said " hello "( born 1049 ) , count of Weimar- Orlamünde . ',
+        ),
+        ("A [note]; next: yes!", "A[ note ] ; next : yes !"),
+        ("A/B, C—D.", "A / B , C — D ."),
+    ],
+)
+def test_formatting_copies_share_gold_id_and_keep_first_source_text(
+    dataset_files, original, equivalent
+):
+    rows, _, folder, _ = dataset_files
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    for index, text in enumerate((original, equivalent)):
+        context = json.loads(rows[index]["context"])
+        context[0] = ["A", [text]]
+        rows[index]["context"] = json.dumps(context)
+    pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
+    adapter = TwoWikiMultihopQAAdapter()
+    samples = adapter.load()
+    corpus = adapter.load_corpus()
+    assert samples[0].expected_docs == {"A": 1, "B": 1}
+    assert samples[1].expected_docs["A"] == 1
+    assert [doc for doc in corpus if doc == "A" or doc.startswith("A#")] == ["A"]
+    assert corpus["A"] == "A\n\n" + original
+
+
+def test_equivalent_gold_copies_in_one_question_are_not_ambiguous(dataset_files):
+    rows, _, folder, _ = dataset_files
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    context = json.loads(rows[0]["context"])
+    context.append(["A", [" First\t fact . "]])
+    rows[0]["context"] = json.dumps(context)
+    pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
+    sample = TwoWikiMultihopQAAdapter().load()[0]
+    assert sample.expected_docs == {"A": 1, "B": 1}
+
+
+def test_corpus_cap_counts_normalized_versions_and_preserves_relevance(dataset_files):
+    rows, _, folder, make_row = dataset_files
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    rows[:] = [
+        make_row("q1", [["A", ["First fact."]]], ["A"]),
+        make_row("q2", [["A", [" First fact . "]]], ["A"]),
+    ]
+    pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
+    adapter = TwoWikiMultihopQAAdapter()
+    corpus = adapter.load_corpus(max_docs=1)
+    assert corpus == {"A": "A\n\nFirst fact."}
+    assert not adapter.corpus_truncated
+    assert all(sample.expected_docs == {"A": 1} for sample in adapter.load())
+
+
+@pytest.mark.parametrize("different", ["first fact.", "First facts.", "Firstfact."])
+def test_normalized_identity_preserves_case_words_and_content(dataset_files, different):
+    rows, _, folder, _ = dataset_files
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    context = json.loads(rows[1]["context"])
+    context[0] = ["A", [different]]
+    rows[1]["context"] = json.dumps(context)
+    pq.write_table(pa.Table.from_pylist(rows), folder / "dev.parquet")
+    adapter = TwoWikiMultihopQAAdapter()
+    samples = adapter.load()
+    corpus = adapter.load_corpus()
+    version = next(doc for doc in corpus if doc.startswith("A#"))
+    assert samples[1].expected_docs[version] == 1
+    assert corpus["A"] == "A\n\nFirst fact."
+    assert corpus[version] == "A\n\n" + different
