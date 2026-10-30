@@ -166,7 +166,7 @@ All nested under `document_awareness` parent key.
 | `agentic_hyde_strategy` | enum | `"adaptive"` | Options: `off`, `first_hop`, `adaptive`, `always` |  |
 | `use_final_search` | boolean | `false` |  |  |
 | `use_structured_graph` | boolean | `false` | *Legacy alias* for `agentic_pipeline` |  |
-| `agentic_pipeline` | string | `"legacy_react"` | Built-in: `legacy_react`, `default`, and the five published loops. Custom registered names also accepted. |  |
+| `agentic_pipeline` | string | `"legacy_react"` | Built-in: `legacy_react`, `default`, and the six published loops. Custom registered names also accepted. |  |
 | `enable_hallucination_check` | boolean | `false` |  |  |
 | `enable_answer_quality_check` | boolean | `false` |  |  |
 | `coverage_scorer_mode` | enum | `"keyword"` | Options: `keyword`, `llm` |  |

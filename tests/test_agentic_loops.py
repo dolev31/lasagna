@@ -432,6 +432,193 @@ SHORT_RUNS["self_rag"] = ["[Yes]", "[Relevant]", "Ada.", "[Fully supported]", "5
 
 
 # ---------------------------------------------------------------------------
+# Search-o1
+# ---------------------------------------------------------------------------
+
+BQ, EQ = "<|begin_search_query|>", "<|end_search_query|>"
+BR, ER = "<|begin_search_result|>", "<|end_search_result|>"
+
+
+async def test_search_o1_searches_each_query_and_inserts_what_was_read(monkeypatch):
+    backend = install_backend(
+        monkeypatch,
+        {
+            "founder of craigslist": [hit("c1", "Craigslist was founded by Craig Newmark.")],
+            "Craig Newmark birth date": [hit("c2", "Craig Newmark, born December 6, 1952.")],
+        },
+    )
+    llm = ScriptedLLM(
+        [
+            # A provider that ignores ``stop`` runs on past the query: cut there.
+            f"I need the founder first.\n{BQ}founder of craigslist{EQ}\n\nThe founder is",
+            "The page names him.\n\n**Final Information**\n\nCraig Newmark founded craigslist.",
+            f"Now his birth date.\n{BQ}Craig Newmark birth date{EQ}",
+            "**Final Information**\n\nCraig Newmark was born on December 6, 1952.",
+            "So the answer is \\boxed{December 6, 1952}.",
+        ]
+    )
+    result = await _loop("search_o1").run(pipeline_input(Q_CRAIG, llm))
+
+    assert [c["query"] for c in backend.calls] == [
+        "founder of craigslist",
+        "Craig Newmark birth date",
+    ]
+    assert llm.stops[0] == [EQ]
+    # The authors' instruction and question prompt, with the search limit.
+    assert llm.prompts[0].startswith("You are a reasoning assistant with the ability")
+    assert "The maximum number of search attempts is limited to 10." in llm.prompts[0]
+    assert llm.prompts[0].endswith(f"\\boxed{{YOUR_ANSWER}}.\n\nQuestion:\n{Q_CRAIG}\n\n")
+    # Reason-in-Documents reads the reasoning so far, the query and the passages.
+    reader = llm.prompts[1]
+    assert reader.startswith("**Task Instruction:**")
+    assert "Step 1: I need the founder first." in reader
+    assert "- **Current Search Query:**  \nfounder of craigslist\n" in reader
+    assert '**Web Page 1:**\n{\n  "id": 1,\n  "title": "c1.txt",' in reader
+    assert '"context": "Craigslist was founded by Craig Newmark."' in reader
+    # Its account goes back into the reasoning, and generation resumes after it.
+    assert llm.prompts[2].endswith(
+        f"{BQ}founder of craigslist{EQ}\n\n{BR}Craig Newmark founded craigslist.{ER}\n\n"
+    )
+    assert "The founder is" not in llm.prompts[2]
+    assert result.agent_summary == "December 6, 1952"
+    assert [c["content"] for c in result.chunks] == [
+        "Craigslist was founded by Craig Newmark.",
+        "Craig Newmark, born December 6, 1952.",
+    ]
+    assert result.metrics.stop_reason == "answer"
+    assert result.metrics.loop_trace["queries"] == [
+        "founder of craigslist",
+        "Craig Newmark birth date",
+    ]
+
+
+async def test_search_o1_answers_without_searching_when_no_query_is_written(monkeypatch):
+    backend = install_backend(monkeypatch, {})
+    llm = ScriptedLLM(["Paris is the capital. \\boxed{\\text{Paris}}"])
+    result = await _loop("search_o1").run(pipeline_input("What is the capital of France?", llm))
+    assert backend.calls == [] and result.agent_summary == "Paris" and result.chunks == []
+
+
+async def test_search_o1_refuses_a_search_past_its_limit(monkeypatch):
+    from lasagna.agentic.loops.search_o1 import LIMIT_MESSAGE
+
+    backend = install_backend(monkeypatch, {"A": [hit("a", "alpha")]})
+    llm = ScriptedLLM(
+        [
+            f"{BQ}A{EQ}",
+            "**Final Information**\n\nalpha",
+            f"{BQ}B{EQ}",  # over the limit of one: never searched
+            "\\boxed{alpha}",
+        ]
+    )
+    config = ArmConfig(search_o1_max_searches=1)
+    result = await _loop("search_o1").run(pipeline_input("A and B?", llm, config))
+
+    assert [c["query"] for c in backend.calls] == ["A"]
+    assert "limited to 1." in llm.prompts[0]
+    assert llm.prompts[3].endswith(f"{BQ}B{EQ}" + LIMIT_MESSAGE)
+    assert result.agent_summary == "alpha"
+    assert result.metrics.loop_trace["refused_searches"] == 1
+
+
+async def test_search_o1_does_not_search_a_query_twice(monkeypatch):
+    from lasagna.agentic.loops.search_o1 import REPEAT_MESSAGE
+
+    backend = install_backend(monkeypatch, {"A": [hit("a", "alpha")]})
+    llm = ScriptedLLM(
+        [f"{BQ}A{EQ}", "**Final Information**\n\nalpha", f"{BQ}A{EQ}", "\\boxed{alpha}"]
+    )
+    result = await _loop("search_o1").run(pipeline_input("A?", llm))
+    assert [c["query"] for c in backend.calls] == ["A"]
+    assert llm.prompts[3].endswith(REPEAT_MESSAGE)
+    assert result.agent_summary == "alpha"
+
+
+async def test_search_o1_stops_at_its_turn_limit_with_no_answer(monkeypatch):
+    backend = install_backend(monkeypatch, {}, default=[hit("a", "alpha")])
+    llm = ScriptedLLM(
+        [f"{BQ}A{EQ}", "nothing useful", f"{BQ}B{EQ}", "**Final Information**\n\nbeta"]
+    )
+    config = ArmConfig(search_o1_max_turns=2)
+    result = await _loop("search_o1").run(pipeline_input("A and B?", llm, config))
+
+    assert [c["query"] for c in backend.calls] == ["A", "B"]
+    # A reader reply without the marker counts as finding nothing, as in the authors' code.
+    assert llm.prompts[2].endswith(f"{BR}No helpful information found.{ER}\n\n")
+    assert result.agent_summary == ""
+    assert result.metrics.stop_reason == "max_turns"
+
+
+async def test_search_o1_says_when_it_ends_without_a_boxed_answer(monkeypatch):
+    install_backend(monkeypatch, {})
+    llm = ScriptedLLM(["The answer is Paris."])
+    result = await _loop("search_o1").run(pipeline_input("Capital of France?", llm))
+    assert result.agent_summary == "" and result.metrics.stop_reason == "no_boxed_answer"
+
+
+def test_search_o1_shortens_long_reasoning_as_the_authors_do():
+    from lasagna.agentic.loops.search_o1 import _previous_reasoning
+
+    assert _previous_reasoning("a\n\nb") == "Step 1: a\n\nStep 2: b"
+    output = f"a\nb\n{BQ}q{EQ}\nd\ne\nf\ng\nh"
+    assert _previous_reasoning(output) == (
+        f"Step 1: a\n\n...\n\nStep 3: {BQ}q{EQ}\n\n...\n\nStep 6: f\n\nStep 7: g\n\nStep 8: h"
+    )
+
+
+async def test_search_o1_reads_a_query_written_in_thinking_the_provider_returns_apart(
+    monkeypatch,
+):
+    from langchain_core.messages import AIMessage
+
+    backend = install_backend(monkeypatch, {"Jaws director": [hit("j", "Spielberg.")]})
+    llm = ScriptedLLM(
+        [
+            # Ollama with reasoning=True: the thinking, cut at the stop, comes
+            # back in its own field and the reply text is empty.
+            AIMessage(
+                content="",
+                additional_kwargs={"reasoning_content": f"First the director.\n{BQ}Jaws director"},
+            ),
+            "**Final Information**\n\nSteven Spielberg.",
+            "\\boxed{Steven Spielberg}",
+        ]
+    )
+    result = await _loop("search_o1").run(pipeline_input("Who directed Jaws?", llm))
+    assert [c["query"] for c in backend.calls] == ["Jaws director"]
+    assert f"First the director.\n{BQ}Jaws director{EQ}" in llm.prompts[2]
+    assert result.agent_summary == "Steven Spielberg"
+
+
+def test_search_o1_asks_ollama_for_its_thinking():
+    from lasagna.agentic.loops.search_o1 import _thinking_llm
+
+    class ChatOllama:  # the name the loop recognises; the real class is pydantic
+        def __init__(self, reasoning):
+            self.reasoning = reasoning
+
+        def model_copy(self, update):
+            return ChatOllama(**update)
+
+    assert _thinking_llm(ChatOllama(None)).reasoning is True
+    assert _thinking_llm(ChatOllama(False)).reasoning is False  # an explicit choice is kept
+    other = ScriptedLLM([])
+    assert _thinking_llm(other) is other
+
+
+LOOP_SETTINGS["search_o1"] = [
+    "search_o1_max_searches",
+    "search_o1_max_turns",
+    "search_o1_docs_per_search",
+]
+SHORT_RUNS["search_o1"] = [
+    f"{BQ}Who wrote the first program?{EQ}",
+    "**Final Information**\n\nAda Lovelace wrote it.",
+    "\\boxed{Ada Lovelace}",
+]
+
+
+# ---------------------------------------------------------------------------
 # Every loop: registration, the stage contract, search and settings
 # ---------------------------------------------------------------------------
 

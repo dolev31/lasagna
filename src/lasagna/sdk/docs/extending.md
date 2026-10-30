@@ -651,7 +651,7 @@ grid_results.to_dataframe()
 
 ## Agentic Pipeline Extensibility
 
-The `agentic_pipeline` component slot and `graph_node` callable registry enable systematic experimentation with retrieval strategies. The five published loops (`self_ask`, `ircot`, `flare`, `adaptive`, `self_rag`) are registered names like `default`, so any of them can be a variant below; see the [agentic README](../../agentic/README.md#which-pipeline-runs).
+The `agentic_pipeline` component slot and `graph_node` callable registry enable systematic experimentation with retrieval strategies. The six published loops (`self_ask`, `ircot`, `flare`, `adaptive`, `self_rag`, `search_o1`) are registered names like `default`, so any of them can be a variant below; see the [agentic README](../../agentic/README.md#which-pipeline-runs).
 
 ### Sweeping Pipelines
 
