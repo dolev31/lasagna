@@ -144,6 +144,64 @@ Lasagna needs, with a definition of done for each.
   does not show it.
 - Never commit credentials, real corpora, or absolute paths from your machine.
   CI rejects all three.
+- It was tested in the production environment: the Docker Compose stack, built
+  from the branch ([below](#tested-in-the-production-environment)). "How it was
+  tested" shows the `docker compose` commands you ran and what came out.
+
+### Tested in the production environment
+
+Lasagna runs in production as the Docker Compose stack in `src/lasagna/deploy`.
+A local install can behave differently: another version of the vector store,
+other storage settings, other system libraries. Code that ran only outside the
+stack is untested here, so every pull request runs its change in the stack,
+built from its branch, and shows it.
+
+1. **Get Docker.** Each of these is free:
+   - [Rancher Desktop](https://rancherdesktop.io/), open source, on macOS,
+     Windows and Linux.
+   - Docker Engine, on Linux.
+   - [Docker Desktop](https://www.docker.com/products/docker-desktop/), for
+     personal use, education and small businesses.
+   - A GitHub Codespace on your fork. It runs Docker, and a personal account has
+     free monthly hours. Use it when your machine, or the sandbox your agent
+     works in, has no Docker daemon.
+2. **Build the stack from your branch, and start it.**
+
+   ```bash
+   cd src/lasagna/deploy
+   cp .env.example .env
+   # In .env: fill RAG_JWT_SECRET and POSTGRES_PASSWORD (for example with
+   # `openssl rand -hex 32`), and set IMAGE_EXTRAS=eval if your evidence runs
+   # `lasagna benchmark`. VECTOR_BACKEND=milvus is the default; a change to
+   # another store sets it to that file in backends/ and uses that file below.
+   docker compose -f docker-compose.yml -f backends/milvus.yml up -d --build
+   docker compose -f docker-compose.yml -f backends/milvus.yml ps
+   ```
+
+3. **Run your change there.** The command behind your evidence runs inside the
+   api container:
+
+   ```bash
+   docker compose -f docker-compose.yml -f backends/milvus.yml exec api \
+     lasagna benchmark run smoke --profile speed --tracks retrieval -o /tmp/smoke
+   ```
+
+   In the default stack (Milvus) built from `main` with `IMAGE_EXTRAS=eval`,
+   this prints `smoke` with ndcg@10 0.9464, so on that stack a different number
+   is your change. A stress or live test runs from your
+   checkout against the stack's ports, for example with
+   `QDRANT_URL=http://localhost:6333` against the Qdrant stack. A change to one
+   vector backend runs against that backend's file in `backends/`.
+4. **Show it.** Under "How it was tested", paste the `docker compose` commands,
+   the image lines from `docker compose ps`, and what came out. The "PR quality"
+   check fails while that section names no `docker compose` command, and the
+   checklist has a box for it.
+
+Running it is your part of the pull request. Maintainers do not run your
+evidence for you, in Docker or anywhere else, and a pull request whose change
+has not run in the stack goes back to its author. A maintainer may rerun your
+command before merging, to check your result; that rerun never stands in for
+it.
 
 ### Done, by kind of change
 

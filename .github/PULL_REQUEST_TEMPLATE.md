@@ -19,7 +19,11 @@ function, CLI flag, setting or REST field that is new or behaves differently. --
 
 <!-- Name the test that fails without this change and passes with it, and the
 command you ran. A docs-only change: say how you checked it (for example
-`mkdocs build --strict`). -->
+`mkdocs build --strict`), and run the commands it documents in the stack. Then
+show the change running in the production
+environment, the Docker Compose stack built from this branch: the
+`docker compose` commands, the image lines from `docker compose ps`, and what
+came out. How to set it up, free: CONTRIBUTING.md#tested-in-the-production-environment -->
 
 ## Evidence
 
@@ -43,4 +47,5 @@ Read in full by:
 - [ ] `scripts/ci-local.sh` passes, or at least `ruff check .`, `ruff format --check .` and the test suite.
 - [ ] Every new `noqa`, `type: ignore` or `pragma: no cover` names its code and gives a reason.
 - [ ] `CHANGELOG.md` has a line under Unreleased, or nothing a user sees changed.
+- [ ] I ran this change in the Docker Compose stack built from this branch, and "How it was tested" shows the commands.
 - [ ] I read every line of the diff, and I can explain each one.

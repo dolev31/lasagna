@@ -132,7 +132,13 @@ COPY src/lasagna/ ./src/lasagna/
 # pinecone need the `vector-backends` extra; their compose fragments set this
 # argument, and `all` installs every client. The build fails if the client
 # does not import, rather than the api failing its readiness check later.
+#
+# IMAGE_EXTRAS adds more extras, comma-separated (for example `eval`, which the
+# benchmark and sweep commands need). It is empty in production. Contributors
+# build with it to run their change's evidence inside the stack, which is how
+# CONTRIBUTING.md asks every pull request to be tested.
 ARG VECTOR_BACKEND=milvus
+ARG IMAGE_EXTRAS=""
 RUN case "$VECTOR_BACKEND" in \
       milvus|milvus-lite|pgvector|opensearch) extra=""; check="" ;; \
       qdrant) extra=",vector-backends"; check="qdrant_client" ;; \
@@ -141,12 +147,17 @@ RUN case "$VECTOR_BACKEND" in \
       all) extra=",vector-backends"; check="qdrant_client weaviate pinecone" ;; \
       *) echo "Unknown VECTOR_BACKEND=$VECTOR_BACKEND. Use one of: milvus milvus-lite pgvector opensearch qdrant weaviate pinecone all"; exit 1 ;; \
     esac && \
+    case "$IMAGE_EXTRAS" in \
+      *[!a-z0-9,-]*|,*|*,|*,,*|-*|*,-*|*-|*-,*) echo "IMAGE_EXTRAS=$IMAGE_EXTRAS: give extras names separated by commas, as in eval or eval,providers"; exit 1 ;; \
+    esac && \
     pip install --no-cache-dir -c constraints.txt \
-    ".[production,pgvector,opensearch,flag-embedding$extra]" \
+    ".[production,pgvector,opensearch,flag-embedding$extra${IMAGE_EXTRAS:+,$IMAGE_EXTRAS}]" \
     "gunicorn>=22.0.0" && \
-    for module in pymilvus psycopg opensearchpy $check; do python -c "import $module" || exit 1; done
+    for module in pymilvus psycopg opensearchpy $check; do python -c "import $module" || exit 1; done && \
+    python -c "import sys, importlib.metadata as m; have = set(m.metadata('lasagna-rag').get_all('Provides-Extra') or []); bad = [e for e in sys.argv[1].split(',') if e and e not in have]; sys.exit('IMAGE_EXTRAS names extras lasagna-rag does not provide: %s (it provides %s)' % (bad, sorted(have)) if bad else 0)" "$IMAGE_EXTRAS"
 # Read by `make validate`, which refuses an image built for another backend.
 LABEL org.lasagna.vector-backend="$VECTOR_BACKEND"
+LABEL org.lasagna.image-extras="$IMAGE_EXTRAS"
 # The cpu image must still have the CPU build: a CUDA torch here means the
 # install above replaced it, and the image is several GB larger for nothing.
 RUN if [ "$TORCH_VARIANT" = cpu ]; then \

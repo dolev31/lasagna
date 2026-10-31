@@ -15,6 +15,8 @@ Checks the description (from `--file`, `-` for stdin, or `$PR_BODY`):
   person who read every line of it;
 - "Evidence" is a result, or a line that starts "No number can move:" and
   gives the reason;
+- "How it was tested" names a `docker compose` command, since every change is
+  run in the production environment, the Compose stack built from its branch;
 - every box in the checklist is ticked.
 
 With `--diff BASE`, checks the lines `git diff BASE...HEAD` adds:
@@ -57,7 +59,19 @@ REQUIRED_BOXES = (
     "scripts/ci-local.sh",
     "names its code and gives a reason",
     "CHANGELOG.md",
+    "Docker Compose stack",
     "I read every line of the diff",
+)
+
+#: A Compose command, the proof a change ran in the production environment: a
+#: command (up, exec, run, ps, build, logs, config), so a sentence that only
+#: names the stack ("I did not run it in the Docker Compose stack") is no proof.
+#: Options may be split over lines with a trailing backslash, as shell commands are.
+_SEP = r"(?:\s*\\\s*|\s+)"
+_COMPOSE = re.compile(
+    r"\bdocker(?:\s+--context\s+\S+)?(?:-| )compose\b"
+    rf"(?:{_SEP}-{{1,2}}[A-Za-z-]+(?:[ =](?!-)\S+)?)*"
+    rf"{_SEP}(?:up|exec|run|ps|build|logs|config)\b"
 )
 
 #: What a section holds when nobody filled it in.
@@ -128,6 +142,13 @@ def problems(body: str) -> list[str]:
         reason = evidence.split(":", 1)[1].strip() if ":" in evidence else ""
         if len(reason.split()) < 3:
             found.append('"## Evidence" says no number can move but not why')
+
+    tested = sections.get("How it was tested", "")
+    if tested and not _is_placeholder(tested) and not _COMPOSE.search(tested):
+        found.append(
+            '"## How it was tested" shows no `docker compose` command; run the change in '
+            "the Compose stack built from this branch (CONTRIBUTING.md#tested-in-the-production-environment)"
+        )
 
     agent = sections.get("Agent use", "")
     if agent:

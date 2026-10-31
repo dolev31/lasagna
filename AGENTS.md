@@ -110,6 +110,13 @@ python scripts/check_pr_body.py --file body.md --diff origin/main
   "Written with:" names you, truthfully. Leave "Read in full by:" for the person
   who reads every line of the diff; never fill it in for them.
 - Never tick a checklist box for something you did not do or run.
+- Run the change in the production environment, the Docker Compose stack in
+  `src/lasagna/deploy` built from the branch, and paste the `docker compose`
+  commands and their output under "How it was tested" (CONTRIBUTING.md,
+  "Tested in the production environment"). If your sandbox has no Docker
+  daemon, tell the person you work for; a GitHub Codespace runs Docker. Never
+  report a run that did not happen in the stack as one that did, and never ask
+  a maintainer to make the run for you: it is the contributor's to make.
 - A test that fails without the change. A line in `CHANGELOG.md` under
   Unreleased for anything a user sees.
 - Every `noqa`, `type: ignore`, `pragma: no cover` and skip gives its reason;

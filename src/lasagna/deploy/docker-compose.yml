@@ -131,6 +131,9 @@ x-build: &common-build
   args:
     # cpu (the default) or cuda: the torch build the image runs. Set it in .env.
     TORCH_VARIANT: ${TORCH_VARIANT:-cpu}
+    # Extras beyond the production set, comma-separated (empty in production;
+    # `eval` to run benchmarks and sweeps inside the stack). Set it in .env.
+    IMAGE_EXTRAS: ${IMAGE_EXTRAS:-}
 
 services:
   # -------------------------------------------------------------------------
