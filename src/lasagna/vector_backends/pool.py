@@ -22,6 +22,7 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import threading
 from collections import deque
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -70,6 +71,8 @@ class PooledVectorBackend(VectorStoreAdapter):
         if pool_size > self._MAX_POOL_SIZE:
             logger.warning(f"Requested pool_size={pool_size} capped to {self._MAX_POOL_SIZE}")
         self._pool: deque[VectorStoreAdapter] = deque()
+        # Every instance, checked out or not, for state that must reach all of them.
+        self._members: List[VectorStoreAdapter] = []
         self._semaphore = threading.Semaphore(self._pool_size)
         self._lock = threading.Lock()
         self._connected = False
@@ -83,6 +86,19 @@ class PooledVectorBackend(VectorStoreAdapter):
     @property
     def backend_name(self) -> str:
         return self._backend_name
+
+    @property
+    def is_lite(self) -> bool:
+        """Whether the pooled instances are an embedded store (Milvus Lite).
+
+        Read as ``getattr(backend, "is_lite", False)`` by the ingest stamp,
+        the collection manager and the profile guard. The pool did not pass it
+        on, so a pool over Milvus Lite (``connection_pool_size`` above 1) was
+        taken for a server.
+        """
+        with self._lock:
+            first = self._members[0] if self._members else None
+        return bool(getattr(first, "is_lite", False))
 
     @property
     def capabilities(self) -> BackendCapabilities:
@@ -119,6 +135,7 @@ class PooledVectorBackend(VectorStoreAdapter):
                         logger.debug(f"Error cleaning up partial pool: {cleanup_err}")
                 raise
             # Cache name and capabilities from the first instance
+            self._members = list(self._pool)
             first = self._pool[0]
             self._backend_name = first.backend_name
             self._capabilities = first.capabilities
@@ -142,6 +159,7 @@ class PooledVectorBackend(VectorStoreAdapter):
                         backend.disconnect()
                     except Exception as e:
                         logger.debug(f"Error disconnecting pooled backend: {e}")
+                self._members = []
                 self._connected = False
         finally:
             # Release all permits so a subsequent connect() can work
@@ -174,6 +192,58 @@ class PooledVectorBackend(VectorStoreAdapter):
         with self._lock:
             self._pool.append(backend)
         self._semaphore.release()
+
+    @contextlib.contextmanager
+    def read_fresh(self):
+        """Enter every pooled instance's ``read_fresh`` for this thread.
+
+        The pool hands each query to whichever instance is free, so a census
+        inside this block must find the fresh state on all of them. Without
+        this the pool kept the base no-op, and on the Compose stack (a Milvus
+        server behind a pool) the benchmark's census read stale and refused
+        every cold run. It reaches the instances connected when the block
+        starts; a pool that disconnects and reconnects inside it gets new
+        instances that read at their default level.
+        """
+        with self._lock:
+            members = list(self._members)
+        with contextlib.ExitStack() as stack:
+            for backend in members:
+                stack.enter_context(backend.read_fresh())
+            yield
+
+    def iter_all(
+        self,
+        collection_name: str,
+        filter_expr: Optional[FilterExpression] = None,
+        output_fields: Optional[List[str]] = None,
+        *,
+        partition_key: Optional[str] = None,
+        page_size: int = 1000,
+    ):
+        """Every matching row, read through one instance's own ``iter_all``.
+
+        The base implementation pages with ``query(offset=...)``, which on a
+        Milvus server reads stale (no catch-up) and is rejected past 16,384
+        rows. The instance's ``iter_all`` uses the native cursor and catches
+        the server up first. Rows are collected while the instance is held and
+        yielded after it is released, so a caller that queries the pool while
+        consuming them cannot deadlock a pool of one.
+        """
+        backend = self._acquire()
+        try:
+            rows = list(
+                backend.iter_all(
+                    collection_name,
+                    filter_expr,
+                    output_fields,
+                    partition_key=partition_key,
+                    page_size=page_size,
+                )
+            )
+        finally:
+            self._release(backend)
+        yield from rows
 
     # =========================================================================
     # Collection Management — delegated
