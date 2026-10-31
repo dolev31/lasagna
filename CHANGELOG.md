@@ -30,6 +30,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   collection first: `create_collection` raises `CollectionExistsError` (a
   `ValueError` subclass) on an existing name, and collection initialization
   continues as the "already exists" branch does instead of failing to start.
+  The same lost-race handling now covers the third check-then-create path,
+  `CollectionManager.ensure_backend_collection`, which the API process and a
+  Celery worker can reach at the same time.
 - Validate `BaseAgenticPipeline` components with an async contract check and
   report incorrect results or input mutation instead of rejecting the stage.
 

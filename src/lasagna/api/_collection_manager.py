@@ -395,8 +395,20 @@ class CollectionManager:
                     f"Creating collection '{collection_name}' on {backend.backend_name} "
                     f"(dim={embedding_dim})"
                 )
-                self.create_collection_on_backend(backend, collection_name, embedding_dim, config)
-                self.create_index_on_backend(backend, collection_name, config)
+                try:
+                    self.create_collection_on_backend(
+                        backend, collection_name, embedding_dim, config
+                    )
+                except CollectionExistsError:
+                    logger.info(
+                        f"Collection '{collection_name}' was created by another process first"
+                    )
+                    if self.needs_schema_migration(backend, collection_name):
+                        self.recreate_collection_for_config(config, backend=backend)
+                    else:
+                        self.ensure_index_exists(collection_name, backend)
+                else:
+                    self.create_index_on_backend(backend, collection_name, config)
             elif self.needs_schema_migration(backend, collection_name):
                 self.recreate_collection_for_config(config, backend=backend)
             else:
