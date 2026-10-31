@@ -2744,6 +2744,9 @@ tests the rest.</p>
   its stage, at <code>n_runs: 1</code> for retrieval with fixed models and 3 or more with an
   LLM in the loop, and <code>lasagna results validate run.json --strict</code> passes.</li>
 <li><code>CHANGELOG.md</code> has a line under Unreleased.</li>
+<li>The comparison ran in the Docker Compose stack built from your branch, with
+  <code>IMAGE_EXTRAS=eval</code> in <code>.env</code>, and the description shows the <code>docker compose</code>
+  commands (<a href="https://github.com/dolev31/lasagna/blob/main/CONTRIBUTING.md#tested-in-the-production-environment">how</a>).</li>
 <li>The pull request template is filled in, including who read every line of the
   diff.</li>
 </ul>

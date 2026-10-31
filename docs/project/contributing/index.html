@@ -2313,6 +2313,12 @@ request and fails until:</p>
   every TODO links its issue;</li>
 <li>a change to <code>src/lasagna/</code> comes with a test and a changelog line.</li>
 </ul>
+<p>Every change is also run in the production environment, the Docker Compose
+stack in <code>src/lasagna/deploy</code> built from the branch, and the description shows
+the <code>docker compose</code> commands and what came out. Docker is free through
+<a href="https://rancherdesktop.io/">Rancher Desktop</a>, Docker Engine on Linux, Docker
+Desktop for personal use, or a GitHub Codespace. The steps are in
+<a href="https://github.com/dolev31/lasagna/blob/main/CONTRIBUTING.md#tested-in-the-production-environment">CONTRIBUTING.md</a>.</p>
 <p>Run it before you open the pull request:</p>
 <div class="highlight"><pre><span></span><code>python<span class="w"> </span>scripts/check_pr_body.py<span class="w"> </span>--file<span class="w"> </span>body.md<span class="w"> </span>--diff<span class="w"> </span>origin/main
 </code></pre></div>
