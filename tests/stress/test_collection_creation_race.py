@@ -137,7 +137,11 @@ def _classify_failure(raised) -> str:
 
 def _run_round(tag: str, round_no: int, qdrant_url: str) -> dict:
     name = _round_collection_name(tag, round_no)
-    ctx = mp.get_context("fork")
+    # Spawn, not fork: forking a process that already runs threads (pytest,
+    # the logger, client libraries) can deadlock the child, which was the
+    # "rare startup spin" that failed one round in fifty. _worker_main is
+    # module-level and does its own imports, so spawn works as is.
+    ctx = mp.get_context("spawn")
     barrier = ctx.Barrier(WORKERS)
     result_queue = ctx.Queue()
     procs = [
