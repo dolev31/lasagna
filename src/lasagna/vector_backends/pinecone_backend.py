@@ -23,6 +23,7 @@ from loguru import logger
 
 from .base import (
     BackendCapabilities,
+    CollectionExistsError,
     CollectionInfo,
     CollectionSchema,
     IndexConfig,
@@ -209,7 +210,7 @@ class PineconeBackend(VectorStoreAdapter):
         client = self._ensure_connected()
 
         if self.has_collection(collection_name):
-            raise ValueError(f"Index {collection_name} already exists")
+            raise CollectionExistsError(f"Index {collection_name} already exists")
 
         # Find vector dimension from schema
         dimension = None

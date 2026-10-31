@@ -26,6 +26,7 @@ from lasagna.core.provenance import redact_url
 from .base import (
     BackendCapabilities,
     LASAGNA_UUID_NAMESPACE,
+    CollectionExistsError,
     CollectionInfo,
     CollectionSchema,
     IndexConfig,
@@ -253,7 +254,7 @@ class WeaviateBackend(VectorStoreAdapter):
         client = self._ensure_connected()
 
         if self.has_collection(collection_name):
-            raise ValueError(f"Class {collection_name} already exists")
+            raise CollectionExistsError(f"Class {collection_name} already exists")
 
         # Find vector dimension from schema
         dimension = None
