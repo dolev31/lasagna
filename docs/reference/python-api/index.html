@@ -11253,11 +11253,13 @@ can skip re-classification.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code><span title="ValueError">ValueError</span></code>
+                  <code><span title="lasagna.vector_backends.base.CollectionExistsError">CollectionExistsError</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If collection already exists</p>
+                <p>If the collection already exists. It
+subclasses <code>ValueError</code>, so existing <code>except ValueError</code>
+handlers keep working.</p>
               </div>
             </td>
           </tr>
