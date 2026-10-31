@@ -26,12 +26,22 @@ manifests of all arms against what each arm said it would change.
 
 Two things count as a failure:
 
-- **Undeclared change.** A stage differs between two arms, but neither arm named
-  it. A setting leaked across a stage boundary, for example through a profile
-  default.
+- **Undeclared change.** A setting differs between two arms, but neither arm
+  named it, and it is not one the harness sets because of what an arm named
+  (naming a reranker turns reranking on, for example). The stage it sits in may
+  be one an arm changes for another reason: a `rerank_top_k` that leaked into a
+  reranker sweep is caught, although every arm there names a reranker.
 - **Inert change.** An arm names a change that its manifest does not show. The
   setting or component never reached the pipeline, so the arm's number is the
   baseline's under another name.
+
+Both are judged setting by setting, and per track. The retrieval track searches
+every arm the same way in a few settings (it turns the agentic loop off and asks
+for a fixed depth), and the generation track searches with the arm's own; the
+manifest records those settings for each track, and which tracks ran. An arm
+that names one of them is inert on the retrieval track, where its retrieval
+numbers are the control's, and live on the generation track, and the run says
+so.
 
 The run prints both. `lasagna results validate` refuses a bundle with an
 undeclared change, and `lasagna results view` shows the check on its page.

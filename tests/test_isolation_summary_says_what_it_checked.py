@@ -48,7 +48,7 @@ def _summary(monkeypatch, rows):
 
 def test_two_clean_arms_get_the_green_line(monkeypatch):
     text = _summary(monkeypatch, [_row("a", {}), _row("b", {"reranker": "x"})])
-    assert "differs only in the stages the arms name (1 pair compared)" in text
+    assert "differs only in the settings the arms name (1 pair compared)" in text
 
 
 def test_one_finished_arm_is_not_called_isolated(monkeypatch):

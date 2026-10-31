@@ -7,13 +7,17 @@ each task records a **stage manifest** (a digest of every setting and component
 that reached each stage), and :func:`isolation_report` compares the manifests
 of a sweep's arms against what each arm declared it would change.
 
-* A stage whose configuration differs between two arms although neither arm
-  named it is an **undeclared change**: a setting leaked across a stage
-  boundary (a profile default, a harness bug). The run says so and
-  ``lasagna results validate`` refuses the bundle.
+* A setting that differs between two arms although neither arm named it, and
+  the harness does not set on a named change's account, is an **undeclared
+  change**: a setting leaked across a stage boundary, or into a stage an arm
+  names for another reason (a profile default, a harness bug). The run says
+  so and ``lasagna results validate`` refuses the bundle.
 * An arm that names a change its manifest does not show is **inert**: the
   setting or component never reached the pipeline, so its number is the
-  baseline's under another name.
+  baseline's under another name. Judged per track: the retrieval track forces
+  the routing and depth policies on every arm, so an arm that names one of
+  them is inert there and live on the generation track, and the report says
+  which.
 
 The manifest digests configuration, not behaviour. A component that changes
 state outside its stage at runtime (patching another module, say) leaves every
@@ -270,6 +274,60 @@ CHUNKER_DISPATCH_KEYS = (
     "preserve_tables",
 )
 
+#: What the harness sets on an arm's account when the arm declares a key, so
+#: the check charges it to the declaration rather than calling it a leak:
+#: naming a reranker turns reranking on and naming an agentic pipeline the
+#: loop; an embedder, named or set, gets a collection of its own at its
+#: dimension; ``metric_k`` and the over-fetch set the depth retrieval is asked
+#: for; a structural chunker setting decides which chunker runs; and context
+#: reordering is recorded per track. Each is traced to ``experiment.py``. A
+#: key the harness starts setting for a new declaration belongs here, or the
+#: arms that declare it block their bundle.
+_ENTAILED: Dict[str, Tuple[str, ...]] = {
+    "reranker": ("enable_reranking",),
+    "ensemble_reranker_models": ("enable_reranking",),
+    "agentic_pipeline": ("use_agentic_rag",),
+    "embedder": ("embedding_dim", "collection_name"),
+    "embedding_model": ("embedding_dim", "collection_name"),
+    "embedding_dim": ("collection_name",),
+    "metric_k": ("default_top_k",),
+    "retrieval_chunk_overfetch": ("default_top_k",),
+    "enable_context_reordering": ("context_order",),
+    **{key: ("chunking_strategy",) for key in CHUNKER_DISPATCH_KEYS},
+}
+
+#: The two tracks a task runs: retrieval scores ranked lists, generation
+#: scores answers, and each searches with its own configuration.
+TRACKS: Tuple[str, ...] = ("retrieval", "generation")
+
+#: Settings recorded per track, as ``{"retrieval": ..., "generation": ...}``:
+#: the routing and depth policies the retrieval track forces on every arm
+#: (``experiment._fix_retrieval_routing`` and ``_fix_retrieval_depth``) and
+#: the generation track reads from the arm, and the order each track read its
+#: results in. Each track's value is a function of the arm's configuration
+#: alone and is recorded whether or not the track ran, so an arm digests alike
+#: on a retrieval-only run and a full one; ``system.tracks`` beside the
+#: manifest says which tracks ran, and two arms differ in one of these only
+#: on a track both ran. Digesting the retrieval track's values alone hid an
+#: agentic arm on the generation track: forced off on retrieval, it digested
+#: like its control and was called inert while its loop answered.
+TRACK_SPLIT_KEYS = frozenset(
+    {
+        "use_agentic_rag",
+        "agentic_pipeline",
+        "routing_default_tier",
+        "similarity_threshold",
+        "chunk_cite_retrieval",
+        "default_top_k",
+        "context_order",
+    }
+)
+
+#: Component slots a track empties for every arm: the retrieval track runs no
+#: agentic loop, since its metrics need the chunk-level results of one search,
+#: so a loop an arm names is inert there whatever the arm says.
+TRACK_EMPTIES_SLOT: Dict[str, frozenset] = {"retrieval": frozenset({"agentic_pipeline"})}
+
 
 def effective_chunking_strategy(settings: Mapping[str, Any]) -> Optional[str]:
     """The built-in chunker that runs for these chunker settings.
@@ -393,6 +451,71 @@ def stage_manifest(
     return manifest
 
 
+def track_manifest(by_track: Mapping[str, Mapping[str, Any]]) -> Dict[str, Any]:
+    """One manifest from each track's, with the split keys recorded per track.
+
+    ``by_track`` maps each of :data:`TRACKS` to the :func:`stage_manifest` of
+    the configuration that track searches with. A key in
+    :data:`TRACK_SPLIT_KEYS` becomes ``{track: value}``; every other setting,
+    and each component, is the retrieval track's, which the tracks share.
+    Digests are recomputed over the merged settings.
+    """
+    tracks = [t for t in TRACKS if t in by_track]
+    base = by_track[tracks[0]]
+
+    def _settings(track: str, stage: str) -> Mapping[str, Any]:
+        return (by_track[track].get(stage) or {}).get("settings") or {}
+
+    out: Dict[str, Any] = {}
+    for stage, entry in base.items():
+        keys = sorted({k for t in tracks for k in _settings(t, stage)})
+        settings = {
+            key: (
+                {t: _settings(t, stage).get(key) for t in tracks}
+                if key in TRACK_SPLIT_KEYS
+                else _settings(tracks[0], stage).get(key)
+            )
+            for key in keys
+        }
+        component = entry.get("component")
+        out[stage] = {
+            "digest": _digest({"component": component, "settings": settings}),
+            "component": component,
+            "settings": settings,
+        }
+    return out
+
+
+def tracks_ran(row: Mapping[str, Any]) -> Tuple[str, ...]:
+    """The tracks a row's task ran.
+
+    Empty for a result that did not record them (written before they were
+    recorded): such a row is judged on its values as a whole, with no claim
+    about a track. Taking both for granted told a retrieval-only run of 0.1.0
+    that its generation track ran with the arm's own value.
+    """
+    ran = (row.get("system") or {}).get("tracks")
+    if not ran:
+        return ()
+    return tuple(t for t in TRACKS if t in ran)
+
+
+def _on_track(key: str, value: Any, track: Optional[str]) -> Any:
+    """A split key's value on ``track``; any other value, or ``None`` for the
+    track, is the value as a whole."""
+    if track is not None and key in TRACK_SPLIT_KEYS and isinstance(value, Mapping):
+        return value.get(track)
+    return value
+
+
+def _differs(key: str, a: Any, b: Any, tracks: Tuple[str, ...]) -> bool:
+    """Whether two recorded values differ on a track both arms ran (as a
+    whole, when the tracks are not known)."""
+    if not tracks:
+        return a != b
+    return any(_on_track(key, a, t) != _on_track(key, b, t) for t in tracks)
+
+
 def declared_stages(overrides: Optional[Mapping[str, Any]]) -> Set[str]:
     """The stages an arm says it changes, read off its overrides."""
     out: Set[str] = set()
@@ -400,6 +523,22 @@ def declared_stages(overrides: Optional[Mapping[str, Any]]) -> Set[str]:
         stage = stage_of(key)
         if stage is not None:
             out.add(stage)
+    return out
+
+
+def declared_keys(overrides: Optional[Mapping[str, Any]]) -> Set[str]:
+    """The manifest keys an arm's overrides account for.
+
+    Each override that belongs to a stage, and what the harness sets because
+    of it (:data:`_ENTAILED`). A component slot is declared under its stage's
+    name, which is the name the manifest files it under too.
+    """
+    out: Set[str] = set()
+    for key in overrides or {}:
+        if stage_of(key) is None:
+            continue
+        out.add(key)
+        out.update(_ENTAILED.get(key, ()))
     return out
 
 
@@ -415,12 +554,112 @@ def _arm_rows(rows: Iterable[Mapping[str, Any]]) -> Dict[Tuple[str, str], Mappin
     return arms
 
 
-def _differing_keys(a: Mapping[str, Any], b: Mapping[str, Any]) -> List[str]:
+def _differing_keys(
+    a: Mapping[str, Any], b: Mapping[str, Any], tracks: Tuple[str, ...] = TRACKS
+) -> List[str]:
     sa, sb = a.get("settings") or {}, b.get("settings") or {}
-    keys = sorted(k for k in set(sa) | set(sb) if sa.get(k) != sb.get(k))
+    keys = sorted(k for k in set(sa) | set(sb) if _differs(k, sa.get(k), sb.get(k), tracks))
     if a.get("component") != b.get("component"):
         keys.insert(0, "component")
     return keys
+
+
+def _recorded(manifest: Mapping[str, Any], key: str) -> Any:
+    """What a manifest holds for ``key``: a slot's component, or a setting."""
+    if key in COMPONENT_STAGES:
+        return (manifest.get(key) or {}).get("component")
+    stage = stage_of(key)
+    if stage is None:
+        return None
+    return ((manifest.get(stage) or {}).get("settings") or {}).get(key)
+
+
+def _inert_tracks(
+    key: str,
+    arm: Mapping[str, Any],
+    control: Mapping[str, Any],
+    tracks: Tuple[Optional[str], ...],
+) -> List[Optional[str]]:
+    """The tracks on which a key the arm declared ran as the control's.
+
+    Inert on a track when the key, and everything the harness sets on its
+    account (:data:`_ENTAILED`), reached its stage with the control's value
+    there, or when the track empties the slot for every arm. ``(None,)``
+    judges the values as a whole, for rows that did not record their tracks.
+    """
+    out: List[Optional[str]] = []
+    for track in tracks:
+        if track is not None and key in TRACK_EMPTIES_SLOT.get(track, ()):
+            out.append(track)
+            continue
+        if all(
+            _on_track(k, _recorded(arm, k), track) == _on_track(k, _recorded(control, k), track)
+            for k in (key, *_ENTAILED.get(key, ()))
+        ):
+            out.append(track)
+    return out
+
+
+def _forced(key: str, track: Optional[str]) -> bool:
+    """Whether ``track`` sets ``key`` to the same value for every arm."""
+    if track is None:
+        return False
+    if track == "retrieval" and key in TRACK_SPLIT_KEYS:
+        return True
+    return key in TRACK_EMPTIES_SLOT.get(track, ())
+
+
+def _inert_lines(
+    bench: str,
+    name: str,
+    arm: Mapping[str, Any],
+    control_name: str,
+    control: Mapping[str, Any],
+    keys: List[str],
+    tracks: Tuple[str, ...],
+) -> List[str]:
+    """What an arm declared that ran as the control's, by key and by track.
+
+    Compared setting by setting: judged by stage digests, an arm that declared
+    ``hybrid_alpha`` and ``rrf_k`` passed when only ``rrf_k`` reached the
+    retriever, since the stage's digest had moved.
+    """
+    ma, mc = arm["system"]["stages"], control["system"]["stages"]
+    # Values as a whole when the rows did not record their tracks.
+    judged: Tuple[Optional[str], ...] = tracks or (None,)
+    status = {k: _inert_tracks(k, ma, mc, judged) for k in keys}
+    dead = [k for k in keys if len(status[k]) == len(judged)]
+    lines: List[str] = []
+    if dead and len(dead) == len(keys):
+        why = (
+            f", since the {judged[0]} track, the only one that ran, forces "
+            f"{'it' if len(dead) == 1 else 'them'} for every arm"
+            if len(judged) == 1 and all(_forced(k, judged[0]) for k in dead)
+            else ""
+        )
+        lines.append(
+            f"{bench}: arm {name!r} names {dead} but its pipeline is identical to the "
+            f"control {control_name!r} there{why}"
+        )
+    elif dead:
+        live = [k for k in keys if k not in dead]
+        lines.append(
+            f"{bench}: arm {name!r} names {dead}, which reached the pipeline with the control "
+            f"{control_name!r}'s value{'s' if len(dead) > 1 else ''}; of what it names, only "
+            f"{live} changed anything"
+        )
+    for key in keys:
+        inert_on = status[key]
+        if not inert_on or len(inert_on) == len(judged):
+            continue
+        live_on = [t for t in judged if t not in inert_on]
+        forced = " (the track forces it for every arm)" if _forced(key, inert_on[0]) else ""
+        lines.append(
+            f"{bench}: arm {name!r} names {key!r}, which the {inert_on[0]} track ran with the "
+            f"control {control_name!r}'s value{forced}, so its {inert_on[0]} metrics are the "
+            f"control's; the {live_on[0]} track ran with its own"
+        )
+    return lines
 
 
 #: The stages whose settings can change what retrieval returns. Two arms that
@@ -589,38 +828,52 @@ def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
             for name_b, b in entries[i + 1 :]:
                 if a.get("profile") != b.get("profile"):
                     continue
-                declared = declared_stages(a.get("config_overrides")) | declared_stages(
+                declared = declared_keys(a.get("config_overrides")) | declared_keys(
                     b.get("config_overrides")
                 )
+                # Only on a track both arms ran: a no_rag arm skips retrieval,
+                # and what its retrieval track would have searched with
+                # changed nothing it measured.
+                shared = tuple(t for t in tracks_ran(a) if t in tracks_ran(b))
                 ma, mb = a["system"]["stages"], b["system"]["stages"]
                 for stage in (*STAGES, OTHER):
                     sa, sb = ma.get(stage) or {}, mb.get(stage) or {}
-                    if sa.get("digest") == sb.get("digest") or stage in declared:
+                    if sa.get("digest") == sb.get("digest"):
+                        continue
+                    # The keys the arms declared are excused, not the stage
+                    # they sit in. A stage either arm named was skipped whole:
+                    # an arm naming hybrid_alpha hid a leaked default_top_k,
+                    # and a reranker sweep, where every arm names a reranker,
+                    # hid a leaked rerank_top_k.
+                    leaked = [
+                        key
+                        for key in _differing_keys(sa, sb, shared)
+                        if key not in declared and not (key == "component" and stage in declared)
+                    ]
+                    if not leaked:
                         continue
                     report["undeclared"].append(
                         f"{bench}: arms {name_a!r} and {name_b!r} differ at the {stage} "
-                        f"stage, which neither names ({', '.join(_differing_keys(sa, sb))})"
+                        f"stage in settings neither names ({', '.join(leaked)})"
                     )
 
-        # An arm whose declared change shows up nowhere in its manifest, against
-        # the arm that declares nothing (the control), never ran what it named.
-        controls = [(n, r) for n, r in entries if not declared_stages(r.get("config_overrides"))]
+        # A key an arm declared that its manifest shows as the control's (the
+        # arm that declares nothing) never ran as named: judged key by key and
+        # track by track, so an arm naming two settings of one stage is caught
+        # when only one arrived, and an arm whose change the retrieval track
+        # forces off is called inert there and live on generation.
+        controls = [(n, r) for n, r in entries if not declared_keys(r.get("config_overrides"))]
         for name, row in entries:
-            stages = declared_stages(row.get("config_overrides"))
-            if not stages:
+            keys = sorted(k for k in (row.get("config_overrides") or {}) if stage_of(k) is not None)
+            if not keys:
                 continue
             for control_name, control in controls:
                 if control.get("profile") != row.get("profile"):
                     continue
-                mc, mr = control["system"]["stages"], row["system"]["stages"]
-                if all(
-                    (mc.get(s) or {}).get("digest") == (mr.get(s) or {}).get("digest")
-                    for s in stages
-                ):
-                    report["inert"].append(
-                        f"{bench}: arm {name!r} names {sorted(stages)} but its pipeline is "
-                        f"identical to the control {control_name!r} there"
-                    )
+                shared = tuple(t for t in tracks_ran(row) if t in tracks_ran(control))
+                report["inert"].extend(
+                    _inert_lines(bench, name, row, control_name, control, keys, shared)
+                )
                 break
         report["inert"].extend(_same_output(entries, bench, report["unverified"]))
         report["inert"].extend(_reranker_never_moved(entries, bench, report["unverified"]))
