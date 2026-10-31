@@ -18,11 +18,13 @@ import asyncio
 
 from lasagna.knowledge_evaluation_sdk import experiment as exp
 from lasagna.knowledge_evaluation_sdk.stages import TRACK_SPLIT_KEYS, isolation_report, stage_of
-from tests.test_retrieval_metrics_score_the_ranked_order import (  # noqa: F401 (fixtures)
+from tests.test_retrieval_metrics_score_the_ranked_order import (  # noqa: F401 - pytest finds these fixtures by name
     live,
     orchestrator,
 )
-from tests.test_the_generator_reads_the_top_passages_reordered import llm  # noqa: F401 (fixture)
+from tests.test_the_generator_reads_the_top_passages_reordered import (  # noqa: F401 - a fixture, found by name
+    llm,
+)
 
 
 def test_every_key_the_retrieval_track_forces_is_recorded_per_track():
@@ -60,7 +62,7 @@ def _run(tmp_path, tracks, arms):
 ARMS = [{"name": "control"}, {"name": "shallow", "default_top_k": 3}]
 
 
-def test_a_depth_setting_is_recorded_per_track_and_inert_where_forced(tmp_path, llm):  # noqa: F811
+def test_a_depth_setting_is_recorded_per_track_and_inert_where_forced(tmp_path, llm):  # noqa: F811 - the fixture, not a redefinition
     results = _run(tmp_path, ["retrieval", "generation"], ARMS)
     control, arm = results["control"], results["shallow"]
     assert arm.system["tracks"] == ["retrieval", "generation"]
@@ -78,7 +80,7 @@ def test_a_depth_setting_is_recorded_per_track_and_inert_where_forced(tmp_path, 
     ), report["inert"]
 
 
-def test_on_a_retrieval_only_run_the_forced_setting_is_inert_outright(tmp_path, live):  # noqa: F811
+def test_on_a_retrieval_only_run_the_forced_setting_is_inert_outright(tmp_path, live):  # noqa: F811 - the fixture, not a redefinition
     results = _run(tmp_path, ["retrieval"], ARMS)
     assert results["shallow"].system["tracks"] == ["retrieval"]
     report = isolation_report([r.to_dict() for r in results.values()])
