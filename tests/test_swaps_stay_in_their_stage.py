@@ -21,10 +21,12 @@ from lasagna.knowledge_evaluation_sdk.bundle import _integrity
 from lasagna.knowledge_evaluation_sdk.stages import (
     STAGES,
     declared_stages,
+    compared_pairs,
     isolation_report,
     stage_manifest,
     stage_of,
     track_manifest,
+    tracks_ran,
 )
 
 
@@ -474,6 +476,27 @@ def test_arms_are_compared_only_on_tracks_both_ran():
     ]
     (line,) = isolation_report(rows)["undeclared"]
     assert "similarity_threshold" in line
+
+
+def test_two_arms_with_no_track_in_common_are_not_compared():
+    # One ran retrieval only, the other generation only: what one measured,
+    # the other never ran. Judged whole, as a pair with no recorded tracks
+    # is, the tracks neither ran were compared with each other.
+    control = _tracked(
+        retrieval={"similarity_threshold": 0.0}, generation={"similarity_threshold": 0.5}
+    )
+    arm = _tracked(
+        retrieval={"similarity_threshold": 0.9}, generation={"similarity_threshold": 0.7}
+    )
+    rows = [
+        _row("control", {}, control, tracks=["retrieval"]),
+        _row("closed", {"no_rag": True}, arm, tracks=["generation"]),
+    ]
+    assert isolation_report(rows) == {"undeclared": [], "inert": [], "unverified": []}
+    assert compared_pairs(rows) == 0
+    # "Not recorded" is told apart from "none in common".
+    assert tracks_ran(_row("old", {}, control)) is None
+    assert tracks_ran(rows[0]) == ("retrieval",)
 
 
 def test_a_row_that_did_not_record_its_tracks_is_judged_whole_with_no_track_claim():

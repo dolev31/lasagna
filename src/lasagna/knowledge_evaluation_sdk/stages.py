@@ -486,18 +486,30 @@ def track_manifest(by_track: Mapping[str, Mapping[str, Any]]) -> Dict[str, Any]:
     return out
 
 
-def tracks_ran(row: Mapping[str, Any]) -> Tuple[str, ...]:
-    """The tracks a row's task ran.
+def tracks_ran(row: Mapping[str, Any]) -> Optional[Tuple[str, ...]]:
+    """The tracks a row's task ran, or None for a result that did not record them.
 
-    Empty for a result that did not record them (written before they were
-    recorded): such a row is judged on its values as a whole, with no claim
-    about a track. Taking both for granted told a retrieval-only run of 0.1.0
-    that its generation track ran with the arm's own value.
+    A row written before tracks were recorded (0.1.0) is judged on its values
+    as a whole, with no claim about a track: taking both tracks for granted
+    told a retrieval-only run that its generation track ran with the arm's own
+    value. None, not an empty tuple, so it cannot be confused with two rows
+    that recorded their tracks and share none.
     """
-    ran = (row.get("system") or {}).get("tracks")
-    if not ran:
-        return ()
+    system = row.get("system") or {}
+    if "tracks" not in system:
+        return None
+    ran = system.get("tracks") or ()
     return tuple(t for t in TRACKS if t in ran)
+
+
+def _shared_tracks(a: Mapping[str, Any], b: Mapping[str, Any]) -> Optional[Tuple[str, ...]]:
+    """The tracks two rows both ran: None when either did not record its tracks
+    (the pair is judged whole), empty when they share none (the pair is not
+    compared: what one measured, the other never ran)."""
+    ta, tb = tracks_ran(a), tracks_ran(b)
+    if ta is None or tb is None:
+        return None
+    return tuple(t for t in ta if t in tb)
 
 
 def _on_track(key: str, value: Any, track: Optional[str]) -> Any:
@@ -508,10 +520,10 @@ def _on_track(key: str, value: Any, track: Optional[str]) -> Any:
     return value
 
 
-def _differs(key: str, a: Any, b: Any, tracks: Tuple[str, ...]) -> bool:
+def _differs(key: str, a: Any, b: Any, tracks: Optional[Tuple[str, ...]]) -> bool:
     """Whether two recorded values differ on a track both arms ran (as a
-    whole, when the tracks are not known)."""
-    if not tracks:
+    whole, when the tracks are not known; on no track, never)."""
+    if tracks is None:
         return a != b
     return any(_on_track(key, a, t) != _on_track(key, b, t) for t in tracks)
 
@@ -555,7 +567,7 @@ def _arm_rows(rows: Iterable[Mapping[str, Any]]) -> Dict[Tuple[str, str], Mappin
 
 
 def _differing_keys(
-    a: Mapping[str, Any], b: Mapping[str, Any], tracks: Tuple[str, ...] = TRACKS
+    a: Mapping[str, Any], b: Mapping[str, Any], tracks: Optional[Tuple[str, ...]] = TRACKS
 ) -> List[str]:
     sa, sb = a.get("settings") or {}, b.get("settings") or {}
     keys = sorted(k for k in set(sa) | set(sb) if _differs(k, sa.get(k), sb.get(k), tracks))
@@ -616,7 +628,7 @@ def _inert_lines(
     control_name: str,
     control: Mapping[str, Any],
     keys: List[str],
-    tracks: Tuple[str, ...],
+    tracks: Optional[Tuple[str, ...]],
 ) -> List[str]:
     """What an arm declared that ran as the control's, by key and by track.
 
@@ -781,18 +793,29 @@ def _reranker_never_moved(
     return lines
 
 
+def _comparable(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
+    """Whether two arms are compared at all: the same profile, and a track in
+    common (or tracks unknown)."""
+    return a.get("profile") == b.get("profile") and _shared_tracks(a, b) != ()
+
+
 def compared_pairs(rows: Iterable[Mapping[str, Any]]) -> int:
     """How many pairs of arms the isolation check could compare.
 
     Zero when every arm but one failed, or none recorded a manifest: then
     "the arms differ only in the stages they name" would be a claim about
-    nothing.
+    nothing. A pair with no track in common is not compared, so not counted.
     """
-    groups: Dict[Tuple[str, Any], int] = {}
+    by_bench: Dict[str, List[Mapping[str, Any]]] = {}
     for (bench, _arm), row in _arm_rows(rows).items():
-        key = (bench, row.get("profile"))
-        groups[key] = groups.get(key, 0) + 1
-    return sum(n * (n - 1) // 2 for n in groups.values())
+        by_bench.setdefault(bench, []).append(row)
+    return sum(
+        1
+        for entries in by_bench.values()
+        for i, a in enumerate(entries)
+        for b in entries[i + 1 :]
+        if _comparable(a, b)
+    )
 
 
 def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
@@ -826,15 +849,16 @@ def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
         entries.sort()
         for i, (name_a, a) in enumerate(entries):
             for name_b, b in entries[i + 1 :]:
-                if a.get("profile") != b.get("profile"):
+                # Only on a track both arms ran: a no_rag arm skips retrieval,
+                # and what its retrieval track would have searched with
+                # changed nothing it measured. Two arms with no track in
+                # common are not compared at all.
+                if not _comparable(a, b):
                     continue
+                shared = _shared_tracks(a, b)
                 declared = declared_keys(a.get("config_overrides")) | declared_keys(
                     b.get("config_overrides")
                 )
-                # Only on a track both arms ran: a no_rag arm skips retrieval,
-                # and what its retrieval track would have searched with
-                # changed nothing it measured.
-                shared = tuple(t for t in tracks_ran(a) if t in tracks_ran(b))
                 ma, mb = a["system"]["stages"], b["system"]["stages"]
                 for stage in (*STAGES, OTHER):
                     sa, sb = ma.get(stage) or {}, mb.get(stage) or {}
@@ -868,11 +892,12 @@ def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
             if not keys:
                 continue
             for control_name, control in controls:
-                if control.get("profile") != row.get("profile"):
+                if not _comparable(row, control):
                     continue
-                shared = tuple(t for t in tracks_ran(row) if t in tracks_ran(control))
                 report["inert"].extend(
-                    _inert_lines(bench, name, row, control_name, control, keys, shared)
+                    _inert_lines(
+                        bench, name, row, control_name, control, keys, _shared_tracks(row, control)
+                    )
                 )
                 break
         report["inert"].extend(_same_output(entries, bench, report["unverified"]))
