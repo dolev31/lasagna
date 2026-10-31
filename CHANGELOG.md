@@ -45,6 +45,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stopped at Milvus's 16,384-row limit. The pool also passes on `is_lite`, so
   a pool over Milvus Lite (`connection_pool_size` above 1) is no longer taken
   for a server.
+- Two services starting together no longer fail when the other creates the
+  collection first: `create_collection` raises `CollectionExistsError` (a
+  `ValueError` subclass) on an existing name, and collection initialization
+  continues as the "already exists" branch does instead of failing to start.
+  The same lost-race handling now covers the third check-then-create path,
+  `CollectionManager.ensure_backend_collection`, which the API process and a
+  Celery worker can reach at the same time.
 - Validate `BaseAgenticPipeline` components with an async contract check and
   report incorrect results or input mutation instead of rejecting the stage.
 
