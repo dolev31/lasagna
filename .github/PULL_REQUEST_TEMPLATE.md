@@ -19,7 +19,8 @@ function, CLI flag, setting or REST field that is new or behaves differently. --
 
 <!-- Name the test that fails without this change and passes with it, and the
 command you ran. A docs-only change: say how you checked it (for example
-`mkdocs build --strict`). Then show the change running in the production
+`mkdocs build --strict`), and run the commands it documents in the stack. Then
+show the change running in the production
 environment, the Docker Compose stack built from this branch: the
 `docker compose` commands, the image lines from `docker compose ps`, and what
 came out. How to set it up, free: CONTRIBUTING.md#tested-in-the-production-environment -->

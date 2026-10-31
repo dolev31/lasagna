@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -77,7 +78,24 @@ def test_image_extras_are_added_to_the_install(tmp_path, backend, extras, spec):
     assert got == spec
 
 
-@pytest.mark.parametrize("extras", ["eval]", "eval; rm -rf /", "eval providers", "EVAL", "$(id)"])
+@pytest.mark.parametrize(
+    "extras",
+    [
+        "eval]",
+        "eval; rm -rf /",
+        "eval providers",
+        "EVAL",
+        "$(id)",
+        "eval,",
+        ",eval",
+        ",",
+        "-",
+        "eval,,providers",
+        "eval,-x",
+        "eval-",
+        "eval-,providers",
+    ],
+)
 def test_anything_but_extra_names_fails_the_build(tmp_path, extras):
     code, spec, out = _install(tmp_path, "milvus", extras)
     assert code != 0
@@ -95,3 +113,35 @@ def test_compose_passes_image_extras_from_env_and_defaults_to_empty():
 
 def test_the_image_records_its_extras():
     assert 'LABEL org.lasagna.image-extras="$IMAGE_EXTRAS"' in DOCKERFILE
+
+
+def _extras_check() -> str:
+    match = re.search(
+        r'(python -c "import sys, importlib\.metadata as m;.*?" "\$IMAGE_EXTRAS")', DOCKERFILE
+    )
+    assert match, "the install step does not check IMAGE_EXTRAS against the package's extras"
+    # The image's `python`; here the interpreter running the suite, which has the package.
+    return match.group(1).replace("python -c", f'"{sys.executable}" -c', 1)
+
+
+@pytest.mark.parametrize("extras", ["", "eval", "eval,providers"])
+def test_extras_the_package_provides_pass_the_check(extras):
+    result = subprocess.run(
+        ["/bin/sh", "-c", _extras_check()],
+        env={"PATH": os.environ.get("PATH", ""), "IMAGE_EXTRAS": extras},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_misspelled_extra_fails_the_build():
+    """pip only warns about an unknown extra, so ``evl`` built an image without ``eval``."""
+    result = subprocess.run(
+        ["/bin/sh", "-c", _extras_check()],
+        env={"PATH": os.environ.get("PATH", ""), "IMAGE_EXTRAS": "eval,evl"},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "does not provide: ['evl']" in result.stderr

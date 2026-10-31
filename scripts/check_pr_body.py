@@ -63,8 +63,16 @@ REQUIRED_BOXES = (
     "I read every line of the diff",
 )
 
-#: A Compose command, the proof a change ran in the production environment.
-_COMPOSE = re.compile(r"docker[ -]compose\b", re.IGNORECASE)
+#: A Compose command, the proof a change ran in the production environment: a
+#: command (up, exec, run, ps, build, logs, config), so a sentence that only
+#: names the stack ("I did not run it in the Docker Compose stack") is no proof.
+#: Options may be split over lines with a trailing backslash, as shell commands are.
+_SEP = r"(?:\s*\\\s*|\s+)"
+_COMPOSE = re.compile(
+    r"\bdocker(?:\s+--context\s+\S+)?(?:-| )compose\b"
+    rf"(?:{_SEP}-{{1,2}}[A-Za-z-]+(?:[ =](?!-)\S+)?)*"
+    rf"{_SEP}(?:up|exec|run|ps|build|logs|config)\b"
+)
 
 #: What a section holds when nobody filled it in.
 PLACEHOLDERS = {"todo", "tbd", "wip", "n/a", "na", "none", "-", "...", "see diff", "see title"}

@@ -12,10 +12,11 @@ Key design decisions:
 5. Score normalization for consistent results across backends
 """
 
+import contextlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Iterator, List, Optional, Union
+from typing import Any, ContextManager, Dict, Iterator, List, Optional, Union
 import math
 import uuid
 
@@ -497,6 +498,18 @@ class VectorStoreAdapter(ABC):
             if len(rows) < page_size:
                 return
             offset += len(rows)
+
+    def read_fresh(self) -> ContextManager[None]:
+        """A block whose filter reads see every write made before it.
+
+        A store that answers reads from a slightly stale view (a Milvus
+        server, by default) can miss rows written moments ago, so a count
+        taken right after an ingest comes up short. Callers that compare
+        counts across time, such as the benchmark's corpus census, read inside
+        this block. A store whose reads always see its writes needs nothing,
+        which is this default; a backend with a staleness window overrides it.
+        """
+        return contextlib.nullcontext()
 
     def list_document_ids(
         self,

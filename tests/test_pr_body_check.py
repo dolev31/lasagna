@@ -161,7 +161,19 @@ class TestTheDescription:
             "fails before the change and passes after it.",
         )
         assert any("docker compose" in p for p in check_pr_body.problems(local_only))
-        for spelling in ("docker compose up -d --build", "Docker Compose run", "docker-compose ps"):
+        prose = _replace(
+            FILLED,
+            "How it was tested",
+            "I did not run it in the Docker Compose stack, only locally.",
+        )
+        assert any("docker compose" in p for p in check_pr_body.problems(prose))
+        for spelling in (
+            "docker compose up -d --build",
+            "docker compose -f docker-compose.yml -f backends/milvus.yml exec api lasagna doctor",
+            "docker-compose ps",
+            "docker --context colima compose -p lit -f docker-compose.yml ps",
+            "docker compose -f docker-compose.yml \\\n  -f backends/milvus.yml up -d",
+        ):
             ran = _replace(FILLED, "How it was tested", f"Ran `{spelling}` and the test.")
             assert not any("docker compose" in p for p in check_pr_body.problems(ran)), spelling
 

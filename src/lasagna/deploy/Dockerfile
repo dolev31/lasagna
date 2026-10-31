@@ -148,12 +148,13 @@ RUN case "$VECTOR_BACKEND" in \
       *) echo "Unknown VECTOR_BACKEND=$VECTOR_BACKEND. Use one of: milvus milvus-lite pgvector opensearch qdrant weaviate pinecone all"; exit 1 ;; \
     esac && \
     case "$IMAGE_EXTRAS" in \
-      *[!a-z0-9,-]*) echo "IMAGE_EXTRAS=$IMAGE_EXTRAS: give extras names separated by commas, as in eval or eval,providers"; exit 1 ;; \
+      *[!a-z0-9,-]*|,*|*,|*,,*|-*|*,-*|*-|*-,*) echo "IMAGE_EXTRAS=$IMAGE_EXTRAS: give extras names separated by commas, as in eval or eval,providers"; exit 1 ;; \
     esac && \
     pip install --no-cache-dir -c constraints.txt \
     ".[production,pgvector,opensearch,flag-embedding$extra${IMAGE_EXTRAS:+,$IMAGE_EXTRAS}]" \
     "gunicorn>=22.0.0" && \
-    for module in pymilvus psycopg opensearchpy $check; do python -c "import $module" || exit 1; done
+    for module in pymilvus psycopg opensearchpy $check; do python -c "import $module" || exit 1; done && \
+    python -c "import sys, importlib.metadata as m; have = set(m.metadata('lasagna-rag').get_all('Provides-Extra') or []); bad = [e for e in sys.argv[1].split(',') if e and e not in have]; sys.exit('IMAGE_EXTRAS names extras lasagna-rag does not provide: %s (it provides %s)' % (bad, sorted(have)) if bad else 0)" "$IMAGE_EXTRAS"
 # Read by `make validate`, which refuses an image built for another backend.
 LABEL org.lasagna.vector-backend="$VECTOR_BACKEND"
 LABEL org.lasagna.image-extras="$IMAGE_EXTRAS"

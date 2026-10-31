@@ -186,8 +186,9 @@ built from its branch, and shows it.
      lasagna benchmark run smoke --profile speed --tracks retrieval -o /tmp/smoke
    ```
 
-   In the stack built from `main` this prints `smoke` with ndcg@10 0.9464, so a
-   different number there is your change. A stress or live test runs from your
+   In the default stack (Milvus) built from `main` with `IMAGE_EXTRAS=eval`,
+   this prints `smoke` with ndcg@10 0.9464, so on that stack a different number
+   is your change. A stress or live test runs from your
    checkout against the stack's ports, for example with
    `QDRANT_URL=http://localhost:6333` against the Qdrant stack. A change to one
    vector backend runs against that backend's file in `backends/`.
