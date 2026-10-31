@@ -31,6 +31,7 @@ from lasagna.core.provenance import redact_url
 
 from .base import (
     BackendCapabilities,
+    CollectionExistsError,
     CollectionInfo,
     CollectionSchema,
     Fields,
@@ -387,7 +388,7 @@ class PgVectorBackend(VectorStoreAdapter):
         table = self._table_name(collection_name)
 
         if self.has_collection(collection_name):
-            raise ValueError(f"Collection {collection_name} already exists")
+            raise CollectionExistsError(f"Collection {collection_name} already exists")
 
         # Find vector dimension from schema fields
         dimension = None
