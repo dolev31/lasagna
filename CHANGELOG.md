@@ -29,13 +29,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- On a Milvus server, filter reads (`query`, `iter_all`, `query_raw`) see the
-  rows written just before them. They read with the collection's Bounded
-  consistency, so a count right after an insert came up short: the
-  benchmark's corpus census, taken right after ingestion, counted 0 of 24
-  documents, and every cold `lasagna benchmark run` in the Compose stack was
-  refused as "changed while this run used it". They now read Strong on a
-  server; vector search and Milvus Lite are unchanged.
+- On a Milvus server, the benchmark's corpus census and pre-flight see the
+  rows written just before them. A server reads with the collection's Bounded
+  consistency, so a count right after ingestion came up short (0 of 24
+  documents), and every cold `lasagna benchmark run` in the Compose stack was
+  refused as "changed while this run used it". Backends gain `read_fresh()`,
+  a block whose filter reads see every earlier write (a no-op by default; on a
+  Milvus server it reads Strong, about 200 ms a query, so only these checks
+  use it and search keeps its speed). `iter_all` on a server first runs one
+  Strong query, since pymilvus's query iterator ignores the consistency level,
+  so a scan right after an insert could come up short. `PooledVectorBackend`,
+  which the Compose stack runs in front of a Milvus server, passes both on: it
+  enters `read_fresh` on every pooled instance, and `iter_all` uses an
+  instance's own cursor instead of paging by offset, which read stale and
+  stopped at Milvus's 16,384-row limit. The pool also passes on `is_lite`, so
+  a pool over Milvus Lite (`connection_pool_size` above 1) is no longer taken
+  for a server.
 - Validate `BaseAgenticPipeline` components with an async contract check and
   report incorrect results or input mutation instead of rejecting the stage.
 

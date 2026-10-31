@@ -26,6 +26,7 @@ Example::
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import functools
 import json
@@ -800,6 +801,16 @@ def _ran_system(
 _PRESENCE_QUERY_ROWS = 16_000
 
 
+def _fresh_reads(backend: Any):
+    """The backend's ``read_fresh`` block, or a plain one for a store without it.
+
+    The census and the pre-flight compare what is stored with what was just
+    written, so they must see every write (see ``VectorStoreAdapter.read_fresh``).
+    """
+    fresh = getattr(backend, "read_fresh", None)
+    return fresh() if callable(fresh) else contextlib.nullcontext()
+
+
 def _present_document_ids(
     backend: Any, collection_name: str, session_id: str, expected_ids: Any
 ) -> set:
@@ -820,21 +831,22 @@ def _present_document_ids(
     try:
         present: set = set()
         pending = [ids[i : i + 400] for i in range(0, len(ids), 400)]
-        while pending:
-            batch = pending.pop()
-            rows = backend.query(
-                collection_name=collection_name,
-                filter_expr=_FE.and_(
-                    _FE.eq("session_id", session_id), _FE.in_list("document_id", batch)
-                ),
-                output_fields=["document_id"],
-                limit=_PRESENCE_QUERY_ROWS,
-            )
-            if len(rows) >= _PRESENCE_QUERY_ROWS and len(batch) > 1:
-                half = len(batch) // 2
-                pending.extend([batch[:half], batch[half:]])
-                continue
-            present.update(r.get("document_id") for r in rows if r.get("document_id"))
+        with _fresh_reads(backend):
+            while pending:
+                batch = pending.pop()
+                rows = backend.query(
+                    collection_name=collection_name,
+                    filter_expr=_FE.and_(
+                        _FE.eq("session_id", session_id), _FE.in_list("document_id", batch)
+                    ),
+                    output_fields=["document_id"],
+                    limit=_PRESENCE_QUERY_ROWS,
+                )
+                if len(rows) >= _PRESENCE_QUERY_ROWS and len(batch) > 1:
+                    half = len(batch) // 2
+                    pending.extend([batch[:half], batch[half:]])
+                    continue
+                present.update(r.get("document_id") for r in rows if r.get("document_id"))
         return present
     except NotImplementedError:
         return set(
@@ -913,23 +925,24 @@ def _count_present(backend: Any, collection_name: str, session_id: str, ids: Lis
     documents: set = set()
     chunks = 0
     pending = [ids[i : i + 400] for i in range(0, len(ids), 400)]
-    while pending:
-        batch = pending.pop()
-        rows = backend.query(
-            collection_name=collection_name,
-            filter_expr=_FE.and_(
-                _FE.eq("session_id", session_id), _FE.in_list("document_id", batch)
-            ),
-            output_fields=["document_id"],
-            limit=_PRESENCE_QUERY_ROWS,
-        )
-        if len(rows) >= _PRESENCE_QUERY_ROWS and len(batch) > 1:
-            half = len(batch) // 2
-            pending.extend([batch[:half], batch[half:]])
-            continue
-        hits = [r.get("document_id") for r in rows if r.get("document_id")]
-        documents.update(hits)
-        chunks += len(hits)
+    with _fresh_reads(backend):
+        while pending:
+            batch = pending.pop()
+            rows = backend.query(
+                collection_name=collection_name,
+                filter_expr=_FE.and_(
+                    _FE.eq("session_id", session_id), _FE.in_list("document_id", batch)
+                ),
+                output_fields=["document_id"],
+                limit=_PRESENCE_QUERY_ROWS,
+            )
+            if len(rows) >= _PRESENCE_QUERY_ROWS and len(batch) > 1:
+                half = len(batch) // 2
+                pending.extend([batch[:half], batch[half:]])
+                continue
+            hits = [r.get("document_id") for r in rows if r.get("document_id")]
+            documents.update(hits)
+            chunks += len(hits)
     return len(documents), chunks
 
 

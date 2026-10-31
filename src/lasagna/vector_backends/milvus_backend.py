@@ -15,6 +15,7 @@ Features:
 - Optional hybrid search (with native BM25 on Standalone/Distributed)
 """
 
+import contextlib
 import logging
 import sys
 import threading
@@ -393,20 +394,56 @@ class MilvusBackend(VectorStoreAdapter):
         """Whether this is Milvus Lite (a local database file), not a server."""
         return bool(self._db_path)
 
-    def _read_after_write(self) -> Dict[str, Any]:
-        """Query arguments that make a filter read see every write before it.
+    @contextlib.contextmanager
+    def read_fresh(self):
+        """Filter reads in this block (``query``, ``query_raw``) read Strong on a server.
 
-        A Milvus server reads with the collection's consistency level, Bounded
-        by default, so a query moments after an insert misses the newest rows:
-        measured on the stack's Milvus 2.4, each count after an insert read one
-        row short. The benchmark's corpus census, taken right after ingestion,
-        counted 0 of 24 documents, and the end-of-task check then refused the
-        task as "changed while this run used it" on every cold run. Filter
-        reads (presence checks, listings, the census) need the rows that are
-        there, so they read Strong. Vector search keeps the collection's level.
-        Milvus Lite has no staleness window, so it gets nothing extra.
+        A Milvus server answers with the collection's consistency level,
+        Bounded by default, so a query moments after an insert misses the
+        newest rows: on the stack's Milvus 2.4, each count after an insert
+        read one row short. The benchmark's corpus census, taken right after
+        ingestion, counted 0 of 24 documents, and every cold
+        ``lasagna benchmark run`` in the Compose stack was refused as
+        "changed while this run used it". Strong waits for every write before
+        it, which costs about 200 ms per query on that server (Bounded: under
+        1 ms), so it is asked for only here, never on the search paths.
+        Milvus Lite has no staleness window and gets nothing extra.
         """
-        return {} if self.is_lite else {"consistency_level": "Strong"}
+        local = self.__dict__.setdefault("_fresh_reads", threading.local())
+        depth = getattr(local, "depth", 0)
+        local.depth = depth + 1
+        try:
+            yield
+        finally:
+            local.depth = depth
+
+    def _read_after_write(self) -> Dict[str, Any]:
+        """``consistency_level`` for a filter read: Strong inside ``read_fresh`` on a server."""
+        local = self.__dict__.get("_fresh_reads")
+        if self.is_lite or not getattr(local, "depth", 0):
+            return {}
+        return {"consistency_level": "Strong"}
+
+    def _catch_up(self, client: MilvusClient, query_kwargs: Dict[str, Any]) -> None:
+        """Make a server's next reads of this collection see every earlier write.
+
+        pymilvus's query iterator always reads at the collection's default
+        level and ignores ``consistency_level``: on Milvus 2.4, scans right
+        after an insert came up short, even when asked for Strong. One Strong
+        ``count(*)`` with the same filter first waits until the server has
+        applied those writes, after which the scan sees them (0 short in 15
+        measured that way). A full
+        scan builds indexes such as the in-process BM25 one, so it pays this
+        once per scan, never per search.
+        """
+        if self.is_lite:
+            return
+        probe = {
+            k: v
+            for k, v in query_kwargs.items()
+            if k in ("collection_name", "filter", "partition_names")
+        }
+        client.query(**probe, output_fields=["count(*)"], consistency_level="Strong")
 
     def _ensure_connected(self) -> MilvusClient:
         """Ensure we're connected and return the client."""
@@ -837,8 +874,10 @@ class MilvusBackend(VectorStoreAdapter):
         }
         if partition_key is not None:
             kwargs["partition_names"] = [partition_key]
-        kwargs.update(self._read_after_write())
 
+        # Outside the try: a catch-up that fails (a timeout under ingest load)
+        # raises, rather than passing for "no iterator" and scanning stale.
+        self._catch_up(client, kwargs)
         try:
             iterator = client.query_iterator(**kwargs)
         except Exception:
@@ -850,13 +889,15 @@ class MilvusBackend(VectorStoreAdapter):
                 "scan, which cannot read past %d rows.",
                 self._QUERY_LIMIT_OFFSET_CAP,
             )
-            yield from super().iter_all(
-                collection_name,
-                filter_expr,
-                output_fields,
-                partition_key=partition_key,
-                page_size=page_size,
-            )
+            # Its pages are plain queries, so they read fresh here too.
+            with self.read_fresh():
+                yield from super().iter_all(
+                    collection_name,
+                    filter_expr,
+                    output_fields,
+                    partition_key=partition_key,
+                    page_size=page_size,
+                )
             return
 
         try:
