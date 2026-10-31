@@ -474,7 +474,9 @@ nowhere else. Lasagna checks that rather than assuming it.
   says so, the bundle is marked `UNDECLARED_STAGE_CHANGE`, and
   `lasagna results validate` refuses it, naming the stage and the settings that
   moved. An arm whose named change never reached its stage is flagged as inert,
-  since its number is the control's under another name.
+  since its number is the control's under another name; a change the retrieval
+  track forces off for every arm is inert there and live on generation, and
+  the run says which.
 
 ### Do two techniques compose, or do they overlap?
 

@@ -38,7 +38,7 @@ from datetime import datetime
 from functools import lru_cache
 from itertools import product
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from loguru import logger
 
@@ -1337,8 +1337,8 @@ def _fix_retrieval_routing(task_config: Dict[str, Any]) -> None:
 #: routing (:func:`_fix_retrieval_routing`) and the depth policies
 #: (:func:`_fix_retrieval_depth`), less the two the manifest handles otherwise
 #: (the search cache is operational, and context order is recorded per
-#: track). The generation track reads the arm's own values, so it is the only
-#: place two arms can differ in these.
+#: track). The generation track reads the arm's own values, so the stage
+#: manifest records each of these per track (``stages.TRACK_SPLIT_KEYS``).
 _RETRIEVAL_TRACK_FORCED = frozenset(
     {
         "use_agentic_rag",
@@ -1349,30 +1349,6 @@ _RETRIEVAL_TRACK_FORCED = frozenset(
         "default_top_k",
     }
 )
-
-
-def _manifest_settings(
-    task_config: Mapping[str, Any], gen_config: Optional[Mapping[str, Any]]
-) -> Dict[str, Any]:
-    """The settings the stage manifest digests.
-
-    The retrieval track's, with the keys it forces taken from the generation
-    track when that ran (``gen_config``), since those are what the arm's
-    generation ran with. Digesting the forced values made every arm alike in
-    them: on a generation track an arm that set ``use_agentic_rag: true``
-    digested like its control at the agentic stage and was called inert, and
-    two arms that differed only in ``routing_default_tier`` could not be told
-    apart. Without a generation track the forced values stand, since they are
-    what ran.
-    """
-    settings = dict(task_config)
-    if gen_config is None:
-        return settings
-    for key in _RETRIEVAL_TRACK_FORCED:
-        settings.pop(key, None)
-        if key in gen_config:
-            settings[key] = gen_config[key]
-    return settings
 
 
 def _context_order(gen_config: Any) -> Dict[str, str]:
@@ -5418,40 +5394,57 @@ async def _eval_live(
         metrics = {k: v for k, v in metrics.items() if k in _retrieval_metric_keys}
         per_sample_scores = per_sample_scores[:_retrieval_rows]
         _eval_failures = []
-    # What reached each stage, from the config the search actually resolved
-    # (session plus this arm's overrides, and the generation track's values
-    # for what the retrieval track forces) and the components it named; the
-    # bundle's isolation check compares these across arms.
+    # What reached each stage: the configuration each track searched with
+    # (session plus this arm's overrides; the retrieval track's routing and
+    # depth forced, the generation track's the arm's own) and the components
+    # it named. The split keys are recorded per track whether or not the track
+    # ran, and `tracks` says which did; the bundle's isolation check compares
+    # these across arms.
     try:
         from lasagna.core.config import rag_config as _rc
 
-        from .stages import stage_manifest
+        from .stages import stage_manifest, track_manifest
 
-        _system["stages"] = stage_manifest(
-            _rc.with_session(shared_session_id).with_query_overrides(
-                _manifest_settings(task_config, gen_config if gen_samples else None)
-            ),
-            {
-                k: v
-                for k, v in (task.config_overrides or {}).items()
-                if k in _COMPONENT_KEYS and isinstance(v, str)
-            },
-            harness={
-                "metric_k": _metric_k,
-                "retrieval_chunk_overfetch": _chunk_overfetch,
-                # Only when set, so every other arm's retriever digest is the
-                # one it always had.
-                **({"no_rag": True} if _no_rag(task) else {}),
-                # The order each track used: the retrieval track always scores
-                # the ranked list; the generator reads its passages reordered
-                # when the arm says so. Without this the manifest showed
-                # reordering off (the retrieval setting) for an arm whose
-                # generator read the reordered list.
-                "context_order": _context_order(
-                    _rc.with_session(shared_session_id).with_query_overrides(gen_config)
-                ),
-            },
+        _manifest_components = {
+            k: v
+            for k, v in (task.config_overrides or {}).items()
+            if k in _COMPONENT_KEYS and isinstance(v, str)
+        }
+        _manifest_harness = {
+            "metric_k": _metric_k,
+            "retrieval_chunk_overfetch": _chunk_overfetch,
+            # Only when set, so every other arm's retriever digest is the
+            # one it always had.
+            **({"no_rag": True} if _no_rag(task) else {}),
+        }
+        # Forced the same way whether or not retrieval ran, so an arm digests
+        # alike on a retrieval-only run and a full one.
+        _retrieval_track_config = dict(task_config)
+        _fix_retrieval_routing(_retrieval_track_config)
+        # The order each track used: the retrieval track always scores the
+        # ranked list; the generator reads its passages reordered when the
+        # arm says so. Without this the manifest showed reordering off (the
+        # retrieval setting) for an arm whose generator read the reordered
+        # list.
+        _track_order = _context_order(
+            _rc.with_session(shared_session_id).with_query_overrides(gen_config)
         )
+        _system["stages"] = track_manifest(
+            {
+                track: stage_manifest(
+                    _rc.with_session(shared_session_id).with_query_overrides(config),
+                    _manifest_components,
+                    harness={**_manifest_harness, "context_order": _track_order[track]},
+                )
+                for track, config in (
+                    ("retrieval", _retrieval_track_config),
+                    ("generation", gen_config),
+                )
+            }
+        )
+        _system["tracks"] = [
+            track for track, ran in (("retrieval", ir_samples), ("generation", gen_samples)) if ran
+        ]
     except Exception as exc:  # the manifest must never cost a result
         logger.warning(f"Could not record the stage manifest: {exc}")
     if _context_free:

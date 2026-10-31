@@ -24,6 +24,7 @@ from lasagna.knowledge_evaluation_sdk.stages import (
     isolation_report,
     stage_manifest,
     stage_of,
+    track_manifest,
 )
 
 
@@ -102,14 +103,14 @@ class _Config:
         self._config = values
 
 
-def _row(name, overrides, manifest, profile="speed", bench="b"):
+def _row(name, overrides, manifest, profile="speed", bench="b", tracks=None):
     return {
         "benchmark_name": bench,
         "config_name": name,
         "config_overrides": overrides,
         "profile": profile,
         "error": None,
-        "system": {"stages": manifest},
+        "system": {"stages": manifest, **({"tracks": list(tracks)} if tracks else {})},
     }
 
 
@@ -368,3 +369,130 @@ def test_what_the_harness_sets_for_a_declared_change_is_not_a_leak(
     )
     rows = [_row("control", {}, control), _row("arm", overrides, arm)]
     assert isolation_report(rows)["undeclared"] == []
+
+
+# Inert is judged setting by setting, and track by track.
+
+
+def test_a_declared_setting_that_never_arrived_is_inert_beside_one_that_did():
+    rows = [
+        _row("control", {}, _manifest(hybrid_alpha=0.7, rrf_k=60)),
+        # Names both; only rrf_k reached the retriever. By stage digest the
+        # arm had moved, so nothing said hybrid_alpha never arrived.
+        _row("fused", {"hybrid_alpha": 0.3, "rrf_k": 10}, _manifest(hybrid_alpha=0.7, rrf_k=10)),
+    ]
+    report = isolation_report(rows)
+    assert report["undeclared"] == []
+    (line,) = report["inert"]
+    assert "['hybrid_alpha']" in line and "control" in line and "['rrf_k']" in line
+
+
+BOTH = ("retrieval", "generation")
+
+
+def _tracked(components=None, retrieval=None, generation=None, **common):
+    """A manifest as the harness records it: the split keys per track."""
+    return track_manifest(
+        {
+            "retrieval": _manifest(components, **common, **(retrieval or {})),
+            "generation": _manifest(components, **common, **(generation or {})),
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "components"),
+    [
+        ({"use_agentic_rag": True}, None),
+        ({"agentic_pipeline": "self_ask"}, {"agentic_pipeline": "self_ask"}),
+    ],
+)
+def test_an_agentic_arm_is_inert_on_retrieval_and_live_on_generation(overrides, components):
+    # The retrieval track forces the loop off for every arm; the generation
+    # track runs it. Digesting the retrieval track's values called the arm
+    # inert outright; the generation track's alone hid that its retrieval
+    # numbers are the control's.
+    control = _tracked(retrieval={"use_agentic_rag": False}, generation={"use_agentic_rag": False})
+    arm = _tracked(
+        components, retrieval={"use_agentic_rag": False}, generation={"use_agentic_rag": True}
+    )
+    key = next(iter(overrides))
+
+    both = [_row("control", {}, control, tracks=BOTH), _row("agentic", overrides, arm, tracks=BOTH)]
+    report = isolation_report(both)
+    assert report["undeclared"] == []
+    (line,) = report["inert"]
+    assert repr(key) in line and "retrieval track" in line
+    assert "generation track ran with its own" in line
+
+    only = ["retrieval"]
+    retrieval_only = [
+        _row("control", {}, control, tracks=only),
+        _row("agentic", overrides, arm, tracks=only),
+    ]
+    (line,) = isolation_report(retrieval_only)["inert"]
+    assert "identical to the control" in line and "forces" in line
+
+    only = ["generation"]
+    generation_only = [
+        _row("control", {}, control, tracks=only),
+        _row("agentic", overrides, arm, tracks=only),
+    ]
+    assert isolation_report(generation_only)["inert"] == []
+
+
+def test_split_keys_are_recorded_per_track_and_the_rest_once():
+    m = _tracked(retrieval={"default_top_k": 40}, generation={"default_top_k": 10}, chunk_size=500)
+    assert m["retriever"]["settings"]["default_top_k"] == {"retrieval": 40, "generation": 10}
+    assert m["chunker"]["settings"]["chunk_size"] == 500
+    # A difference on one track moves the stage's digest, and only its.
+    same = _tracked(
+        retrieval={"default_top_k": 40}, generation={"default_top_k": 40}, chunk_size=500
+    )
+    assert same["retriever"]["digest"] != m["retriever"]["digest"]
+    assert same["chunker"]["digest"] == m["chunker"]["digest"]
+
+
+def test_arms_are_compared_only_on_tracks_both_ran():
+    # A no_rag arm skips retrieval: what its retrieval track would have
+    # searched with changed nothing it measured, so it is no leak.
+    control = _tracked(
+        retrieval={"similarity_threshold": 0.0}, generation={"similarity_threshold": 0.5}
+    )
+    arm = _tracked(
+        retrieval={"similarity_threshold": 0.9}, generation={"similarity_threshold": 0.5}
+    )
+    rows = [
+        _row("control", {}, control, tracks=BOTH),
+        _row("closed", {"no_rag": True}, arm, tracks=["generation"]),
+    ]
+    assert isolation_report(rows)["undeclared"] == []
+    # The same difference on a track both ran is one.
+    rows = [
+        _row("control", {}, control, tracks=BOTH),
+        _row("other", {"no_rag": True}, arm, tracks=BOTH),
+    ]
+    (line,) = isolation_report(rows)["undeclared"]
+    assert "similarity_threshold" in line
+
+
+def test_a_row_that_did_not_record_its_tracks_is_judged_whole_with_no_track_claim():
+    # A results file written by 0.1.0: scalar settings, context_order for
+    # both tracks, no record of which ran. Re-bundled, a retrieval-only run's
+    # reordering arm was told its generation track ran with its own value.
+    order = {"retrieval": "ranked", "generation": "lost_in_the_middle"}
+    control = stage_manifest(
+        _Config(**BASE), {}, harness={"context_order": {**order, "generation": "ranked"}}
+    )
+    arm = stage_manifest(_Config(**BASE), {}, harness={"context_order": order})
+    rows = [
+        _row("control", {}, control),
+        _row("reordered", {"enable_context_reordering": True}, arm),
+    ]
+    report = isolation_report(rows)
+    assert report["undeclared"] == []
+    assert not any("track" in line for line in report["inert"])
+    # Judged whole, a value the arm did change is live, and one it did not is inert.
+    rows[1] = _row("reordered", {"enable_context_reordering": True}, control)
+    (line,) = isolation_report(rows)["inert"]
+    assert "identical to the control" in line and "track" not in line
