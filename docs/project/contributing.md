@@ -58,6 +58,13 @@ request and fails until:
   every TODO links its issue;
 - a change to `src/lasagna/` comes with a test and a changelog line.
 
+Every change is also run in the production environment, the Docker Compose
+stack in `src/lasagna/deploy` built from the branch, and the description shows
+the `docker compose` commands and what came out. Docker is free through
+[Rancher Desktop](https://rancherdesktop.io/), Docker Engine on Linux, Docker
+Desktop for personal use, or a GitHub Codespace. The steps are in
+[CONTRIBUTING.md](https://github.com/dolev31/lasagna/blob/main/CONTRIBUTING.md#tested-in-the-production-environment).
+
 Run it before you open the pull request:
 
 ```bash

@@ -26,6 +26,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   components, benchmarks, studies and deployment work the project would like to
   have, each with what "done" means.
 - A pull request checklist in `docs/contributing-components.md`.
+- An `IMAGE_EXTRAS` build argument for the Docker image (set in `.env`): extras
+  installed beyond the production set, empty by default. `IMAGE_EXTRAS=eval`
+  runs `lasagna benchmark` and sweeps inside the Compose stack.
+- Every pull request is tested in the production environment, the Compose
+  stack built from its branch (CONTRIBUTING.md, "Tested in the production
+  environment"). The "PR quality" check fails while "How it was tested" shows
+  no `docker compose` command, and the template has a box for it.
 
 ### Fixed
 

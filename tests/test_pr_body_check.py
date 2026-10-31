@@ -44,7 +44,9 @@ The validator knows the agentic_pipeline stage. `--stage` lists it in its help.
 ## How it was tested
 
 `tests/test_component_validate.py::test_an_agentic_pipeline_validates` fails
-before the change and passes after it. Ran `scripts/ci-local.sh`.
+before the change and passes after it. Ran `scripts/ci-local.sh`. In the stack
+built from this branch, `docker compose exec api lasagna component validate
+self_ask` passes (image `lasagna-api`, `docker compose ps` shows it healthy).
 
 ## Evidence
 
@@ -61,6 +63,7 @@ Read in full by: @octocat
 - [x] `scripts/ci-local.sh` passes, or at least `ruff check .`, `ruff format --check .` and the test suite.
 - [x] Every new `noqa`, `type: ignore` or `pragma: no cover` names its code and gives a reason.
 - [x] `CHANGELOG.md` has a line under Unreleased, or nothing a user sees changed.
+- [x] I ran this change in the Docker Compose stack built from this branch, and "How it was tested" shows the commands.
 - [x] I read every line of the diff, and I can explain each one.
 """
 
@@ -149,6 +152,22 @@ class TestTheDescription:
         assert any("is not ticked" in p for p in check_pr_body.problems(unticked))
         removed = "\n".join(line for line in FILLED.splitlines() if "I read every line" not in line)
         assert any("was removed" in p for p in check_pr_body.problems(removed))
+
+    def test_a_change_not_run_in_the_compose_stack_fails(self):
+        local_only = _replace(
+            FILLED,
+            "How it was tested",
+            "`tests/test_component_validate.py::test_an_agentic_pipeline_validates` "
+            "fails before the change and passes after it.",
+        )
+        assert any("docker compose" in p for p in check_pr_body.problems(local_only))
+        for spelling in ("docker compose up -d --build", "Docker Compose run", "docker-compose ps"):
+            ran = _replace(FILLED, "How it was tested", f"Ran `{spelling}` and the test.")
+            assert not any("docker compose" in p for p in check_pr_body.problems(ran)), spelling
+
+    def test_the_compose_box_is_required(self):
+        unticked = FILLED.replace("- [x] I ran this change", "- [ ] I ran this change")
+        assert any("Docker Compose stack" in p for p in check_pr_body.problems(unticked))
 
     def test_windows_line_endings_are_read(self):
         assert check_pr_body.problems(FILLED.replace("\n", "\r\n")) == []
