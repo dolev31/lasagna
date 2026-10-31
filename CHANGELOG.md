@@ -29,6 +29,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- On a Milvus server, filter reads (`query`, `iter_all`, `query_raw`) see the
+  rows written just before them. They read with the collection's Bounded
+  consistency, so a count right after an insert came up short: the
+  benchmark's corpus census, taken right after ingestion, counted 0 of 24
+  documents, and every cold `lasagna benchmark run` in the Compose stack was
+  refused as "changed while this run used it". They now read Strong on a
+  server; vector search and Milvus Lite are unchanged.
 - Validate `BaseAgenticPipeline` components with an async contract check and
   report incorrect results or input mutation instead of rejecting the stage.
 

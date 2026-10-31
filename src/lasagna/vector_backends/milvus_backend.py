@@ -393,6 +393,21 @@ class MilvusBackend(VectorStoreAdapter):
         """Whether this is Milvus Lite (a local database file), not a server."""
         return bool(self._db_path)
 
+    def _read_after_write(self) -> Dict[str, Any]:
+        """Query arguments that make a filter read see every write before it.
+
+        A Milvus server reads with the collection's consistency level, Bounded
+        by default, so a query moments after an insert misses the newest rows:
+        measured on the stack's Milvus 2.4, each count after an insert read one
+        row short. The benchmark's corpus census, taken right after ingestion,
+        counted 0 of 24 documents, and the end-of-task check then refused the
+        task as "changed while this run used it" on every cold run. Filter
+        reads (presence checks, listings, the census) need the rows that are
+        there, so they read Strong. Vector search keeps the collection's level.
+        Milvus Lite has no staleness window, so it gets nothing extra.
+        """
+        return {} if self.is_lite else {"consistency_level": "Strong"}
+
     def _ensure_connected(self) -> MilvusClient:
         """Ensure we're connected and return the client."""
         if not self._client:
@@ -781,6 +796,7 @@ class MilvusBackend(VectorStoreAdapter):
         }
         if partition_key is not None:
             query_kwargs["partition_names"] = [partition_key]
+        query_kwargs.update(self._read_after_write())
 
         results = client.query(**query_kwargs)
 
@@ -821,6 +837,7 @@ class MilvusBackend(VectorStoreAdapter):
         }
         if partition_key is not None:
             kwargs["partition_names"] = [partition_key]
+        kwargs.update(self._read_after_write())
 
         try:
             iterator = client.query_iterator(**kwargs)
@@ -1208,4 +1225,5 @@ class MilvusBackend(VectorStoreAdapter):
             filter=filter,
             output_fields=output_fields,
             limit=limit,
+            **self._read_after_write(),
         )
