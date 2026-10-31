@@ -36,6 +36,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The Compose stack's Qdrant service now raises its `nofile` ulimit to 524288.
+  A burst of concurrent clients creating collections and payload indexes
+  exhausted the container's default 1024 file descriptors ("Too many open
+  files"), which could take the vector store down in production.
 - On a Milvus server, the benchmark's corpus census and pre-flight see the
   rows written just before them. A server reads with the collection's Bounded
   consistency, so a count right after ingestion came up short (0 of 24
