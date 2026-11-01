@@ -137,7 +137,10 @@ def test_every_file_the_image_copies_is_still_in_the_build(rules):
     """The ignore rules must not drop anything the Dockerfile needs."""
     sources = _copied_sources()
     assert "src/lasagna/" in sources and "pyproject.toml" in sources, sources
-    assert "constraints/0.1.0.txt" in sources, sources
+    version = re.search(r'^version = "([^"]+)"', (REPO_ROOT / "pyproject.toml").read_text(), re.M)[
+        1
+    ]
+    assert f"constraints/{version}.txt" in sources, sources
     tracked = subprocess.run(
         ["git", "ls-files", "--", *sources],
         cwd=REPO_ROOT,

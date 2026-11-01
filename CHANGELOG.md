@@ -8,6 +8,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A dev container (`.devcontainer/devcontainer.json`): a GitHub Codespace or
+  the Dev Containers extension opens with Python 3.12, the full development
+  install and Docker, so the Compose stack a pull request is tested in runs
+  inside it.
+
+## [0.2.0] - 2026-11-01
+
+The first release with outside contributors. Thank you to
+[@ect2000](https://github.com/ect2000), for the `2wikimultihopqa` benchmark
+with its distractor paragraphs and the agentic-pipeline checks in
+`lasagna component validate`, and to [@juliasadler](https://github.com/juliasadler),
+for the fix to two services racing to create a collection, measured against
+the stack's own Qdrant.
+
+### Deprecated
+
+- The old names renamed in 0.1.0 (`lasagna benchmark compare`, `lasagna
+  benchmark leaderboard`, `results interaction --bootstrap`, and the names
+  dropped from `lasagna.__all__`) and the unversioned `/api/config/knowledge`
+  routes stay for one more release, with their warnings, and are removed in
+  0.3.0. 0.1.0 said 0.2.0; their warnings now name 0.3.0.
+
+### Changed
+
+- The PyPI page links the documentation site and the paper.
+
+### Added
+
 - A pinned `2wikimultihopqa` benchmark adapter with a validation corpus that
   retains gold paragraphs and distractors, with version-specific IDs that deduplicate
   formatting-only whitespace differences while keeping the first original text.
@@ -26,10 +54,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   components, benchmarks, studies and deployment work the project would like to
   have, each with what "done" means.
 - A pull request checklist in `docs/contributing-components.md`.
-- A dev container (`.devcontainer/devcontainer.json`): a GitHub Codespace or
-  the Dev Containers extension opens with Python 3.12, the full development
-  install and Docker, so the Compose stack a pull request is tested in runs
-  inside it.
 - An `IMAGE_EXTRAS` build argument for the Docker image (set in `.env`): extras
   installed beyond the production set, empty by default. `IMAGE_EXTRAS=eval`
   runs `lasagna benchmark` and sweeps inside the Compose stack.
@@ -557,5 +581,6 @@ The first standalone release of Lasagna; this is everything it brings.
 - Lasagna vendors no third-party source, bundles no model weights, and
   redistributes no benchmark corpora.
 
-[Unreleased]: https://github.com/dolev31/lasagna/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/dolev31/lasagna/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/dolev31/lasagna/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dolev31/lasagna/releases/tag/v0.1.0

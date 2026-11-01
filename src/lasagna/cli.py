@@ -2485,7 +2485,7 @@ def _sweep_example(stage: Optional[str], name: str) -> str:
 
 def _deprecated_spelling(old: str, new: str) -> None:
     console.print(
-        f"[yellow]`lasagna {old}` is deprecated and will be removed in 0.2.0; "
+        f"[yellow]`lasagna {old}` is deprecated and will be removed in 0.3.0; "
         f"use `lasagna {new}`.[/yellow]"
     )
 
@@ -3789,7 +3789,7 @@ def results_interaction(
         "30 queries differ; with 30 or fewer it is exact. The interval is a t interval.",
     ),
     bootstrap: Optional[int] = typer.Option(
-        None, "--bootstrap", hidden=True, help="Old name of --resamples, removed in 0.2.0."
+        None, "--bootstrap", hidden=True, help="Old name of --resamples, removed in 0.3.0."
     ),
 ):
     """Do two techniques compose, or do they overlap?
