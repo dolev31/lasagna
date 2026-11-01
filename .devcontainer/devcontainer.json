@@ -1,0 +1,31 @@
+// A development environment for Lasagna: open it as a GitHub Codespace (Code >
+// Codespaces > Create codespace on your fork) or with the Dev Containers
+// extension. It has Python 3.12, the full development install CONTRIBUTING.md
+// asks for, and Docker, so the Compose stack every pull request is tested in
+// runs inside it (CONTRIBUTING.md, "Tested in the production environment").
+{
+  "name": "Lasagna",
+  // The plain Debian base: the python image carries a Yarn apt repository
+  // whose signing key expired, which breaks apt and so the Docker feature.
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.12" },
+    // Docker Engine and docker compose inside the container.
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  // Memory: the stack runs Milvus, PostgreSQL, Redis and the API at once.
+  // Disk is the tighter limit (a 4-core Codespace has 32 GB): see
+  // CONTRIBUTING.md, "Tested in the production environment".
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "16gb"
+  },
+  // The install CONTRIBUTING.md documents, under the release's constraints,
+  // with CPU-only torch; then the pre-commit hooks.
+  "postCreateCommand": "sh .devcontainer/post-create.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "charliermarsh.ruff"]
+    }
+  }
+}
