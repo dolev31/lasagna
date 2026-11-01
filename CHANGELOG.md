@@ -6,6 +6,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- The stage isolation check excuses only the settings an arm declares, and
+  what the harness sets on their account, rather than every setting in a
+  stage an arm names, and judges an inert arm setting by setting. An arm that
+  named `hybrid_alpha` hid a `default_top_k` that leaked into the retriever
+  stage; a reranker sweep, where every arm names a reranker, hid a leaked
+  `rerank_top_k`; an arm that named `hybrid_alpha` and `rrf_k` passed as live
+  when only `rrf_k` arrived. The first two now mark the bundle
+  `UNDECLARED_STAGE_CHANGE`, naming the settings; the third is flagged inert
+  for the setting that never arrived. The run's isolation line and `results
+  view` say the arms differ only in the *settings* they name, which is what
+  is checked.
+- The stage manifest records the routing and retrieval-depth settings
+  (`use_agentic_rag`, `agentic_pipeline`, `routing_default_tier`,
+  `similarity_threshold`, `chunk_cite_retrieval`, `default_top_k`) per track,
+  as `{"retrieval": ..., "generation": ...}`, the way `context_order` already
+  was, and `system.tracks` records which tracks ran. It digested the values
+  the retrieval track forces on every arm, so on a generation track an arm
+  that set `use_agentic_rag: true` ran the loop, digested like its control,
+  and was called inert; two arms that differed only in `routing_default_tier`
+  could not be told apart. The check now judges such an arm per track: inert
+  on retrieval, where the setting is forced, and live on generation. Stage
+  digests, and so comparability keys, change for every run of this version:
+  a bundle written by 0.2.0 or earlier keeps its verdict under
+  `results validate`, which reads the integrity block the bundle records,
+  and groups on a leaderboard only with bundles from before this version;
+  `results bundle` on a results.json written by 0.2.0 or earlier runs the
+  new check, so it can refuse what that version passed.
+
 ## [0.2.1] - 2026-11-04
 
 A patch release: uploads to the default Docker Compose stack are indexed again.
@@ -120,32 +150,6 @@ the stack's own Qdrant.
   Celery worker can reach at the same time.
 - Validate `BaseAgenticPipeline` components with an async contract check and
   report incorrect results or input mutation instead of rejecting the stage.
-- The stage isolation check excuses only the settings an arm declares, and
-  what the harness sets on their account, rather than every setting in a
-  stage an arm names, and judges an inert arm setting by setting. An arm that
-  named `hybrid_alpha` hid a `default_top_k` that leaked into the retriever
-  stage; a reranker sweep, where every arm names a reranker, hid a leaked
-  `rerank_top_k`; an arm that named `hybrid_alpha` and `rrf_k` passed as live
-  when only `rrf_k` arrived. The first two now mark the bundle
-  `UNDECLARED_STAGE_CHANGE`, naming the settings; the third is flagged inert
-  for the setting that never arrived. The run's isolation line and `results
-  view` say the arms differ only in the *settings* they name, which is what
-  is checked.
-- The stage manifest records the routing and retrieval-depth settings
-  (`use_agentic_rag`, `agentic_pipeline`, `routing_default_tier`,
-  `similarity_threshold`, `chunk_cite_retrieval`, `default_top_k`) per track,
-  as `{"retrieval": ..., "generation": ...}`, the way `context_order` already
-  was, and `system.tracks` records which tracks ran. It digested the values
-  the retrieval track forces on every arm, so on a generation track an arm
-  that set `use_agentic_rag: true` ran the loop, digested like its control,
-  and was called inert; two arms that differed only in `routing_default_tier`
-  could not be told apart. The check now judges such an arm per track: inert
-  on retrieval, where the setting is forced, and live on generation. Stage
-  digests, and so comparability keys, change for every run of this version:
-  a bundle written by 0.1.0 keeps its verdict under `results validate`, which
-  reads the integrity block the bundle records, and groups on a leaderboard
-  only with other 0.1.0 bundles; `results bundle` on a results.json written
-  by 0.1.0 runs the new check, so it can refuse what 0.1.0 passed.
 
 ## [0.1.0] - 2026-10-21
 

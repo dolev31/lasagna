@@ -500,9 +500,10 @@ def test_two_arms_with_no_track_in_common_are_not_compared():
 
 
 def test_a_row_that_did_not_record_its_tracks_is_judged_whole_with_no_track_claim():
-    # A results file written by 0.1.0: scalar settings, context_order for
-    # both tracks, no record of which ran. Re-bundled, a retrieval-only run's
-    # reordering arm was told its generation track ran with its own value.
+    # A results file written by 0.2.0 or earlier: scalar settings,
+    # context_order for both tracks, no record in the row of which ran.
+    # Re-bundled, a retrieval-only run's reordering arm was told its
+    # generation track ran with its own value.
     order = {"retrieval": "ranked", "generation": "lost_in_the_middle"}
     control = stage_manifest(
         _Config(**BASE), {}, harness={"context_order": {**order, "generation": "ranked"}}
