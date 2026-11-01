@@ -40,4 +40,5 @@ def test_it_installs_what_contributing_documents():
 
 def test_it_uses_the_python_the_release_is_pinned_on():
     """constraints/<version>.txt pins the tested versions on Python 3.12."""
-    assert "python:1-3.12" in _config()["image"]
+    python = _config()["features"]["ghcr.io/devcontainers/features/python:1"]
+    assert python["version"] == "3.12"
