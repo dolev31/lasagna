@@ -144,19 +144,39 @@ def _default(param) -> str:
     return f"`{param.default}`"
 
 
+_TYPE_LABELS = {
+    "StringParamType": "text",
+    "IntParamType": "int",
+    "FloatParamType": "float",
+    "BoolParamType": "bool",
+    "Path": "path",
+}
+
+
+def _label(type_) -> str:
+    # Decide by the type's class, not its `name`: Typer 0.27 names its string
+    # type `str` while Typer 0.26 names the same class `text`, so a name lookup
+    # rendered the page two ways depending on the installed Typer (#35). Typer
+    # 0.27 also vendors click, so the classes arrive from either copy and the
+    # name is what is shared.
+    for cls in type(type_).__mro__:
+        label = _TYPE_LABELS.get(cls.__name__)
+        if label:
+            return label
+    return type_.name.lower()
+
+
 def _type(param) -> str:
     if param.is_flag:
         return ""
-    name = param.type.name.upper()
     if hasattr(param.type, "choices"):
-        return " | ".join(param.type.choices)
-    return {
-        "STRING": "text",
-        "INTEGER": "int",
-        "FLOAT": "float",
-        "BOOLEAN": "bool",
-        "PATH": "path",
-    }.get(name, name.lower())
+        return " | ".join(str(c) for c in param.type.choices)
+    if getattr(param.type, "types", None):
+        # A tuple option (``--diff A B``) names itself "<text text>", and each
+        # element carries the same per-Typer label, so resolve them one by one
+        # and keep the shape the page already uses.
+        return "<" + " ".join(_label(t) for t in param.type.types) + ">"
+    return _label(param.type)
 
 
 def _options_table(cmd) -> List[str]:

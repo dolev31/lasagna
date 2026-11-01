@@ -14,6 +14,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   first start, so the Compose stack a pull request is tested in runs inside
   it.
 
+### Fixed
+
+- The generated CLI reference labels an option's type the same way whichever
+  Typer version is installed, so a checkout using `constraints/0.2.0.txt`
+  (Typer 0.26.8) no longer reports the page as out of date and rewrites it.
+
 ## [0.2.0] - 2026-11-01
 
 The first release with outside contributors. Thank you to
