@@ -13,14 +13,16 @@
     // Docker Engine and docker compose inside the container.
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
-  // The stack builds a CPU image of about 10 GB and runs Milvus, PostgreSQL
-  // and Redis beside the API, so a small machine runs out of memory.
+  // Memory: the stack runs Milvus, PostgreSQL, Redis and the API at once.
+  // Disk is the tighter limit (a 4-core Codespace has 32 GB): see
+  // CONTRIBUTING.md, "Tested in the production environment".
   "hostRequirements": {
     "cpus": 4,
     "memory": "16gb"
   },
-  // The setup CONTRIBUTING.md documents, then the pre-commit hooks.
-  "postCreateCommand": "python -m pip install uv && python -m uv pip install --system -e '.[all]' --group dev && pre-commit install",
+  // The install CONTRIBUTING.md documents, under the release's constraints,
+  // with CPU-only torch; then the pre-commit hooks.
+  "postCreateCommand": "sh .devcontainer/post-create.sh",
   "customizations": {
     "vscode": {
       "extensions": ["ms-python.python", "charliermarsh.ruff"]

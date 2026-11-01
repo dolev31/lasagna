@@ -9,9 +9,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - A dev container (`.devcontainer/devcontainer.json`): a GitHub Codespace or
-  the Dev Containers extension opens with Python 3.12, the full development
-  install and Docker, so the Compose stack a pull request is tested in runs
-  inside it.
+  the Dev Containers extension sets up Python 3.12, the full development
+  install (with CPU-only torch, under the release's constraints) and Docker on
+  first start, so the Compose stack a pull request is tested in runs inside
+  it.
 
 ## [0.2.0] - 2026-11-01
 

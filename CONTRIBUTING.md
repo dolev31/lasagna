@@ -165,9 +165,15 @@ built from its branch, and shows it.
    - A GitHub Codespace on your fork. It runs Docker, and a personal account has
      free monthly hours. Use it when your machine, or the sandbox your agent
      works in, has no Docker daemon. The repository's dev container
-     (`.devcontainer/devcontainer.json`) sets it up: Python 3.12, the full
-     development install and Docker. Create the Codespace on a 4-core machine
-     or larger, since the stack needs the memory.
+     (`.devcontainer/devcontainer.json`) sets it up on first start: Python
+     3.12, the full development install with CPU-only torch, and Docker. A
+     4-core Codespace has 16 GB of memory and 32 GB of disk; the stack's image
+     and its build cache take much of that disk, so if a build stops with "no
+     space left on device", run `docker builder prune -af` and build again, or
+     use an 8-core machine (64 GB). The dev container has been built and
+     tested with the devcontainer CLI, not yet in a real Codespace: if you are
+     the first, say how it went in the
+     [Start here discussion](https://github.com/dolev31/lasagna/discussions/33).
 2. **Build the stack from your branch, and start it.**
 
    ```bash
