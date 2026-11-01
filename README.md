@@ -777,6 +777,26 @@ self-reported. [hub/](https://github.com/dolev31/lasagna/tree/main/hub) has what
 is needed to run a public leaderboard for bundles: a generated JSON Schema, a
 pull-request validation workflow, and that trust model.
 
+## Contributors
+
+Lasagna is maintained by [Ido Levy](https://github.com/dolev31). Thank you to
+everyone whose work is merged:
+
+- [@ect2000](https://github.com/ect2000): the `2wikimultihopqa` benchmark with
+  its distractor paragraphs ([#24](https://github.com/dolev31/lasagna/pull/24)),
+  and the agentic-pipeline checks in `lasagna component validate`
+  ([#17](https://github.com/dolev31/lasagna/pull/17)).
+- [@juliasadler](https://github.com/juliasadler): the fix for two services
+  racing to create a collection, measured against the stack's own Qdrant
+  ([#23](https://github.com/dolev31/lasagna/pull/23)).
+
+To join them, pick a
+[good first issue](https://github.com/dolev31/lasagna/labels/good%20first%20issue)
+or read [Start here](https://github.com/dolev31/lasagna/discussions/33). Every
+issue is written as numbered steps with a "Done when" list, and every pull
+request gets a line-by-line review. AI coding agents are welcome, under the
+same bar.
+
 ---
 
 ## License
