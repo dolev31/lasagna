@@ -15,6 +15,18 @@ with its distractor paragraphs and the agentic-pipeline checks in
 for the fix to two services racing to create a collection, measured against
 the stack's own Qdrant.
 
+### Deprecated
+
+- The old names renamed in 0.1.0 (`lasagna benchmark compare`, `lasagna
+  benchmark leaderboard`, `results interaction --bootstrap`, and the names
+  dropped from `lasagna.__all__`) and the unversioned `/api/config/knowledge`
+  routes stay for one more release, with their warnings, and are removed in
+  0.3.0. 0.1.0 said 0.2.0; their warnings now name 0.3.0.
+
+### Changed
+
+- The PyPI page links the documentation site and the paper.
+
 ### Added
 
 - A pinned `2wikimultihopqa` benchmark adapter with a validation corpus that

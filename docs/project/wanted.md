@@ -134,7 +134,7 @@ For people running Lasagna as a service. Labeled
 - **Weights & Biases and MLflow.** A run writes a results bundle; nothing sends
   it to a tracker yet.
 
-Also planned for 0.2.0, with no issue yet: export and import of a session's
+Also planned, with no issue yet: export and import of a session's
 documents and chunks, a prebuilt Wikipedia index, and batched generation with
 vLLM. Open an issue before you start one.
 

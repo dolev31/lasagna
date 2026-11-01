@@ -27,9 +27,9 @@ version: "0.2.0"
 # the CHANGELOG date; the release workflow refuses a tag where
 # the two differ.
 date-released: "2026-11-01"
-# The Zenodo DOI of this version, set once Zenodo mints it after the release.
-# Until then the concept DOI, which names every version and resolves to the
-# latest one (0.1.0 is 10.5281/zenodo.23548069).
+# The concept DOI, which names every version and resolves to the latest one.
+# Replace it with this version's own DOI once Zenodo mints it after the
+# release (0.1.0's is 10.5281/zenodo.23548069).
 doi: "10.5281/zenodo.23548068"
 abstract: >-
   Lasagna isolates the stages of a retrieval-augmented generation pipeline
