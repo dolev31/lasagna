@@ -26,6 +26,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   components, benchmarks, studies and deployment work the project would like to
   have, each with what "done" means.
 - A pull request checklist in `docs/contributing-components.md`.
+- A dev container (`.devcontainer/devcontainer.json`): a GitHub Codespace or
+  the Dev Containers extension opens with Python 3.12, the full development
+  install and Docker, so the Compose stack a pull request is tested in runs
+  inside it.
 - An `IMAGE_EXTRAS` build argument for the Docker image (set in `.env`): extras
   installed beyond the production set, empty by default. `IMAGE_EXTRAS=eval`
   runs `lasagna benchmark` and sweeps inside the Compose stack.

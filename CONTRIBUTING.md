@@ -164,7 +164,10 @@ built from its branch, and shows it.
      personal use, education and small businesses.
    - A GitHub Codespace on your fork. It runs Docker, and a personal account has
      free monthly hours. Use it when your machine, or the sandbox your agent
-     works in, has no Docker daemon.
+     works in, has no Docker daemon. The repository's dev container
+     (`.devcontainer/devcontainer.json`) sets it up: Python 3.12, the full
+     development install and Docker. Create the Codespace on a 4-core machine
+     or larger, since the stack needs the memory.
 2. **Build the stack from your branch, and start it.**
 
    ```bash

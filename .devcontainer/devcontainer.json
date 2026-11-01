@@ -1,0 +1,26 @@
+// A development environment for Lasagna: open it as a GitHub Codespace (Code >
+// Codespaces > Create codespace on your fork) or with the Dev Containers
+// extension. It has Python 3.12, the full development install CONTRIBUTING.md
+// asks for, and Docker, so the Compose stack every pull request is tested in
+// runs inside it (CONTRIBUTING.md, "Tested in the production environment").
+{
+  "name": "Lasagna",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+  "features": {
+    // Docker Engine and docker compose inside the container.
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  // The stack builds a CPU image of about 10 GB and runs Milvus, PostgreSQL
+  // and Redis beside the API, so a small machine runs out of memory.
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "16gb"
+  },
+  // The setup CONTRIBUTING.md documents, then the pre-commit hooks.
+  "postCreateCommand": "python -m pip install uv && python -m uv pip install --system -e '.[all]' --group dev && pre-commit install",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "charliermarsh.ruff"]
+    }
+  }
+}
