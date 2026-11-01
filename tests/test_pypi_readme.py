@@ -71,8 +71,10 @@ class TestSelfLinksPointAtRealFiles:
             if not target.startswith(repo_url):
                 continue
             path = target[len(repo_url) :]
-            if path.startswith("/actions/"):
-                continue  # the CI status badge and its run page, not repo files
+            if re.match(r"^/(actions|pull|issues|labels|discussions|releases)(/|$)", path):
+                # GitHub pages, not repo files: the CI badge and its runs, and
+                # the PRs, labels and discussion the Contributors section cites.
+                continue
             path = re.sub(r"^/(blob|tree)/main/", "", path).split("#")[0]
             if path and not (REPO / path).exists():
                 broken.append(path)

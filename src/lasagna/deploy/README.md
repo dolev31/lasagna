@@ -147,7 +147,7 @@ this volume with the others.
 ## CPU or GPU image
 
 The image runs torch's CPU-only build. The Dockerfile installs it from the PyTorch index
-(`https://download.pytorch.org/whl/cpu`), at the version `constraints/0.1.0.txt` pins,
+(`https://download.pytorch.org/whl/cpu`), at the version `constraints/0.2.0.txt` pins,
 before anything that depends on torch, and the rest of the install keeps it; the build
 fails if a later step replaced it. From PyPI, torch on Linux (x86_64 and arm64) brings
 the CUDA libraries. The image the CI stack builds (MiniLM models, qdrant client, arm64)

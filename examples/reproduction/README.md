@@ -195,6 +195,6 @@ documents; the warning names that cause instead.
   and `cross-encoder/ms-marco-MiniLM-L-6-v2` at 233902d2.
 - Run from the source tree of the commit in `results.csv`, with Python 3.12.9,
   torch 2.14.1, sentence-transformers 6.1.0, transformers 5.19.0, rank-bm25
-  0.2.2 and milvus-lite 3.2.1 (the versions in `constraints/0.1.0.txt`), on
+  0.2.2 and milvus-lite 3.2.1 (the versions in [`constraints/0.1.0.txt`](https://github.com/dolev31/lasagna/blob/v0.1.0/constraints/0.1.0.txt)), on
   macOS 26.5.2. `results_csv.py --commit` names the commit for a run made
   outside a git checkout; from a checkout, the run records it itself.

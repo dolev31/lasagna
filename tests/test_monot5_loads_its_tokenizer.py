@@ -32,7 +32,8 @@ def _names(requirements):
 def test_sentencepiece_is_a_core_dependency_and_pinned():
     project = tomllib.loads((REPO / "pyproject.toml").read_text())["project"]
     assert "sentencepiece" in _names(project["dependencies"])
-    pins = (REPO / "constraints" / "0.1.0.txt").read_text().splitlines()
+    version = project["version"]
+    pins = (REPO / "constraints" / f"{version}.txt").read_text().splitlines()
     assert any(line.startswith("sentencepiece==") for line in pins)
 
 
