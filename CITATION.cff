@@ -22,14 +22,15 @@ authors:
 repository-code: "https://github.com/dolev31/lasagna"
 url: "https://dolev31.github.io/lasagna/"
 license: Apache-2.0
-version: "0.1.0"
+version: "0.2.0"
 # MUST match the date of the release tag. Set it on release day, together with
 # the CHANGELOG date; the release workflow refuses a tag where
 # the two differ.
-date-released: "2026-10-21"
-# The Zenodo DOI of this version. 10.5281/zenodo.23548068 names every version
-# and resolves to the latest one.
-doi: "10.5281/zenodo.23548069"
+date-released: "2026-11-01"
+# The Zenodo DOI of this version, set once Zenodo mints it after the release.
+# Until then the concept DOI, which names every version and resolves to the
+# latest one (0.1.0 is 10.5281/zenodo.23548069).
+doi: "10.5281/zenodo.23548068"
 abstract: >-
   Lasagna isolates the stages of a retrieval-augmented generation pipeline
   behind typed contracts so that a single component can be replaced while

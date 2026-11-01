@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-01
+
+The first release with outside contributors. Thank you to
+[@ect2000](https://github.com/ect2000), for the `2wikimultihopqa` benchmark
+with its distractor paragraphs and the agentic-pipeline checks in
+`lasagna component validate`, and to [@juliasadler](https://github.com/juliasadler),
+for the fix to two services racing to create a collection, measured against
+the stack's own Qdrant.
+
 ### Added
 
 - A pinned `2wikimultihopqa` benchmark adapter with a validation corpus that
@@ -553,5 +562,6 @@ The first standalone release of Lasagna; this is everything it brings.
 - Lasagna vendors no third-party source, bundles no model weights, and
   redistributes no benchmark corpora.
 
-[Unreleased]: https://github.com/dolev31/lasagna/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/dolev31/lasagna/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/dolev31/lasagna/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dolev31/lasagna/releases/tag/v0.1.0
