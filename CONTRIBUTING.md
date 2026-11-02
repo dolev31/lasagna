@@ -127,6 +127,10 @@ yours is merged, the next one is a click away.
   requests. For a new stage, a change to the core, or anything over about 500
   lines, open an issue first, so the design is agreed before the code is
   written.
+- It makes Lasagna better for the people who use it, and "Why" says how. Most
+  pull requests close a filed issue or a [Wanted](docs/project/wanted.md) item
+  and deliver all of its "Done when". A change no issue asked for, that only
+  reformats, renames or moves code with nothing a user gains, is closed.
 - The [template](.github/PULL_REQUEST_TEMPLATE.md) is filled in: why, what
   changed, how it was tested, evidence, agent use, and the checklist. Explain
   *why*; the diff already shows what.
