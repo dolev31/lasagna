@@ -46,7 +46,7 @@ def _options_named(command, wanted):
     return found
 
 
-def test_option_type_labels_do_not_depend_on_the_typer_version():
+def test_option_type_labels_do_not_depend_on_the_typer_version(monkeypatch):
     """The page says "text", whichever Typer is installed (#35).
 
     Typer 0.27 names its string type ``str`` and Typer 0.26 names the same class
@@ -54,32 +54,27 @@ def test_option_type_labels_do_not_depend_on_the_typer_version():
     Read the labels from the real app, not from a hand-built parameter, so the
     test follows the Typer that is actually installed.
     """
-    import sys
-
     import typer.main
     from lasagna import cli as cli_module
 
-    sys.path.insert(0, str(REPO / "scripts"))
-    # scripts/ is not a package, so the path insert above is the only way in.
+    # scripts/ is not a package, so the path entry is the only way in; pytest
+    # takes it back out when the test ends.
+    monkeypatch.syspath_prepend(str(REPO / "scripts"))
     import gen_cli_doc  # noqa: PLC0415 - scripts/ is a flat directory, not a package
 
     options = _options_named(
         typer.main.get_command(cli_module.app),
-        {"--output", "--session", "--diff", "--concurrency", "--limit"},
+        {"--output", "--session", "--diff", "--top-k"},
     )
-    assert {"--output", "--diff"} <= set(options), sorted(options)
+    assert {"--output", "--diff", "--top-k"} <= set(options), sorted(options)
 
     expected = {
         "--output": "text",
         "--session": "text",
         "--diff": "<text text>",
+        # `lasagna search --top-k` is an integer option: the fix must not turn
+        # every type into the string one.
+        "--top-k": "int",
     }
     for opt, label in expected.items():
         assert gen_cli_doc._type(options[opt]) == label, opt
-
-    # An integer option keeps its label too: the fix must not turn every type
-    # into the string one.
-    for opt in ("--concurrency", "--limit"):
-        param = options.get(opt)
-        if param is not None and not param.is_flag and not hasattr(param.type, "choices"):
-            assert gen_cli_doc._type(param) == "int", opt
