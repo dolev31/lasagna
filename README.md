@@ -797,6 +797,8 @@ issue is written as numbered steps with a "Done when" list, and every pull
 request gets a line-by-line review. AI coding agents are welcome, under the
 same bar.
 
+If Lasagna is useful to you, star it so others can find it.
+
 ---
 
 ## License

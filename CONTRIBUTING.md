@@ -4,6 +4,10 @@ Thanks for your interest. Lasagna is a research framework, so the most valuable
 contributions are usually new components to compare (a reranker, chunker, query
 enhancer or agentic pipeline) rather than changes to the core.
 
+Enjoying Lasagna? A star helps other researchers find it, and watching it for
+releases (Watch > Custom > Releases) keeps you up to date on changes that
+affect your pull request.
+
 ## Setup
 
 ```bash
