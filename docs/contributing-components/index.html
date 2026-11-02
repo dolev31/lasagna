@@ -2757,10 +2757,11 @@ Methods the project would like to have are listed on <a href="../project/wanted/
 <h2 id="known-friction">Known friction<a class="headerlink" href="#known-friction" title="Permanent link">&para;</a></h2>
 <p>Stated rather than hidden, because you will hit these.</p>
 <ul>
-<li><strong>Not every benchmark has a corpus of its own.</strong> BEIR benchmarks run live
-  against their own corpus. SQuAD v2, HotpotQA, MuSiQue and RAGBench also run
-  live, against a corpus pooled from the samples' gold passages: an easier task
-  than the original, stamped <code>pooled_gold</code> (see
+<li><strong>Not every benchmark has a corpus of its own.</strong> BEIR benchmarks and
+  <code>2wikimultihopqa</code> (distractors included) run live against a corpus of their
+  own. SQuAD v2, HotpotQA, MuSiQue and RAGBench also run live, against a corpus
+  pooled from the samples' gold passages: an easier task than the original,
+  stamped <code>pooled_gold</code> (see
   <a href="../guide/#8-measure-it-on-a-benchmark">the guide, section 8</a>). The rest score
   generation against gold context only.</li>
 <li><strong><code>lasagna component validate</code> checks input mutation for rerankers (the
