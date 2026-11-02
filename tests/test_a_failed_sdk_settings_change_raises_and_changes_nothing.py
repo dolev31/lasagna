@@ -91,7 +91,8 @@ def _in_force(client) -> str:
 
 
 @pytest.mark.parametrize("how", [{"reindex": True}, {"force": True}])
-def test_a_model_that_cannot_load_is_refused_and_nothing_changes(client, how):
+def test_a_model_that_cannot_load_is_refused_and_nothing_changes(client, how, only_cached):
+    only_cached(MINILM)
     from lasagna.sdk import ProfileCannotLoad
 
     with pytest.raises(ProfileCannotLoad) as refused:

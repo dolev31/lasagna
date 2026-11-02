@@ -49,13 +49,21 @@ def _snapshot(model: str):
 
 
 @pytest.mark.parametrize("model", sorted(m for m in MODEL_FILES if "/" in m))
-def test_a_cached_copy_holds_exactly_the_listed_files(model):
-    """A first load writes these files and no others (checked where a copy is cached)."""
+def test_a_cached_copy_holds_every_listed_file(model):
+    """Each file the hint downloads is one a real load wrote (checked where a copy is cached).
+
+    The copy may hold more. It was an equality, and it failed wherever a copy
+    came from an older loader or a whole-repository download: an older
+    sentence-transformers wrote mxbai-rerank-large-v1's README.md, which the
+    current one does not read. A load from a cache holding only the seven
+    listed files (sentence-transformers 6.1.0) wrote nothing more.
+    """
     folder = _snapshot(model)
     if folder is None:
         pytest.skip(f"{model} is not cached")
     cached = {p.relative_to(folder).as_posix() for p in folder.rglob("*") if not p.is_dir()}
-    assert set(MODEL_FILES[model]) == cached
+    missing = sorted(set(MODEL_FILES[model]) - cached)
+    assert not missing, f"{model}: the hint downloads files no load wrote: {missing}"
 
 
 def test_the_hints_name_the_exact_command(monkeypatch):

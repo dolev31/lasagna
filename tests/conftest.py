@@ -367,3 +367,27 @@ def _exit_even_if_a_thread_never_finishes(exitstatus, grace_s: float = 120.0):
         os._exit(int(exitstatus))
 
     threading.Thread(target=guard, name="exit-guard", daemon=True).start()
+
+
+@pytest.fixture
+def only_cached(monkeypatch):
+    """The model cache holds exactly the models named, whatever this machine holds.
+
+    HF_HOME is the developer's real cache (above), so a test that needs a model
+    to be missing has to say so. Patching ``model_downloads.refusal`` alone was
+    not enough: a profile switch also asks ``is_cached`` whether the profile's
+    fallback embedder is there (``unloadable_models``). CI's cache is empty, so
+    those tests passed there and failed on any machine that had run the
+    ``standard`` profile and cached its fallback, BAAI/bge-large-en-v1.5.
+    ``only_cached(MINILM)`` makes MiniLM the one cached model; ``only_cached()``
+    makes none. ``refusal`` reads ``is_cached`` too, so both agree.
+    """
+    from lasagna.core import model_downloads
+
+    def hold(*models):
+        names = set(models) | {f"sentence-transformers/{m}" for m in models if "/" not in m}
+        monkeypatch.setattr(
+            model_downloads, "is_cached", lambda model, filename="config.json": model in names
+        )
+
+    return hold

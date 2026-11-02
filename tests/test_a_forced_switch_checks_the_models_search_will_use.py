@@ -72,7 +72,8 @@ def test_a_profile_whose_own_reranker_is_missing_is_switched_to_with_the_downloa
     assert warning in _profile_switch.summary(report)
 
 
-def test_a_profile_whose_embedder_is_missing_is_still_refused(monkeypatch):
+def test_a_profile_whose_embedder_is_missing_is_still_refused(monkeypatch, only_cached):
+    only_cached()
     missing = "BAAI/bge-m3"
     monkeypatch.setattr(
         model_downloads,
