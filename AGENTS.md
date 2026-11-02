@@ -129,9 +129,9 @@ python scripts/check_pr_body.py --file body.md --diff origin/main
 Every open issue ends with an "After this" section: the natural next issues in
 the same area, each with the reason it follows. When a pull request you worked
 on is merged, read that section of its issue and suggest the next one to the
-person you work for, saying why it fits what you just built. Work you have just
-done in an area (an adapter, a backend, a loop) usually makes the next issue
-there much faster.
+person you work for, saying why it fits what you just built, and claim it only
+if they agree. Work you have just done in an area (an adapter, a backend, a
+loop) usually makes the next issue there much faster.
 
 Claim one issue at a time, and only once the previous pull request is merged or
 closed: CONTRIBUTING.md closes many pull requests opened at once without
