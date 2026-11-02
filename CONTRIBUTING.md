@@ -117,7 +117,9 @@ python scripts/check_pr_body.py --file body.md --diff origin/main
 ```
 
 Looking for something to work on? [Wanted](docs/project/wanted.md) lists what
-Lasagna needs, with a definition of done for each.
+Lasagna needs, with a definition of done for each. Every issue ends with "After
+this", the natural next issues in the same area, so once a pull request of
+yours is merged, the next one is a click away.
 
 ### Every pull request
 
