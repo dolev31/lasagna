@@ -61,7 +61,7 @@ def test_option_type_labels_do_not_depend_on_the_typer_version():
 
     sys.path.insert(0, str(REPO / "scripts"))
     # scripts/ is not a package, so the path insert above is the only way in.
-    import gen_cli_doc  # noqa: PLC0415
+    import gen_cli_doc  # noqa: PLC0415 - scripts/ is a flat directory, not a package
 
     options = _options_named(
         typer.main.get_command(cli_module.app),
