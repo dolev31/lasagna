@@ -66,6 +66,9 @@ Each published loop reads its own settings, with its paper's defaults, instead o
 | `search_o1_max_searches` | int | `10` | `search_o1` | Searches before further queries get the authors' refusal message (their code's multi-hop default; 5 for single-hop QA) |
 | `search_o1_max_turns` | int | `15` | `search_o1` | Generations before the loop stops (the authors' code; the paper sets none) |
 | `search_o1_docs_per_search` | int | `10` | `search_o1` | Passages retrieved per search, each read by Reason-in-Documents (the code's `top_k`) |
+| `search_o1_continuation` | str | `"auto"` | `search_o1` | `auto` continues one assistant turn on Ollama (raw `/api/generate`, Qwen models) or vLLM (`continue_final_message`), as the authors do, and otherwise sends the reasoning back as a new user message, with a warning. `ollama` and `vllm` require that server; `off` is the new-message form. |
+| `search_o1_context_tokens` | int | `32768` | `search_o1` | Context window sent to Ollama as `num_ctx`. Ollama's default is a few thousand tokens and it silently drops the start of a longer prompt. On vLLM the window is the server's `--max-model-len`. |
+| `search_o1_max_tokens` | int | `20480` | `search_o1` | Output cap for each generation (the authors' cap for QwQ on QA). `loop_trace["generations"]` records every generation's token counts, and `hit_context` and `hit_output_cap` say whether any reached a limit. |
 
 `adaptive` and `self_rag` are prompted variants: their papers train a classifier and a critic model, and these prompt a general LLM instead. See [the agentic README](../README.md#design-notes) for what that leaves out.
 

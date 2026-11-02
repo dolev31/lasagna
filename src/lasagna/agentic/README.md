@@ -60,10 +60,11 @@ reflection-token model. Here `adaptive` prompts an LLM with the paper's class de
 probabilities, a yes/no retrieve decision, and no segment-level beam search. A number from
 either loop describes the prompted variant.
 
-**Search-o1 needs the reasoning text.** `search_o1` finds the model's queries in its reply, so
-it needs an open-weight reasoning model served through a local provider, with the reasoning left
-in the reply's text. A hosted API that hides the reasoning, or a vLLM server started with
-`--reasoning-parser` (which moves it to a separate field), leaves the loop nothing to search.
+**Search-o1 needs the reasoning text.** `search_o1` finds the model's queries in its thinking,
+so it needs an open-weight reasoning model served through a local provider. On Ollama (a Qwen
+model) and vLLM it continues one assistant turn, as the authors do. Serve vLLM without
+`--reasoning-parser`, which moves the thinking out of the text. A run in which no reply carries
+the thinking logs a warning and records `thinking_seen: false` in `loop_trace`.
 
 **FLARE confidence.** With `flare_confidence_source = "auto"`, FLARE uses token log probabilities
 when the model returns them and falls back to self-reported unsure spans. The signal used is

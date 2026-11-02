@@ -606,10 +606,207 @@ def test_search_o1_asks_ollama_for_its_thinking():
     assert _thinking_llm(other) is other
 
 
+class _Server:
+    """Stands in for an Ollama or vLLM server: canned JSON replies, every request kept."""
+
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.requests = []
+
+    def __call__(self, url, payload, timeout):
+        self.requests.append((url, payload))
+        if not self.replies:
+            raise AssertionError(f"unscripted request to {url}")
+        return self.replies.pop(0)
+
+
+class ChatOllama:
+    """The name the loop recognises an Ollama model by (the real class is pydantic)."""
+
+    def __init__(self, model="qwen3:8b", base_url="http://host.docker.internal:11434"):
+        self.model = model
+        self.base_url = base_url
+        self.temperature = 0.0
+        self.reasoning = None
+
+    def model_copy(self, update):
+        return self
+
+
+def _generated(text, prompt_tokens=900, completion_tokens=40, done="stop"):
+    return {
+        "response": text,
+        "prompt_eval_count": prompt_tokens,
+        "eval_count": completion_tokens,
+        "done_reason": done,
+    }
+
+
+async def test_search_o1_continues_one_reasoning_chain_on_ollama(monkeypatch):
+    from lasagna.agentic.loops import search_o1
+
+    jaws = [hit("j", "Spielberg directed Jaws.")]
+    backend = install_backend(monkeypatch, {"Jaws director": jaws})
+    server = _Server(
+        [
+            _generated(f"<think>\nI need the director.\n{BQ}Jaws director"),
+            _generated("**Final Information**\n\nSteven Spielberg.", 700, 20),
+            _generated("\nSo it is Spielberg.\n</think>\n\n\\boxed{Steven Spielberg}", 960, 30),
+        ]
+    )
+    monkeypatch.setattr(search_o1, "_post_json", server)
+    result = await _loop("search_o1").run(pipeline_input("Who directed Jaws?", ChatOllama()))
+
+    assert [c["query"] for c in backend.calls] == ["Jaws director"]
+    (url0, first), (_, reader), (_, resumed) = server.requests
+    assert url0 == "http://host.docker.internal:11434/api/generate"
+    assert first["raw"] is True and first["model"] == "qwen3:8b"
+    assert first["options"] == {
+        "num_ctx": 32768,
+        "num_predict": 20480,
+        "temperature": 0.0,
+        "stop": [EQ],
+    }
+    # The template is applied once; the reply and the search result are
+    # appended to the same assistant turn, which the model then continues.
+    assert first["prompt"].startswith("<|im_start|>user\nYou are a reasoning assistant")
+    assert first["prompt"].endswith("<|im_end|>\n<|im_start|>assistant\n")
+    assert resumed["prompt"] == first["prompt"] + (
+        f"<think>\nI need the director.\n{BQ}Jaws director{EQ}\n\n{BR}Steven Spielberg.{ER}\n\n"
+    )
+    assert resumed["prompt"].count("<|im_start|>") == 2  # one user turn, one assistant turn
+    # Reason-in-Documents is a turn of its own, as in the authors' code.
+    assert reader["prompt"].startswith("<|im_start|>user\n**Task Instruction:**")
+    assert "stop" not in reader["options"]
+
+    assert result.agent_summary == "Steven Spielberg"
+    trace = result.metrics.loop_trace
+    assert trace["continuation"] == "ollama" and trace["thinking_seen"] is True
+    counts = [(g["step"], g["prompt_tokens"], g["completion_tokens"]) for g in trace["generations"]]
+    assert counts == [
+        ("reason", 900, 40),
+        ("read", 700, 20),
+        ("reason", 960, 30),
+    ]
+    assert trace["hit_context"] is False and trace["hit_output_cap"] is False
+
+
+async def test_search_o1_records_a_generation_that_reached_a_limit(monkeypatch):
+    from lasagna.agentic.loops import search_o1
+
+    install_backend(monkeypatch, {})
+    server = _Server([_generated("<think>\nA long chain that never ends", 900, 200, "length")])
+    monkeypatch.setattr(search_o1, "_post_json", server)
+    config = ArmConfig(search_o1_context_tokens=1000)
+    result = await _loop("search_o1").run(pipeline_input("Q?", ChatOllama(), config))
+
+    trace = result.metrics.loop_trace
+    assert server.requests[0][1]["options"]["num_ctx"] == 1000
+    assert trace["hit_output_cap"] is True and trace["hit_context"] is True
+    assert result.metrics.stop_reason == "no_boxed_answer"
+
+
+async def test_search_o1_continues_the_assistant_message_on_vllm(monkeypatch):
+    from lasagna.agentic.loops import search_o1
+
+    class ChatOpenAI:
+        openai_api_base = "http://localhost:8000/v1"
+        model_name = "Qwen/Qwen3-8B"
+        temperature = 0.0
+
+    def completion(content, finish="stop"):
+        return {
+            "choices": [{"message": {"content": content}, "finish_reason": finish}],
+            "usage": {"prompt_tokens": 800, "completion_tokens": 30},
+        }
+
+    monkeypatch.setenv("VLLM_BASE_URL", "http://localhost:8000/v1")
+    install_backend(monkeypatch, {"Jaws director": [hit("j", "Spielberg directed Jaws.")]})
+    server = _Server(
+        [
+            completion(f"<think>\n{BQ}Jaws director"),
+            completion("**Final Information**\n\nSteven Spielberg."),
+            completion("\n</think>\n\n\\boxed{Steven Spielberg}"),
+        ]
+    )
+    monkeypatch.setattr(search_o1, "_post_json", server)
+    result = await _loop("search_o1").run(pipeline_input("Who directed Jaws?", ChatOpenAI()))
+
+    (url, first), (_, reader), (_, resumed) = server.requests
+    assert url == "http://localhost:8000/v1/chat/completions"
+    assert first["continue_final_message"] is True and first["add_generation_prompt"] is False
+    assert first["stop"] == [EQ] and first["max_tokens"] == 20480
+    assert [m["role"] for m in first["messages"]] == ["user", "assistant"]
+    assert first["messages"][1]["content"] == ""
+    assert resumed["messages"][1]["content"] == (
+        f"<think>\n{BQ}Jaws director{EQ}\n\n{BR}Steven Spielberg.{ER}\n\n"
+    )
+    assert "continue_final_message" not in reader
+    assert result.agent_summary == "Steven Spielberg"
+    assert result.metrics.loop_trace["continuation"] == "vllm"
+
+
+def test_search_o1_continuation_needs_the_server_it_names():
+    from lasagna.agentic.loops._base import LoopRun
+    from lasagna.agentic.loops.search_o1 import _generator
+
+    def generator(llm, mode):
+        run = LoopRun("search_o1", pipeline_input("q", llm), ArmConfig(), llm)
+        return _generator(run, mode, 32768, 20480)
+
+    assert generator(ChatOllama(), "auto").kind == "ollama"
+    # Raw mode needs the model's chat template, which the loop knows for Qwen only.
+    assert generator(ChatOllama(model="llama3.2"), "auto").kind == "off"
+    with pytest.raises(ValueError, match="not a Qwen model"):
+        generator(ChatOllama(model="llama3.2"), "ollama")
+    with pytest.raises(ValueError, match="not served by vllm"):
+        generator(ScriptedLLM([]), "vllm")
+    with pytest.raises(ValueError, match="search_o1_continuation must be"):
+        generator(ScriptedLLM([]), "sometimes")
+    assert generator(ChatOllama(), "off").kind == "off"
+
+
+async def test_search_o1_warns_when_no_reply_carries_thinking(monkeypatch):
+    from loguru import logger
+
+    install_backend(monkeypatch, {})
+    warnings = []
+    sink = logger.add(lambda m: warnings.append(str(m)), level="WARNING")
+    try:
+        llm = ScriptedLLM(["The answer is \\boxed{Paris}."])
+        result = await _loop("search_o1").run(pipeline_input("Capital of France?", llm))
+    finally:
+        logger.remove(sink)
+
+    assert result.metrics.loop_trace["thinking_seen"] is False
+    assert any("no reply carried the model's thinking" in w for w in warnings)
+
+
+async def test_search_o1_does_not_warn_when_the_thinking_arrives(monkeypatch):
+    from loguru import logger
+
+    install_backend(monkeypatch, {})
+    warnings = []
+    sink = logger.add(lambda m: warnings.append(str(m)), level="WARNING")
+    try:
+        llm = ScriptedLLM(["<think>\nParis, surely.\n</think>\n\n\\boxed{Paris}"])
+        result = await _loop("search_o1").run(
+            pipeline_input("Capital of France?", llm, ArmConfig(search_o1_continuation="off"))
+        )
+    finally:
+        logger.remove(sink)
+
+    assert result.metrics.loop_trace["thinking_seen"] is True
+    assert not any("thinking" in w for w in warnings)
+
+
 LOOP_SETTINGS["search_o1"] = [
     "search_o1_max_searches",
     "search_o1_max_turns",
     "search_o1_docs_per_search",
+    "search_o1_continuation",
+    "search_o1_context_tokens",
+    "search_o1_max_tokens",
 ]
 SHORT_RUNS["search_o1"] = [
     f"{BQ}Who wrote the first program?{EQ}",

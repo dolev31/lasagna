@@ -164,6 +164,9 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `search_o1_max_searches` | int | `10` | `LASAGNA_SEARCH_O1_MAX_SEARCHES`, `RAG_SEARCH_O1_MAX_SEARCHES` | Search-o1: searches made before further queries are refused. |
 | `search_o1_max_turns` | int | `15` | `LASAGNA_SEARCH_O1_MAX_TURNS`, `RAG_SEARCH_O1_MAX_TURNS` | Search-o1: generations before the loop stops. |
 | `search_o1_docs_per_search` | int | `10` | `LASAGNA_SEARCH_O1_DOCS_PER_SEARCH`, `RAG_SEARCH_O1_DOCS_PER_SEARCH` | Search-o1: passages retrieved per search. |
+| `search_o1_continuation` | str | `"auto"` | `LASAGNA_SEARCH_O1_CONTINUATION`, `RAG_SEARCH_O1_CONTINUATION` | Search-o1: 'auto', 'ollama', 'vllm' or 'off' (one turn continued, or a new turn). |
+| `search_o1_context_tokens` | int | `32768` | `LASAGNA_SEARCH_O1_CONTEXT_TOKENS`, `RAG_SEARCH_O1_CONTEXT_TOKENS` | Search-o1: context window the loop asks Ollama for (num_ctx). |
+| `search_o1_max_tokens` | int | `20480` | `LASAGNA_SEARCH_O1_MAX_TOKENS`, `RAG_SEARCH_O1_MAX_TOKENS` | Search-o1: output cap for each generation. |
 | `enable_mmr` | bool | `true` | `LASAGNA_ENABLE_MMR`, `RAG_ENABLE_MMR` | Avoids showing repetitive or near-duplicate results, so answers draw on varied sources. |
 | `mmr_lambda` | float, 0.0 to 1.0 | `0.5` | `LASAGNA_MMR_LAMBDA`, `RAG_MMR_LAMBDA` | LangChain and LlamaIndex default; a pre-MMR filter keeps only relevant items. |
 | `mmr_score_normalization` | str | `"sigmoid"` | `LASAGNA_MMR_SCORE_NORMALIZATION`, `RAG_MMR_SCORE_NORMALIZATION` | MMR score normalization strategy. |
