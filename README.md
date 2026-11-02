@@ -580,14 +580,14 @@ Bamboogle, MultiHop-RAG, RAGBench, KILT, 2WikiMultihop. Your own JSONL, CSV or
 BEIR folder runs with no adapter
 ([own data](https://github.com/dolev31/lasagna/blob/main/docs/own-data.md)).
 
-`2wikimultihopqa` adds retrieval over the validation split's full contexts,
-including distractors, alongside the existing generation-only `wiki_multihop`
-entry. It reads the Apache-2.0
+For multi-hop retrieval against hard negatives, use `2wikimultihopqa`. Its
+corpus is every context paragraph of the validation split, 55,020 of them,
+distractors included, so a question's supporting paragraphs have to be found
+among the near misses, and `complete_recall@10` says whether every one was.
+IRCoT, Search-o1 and Search-R1 all report on this dataset. It reads the
+Apache-2.0
 [official mirror](https://huggingface.co/datasets/xanhho/2WikiMultihopQA) at a
-fixed revision. Paragraph identity collapses whitespace and removes spacing
-around punctuation/symbols, preserving case and all non-whitespace characters.
-The exact rule first applies `" ".join(text.split())`, then
-`re.sub(r"\s*([^\w\s])\s*", r"\1", text)` before hashing.
+fixed revision. The generation-only `wiki_multihop` entry stays.
 The first version of a title uses the title as its document ID; other versions
 add a stable hash of that normalized text. Formatting copies share one ID and
 the first original text is stored unchanged, giving 55,020 validation documents.

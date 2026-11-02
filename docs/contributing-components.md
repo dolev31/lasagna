@@ -330,7 +330,8 @@ Stated rather than hidden, because you will hit these.
   live, against a corpus pooled from the samples' gold passages: an easier task
   than the original, stamped `pooled_gold` (see
   [the guide, section 8](guide.md#8-measure-it-on-a-benchmark)). The rest score
-  generation against gold context only.
+  generation against gold context only. For multi-hop questions against a
+  corpus with distractors, `2wikimultihopqa` has one of its own.
 - **`lasagna component validate` checks input mutation for rerankers (the
   documents), embedders (the list of texts) and generators (the list of
   contexts), and agentic pipelines (the input data and configuration/model

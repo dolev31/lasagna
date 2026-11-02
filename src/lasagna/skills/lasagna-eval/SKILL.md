@@ -185,6 +185,10 @@ are never ranked against each other.
   (no hard negatives), and the run is stamped `corpus_provenance: pooled_gold`.
   Never compare those numbers to BEIR's. Natural Questions and TriviaQA carry
   no context and stay generation-only.
+- For multi-hop retrieval against hard negatives, use `2wikimultihopqa`: its
+  corpus holds every validation context paragraph, distractors included
+  (`native`). Report `complete_recall@10`, which counts a question only when
+  every supporting paragraph is in the top 10.
 - Report tokens. `system_*` is the pipeline, `eval_*` is the judge; a total
   that folds them together makes an expensive judge look like an expensive
   pipeline. A dollar figure exists only when the sweep sets `prices:`, and is
