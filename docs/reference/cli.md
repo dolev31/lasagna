@@ -41,8 +41,8 @@ Export current RAG configuration to JSON.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | str | `rag-config.json` | Output file |
-| `--session`, `-s` | str | `default` | Session ID |
+| `--output`, `-o` | text | `rag-config.json` | Output file |
+| `--session`, `-s` | text | `default` | Session ID |
 
 ### `lasagna import`
 
@@ -62,7 +62,7 @@ Import RAG configuration from JSON.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | str | `default` | Session ID |
+| `--session`, `-s` | text | `default` | Session ID |
 
 ### `lasagna init`
 
@@ -93,7 +93,7 @@ Search the knowledge base.
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `--top-k`, `-k` | int | `5` | Number of results |
-| `--session`, `-s` | str | `default` | Session ID |
+| `--session`, `-s` | text | `default` | Session ID |
 | `--context`, `-c` |  | off | Show formatted LLM context |
 
 ### `lasagna status`
@@ -108,7 +108,7 @@ Show knowledge base status.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | str | `default` | Session ID |
+| `--session`, `-s` | text | `default` | Session ID |
 
 ### `lasagna upload`
 
@@ -130,7 +130,7 @@ Name several files, a folder, or a glob such as 'docs/\*.md', in one command: th
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | str | `default` | Session ID |
+| `--session`, `-s` | text | `default` | Session ID |
 | `--force` |  | off | Upload the file again even when the session already holds the same content. |
 
 ## Benchmarks
@@ -189,7 +189,7 @@ Generated from the benchmark adapters. Lasagna redistributes no benchmark data: 
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | str |  | Write markdown to this path |
+| `--output`, `-o` | text |  | Write markdown to this path |
 
 ### `lasagna benchmark list`
 
@@ -203,7 +203,7 @@ List all available benchmarks.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--category` | str |  | Filter by category (single_hop, multi_hop, fact_verification, passage_ranking) |
+| `--category` | text |  | Filter by category (single_hop, multi_hop, fact_verification, passage_ranking) |
 
 ### `lasagna benchmark run`
 
@@ -225,15 +225,15 @@ Run one benchmark, or a data file of your own, and print its leaderboard.
 |---|---|---|---|
 | `--samples`, `-n` | int | `100` | Queries to evaluate, at most. |
 | `--runs`, `-r` | int | `1` | Runs per arm. Repeat runs when an LLM stage is in the loop. |
-| `--mode` | str | `auto` | auto, live (retrieve from the benchmark's corpus) or generation_only (answer from the gold passages). |
-| `--split` | str | `test` | Dataset split. |
-| `--output`, `-o` | str |  | Output directory (default: a new folder under ~/.lasagna). |
+| `--mode` | text | `auto` | auto, live (retrieve from the benchmark's corpus) or generation_only (answer from the gold passages). |
+| `--split` | text | `test` | Dataset split. |
+| `--output`, `-o` | text |  | Output directory (default: a new folder under ~/.lasagna). |
 | `--seed` | int | `42` | Random seed for sampling queries. |
-| `--profile`, `-p` | str | `speed` | Profile every arm starts from. speed needs no API key and downloads 92 MB; standard downloads 3.2 GB and sends complex queries to an LLM. |
-| `--tracks` | str |  | retrieval, generation, or both, comma-separated. Default: retrieval, or both with --generator. Generation needs an LLM API key and the answer-scoring models, so it runs only when asked for. |
-| `--reranker` | str |  | Run with this registered reranker. |
-| `--query-enhancer` | str |  | Run with this registered query enhancer. |
-| `--generator` | str |  | Write answers with this registered generator. |
+| `--profile`, `-p` | text | `speed` | Profile every arm starts from. speed needs no API key and downloads 92 MB; standard downloads 3.2 GB and sends complex queries to an LLM. |
+| `--tracks` | text |  | retrieval, generation, or both, comma-separated. Default: retrieval, or both with --generator. Generation needs an LLM API key and the answer-scoring models, so it runs only when asked for. |
+| `--reranker` | text |  | Run with this registered reranker. |
+| `--query-enhancer` | text |  | Run with this registered query enhancer. |
+| `--generator` | text |  | Write answers with this registered generator. |
 
 ### `lasagna benchmark synthesize`
 
@@ -256,10 +256,10 @@ Each question is checked by a second call, and rows that fail are dropped. The o
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `--n` | int | `100` | Number of questions to write |
-| `--out` | str | `synthetic_qa.jsonl` | JSONL file to write |
-| `--mix` | str | `factoid=0.6,multihop=0.3,unanswerable=0.1` | Share of each question type: factoid, multihop, unanswerable |
+| `--out` | text | `synthetic_qa.jsonl` | JSONL file to write |
+| `--mix` | text | `factoid=0.6,multihop=0.3,unanswerable=0.1` | Share of each question type: factoid, multihop, unanswerable |
 | `--seed` | int | `42` | Seed for choosing the source passages |
-| `--model` | str |  | LLM that writes and checks the questions (default: MODEL_NAME) |
+| `--model` | text |  | LLM that writes and checks the questions (default: MODEL_NAME) |
 | `--dry-run` |  | off | Print the plan and a token estimate; call no LLM, write nothing |
 | `--overwrite` |  | off | Replace --out if it exists |
 
@@ -301,9 +301,9 @@ Package a run into a self-contained, publishable bundle.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | str | `run.json` | Bundle path to write |
-| `--name` | str |  | Submitter name |
-| `--affiliation` | str |  | Submitter affiliation |
+| `--output`, `-o` | text | `run.json` | Bundle path to write |
+| `--name` | text |  | Submitter name |
+| `--affiliation` | text |  | Submitter affiliation |
 
 ### `lasagna results compare`
 
@@ -326,7 +326,7 @@ Each side is a run's results.json (or its folder) or a bundle. A bundle is check
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--metric`, `-m` | str | `ndcg@10` | Metric to compare. |
+| `--metric`, `-m` | text | `ndcg@10` | Metric to compare. |
 
 ### `lasagna results interaction`
 
@@ -348,12 +348,12 @@ Estimates `(AB - neither) - (A - neither) - (B - neither)` from a 2x2 run. The p
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--benchmark` | str |  | Which benchmark (default: the only one) |
-| `--metric`, `-m` | str | `ndcg@10` | Metric to test. |
-| `--neither` | str | `neither` | Config with both techniques off |
-| `--only-a` | str |  | Config with technique A only |
-| `--only-b` | str |  | Config with technique B only |
-| `--both` | str |  | Config with both on |
+| `--benchmark` | text |  | Which benchmark (default: the only one) |
+| `--metric`, `-m` | text | `ndcg@10` | Metric to test. |
+| `--neither` | text | `neither` | Config with both techniques off |
+| `--only-a` | text |  | Config with technique A only |
+| `--only-b` | text |  | Config with technique B only |
+| `--both` | text |  | Config with both on |
 | `--alpha` | float | `0.05` | Significance level of the test. |
 | `--resamples` | int | `10000` | Random sign patterns for the sign-flip permutation test when more than 30 queries differ; with 30 or fewer it is exact. The interval is a t interval. |
 | `--bootstrap` | int |  | Old name of --resamples, removed in 0.3.0. |
@@ -378,9 +378,9 @@ Rows inside a group held the same configuration fixed, so they are comparable by
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--metric`, `-m` | str | `ndcg@10` | Metric to rank by. |
-| `--output`, `-o` | str |  | Folder to write one page per benchmark into (.md, or .tex with --format latex), plus index.json |
-| `--format` | str | `markdown` | markdown, or latex: one booktabs table per comparability group, printed when no --output is given |
+| `--metric`, `-m` | text | `ndcg@10` | Metric to rank by. |
+| `--output`, `-o` | text |  | Folder to write one page per benchmark into (.md, or .tex with --format latex), plus index.json |
+| `--format` | text | `markdown` | markdown, or latex: one booktabs table per comparability group, printed when no --output is given |
 | `--allow-invalid` |  | off | Show bundles `results validate` rejects, each number marked INVALID |
 
 ### `lasagna results per-query`
@@ -405,11 +405,11 @@ In the JSONL export, `_retrieved` lists each document's `score` and `rank`. The 
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | str |  | Write to .csv or .jsonl |
-| `--benchmark` | str |  | Restrict to one benchmark |
-| `--config` | str |  | Restrict to one config |
+| `--output`, `-o` | text |  | Write to .csv or .jsonl |
+| `--benchmark` | text |  | Restrict to one benchmark |
+| `--config` | text |  | Restrict to one config |
 | `--limit` | int | `20` | Rows to print when not writing a file |
-| `--sort-by` | str |  | Metric to sort ascending (worst first) |
+| `--sort-by` | text |  | Metric to sort ascending (worst first) |
 
 ### `lasagna results power`
 
@@ -433,8 +433,8 @@ A non-significant result has two readings: the techniques are the same, or the r
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--metric`, `-m` | str | `ndcg@10` | Metric to test. |
-| `--benchmark` | str |  | Which benchmark |
+| `--metric`, `-m` | text | `ndcg@10` | Metric to test. |
+| `--benchmark` | text |  | Which benchmark |
 | `--alpha` | float | `0.05` | Significance level of the test. |
 | `--power` | float | `0.8` | Chance of detecting the effect, for the smallest one reported. |
 
@@ -452,7 +452,7 @@ Generated from the same constants the bundler uses, so a hub validating against 
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--output`, `-o` | str |  | Write to a file |
+| `--output`, `-o` | text |  | Write to a file |
 
 ### `lasagna results significance`
 
@@ -474,9 +474,9 @@ Running `results compare` across a grid one pair at a time is the standard way t
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--metric`, `-m` | str | `ndcg@10` | Metric to test. |
-| `--benchmark` | str |  | Which benchmark |
-| `--correction` | str | `holm` | 'holm' (Holm-Bonferroni) or 'none' |
+| `--metric`, `-m` | text | `ndcg@10` | Metric to test. |
+| `--benchmark` | text |  | Which benchmark |
+| `--correction` | text | `holm` | 'holm' (Holm-Bonferroni) or 'none' |
 | `--alpha` | float | `0.05` | Family-wise significance level |
 | `--all` |  | off | Include pairs that did not reach significance |
 
@@ -522,10 +522,10 @@ The header names the experiment, its date and versions; then the stage isolation
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--metric`, `-m` | str |  | Metric to rank, test and compare queries by (default: ndcg@10 when recorded) |
-| `--benchmark` | str |  | Show one benchmark only |
-| `--diff` | <str str> |  | The two arms the per-query table compares (default: the top two) |
-| `--output`, `-o` | str | `view.html` | HTML file to write |
+| `--metric`, `-m` | text |  | Metric to rank, test and compare queries by (default: ndcg@10 when recorded) |
+| `--benchmark` | text |  | Show one benchmark only |
+| `--diff` | <text text> |  | The two arms the per-query table compares (default: the top two) |
+| `--output`, `-o` | text | `view.html` | HTML file to write |
 | `--open` |  | off | Open the page in your browser |
 | `--allow-invalid` |  | off | Show a bundle `results validate` rejects, the page marked INVALID |
 
@@ -571,8 +571,8 @@ The target is resolved from the working directory, as a sweep resolves it, so th
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--stage` | str |  | Component stage: reranker, query_enhancer, chunker, embedder, retriever, document_processor, generator, agentic_pipeline. agentic_pipeline requires a BaseAgenticPipeline class, not a plain function. |
-| `--profile`, `-p` | str | `speed` | Profile whose model a registered component is built with (default speed: the 92 MB cross-encoder, not the settings file's 881 MB one) |
+| `--stage` | text |  | Component stage: reranker, query_enhancer, chunker, embedder, retriever, document_processor, generator, agentic_pipeline. agentic_pipeline requires a BaseAgenticPipeline class, not a plain function. |
+| `--profile`, `-p` | text | `speed` | Profile whose model a registered component is built with (default speed: the 92 MB cross-encoder, not the settings file's 881 MB one) |
 
 ## Plugins
 
@@ -606,7 +606,7 @@ Shows name, description, implementing class, and which pipeline the session runs
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--session`, `-s` | str | `default` | Session whose pipeline to mark as the one that runs. |
+| `--session`, `-s` | text | `default` | Session whose pipeline to mark as the one that runs. |
 
 ## Skills
 
@@ -626,7 +626,7 @@ Skills teach an agent how to use Lasagna: which mode to run a benchmark in, why 
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--target`, `-t` | str | `.claude/skills` | Where to write them (Claude Code/Desktop use .claude/skills) |
+| `--target`, `-t` | text | `.claude/skills` | Where to write them (Claude Code/Desktop use .claude/skills) |
 | `--force` |  | off | Overwrite existing files |
 
 ### `lasagna skills list`
@@ -655,8 +655,8 @@ With --profile, applies a preset; with --reset, drops the session's own settings
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--profile`, `-p` | str |  | Apply a profile: speed, standard, balanced, max_quality, or default (the settings file) |
-| `--session`, `-s` | str | `default` | Session ID |
+| `--profile`, `-p` | text |  | Apply a profile: speed, standard, balanced, max_quality, or default (the settings file) |
+| `--session`, `-s` | text | `default` | Session ID |
 | `--force` |  | off | Apply even if the session's stored documents would no longer be searched (they stay where they are until reindexed); the new models must load |
 | `--reindex` |  | off | Reindex the session's documents with the new profile, then apply it; if one fails, the session keeps its profile and every document stays searchable |
 | `--resume-switch` |  | off | Finish a profile switch with --reindex whose process stopped before it ended (doctor reports one): runs the same switch again |
@@ -680,7 +680,7 @@ Output is redacted: no absolute paths, no credential values. `--json` is for age
 |---|---|---|---|
 | `--json` |  | off | Machine-readable output |
 | `--issue` |  | off | Print a block to paste into a bug report |
-| `--session`, `-s` | str | `default` | Session whose profile to report. |
+| `--session`, `-s` | text | `default` | Session whose profile to report. |
 
 ### `lasagna serve`
 
@@ -697,8 +697,8 @@ While it runs it holds the local store; `lasagna status`, `search`, `upload` and
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `--port` | int | `8000` | Port to listen on. |
-| `--host` | str | `127.0.0.1` | Bind address. Default is loopback; --host 0.0.0.0 exposes the API on every interface, and it is UNAUTHENTICATED (see https://github.com/dolev31/lasagna/blob/main/SECURITY.md). |
+| `--host` | text | `127.0.0.1` | Bind address. Default is loopback; --host 0.0.0.0 exposes the API on every interface, and it is UNAUTHENTICATED (see https://github.com/dolev31/lasagna/blob/main/SECURITY.md). |
 | `--configurator` / `--no-configurator` |  | on | Serve the configurator web page at /configurator. |
 | `--open` / `--no-open` |  | off | Open the configurator in a browser once the server starts. |
 | `--mcp` |  | off | Also serve the MCP server (SSE) at /mcp/sse, from this process. Milvus Lite admits one process per store, so this is how an agent and the REST API share one. |
-| `--session`, `-s` | str |  | The session for MCP tool calls and REST requests that name none (default: RAG_SESSION_ID, else 'default'). |
+| `--session`, `-s` | text |  | The session for MCP tool calls and REST requests that name none (default: RAG_SESSION_ID, else 'default'). |
