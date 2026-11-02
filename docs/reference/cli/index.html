@@ -3211,13 +3211,13 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--output</code>, <code>-o</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>rag-config.json</code></td>
 <td>Output file</td>
 </tr>
 <tr>
 <td><code>--session</code>, <code>-s</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>default</code></td>
 <td>Session ID</td>
 </tr>
@@ -3257,7 +3257,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--session</code>, <code>-s</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>default</code></td>
 <td>Session ID</td>
 </tr>
@@ -3308,7 +3308,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 </tr>
 <tr>
 <td><code>--session</code>, <code>-s</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>default</code></td>
 <td>Session ID</td>
 </tr>
@@ -3337,7 +3337,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--session</code>, <code>-s</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>default</code></td>
 <td>Session ID</td>
 </tr>
@@ -3378,7 +3378,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--session</code>, <code>-s</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>default</code></td>
 <td>Session ID</td>
 </tr>
@@ -3495,7 +3495,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--output</code>, <code>-o</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Write markdown to this path</td>
 </tr>
@@ -3518,7 +3518,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--category</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Filter by category (single_hop, multi_hop, fact_verification, passage_ranking)</td>
 </tr>
@@ -3570,19 +3570,19 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 </tr>
 <tr>
 <td><code>--mode</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>auto</code></td>
 <td>auto, live (retrieve from the benchmark's corpus) or generation_only (answer from the gold passages).</td>
 </tr>
 <tr>
 <td><code>--split</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>test</code></td>
 <td>Dataset split.</td>
 </tr>
 <tr>
 <td><code>--output</code>, <code>-o</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Output directory (default: a new folder under ~/.lasagna).</td>
 </tr>
@@ -3594,31 +3594,31 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 </tr>
 <tr>
 <td><code>--profile</code>, <code>-p</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>speed</code></td>
 <td>Profile every arm starts from. speed needs no API key and downloads 92 MB; standard downloads 3.2 GB and sends complex queries to an LLM.</td>
 </tr>
 <tr>
 <td><code>--tracks</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>retrieval, generation, or both, comma-separated. Default: retrieval, or both with --generator. Generation needs an LLM API key and the answer-scoring models, so it runs only when asked for.</td>
 </tr>
 <tr>
 <td><code>--reranker</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Run with this registered reranker.</td>
 </tr>
 <tr>
 <td><code>--query-enhancer</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Run with this registered query enhancer.</td>
 </tr>
 <tr>
 <td><code>--generator</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Write answers with this registered generator.</td>
 </tr>
@@ -3665,13 +3665,13 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 </tr>
 <tr>
 <td><code>--out</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>synthetic_qa.jsonl</code></td>
 <td>JSONL file to write</td>
 </tr>
 <tr>
 <td><code>--mix</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>factoid=0.6,multihop=0.3,unanswerable=0.1</code></td>
 <td>Share of each question type: factoid, multihop, unanswerable</td>
 </tr>
@@ -3683,7 +3683,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 </tr>
 <tr>
 <td><code>--model</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>LLM that writes and checks the questions (default: MODEL_NAME)</td>
 </tr>
@@ -3759,19 +3759,19 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--output</code>, <code>-o</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>run.json</code></td>
 <td>Bundle path to write</td>
 </tr>
 <tr>
 <td><code>--name</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Submitter name</td>
 </tr>
 <tr>
 <td><code>--affiliation</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Submitter affiliation</td>
 </tr>
@@ -3817,7 +3817,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--metric</code>, <code>-m</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>ndcg@10</code></td>
 <td>Metric to compare.</td>
 </tr>
@@ -3858,37 +3858,37 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--benchmark</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Which benchmark (default: the only one)</td>
 </tr>
 <tr>
 <td><code>--metric</code>, <code>-m</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>ndcg@10</code></td>
 <td>Metric to test.</td>
 </tr>
 <tr>
 <td><code>--neither</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>neither</code></td>
 <td>Config with both techniques off</td>
 </tr>
 <tr>
 <td><code>--only-a</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Config with technique A only</td>
 </tr>
 <tr>
 <td><code>--only-b</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Config with technique B only</td>
 </tr>
 <tr>
 <td><code>--both</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Config with both on</td>
 </tr>
@@ -3947,19 +3947,19 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--metric</code>, <code>-m</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>ndcg@10</code></td>
 <td>Metric to rank by.</td>
 </tr>
 <tr>
 <td><code>--output</code>, <code>-o</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Folder to write one page per benchmark into (.md, or .tex with --format latex), plus index.json</td>
 </tr>
 <tr>
 <td><code>--format</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>markdown</code></td>
 <td>markdown, or latex: one booktabs table per comparability group, printed when no --output is given</td>
 </tr>
@@ -4007,19 +4007,19 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--output</code>, <code>-o</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Write to .csv or .jsonl</td>
 </tr>
 <tr>
 <td><code>--benchmark</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Restrict to one benchmark</td>
 </tr>
 <tr>
 <td><code>--config</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Restrict to one config</td>
 </tr>
@@ -4031,7 +4031,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 </tr>
 <tr>
 <td><code>--sort-by</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Metric to sort ascending (worst first)</td>
 </tr>
@@ -4082,13 +4082,13 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--metric</code>, <code>-m</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>ndcg@10</code></td>
 <td>Metric to test.</td>
 </tr>
 <tr>
 <td><code>--benchmark</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Which benchmark</td>
 </tr>
@@ -4124,7 +4124,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--output</code>, <code>-o</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Write to a file</td>
 </tr>
@@ -4165,19 +4165,19 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--metric</code>, <code>-m</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>ndcg@10</code></td>
 <td>Metric to test.</td>
 </tr>
 <tr>
 <td><code>--benchmark</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Which benchmark</td>
 </tr>
 <tr>
 <td><code>--correction</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>holm</code></td>
 <td>'holm' (Holm-Bonferroni) or 'none'</td>
 </tr>
@@ -4271,25 +4271,25 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--metric</code>, <code>-m</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Metric to rank, test and compare queries by (default: ndcg@10 when recorded)</td>
 </tr>
 <tr>
 <td><code>--benchmark</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Show one benchmark only</td>
 </tr>
 <tr>
 <td><code>--diff</code></td>
-<td><str str></td>
+<td><text text></td>
 <td></td>
 <td>The two arms the per-query table compares (default: the top two)</td>
 </tr>
 <tr>
 <td><code>--output</code>, <code>-o</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>view.html</code></td>
 <td>HTML file to write</td>
 </tr>
@@ -4367,13 +4367,13 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--stage</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Component stage: reranker, query_enhancer, chunker, embedder, retriever, document_processor, generator, agentic_pipeline. agentic_pipeline requires a BaseAgenticPipeline class, not a plain function.</td>
 </tr>
 <tr>
 <td><code>--profile</code>, <code>-p</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>speed</code></td>
 <td>Profile whose model a registered component is built with (default speed: the 92 MB cross-encoder, not the settings file's 881 MB one)</td>
 </tr>
@@ -4406,7 +4406,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--session</code>, <code>-s</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>default</code></td>
 <td>Session whose pipeline to mark as the one that runs.</td>
 </tr>
@@ -4432,7 +4432,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--target</code>, <code>-t</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>.claude/skills</code></td>
 <td>Where to write them (Claude Code/Desktop use .claude/skills)</td>
 </tr>
@@ -4468,13 +4468,13 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 <tbody>
 <tr>
 <td><code>--profile</code>, <code>-p</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>Apply a profile: speed, standard, balanced, max_quality, or default (the settings file)</td>
 </tr>
 <tr>
 <td><code>--session</code>, <code>-s</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>default</code></td>
 <td>Session ID</td>
 </tr>
@@ -4535,7 +4535,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 </tr>
 <tr>
 <td><code>--session</code>, <code>-s</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>default</code></td>
 <td>Session whose profile to report.</td>
 </tr>
@@ -4565,7 +4565,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 </tr>
 <tr>
 <td><code>--host</code></td>
-<td>str</td>
+<td>text</td>
 <td><code>127.0.0.1</code></td>
 <td>Bind address. Default is loopback; --host 0.0.0.0 exposes the API on every interface, and it is UNAUTHENTICATED (see https://github.com/dolev31/lasagna/blob/main/SECURITY.md).</td>
 </tr>
@@ -4589,7 +4589,7 @@ the same text in your terminal. Commands are grouped by what they work on:</p>
 </tr>
 <tr>
 <td><code>--session</code>, <code>-s</code></td>
-<td>str</td>
+<td>text</td>
 <td></td>
 <td>The session for MCP tool calls and REST requests that name none (default: RAG_SESSION_ID, else 'default').</td>
 </tr>
