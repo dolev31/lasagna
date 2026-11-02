@@ -491,7 +491,13 @@ conversion, so the pool holds no hard negatives and recall reads higher than it
 would against a corpus of the same size. Runs are stamped
 `corpus_provenance: pooled_gold`, which is part of the comparability key, so a
 pooled number can never share a leaderboard row with a BEIR one. For the same
-questions against a real corpus, use `beir/hotpotqa`.
+questions against a real corpus, use `beir/hotpotqa`. For multi-hop questions
+with their distractors, use `2wikimultihopqa`: its corpus is every distinct
+context paragraph of the validation split, 55,020 of them, distractors
+included. Its runs are stamped `native`, although the corpus is built from the
+questions' own contexts rather than open Wikipedia. Read `complete_recall@10`
+there: a question counts only when every one of its supporting paragraphs is
+retrieved.
 
 Natural Questions and TriviaQA carry no context at all and stay
 `generation_only`. There is nothing to pool.

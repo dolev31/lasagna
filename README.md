@@ -580,20 +580,25 @@ Bamboogle, MultiHop-RAG, RAGBench, KILT, 2WikiMultihop. Your own JSONL, CSV or
 BEIR folder runs with no adapter
 ([own data](https://github.com/dolev31/lasagna/blob/main/docs/own-data.md)).
 
-`2wikimultihopqa` adds retrieval over the validation split's full contexts,
-including distractors, alongside the existing generation-only `wiki_multihop`
-entry. It reads the Apache-2.0
+For multi-hop retrieval against hard negatives, use `2wikimultihopqa`. Its
+corpus is every distinct context paragraph of the validation split, 55,020 of
+them, distractors included. The dataset's authors picked the distractors to
+resemble each question, so a question's supporting paragraphs have to be found
+among near misses, and `complete_recall@10` says whether every one of them was.
+The corpus is built from the questions' own contexts, not from open Wikipedia.
+IRCoT, Search-o1 and Search-R1 also evaluate on these questions, each with its
+own corpus and answer metrics, so their numbers do not carry over to this
+benchmark. It reads the Apache-2.0
 [official mirror](https://huggingface.co/datasets/xanhho/2WikiMultihopQA) at a
-fixed revision. Paragraph identity collapses whitespace and removes spacing
-around punctuation/symbols, preserving case and all non-whitespace characters.
-The exact rule first applies `" ".join(text.split())`, then
-`re.sub(r"\s*([^\w\s])\s*", r"\1", text)` before hashing.
-The first version of a title uses the title as its document ID; other versions
-add a stable hash of that normalized text. Formatting copies share one ID and
-the first original text is stored unchanged, giving 55,020 validation documents.
-`validation` is the default.
-`train` can be loaded as samples, but `load_corpus()` always supplies validation's
-corpus, so use `--split validation` for retrieval evaluation.
+fixed revision. Two paragraphs with the same title count as one document when
+they differ only in whitespace or in spacing around punctuation and symbols;
+case and every other character still matter. The first version of a title uses
+the title as its document ID, a different version adds a stable hash of its
+text, and the first original text is stored unchanged. The exact rule is in the
+adapter's docstring. `validation` is the default split. `train` can be loaded as
+samples, but `load_corpus()` always supplies validation's corpus, so use
+`--split validation` for retrieval evaluation. The generation-only
+`wiki_multihop` entry is a separate benchmark.
 
 | Family | Metrics |
 |---|---|
