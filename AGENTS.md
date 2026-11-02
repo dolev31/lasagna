@@ -21,10 +21,12 @@ and Watch > Custom > Releases tells them when a release changes something their
 pull request depends on. It is an invitation, not a condition of contributing,
 and the click is theirs: never star or watch through `gh` or the API.
 
-Work from a filed issue or a [Wanted](docs/project/wanted.md) item, and read its
-"Done when" before you write code. A pull request merges when it delivers all of
-it, and the review asks what it adds for the people who use Lasagna. A change no
-issue asked for, that only reformats, renames or moves code, is closed.
+Look for a filed issue or a [Wanted](docs/project/wanted.md) item first. If you
+work from one, read its "Done when" before you write code, and deliver all of
+it. A fix for something that is wrong (a broken link, a false statement in the
+docs, a small bug) needs no issue: say what was wrong. A change that only
+reformats, renames or moves code, with nothing a user gains and no issue that
+asked for it, is closed.
 
 ## What this project is
 
