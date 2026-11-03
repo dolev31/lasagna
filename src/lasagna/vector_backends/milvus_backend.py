@@ -699,12 +699,17 @@ class MilvusBackend(VectorStoreAdapter):
                     metric_type=getattr(index_config, "metric_type", MetricType.COSINE),
                     params={},
                 )
+            index_type = index_type_map.get(index_config.index_type, "AUTOINDEX")
+            # A Milvus server takes only the metric for AUTOINDEX ("only metric
+            # type can be passed when use AutoIndex"), and IndexConfig's default
+            # params are HNSW's, so an AUTOINDEX config was refused on a server.
+            params = {} if index_type == "AUTOINDEX" else index_config.params
             index_params = client.prepare_index_params()
             index_params.add_index(
                 field_name=field_name,
-                index_type=index_type_map.get(index_config.index_type, "AUTOINDEX"),
+                index_type=index_type,
                 metric_type=metric_type_map.get(index_config.metric_type, "COSINE"),
-                params=index_config.params,
+                params=params,
             )
             client.create_index(collection_name, index_params)
             logger.debug(f"Created index on {collection_name}.{field_name}")
