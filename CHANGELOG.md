@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-03
+
+A patch release: uploads to the default Docker Compose stack are indexed again.
+Thank you to [@tnalbant](https://github.com/tnalbant), for the CLI reference
+that no longer changes with the installed Typer version, and to
+[@segevshlomovIBM](https://github.com/segevshlomovIBM), whose runs in the
+Compose stack found seven harness bugs, filed as #46 to #52.
+
 ### Added
 
 - A dev container (`.devcontainer/devcontainer.json`): a GitHub Codespace or

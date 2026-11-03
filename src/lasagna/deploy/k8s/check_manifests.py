@@ -51,7 +51,7 @@ DEFAULT_PROCESSING_TIMEOUT = 300
 DEFAULT_GRACE_PERIOD = 30
 
 #: GiB a process gains when it loads a model and runs it on the CPU (peak
-#: resident size over the bare process, constraints/0.2.0.txt versions).
+#: resident size over the bare process, constraints/0.2.1.txt versions).
 MODEL_GIB = {
     "BAAI/bge-m3": 2.2,
     "BAAI/bge-large-en-v1.5": 1.4,
