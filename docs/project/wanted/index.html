@@ -2270,8 +2270,9 @@
 
 
 <h1 id="wanted">Wanted<a class="headerlink" href="#wanted" title="Permanent link">&para;</a></h1>
-<p>What Lasagna would like to have next, and what "done" means for each. Every item
-has an open issue; comment there to claim it.</p>
+<p>What Lasagna would like to have next, and what "done" means for each. Almost
+every item has an open issue; comment there to claim it. The few that do not say
+so.</p>
 <p>A method in Lasagna is measured against every other component of its stage, in a
 complete pipeline, on the same benchmarks, with everything else held fixed. If
 your paper's method is here, anyone can check it against theirs with one sweep,
@@ -2344,9 +2345,9 @@ queries: <code>cross_encoder</code> wins by +0.0913 ndcg@10 (d_z +0.38, p (Holm)
 </tr>
 <tr>
 <td>retriever</td>
-<td>GraphRAG, LightRAG, HippoRAG, G-Retriever</td>
-<td><a href="https://arxiv.org/abs/2404.16130">2404.16130</a>, <a href="https://arxiv.org/abs/2410.05779">2410.05779</a>, <a href="https://arxiv.org/abs/2405.14831">2405.14831</a>, <a href="https://arxiv.org/abs/2402.07630">2402.07630</a></td>
-<td>A small graph retriever exists behind <code>enable_graph_retrieval</code>; register it first.</td>
+<td>GraphRAG, LightRAG, HippoRAG 2, G-Retriever</td>
+<td><a href="https://arxiv.org/abs/2404.16130">2404.16130</a>, <a href="https://arxiv.org/abs/2410.05779">2410.05779</a>, <a href="https://arxiv.org/abs/2502.14802">2502.14802</a>, <a href="https://arxiv.org/abs/2402.07630">2402.07630</a></td>
+<td>The knowledge-graph track, planned in <a href="https://github.com/dolev31/lasagna/issues/61">#61</a>: register the existing graph retriever first (<a href="https://github.com/dolev31/lasagna/issues/8">#8</a>), then LightRAG (<a href="https://github.com/dolev31/lasagna/issues/57">#57</a>), HippoRAG 2 (<a href="https://github.com/dolev31/lasagna/issues/58">#58</a>) and GraphRAG global search (<a href="https://github.com/dolev31/lasagna/issues/59">#59</a>). G-Retriever has no issue yet: open one before you start.</td>
 </tr>
 <tr>
 <td>retriever</td>
@@ -2446,6 +2447,11 @@ open items are labeled
 <td><a href="https://arxiv.org/abs/2407.12883">2407.12883</a></td>
 <td>Relevance that needs reasoning, not word overlap. Shows whether a reranker or query enhancer helps when matching is not enough.</td>
 </tr>
+<tr>
+<td>GraphRAG-Bench</td>
+<td><a href="https://arxiv.org/abs/2506.05690">2506.05690</a></td>
+<td>Built to say when a graph helps: questions at four levels, on novels and on medical text. Scores each graph method by the kind of question (<a href="https://github.com/dolev31/lasagna/issues/60">#60</a>).</td>
+</tr>
 </tbody>
 </table>
 <p>To evaluate on data of your own, no adapter is needed: see
@@ -2481,6 +2487,11 @@ Either answer is worth publishing. Labeled
 <li><strong>An OpenAI-compatible answer endpoint, with streaming.</strong> The REST API
   searches, but has no route that retrieves and then answers, and nothing
   streams.</li>
+<li><strong>A knowledge graph every process shares.</strong> The graph <code>enable_graph_retrieval</code>
+  builds lives in the memory of the process that ingested. From reading the
+  code, search served by another process, such as the API when a Celery worker
+  ingests in the Compose stack, finds no graph; this is not reproduced yet
+  (<a href="https://github.com/dolev31/lasagna/issues/55">#55</a>).</li>
 <li><strong>Weights &amp; Biases and MLflow.</strong> A run writes a results bundle; nothing sends
   it to a tracker yet.</li>
 </ul>
