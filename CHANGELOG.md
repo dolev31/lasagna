@@ -20,6 +20,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Typer version is installed, so a checkout using `constraints/0.2.0.txt`
   (Typer 0.26.8) no longer reports the page as out of date and rewrites it.
 
+- A benchmark run on a non-Milvus stack (e.g. Qdrant) no longer talks to
+  Milvus: `vector_backend` and `vector_backend_config` are the server's
+  infrastructure and are never resolved from session or per-query overrides,
+  and `KnowledgePipeline` no longer writes them into a session's overrides
+  (#32).
+
 ## [0.2.0] - 2026-11-01
 
 The first release with outside contributors. Thank you to

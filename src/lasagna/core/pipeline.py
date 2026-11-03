@@ -457,7 +457,18 @@ class KnowledgePipeline:
             # The pipeline's own settings, from its profile and the arm that
             # built it in this process (an embedding arm names its collection),
             # not a client's request: unchecked, as the harness's other writes.
-            mgr.patch_config(self._config, session_id=session_id, trusted=True)
+            # The vector store stays the server's: the profile's full config
+            # carries the packaged settings file's vector_backend (milvus),
+            # which used to land in the session's overrides here and redirect
+            # every non-Milvus stack's benchmark to Milvus
+            # (dolev31/lasagna#32). collection_name is kept: the evaluation
+            # harness names one collection per arm on purpose.
+            config = {
+                k: v
+                for k, v in self._config.items()
+                if k not in ("vector_backend", "vector_backend_config")
+            }
+            mgr.patch_config(config, session_id=session_id, trusted=True)
         except Exception as e:
             from .strict import strict_stages
 
