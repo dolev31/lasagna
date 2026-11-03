@@ -15,8 +15,8 @@ import pytest
 
 pytest.importorskip("pymilvus")
 
-from lasagna.vector_backends.base import FilterExpression  # noqa: E402
-from lasagna.vector_backends.milvus_backend import MilvusBackend  # noqa: E402
+from lasagna.vector_backends.base import FilterExpression  # noqa: E402 - imported after importorskip, which skips without pymilvus
+from lasagna.vector_backends.milvus_backend import MilvusBackend  # noqa: E402 - imported after importorskip, which skips without pymilvus
 
 
 class _Server:
