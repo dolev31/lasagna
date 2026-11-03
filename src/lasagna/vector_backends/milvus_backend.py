@@ -793,6 +793,11 @@ class MilvusBackend(VectorStoreAdapter):
     ) -> int:
         """Delete documents matching filter."""
         client = self._ensure_connected()
+        # A Milvus server refuses a filtered delete on a collection that is not
+        # loaded ("collection not loaded"). Before any search had loaded it, the
+        # Celery worker's clean-up of an earlier attempt failed that way, and
+        # every upload to the default Compose stack ended in error.
+        self._ensure_loaded(client, collection_name)
 
         # Convert filter to Milvus syntax
         milvus_filter = filter_expr.to_milvus() if filter_expr else ""
@@ -1255,6 +1260,7 @@ class MilvusBackend(VectorStoreAdapter):
         DEPRECATED: Use delete() with FilterExpression instead.
         """
         client = self._ensure_connected()
+        self._ensure_loaded(client, collection_name)  # as delete() does
         return client.delete(collection_name=collection_name, filter=filter)
 
     def query_raw(
