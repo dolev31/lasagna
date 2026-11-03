@@ -24,6 +24,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   benchmarks, components or published loops there are is now checked against
   the code, so a pull request that adds one updates each page that counts it.
 
+- The `vector-backends` extra now bounds `qdrant-client` to `>=1.13,<1.15`,
+  matching the stack's Qdrant server (`qdrant/qdrant:v1.13.2` in
+  `backends/qdrant.yml`). The client warns on every connection when it is
+  more than one minor version away from the server, and the image was
+  silently drifting to the newest client (1.20) while the server stayed
+  pinned; a new test fails if the two drift apart again.
+
 ## [0.2.0] - 2026-11-01
 
 The first release with outside contributors. Thank you to
