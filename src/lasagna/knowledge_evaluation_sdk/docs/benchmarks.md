@@ -56,7 +56,7 @@ for name, info in sorted(r.list_benchmarks().items()):
 | `ragbench/techqa` | single_hop | end_to_end | RAGBench (techqa): TRACe-style RAG evaluation |
 | `squad_v2` | single_hop | generation | SQuAD v2: reading comprehension with unanswerable questions |
 | `triviaqa` | single_hop | generation | TriviaQA: trivia question answering (95K QA pairs) |
-| `wiki_multihop` | multi_hop | generation | 2WikiMultiHopQA: multi-hop reasoning over two Wikipedia articles |
+| `wiki_multihop` | multi_hop | generation | 2WikiMultihopQA: generation-only question/answer samples (no corpus) |
 
 ---
 

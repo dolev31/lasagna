@@ -1,6 +1,6 @@
 """Most of these benchmarks ship gold context and nothing to search.
 
-Eight of the thirty-one public benchmarks carry the answer's supporting
+Eight of the public benchmarks carry the answer's supporting
 passages inline and no corpus — SQuAD v2, HotpotQA, MuSiQue and the five
 RAGBench domains — so retrieval could not be measured on any of them. Ten more
 carry nothing to retrieve at all and still cannot be.

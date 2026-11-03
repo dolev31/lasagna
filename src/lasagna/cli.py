@@ -1934,7 +1934,7 @@ def benchmark_list(
 
 
 def _benchmark_count_line(registry, benchmarks) -> str:
-    """``31 benchmarks, plus smoke (a wiring check) and 1 from plugins``.
+    """``N benchmarks, plus smoke (a wiring check) and 1 from plugins``.
 
     The README counts the benchmarks that measure something: built in, not
     ``smoke``. This printed every registered name (32, or 33 with a plugin)
