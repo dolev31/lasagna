@@ -22,10 +22,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   collection that is not loaded, so before any search had loaded it every upload
   ended in `error`. `MilvusBackend.delete` and `delete_raw` now load the
   collection first, as its reads already did.
-- An `IndexConfig` with `IndexType.AUTOINDEX` is accepted by a Milvus server.
-  It carried `IndexConfig`'s default HNSW params, and a server refuses any
-  param but the metric with AUTOINDEX; only Milvus Lite, which builds a FLAT
-  index instead, took it.
+- An AUTOINDEX index is accepted by a Milvus server, whether it comes from an
+  `IndexConfig` (which carried its default HNSW params) or from the collection
+  manager with `index_params` set. A server refuses any param but the metric
+  with AUTOINDEX; only Milvus Lite, which builds a FLAT index instead, took it.
 - The generated CLI reference labels an option's type the same way whichever
   Typer version is installed, so a checkout using `constraints/0.2.0.txt`
   (Typer 0.26.8) no longer reports the page as out of date and rewrites it.

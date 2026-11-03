@@ -435,7 +435,13 @@ class TestCapabilities:
             # Known, and filed as #50: a Milvus server advertises hybrid search,
             # then refuses it on a collection with no sparse field. Strict, so
             # this fails once #50 is fixed and the mark has to go.
-            request.applymarker(pytest.mark.xfail(reason="#50", strict=True))
+            request.applymarker(
+                pytest.mark.xfail(
+                    reason="#50: a Milvus server advertises hybrid search, then refuses it "
+                    "on a collection with no sparse_embedding field",
+                    strict=True,
+                )
+            )
 
         results = backend.hybrid_search(
             collection, query_text="content", query_embedding=_vec(1.0), limit=3

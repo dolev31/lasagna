@@ -346,7 +346,10 @@ jobs:
         working-directory: .
         env:
           LASAGNA_MILVUS_URI: http://localhost:19530
-        run: pytest tests/test_vector_backend_conformance.py -q -k milvus
+        # A mistyped URI would skip every case and pass: require that some ran.
+        run: |
+          pytest tests/test_vector_backend_conformance.py -k milvus -rs | tee conformance.txt
+          grep -qE "[1-9][0-9]* passed" conformance.txt
 
       # The tests see a document reach "ready"; this shows the worker, not
       # the api's in-process fallback, did the processing.
