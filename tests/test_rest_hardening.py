@@ -537,6 +537,9 @@ class TestReadiness:
         """Redis is pinged when it is used. Its users fall back (the search cache
         and rate limits to process memory, uploads to local processing), so it no
         longer takes the instance out of rotation."""
+        # Nothing here hangs: a deadline the hang tests need is only room for a
+        # slow runner to time a healthy ping out.
+        monkeypatch.setattr(fast_pings, "PING_TIMEOUT_S", 2.0)
         import lasagna.core.config as config_module
 
         monkeypatch.setattr(
@@ -571,7 +574,26 @@ class TestReadiness:
         asyncio.run(probe())
         assert names and all(n.startswith("lasagna-ping") for n in names), names
 
-    def test_everything_up_is_ready(self, auth_off, fast_pings):
+    def test_a_full_ping_pool_reads_as_down(self, auth_off, fast_pings):
+        """With every ping thread taken, the pings time out in the queue.
+
+        That is the probe working: a store it cannot reach in time is down.
+        What must not happen is the next test inheriting the full pool, which
+        the autouse ``_a_fresh_ping_pool`` fixture in conftest prevents.
+        """
+        release = threading.Event()
+        pool = fast_pings._ping_executor()
+        for _ in range(4):
+            pool.submit(release.wait, 5)
+        try:
+            response = asyncio.run(fast_pings.readiness(_backend()))
+            assert response.status_code == 503
+            assert "vector_backend" in json.loads(response.body)["failing"]
+        finally:
+            release.set()
+
+    def test_everything_up_is_ready(self, auth_off, fast_pings, monkeypatch):
+        monkeypatch.setattr(fast_pings, "PING_TIMEOUT_S", 2.0)  # nothing here hangs
         r = _client(_backend()).get("/api/v1/health/ready")
         assert r.status_code == 200, r.json()
         assert r.json()["failing"] == []
