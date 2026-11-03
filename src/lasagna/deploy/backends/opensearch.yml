@@ -9,6 +9,16 @@
 services:
   opensearch:
     image: opensearchproject/opensearch:2.17.1
+    # OpenSearch's own Docker documentation requires these limits on every
+    # node: memlock unlimited (the JVM heap must not swap) and nofile 65536.
+    # https://docs.opensearch.org/latest/install-and-configure/install-opensearch/docker/
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
     environment:
       - discovery.type=single-node
       - plugins.security.disabled=true
