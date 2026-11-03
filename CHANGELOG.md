@@ -19,6 +19,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The generated CLI reference labels an option's type the same way whichever
   Typer version is installed, so a checkout using `constraints/0.2.0.txt`
   (Typer 0.26.8) no longer reports the page as out of date and rewrites it.
+- The evaluation SDK's benchmark catalog lists `2wikimultihopqa` and says 32
+  public benchmarks; it had kept 31 since 0.2.0. Every page that states how many
+  benchmarks, components or published loops there are is now checked against
+  the code, so a pull request that adds one updates each page that counts it.
 
 ## [0.2.0] - 2026-11-01
 

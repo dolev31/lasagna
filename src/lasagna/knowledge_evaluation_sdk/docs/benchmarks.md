@@ -1,6 +1,6 @@
 # Benchmark Catalog
 
-31 public benchmarks registered in the evaluation SDK, organized by category. The registry
+32 public benchmarks registered in the evaluation SDK, organized by category. The registry
 can also hold names this count leaves out: the `smoke` fixture (always registered), the four
 `private_eval/*` tasks (registered only when the private evaluation suite builds them), and
 benchmarks from installed plugins, such as the plugin template's `template_tiny`.
@@ -25,6 +25,7 @@ for name, info in sorted(r.list_benchmarks().items()):
 
 | Name | Category | Eval Mode | Description |
 |------|----------|-----------|-------------|
+| `2wikimultihopqa` | multi_hop | end_to_end | 2WikiMultihopQA: retrieval and generation over full validation contexts |
 | `bamboogle` | multi_hop | generation | Bamboogle: 125 multi-hop questions that Google cannot answer directly |
 | `beir/arguana` | single_hop | retrieval | ArguAna: argument retrieval (1.4K queries, 8.7K docs) |
 | `beir/climate-fever` | single_hop | retrieval | Climate-FEVER: climate claim verification (1.5K queries) |
@@ -55,7 +56,7 @@ for name, info in sorted(r.list_benchmarks().items()):
 | `ragbench/techqa` | single_hop | end_to_end | RAGBench (techqa): TRACe-style RAG evaluation |
 | `squad_v2` | single_hop | generation | SQuAD v2: reading comprehension with unanswerable questions |
 | `triviaqa` | single_hop | generation | TriviaQA: trivia question answering (95K QA pairs) |
-| `wiki_multihop` | multi_hop | generation | 2WikiMultiHopQA: multi-hop reasoning over two Wikipedia articles |
+| `wiki_multihop` | multi_hop | generation | 2WikiMultihopQA: generation-only question/answer samples (no corpus) |
 
 ---
 
@@ -73,13 +74,14 @@ for name, info in sorted(r.list_benchmarks().items()):
 | `beir/scifact` | retrieval | Scientific claim verification | 1,109 | arxiv:2004.14974 |
 | `beir/fiqa` | retrieval | Financial opinion QA | 6,600 | |
 
-### Multi-Hop Reasoning (5 benchmarks)
+### Multi-Hop Reasoning (6 benchmarks)
 
 | Name | Eval Mode | Description | Queries | Paper |
 |------|-----------|-------------|---------|-------|
 | `hotpotqa` | end_to_end | Multi-hop QA with supporting facts | 112,779 | arxiv:1809.09600 |
 | `musique` | generation | 2-4 step compositional questions | 25,000 | arxiv:2108.00573 |
 | `wiki_multihop` | generation | 2WikiMultiHopQA: reasoning over two Wikipedia articles | 192,606 | arxiv:2011.01060 |
+| `2wikimultihopqa` | end_to_end | 2WikiMultihopQA with its distractors: 55,020 validation paragraphs as the corpus | 12,576 (validation) | arxiv:2011.01060 |
 | `multihop_rag` | end_to_end | MultiHop-RAG from news articles | 2,556 | arxiv:2401.15391 |
 | `bamboogle` | generation | 125 curated multi-hop questions Google cannot answer directly | 125 | arxiv:2304.09848 |
 
