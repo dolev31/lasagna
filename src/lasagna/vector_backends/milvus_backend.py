@@ -499,6 +499,9 @@ class MilvusBackend(VectorStoreAdapter):
         client = self._ensure_connected()
         self._session_column.pop(collection_name, None)
         self._native_hybrid.pop(collection_name, None)
+        # A new collection starts unloaded: forget an earlier "loaded" answer for
+        # the name, or the next delete or read skips the load and is refused.
+        self._loaded_collections.discard(collection_name)
 
         # Convert our schema to Milvus schema
         milvus_schema = self._to_milvus_schema(schema)
@@ -793,6 +796,11 @@ class MilvusBackend(VectorStoreAdapter):
     ) -> int:
         """Delete documents matching filter."""
         client = self._ensure_connected()
+        # A Milvus server refuses a filtered delete on a collection that is not
+        # loaded ("collection not loaded"). Before any search had loaded it, the
+        # Celery worker's clean-up of an earlier attempt failed that way, and
+        # every upload to the default Compose stack ended in error.
+        self._ensure_loaded(client, collection_name)
 
         # Convert filter to Milvus syntax
         milvus_filter = filter_expr.to_milvus() if filter_expr else ""
@@ -1255,6 +1263,7 @@ class MilvusBackend(VectorStoreAdapter):
         DEPRECATED: Use delete() with FilterExpression instead.
         """
         client = self._ensure_connected()
+        self._ensure_loaded(client, collection_name)  # as delete() does
         return client.delete(collection_name=collection_name, filter=filter)
 
     def query_raw(
