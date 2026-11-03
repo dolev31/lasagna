@@ -266,17 +266,24 @@ jobs:
           if-no-files-found: warn
 
   # The deployment as shipped: the image built from the Dockerfile, the compose
-  # stack with Postgres, Redis, Qdrant, the Celery worker and beat, and the MCP
-  # server, with MiniLM embeddings so it fits a runner. `up --wait` returns only
+  # stack with Postgres, Redis, the vector store, the Celery worker and beat, and
+  # the MCP server, with MiniLM embeddings so it fits a runner. Both Milvus, the
+  # default backend, and Qdrant: with Qdrant alone, every upload to the default
+  # stack failed for two weeks (a Milvus server refuses a delete on a collection
+  # that is not loaded, #69) and nothing here saw it. `up --wait` returns only
   # when every service's healthcheck passes; the live tests then upload through
   # the API, let the worker process it, search it, and check the MCP server.
   live-compose:
-    name: Live compose stack
+    name: Live compose stack (${{ matrix.backend }})
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     if: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && github.event.repository.private) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [milvus, qdrant]
     env:
-      COMPOSE: docker compose -f docker-compose.yml -f backends/qdrant.yml
+      COMPOSE: docker compose -f docker-compose.yml -f backends/${{ matrix.backend }}.yml
     defaults:
       run:
         working-directory: src/lasagna/deploy
@@ -296,7 +303,7 @@ jobs:
       - name: Configure the stack
         run: |
           {
-            echo "VECTOR_BACKEND=qdrant"
+            echo "VECTOR_BACKEND=${{ matrix.backend }}"
             echo "COMPOSE_PROFILES=celery,mcp"
             echo "RAG_JWT_SECRET=$(openssl rand -hex 32)"
             echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
@@ -331,6 +338,15 @@ jobs:
           LASAGNA_LIVE_BASE_URL: http://localhost:8000/api/v1
           LASAGNA_LIVE_MCP_URL: http://localhost:8005
         run: pytest tests/live/test_deployment.py -q -rs
+
+      # The conformance suite against a real Milvus server, not only Milvus
+      # Lite: the server refuses what Lite accepts (an AUTOINDEX with params).
+      - name: Vector backend conformance against the stack's Milvus server
+        if: matrix.backend == 'milvus'
+        working-directory: .
+        env:
+          LASAGNA_MILVUS_URI: http://localhost:19530
+        run: pytest tests/test_vector_backend_conformance.py -q -k milvus
 
       # The tests see a document reach "ready"; this shows the worker, not
       # the api's in-process fallback, did the processing.
