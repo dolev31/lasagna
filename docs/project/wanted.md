@@ -1,7 +1,8 @@
 # Wanted
 
-What Lasagna would like to have next, and what "done" means for each. Every item
-has an open issue; comment there to claim it.
+What Lasagna would like to have next, and what "done" means for each. Almost
+every item has an open issue; comment there to claim it. The few that do not say
+so.
 
 A method in Lasagna is measured against every other component of its stage, in a
 complete pipeline, on the same benchmarks, with everything else held fixed. If
@@ -32,7 +33,7 @@ queries: `cross_encoder` wins by +0.0913 ndcg@10 (d_z +0.38, p (Holm) 1.0e-04).
 | document_processor | Unstructured | [repository](https://github.com/Unstructured-IO/unstructured) | No paper. Layout-aware parsing for mixed files. |
 | embedder | jina-embeddings-v2, with late chunking | [2409.04701](https://arxiv.org/abs/2409.04701) | Late chunking exists as a setting; this is the Jina embedder behind it. |
 | retriever | RAPTOR | [2401.18059](https://arxiv.org/abs/2401.18059) | The tree code exists behind `enable_raptor`; it needs registering as a retriever. |
-| retriever | GraphRAG, LightRAG, HippoRAG, G-Retriever | [2404.16130](https://arxiv.org/abs/2404.16130), [2410.05779](https://arxiv.org/abs/2410.05779), [2405.14831](https://arxiv.org/abs/2405.14831), [2402.07630](https://arxiv.org/abs/2402.07630) | A small graph retriever exists behind `enable_graph_retrieval`; register it first. |
+| retriever | GraphRAG, LightRAG, HippoRAG 2, G-Retriever | [2404.16130](https://arxiv.org/abs/2404.16130), [2410.05779](https://arxiv.org/abs/2410.05779), [2502.14802](https://arxiv.org/abs/2502.14802), [2402.07630](https://arxiv.org/abs/2402.07630) | The knowledge-graph track, planned in [#61](https://github.com/dolev31/lasagna/issues/61): register the existing graph retriever first ([#8](https://github.com/dolev31/lasagna/issues/8)), then LightRAG ([#57](https://github.com/dolev31/lasagna/issues/57)), HippoRAG 2 ([#58](https://github.com/dolev31/lasagna/issues/58)) and GraphRAG global search ([#59](https://github.com/dolev31/lasagna/issues/59)). G-Retriever has no issue yet: open one before you start. |
 | retriever | ColBERTv2 with PLAID | [2112.01488](https://arxiv.org/abs/2112.01488) | Late interaction as a retriever, with its own index. |
 | retriever | ColPali | [2407.01449](https://arxiv.org/abs/2407.01449) | Page images as the documents. |
 | reranker | RankZephyr, RankVicuna | [2312.02724](https://arxiv.org/abs/2312.02724), [2309.15088](https://arxiv.org/abs/2309.15088) | Open-weight listwise rerankers, beside the built-in `llm_listwise`. |
@@ -92,6 +93,7 @@ open items are labeled
 |---|---|---|
 | MIRACL | [2210.09984](https://arxiv.org/abs/2210.09984) | Lasagna's benchmarks are English. MIRACL has human-judged relevance in 18 languages; start with one. |
 | BRIGHT | [2407.12883](https://arxiv.org/abs/2407.12883) | Relevance that needs reasoning, not word overlap. Shows whether a reranker or query enhancer helps when matching is not enough. |
+| GraphRAG-Bench | [2506.05690](https://arxiv.org/abs/2506.05690) | Built to say when a graph helps: questions at four levels, on novels and on medical text. Scores each graph method by the kind of question ([#60](https://github.com/dolev31/lasagna/issues/60)). |
 
 To evaluate on data of your own, no adapter is needed: see
 [your own data](../own-data.md).
@@ -131,6 +133,11 @@ For people running Lasagna as a service. Labeled
 - **An OpenAI-compatible answer endpoint, with streaming.** The REST API
   searches, but has no route that retrieves and then answers, and nothing
   streams.
+- **A knowledge graph every process shares.** The graph `enable_graph_retrieval`
+  builds lives in the memory of the process that ingested. From reading the
+  code, search served by another process, such as the API when a Celery worker
+  ingests in the Compose stack, finds no graph; this is not reproduced yet
+  ([#55](https://github.com/dolev31/lasagna/issues/55)).
 - **Weights & Biases and MLflow.** A run writes a results bundle; nothing sends
   it to a tracker yet.
 
