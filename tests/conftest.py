@@ -405,6 +405,9 @@ def _a_fresh_ping_pool():
     ``main``, Python 3.13, 2026-11-03). Only a module already imported is
     touched, so the suite imports nothing it would not have.
     """
+    health = sys.modules.get("lasagna.api.rest.routes.health")
+    if health is not None:
+        health._ping_pool = None  # one left by a wider-scoped fixture, too
     yield
     health = sys.modules.get("lasagna.api.rest.routes.health")
     pool = getattr(health, "_ping_pool", None) if health is not None else None
