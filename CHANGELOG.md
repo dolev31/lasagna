@@ -11,8 +11,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 A patch release: uploads to the default Docker Compose stack are indexed again.
 Thank you to [@tnalbant](https://github.com/tnalbant), for the CLI reference
 that no longer changes with the installed Typer version, and to
-[@segevshlomovIBM](https://github.com/segevshlomovIBM), whose runs in the
-Compose stack found seven harness bugs, filed as #46 to #52.
+[@segevshlomovIBM](https://github.com/segevshlomovIBM), whose evidence runs on
+Milvus Lite and in the Compose stack found seven harness bugs, filed as #46 to
+#52 (still open).
 
 ### Added
 
@@ -35,8 +36,9 @@ Compose stack found seven harness bugs, filed as #46 to #52.
   manager with `index_params` set. A server refuses any param but the metric
   with AUTOINDEX; only Milvus Lite, which builds a FLAT index instead, took it.
 - The generated CLI reference labels an option's type the same way whichever
-  Typer version is installed, so a checkout using `constraints/0.2.0.txt`
-  (Typer 0.26.8) no longer reports the page as out of date and rewrites it.
+  Typer version is installed, so a checkout installed under the release's
+  constraints file (Typer 0.26.8) no longer reports the page as out of date and
+  rewrites it.
 - The evaluation SDK's benchmark catalog lists `2wikimultihopqa` and says 32
   public benchmarks; it had kept 31 since 0.2.0. Every page that states how many
   benchmarks, components or published loops there are is now checked against

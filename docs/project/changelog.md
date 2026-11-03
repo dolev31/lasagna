@@ -12,6 +12,7 @@ It follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 | Version | Date | Metrics version |
 |---|---|---|
+| 0.2.1 | 2026-11-03 | 1.7 |
 | 0.2.0 | 2026-11-01 | 1.7 |
 | 0.1.0 | 2026-10-21 | 1.7 |
 
