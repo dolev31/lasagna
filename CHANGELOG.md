@@ -20,8 +20,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   are indexed again. Before indexing, the worker clears what an earlier attempt
   at the document left, and a Milvus server refuses a filtered delete on a
   collection that is not loaded, so before any search had loaded it every upload
-  ended in `error`. `MilvusBackend.delete` now loads the collection first, as
-  its reads already did.
+  ended in `error`. `MilvusBackend.delete` and `delete_raw` now load the
+  collection first, as its reads already did.
 - The generated CLI reference labels an option's type the same way whichever
   Typer version is installed, so a checkout using `constraints/0.2.0.txt`
   (Typer 0.26.8) no longer reports the page as out of date and rewrites it.

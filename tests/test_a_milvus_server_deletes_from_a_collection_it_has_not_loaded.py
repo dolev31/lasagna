@@ -64,3 +64,27 @@ def test_a_loaded_collection_is_not_loaded_again(backend):
     backend._test_server.loaded.add("chunks")
     backend.delete("chunks", FilterExpression.eq("document_id", "doc_1"))
     assert backend._test_server.calls == [("delete", "chunks")]
+
+
+def test_a_second_delete_does_not_ask_again(backend):
+    backend.delete("chunks", FilterExpression.eq("document_id", "doc_1"))
+    backend.delete("chunks", FilterExpression.eq("document_id", "doc_2"))
+    assert backend._test_server.calls == [
+        ("load", "chunks"),
+        ("delete", "chunks"),
+        ("delete", "chunks"),
+    ]
+
+
+def test_a_recreated_collection_is_loaded_again(backend, monkeypatch):
+    """Dropped and created again under the same name, it starts unloaded."""
+    backend.delete("chunks", FilterExpression.eq("document_id", "doc_1"))
+    backend._test_server.loaded.discard("chunks")  # the server dropped and recreated it
+    monkeypatch.setattr(backend, "_to_milvus_schema", lambda schema: None)
+    monkeypatch.setattr(backend._test_server, "create_collection", lambda **kw: None, raising=False)
+    try:
+        backend.create_collection("chunks", schema=None)
+    except Exception:
+        pass  # only the cache reset at the top of create_collection matters here
+    backend.delete("chunks", FilterExpression.eq("document_id", "doc_1"))
+    assert backend._test_server.calls[-2:] == [("load", "chunks"), ("delete", "chunks")]

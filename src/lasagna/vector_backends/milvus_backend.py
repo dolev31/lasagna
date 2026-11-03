@@ -499,6 +499,9 @@ class MilvusBackend(VectorStoreAdapter):
         client = self._ensure_connected()
         self._session_column.pop(collection_name, None)
         self._native_hybrid.pop(collection_name, None)
+        # A new collection starts unloaded: forget an earlier "loaded" answer for
+        # the name, or the next delete or read skips the load and is refused.
+        self._loaded_collections.discard(collection_name)
 
         # Convert our schema to Milvus schema
         milvus_schema = self._to_milvus_schema(schema)
