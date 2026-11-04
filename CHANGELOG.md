@@ -6,7 +6,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.2.1] - 2026-11-03
+## [0.2.1] - 2026-11-04
 
 A patch release: uploads to the default Docker Compose stack are indexed again.
 Thank you to [@tnalbant](https://github.com/tnalbant), for the CLI reference
