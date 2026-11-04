@@ -234,12 +234,21 @@ def test_the_manifest_records_the_order_each_track_used(live, tmp_path):
     result = _run(tmp_path, "standard")
     order = result.system["stages"]["reranker"]["settings"]["context_order"]
     assert order == {"retrieval": "ranked", "generation": "lost_in_the_middle"}
-    assert result.system["stages"]["reranker"]["settings"]["enable_context_reordering"] is False
+    # Per track: the retrieval track forces reordering off, and the generation
+    # track reads standard's own setting. Recorded once, it was the retrieval
+    # track's False for a generator that reads its passages reordered.
+    assert result.system["stages"]["reranker"]["settings"]["enable_context_reordering"] == {
+        "retrieval": False,
+        "generation": True,
+    }
 
 
 def test_a_retrieval_sweep_says_reordering_changed_nothing(live, tmp_path):
     # The manifest files the arm's change under the reranker (the generator's
-    # order), and the ranked lists show it does not reach retrieval.
+    # order), and the retrieval track, the only one this sweep runs, forces it
+    # off for every arm. The ranked-list check said so too, which on a full run
+    # contradicted the line saying the generation track read its own value; it
+    # leaves a setting the track forces to that line.
     from lasagna.knowledge_evaluation_sdk.stages import isolation_report
 
     data = {
@@ -263,7 +272,11 @@ def test_a_retrieval_sweep_says_reordering_changed_nothing(live, tmp_path):
     assert [s for s in a if a[s]["digest"] != b[s]["digest"]] == ["reranker"]
     report = isolation_report([r.to_dict() for r in rows])
     assert report["undeclared"] == []
-    assert any("enable_context_reordering) changed nothing" in m for m in report["inert"])
+    (line,) = report["inert"]
+    assert (
+        "names ['enable_context_reordering'] but its pipeline is identical to the control" in line
+    )
+    assert "the retrieval track, the only track both ran, forces it for every arm" in line
     assert {r.config_name: r.metrics["mrr@10"] for r in rows} == {
         "control": pytest.approx(0.5),
         "reordered": pytest.approx(0.5),
