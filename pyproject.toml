@@ -185,7 +185,7 @@ eval = [
 # Managed / self-hosted vector databases beyond the embedded default
 vector-backends = [
     "pinecone>=5.0.0",
-    "qdrant-client>=1.7.0",
+    "qdrant-client>=1.13,<1.15",
     "weaviate-client>=4.4.0",
     # weaviate-client caps grpcio below 1.80, and the Google packages other
     # extras bring want the newest grpcio-status, which needs a newer grpcio.
