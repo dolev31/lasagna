@@ -30,10 +30,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   could not be told apart. The check now judges such an arm per track: inert
   on retrieval, where the setting is forced, and live on generation. Stage
   digests, and so comparability keys, change for every run of this version:
-  a bundle written by 0.2.0 or earlier keeps its verdict under
+  a bundle written by 0.2.1 or earlier keeps its verdict under
   `results validate`, which reads the integrity block the bundle records,
   and groups on a leaderboard only with bundles from before this version;
-  `results bundle` on a results.json written by 0.2.0 or earlier runs the
+  `results bundle` on a results.json written by 0.2.1 or earlier runs the
   new check, so it can refuse what that version passed.
 
 ## [0.2.1] - 2026-11-04
