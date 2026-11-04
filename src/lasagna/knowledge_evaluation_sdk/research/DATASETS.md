@@ -31,6 +31,7 @@ can only score generation against gold context; see `mode` in the guide.
 | `hotpotqa` | CC BY-SA 4.0 | yes | arxiv:1809.09600 | HotpotQA: multi-hop question answering with supporting facts |
 | `kilt/nq` | MIT | - | arxiv:2009.02252 | KILT Natural Questions: knowledge-intensive QA |
 | `kilt/triviaqa` | MIT | - | arxiv:2009.02252 | KILT TriviaQA: trivia questions as knowledge-intensive task |
+| `miracl/sw` | Apache-2.0 | yes | arxiv:2210.09984 | MIRACL (Swahili): passage retrieval over Swahili Wikipedia |
 | `ms_marco` | MIT | - | arxiv:1611.09268 | MS MARCO: passage ranking (8.8M passages) |
 | `multihop_rag` | MIT | - | arxiv:2401.15391 | MultiHop-RAG: multi-hop RAG benchmark from news articles |
 | `musique` | CC BY 4.0 | yes | arxiv:2108.00573 | MuSiQue: multi-hop questions requiring 2-4 composition steps |
