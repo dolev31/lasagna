@@ -44,10 +44,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   such an arm live there. What the harness sets on one track only (the depth
   `metric_k` asks retrieval for) is excused on that track only, so a
   `default_top_k` leaked into a `metric_k` arm's generation config is caught.
-  A pair of arms that shares no track, or pairs a row from before
-  `system.tracks` was recorded with a newer one, is listed as unverified
-  instead of being dropped without a word or, for the second, blocking the
-  bundle with every split key reported undeclared.
+  A pair of arms that shares no track is not compared, and neither is a row
+  written before `system.tracks` was recorded paired with a newer one (a
+  sweep resumed across the upgrade); each is listed as unverified, and with
+  no pair compared the run says why.
 
 ## [0.2.1] - 2026-11-04
 
