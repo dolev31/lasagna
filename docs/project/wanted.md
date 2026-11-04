@@ -12,7 +12,7 @@ and the catalog lists it beside its paper.
 | If you want to | Start with |
 |---|---|
 | Add your paper's method | [Components](#components) |
-| Make a first pull request | [Good first issues](#good-first-issues) |
+| Make a first pull request | [A first contribution](#a-first-contribution) |
 | Add a dataset | [Benchmarks](#benchmarks) |
 | Run a study | [Research questions](#research-questions) |
 | Run Lasagna in production | [Deployment](#deployment) |
@@ -69,14 +69,17 @@ Open items are labeled
 
 ---
 
-## Good first issues
+## A first contribution
 
-Small, with the files named and a test to write. Labeled
-[good first issue](https://github.com/dolev31/lasagna/issues?q=is%3Aopen+label%3A%22good+first+issue%22).
+Feature-sized, with the files named, the steps listed and a definition of done.
+Labeled [good first issue](https://github.com/dolev31/lasagna/issues?q=is%3Aopen+label%3A%22good+first+issue%22).
+Lasagna does not take tiny pull requests (a typo, a link, a one-line pin): even
+a first one delivers a whole issue.
 
 - **Claims for the built-in components.** A component can declare the number its
-  paper reports; no built-in declares one yet. Each one filled in puts a
-  published number beside a reproduced one.
+  paper reports; no built-in declares one yet. One pull request fills them in
+  for every built-in of one stage, each with its quote from the paper, and puts
+  published numbers beside reproduced ones.
 - **A benchmark adapter.** MIRACL and BRIGHT, below.
 
 ---
@@ -149,10 +152,15 @@ vLLM. Open an issue before you start one.
 
 ## How to claim an item
 
-1. Comment on its issue: "I'm taking this."
-2. Open a draft pull request within two weeks, or the claim lapses and someone
+1. Read the issue's comments. If someone has already claimed it with a plan, it
+   is taken: pick another.
+2. Comment "I'm taking this" with your plan: the files you will change, the test
+   that will fail on `main`, and the `docker compose` commands you will run (for
+   a study: the question, the arms, what is held fixed, and what would prove it
+   wrong).
+3. Open a draft pull request within two weeks, or the claim lapses and someone
    else can take it.
-3. Before you ask for review, meet [the bar](contributing.md#the-bar-for-a-pull-request).
+4. Before you ask for review, meet [the bar](contributing.md#the-bar-for-a-pull-request).
 
 Questions go to
 [Discussions](https://github.com/dolev31/lasagna/discussions/categories/q-a).
