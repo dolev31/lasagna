@@ -387,6 +387,8 @@ def test_a_declared_setting_that_never_arrived_is_inert_beside_one_that_did():
     assert report["undeclared"] == []
     (line,) = report["inert"]
     assert "['hybrid_alpha']" in line and "control" in line and "['rrf_k']" in line
+    # It read "the control 'control''s value".
+    assert "''s" not in line
 
 
 BOTH = ("retrieval", "generation")
@@ -424,7 +426,7 @@ def test_an_agentic_arm_is_inert_on_retrieval_and_live_on_generation(overrides, 
     report = isolation_report(both)
     assert report["undeclared"] == []
     (line,) = report["inert"]
-    assert repr(key) in line and "retrieval track" in line
+    assert repr(key) in line and "retrieval track" in line and "''s" not in line
     assert "generation track ran with its own" in line
 
     only = ["retrieval"]
@@ -434,6 +436,8 @@ def test_an_agentic_arm_is_inert_on_retrieval_and_live_on_generation(overrides, 
     ]
     (line,) = isolation_report(retrieval_only)["inert"]
     assert "identical to the control" in line and "forces" in line
+    # Both arms ran it; "the only one that ran" said nothing about the control.
+    assert "the only track both ran" in line
 
     only = ["generation"]
     generation_only = [
@@ -467,6 +471,58 @@ def test_what_the_harness_sets_on_one_track_is_excused_on_that_track_only():
     leaked = _row("deeper", {"metric_k": 20}, tracked(20, 80, 7), tracks=BOTH)
     (line,) = isolation_report([control, leaked])["undeclared"]
     assert "default_top_k" in line and "retriever" in line
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("self_ask_max_follow_ups", 5), ("max_agent_iterations", 7), ("enable_crag", True)],
+)
+def test_a_setting_only_the_loop_acts_on_is_inert_on_retrieval(key, value):
+    # The retrieval track runs no agentic loop, so an arm sweeping a setting
+    # only the loop acts on has its control's retrieval metrics. The value
+    # still reached the retrieval track's config, so the check called it live
+    # there, as it did the loop itself before it was recorded per track.
+    control, arm = _tracked(), _tracked(**{key: value})
+    both = [_row("control", {}, control, tracks=BOTH), _row("loop", {key: value}, arm, tracks=BOTH)]
+    (line,) = isolation_report(both)["inert"]
+    assert repr(key) in line and "retrieval track ran as the control 'control' did" in line
+    assert "no agentic loop" in line and "the generation track ran with its own value" in line
+
+    only = ["retrieval"]
+    retrieval_only = [
+        _row("control", {}, control, tracks=only),
+        _row("loop", {key: value}, arm, tracks=only),
+    ]
+    (line,) = isolation_report(retrieval_only)["inert"]
+    assert "identical to the control" in line and "the only track both ran" in line
+    assert "no agentic loop" in line
+
+
+def test_every_agentic_setting_is_traced_to_the_loop_or_the_standard_path():
+    # A setting added to the agentic stage fails here until someone traces
+    # where it is read. Context compression is applied on the standard path
+    # (_search_orchestrator.py), so an arm sweeping it changes retrieval.
+    from lasagna.knowledge_evaluation_sdk import stages
+
+    agentic = {k for k, s in stages._EXACT.items() if s == "agentic_pipeline"}
+    standard_path = {"enable_context_compression", "compression_method", "compression_ratio"}
+    forced = agentic & stages.TRACK_SPLIT_KEYS
+    assert forced == {"use_agentic_rag", "agentic_pipeline"}
+    assert not stages.LOOP_ONLY_KEYS & (standard_path | forced)
+    assert agentic == stages.LOOP_ONLY_KEYS | standard_path | forced
+    prefixes = {p for p, s in stages._PREFIXES if s == "agentic_pipeline"}
+    assert prefixes == set(stages.LOOP_ONLY_PREFIXES)
+
+    rows = [
+        _row("control", {}, _tracked(), tracks=BOTH),
+        _row(
+            "compressed",
+            {"enable_context_compression": True},
+            _tracked(enable_context_compression=True),
+            tracks=BOTH,
+        ),
+    ]
+    assert isolation_report(rows)["inert"] == []
 
 
 def test_split_keys_are_recorded_per_track_and_the_rest_once():

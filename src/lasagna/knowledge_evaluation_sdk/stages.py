@@ -339,6 +339,48 @@ TRACK_SPLIT_KEYS = frozenset(
 #: so a loop an arm names is inert there whatever the arm says.
 TRACK_EMPTIES_SLOT: Dict[str, frozenset] = {"retrieval": frozenset({"agentic_pipeline"})}
 
+#: Agentic settings only the loop acts on (``agentic/`` and the orchestrator's
+#: comprehensive tier), and speculative RAG's, which only the generation
+#: track's answer step reads. The retrieval track runs no loop, so an arm that
+#: sweeps one of these has its control's retrieval metrics whatever it sets,
+#: and is inert there. ``enable_crag`` asks for the comprehensive tier, which
+#: the router turns back to the standard one while ``use_agentic_rag`` is off,
+#: as the retrieval track forces it. Not every agentic setting is loop-only:
+#: context compression (``enable_context_compression``, ``compression_*``) is
+#: applied on the standard path too, so it is live on retrieval. A test holds
+#: every agentic setting to one side or the other.
+LOOP_ONLY_KEYS = frozenset(
+    {
+        "use_structured_graph",
+        "agentic_models",
+        "agentic_prompts",
+        "agent_temperature",
+        "max_agent_iterations",
+        "enable_crag",
+        "crag_web_search_fallback",
+        "enable_hallucination_check",
+        "enable_answer_quality_check",
+        "max_quality_check_attempts",
+        "chunk_refinement_method",
+        "coverage_scorer_mode",
+        "enable_speculative_rag",
+    }
+)
+LOOP_ONLY_PREFIXES: Tuple[str, ...] = (
+    "auto_refine_",
+    "speculative_",
+    "self_ask_",
+    "ircot_",
+    "flare_",
+    "adaptive_rag_",
+    "self_rag_",
+)
+
+
+def _loop_only(key: str, track: Optional[str]) -> bool:
+    """Whether ``key`` is one only the agentic loop acts on, on a track that runs none."""
+    return track == "retrieval" and (key in LOOP_ONLY_KEYS or key.startswith(LOOP_ONLY_PREFIXES))
+
 
 def effective_chunking_strategy(settings: Mapping[str, Any]) -> Optional[str]:
     """The built-in chunker that runs for these chunker settings.
@@ -616,12 +658,13 @@ def _inert_tracks(
 
     Inert on a track when the key, and everything the harness sets on its
     account there (:func:`_entailed`), reached its stage with the control's value
-    there, or when the track empties the slot for every arm. ``(None,)``
-    judges the values as a whole, for rows that did not record their tracks.
+    there, when the track empties the slot for every arm, or when only the
+    loop acts on the key and the track runs none. ``(None,)`` judges the
+    values as a whole, for rows that did not record their tracks.
     """
     out: List[Optional[str]] = []
     for track in tracks:
-        if track is not None and key in TRACK_EMPTIES_SLOT.get(track, ()):
+        if _why_alike(key, track) in ("emptied", "loop_only"):
             out.append(track)
             continue
         if all(
@@ -632,13 +675,31 @@ def _inert_tracks(
     return out
 
 
-def _forced(key: str, track: Optional[str]) -> bool:
-    """Whether ``track`` sets ``key`` to the same value for every arm."""
+def _why_alike(key: str, track: Optional[str]) -> Optional[str]:
+    """Why ``track`` runs ``key`` alike for every arm, if it does: it forces
+    the value (``"forced"``), empties the slot (``"emptied"``), or runs no
+    agentic loop, the only thing that acts on the key (``"loop_only"``)."""
     if track is None:
-        return False
+        return None
+    if key in TRACK_EMPTIES_SLOT.get(track, ()):
+        return "emptied"
     if track == "retrieval" and key in TRACK_SPLIT_KEYS:
-        return True
-    return key in TRACK_EMPTIES_SLOT.get(track, ())
+        return "forced"
+    if _loop_only(key, track):
+        return "loop_only"
+    return None
+
+
+#: How :func:`_inert_lines` says each reason of :func:`_why_alike`, for one
+#: key or several.
+_BECAUSE = {
+    "forced": ("forces it for every arm", "forces them for every arm"),
+    "emptied": ("forces it for every arm", "forces them for every arm"),
+    "loop_only": (
+        "runs no agentic loop, and only the loop acts on it",
+        "runs no agentic loop, and only the loop acts on them",
+    ),
+}
 
 
 def _inert_lines(
@@ -663,12 +724,11 @@ def _inert_lines(
     dead = [k for k in keys if len(status[k]) == len(judged)]
     lines: List[str] = []
     if dead and len(dead) == len(keys):
-        why = (
-            f", since the {judged[0]} track, the only one that ran, forces "
-            f"{'it' if len(dead) == 1 else 'them'} for every arm"
-            if len(judged) == 1 and all(_forced(k, judged[0]) for k in dead)
-            else ""
-        )
+        why = ""
+        phrases = {_BECAUSE.get(_why_alike(k, judged[0])) for k in dead}
+        if len(judged) == 1 and len(phrases) == 1 and None not in phrases:
+            because = phrases.pop()[len(dead) > 1]
+            why = f", since the {judged[0]} track, the only track both ran, {because}"
         lines.append(
             f"{bench}: arm {name!r} names {dead} but its pipeline is identical to the "
             f"control {control_name!r} there{why}"
@@ -676,20 +736,20 @@ def _inert_lines(
     elif dead:
         live = [k for k in keys if k not in dead]
         lines.append(
-            f"{bench}: arm {name!r} names {dead}, which reached the pipeline with the control "
-            f"{control_name!r}'s value{'s' if len(dead) > 1 else ''}; of what it names, only "
-            f"{live} changed anything"
+            f"{bench}: arm {name!r} names {dead}, which ran as in the control "
+            f"{control_name!r}; of what it names, only {live} changed anything"
         )
     for key in keys:
         inert_on = status[key]
         if not inert_on or len(inert_on) == len(judged):
             continue
         live_on = [t for t in judged if t not in inert_on]
-        forced = " (the track forces it for every arm)" if _forced(key, inert_on[0]) else ""
+        reason = _why_alike(key, inert_on[0])
+        because = f" (the track {_BECAUSE[reason][0]})" if reason else ""
         lines.append(
-            f"{bench}: arm {name!r} names {key!r}, which the {inert_on[0]} track ran with the "
-            f"control {control_name!r}'s value{forced}, so its {inert_on[0]} metrics are the "
-            f"control's; the {live_on[0]} track ran with its own"
+            f"{bench}: arm {name!r} names {key!r}, which the {inert_on[0]} track ran as the "
+            f"control {control_name!r} did{because}, so its {inert_on[0]} metrics are the "
+            f"control's; the {live_on[0]} track ran with its own value"
         )
     return lines
 
