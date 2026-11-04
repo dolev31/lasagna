@@ -489,8 +489,8 @@ def track_manifest(by_track: Mapping[str, Mapping[str, Any]]) -> Dict[str, Any]:
 def tracks_ran(row: Mapping[str, Any]) -> Optional[Tuple[str, ...]]:
     """The tracks a row's task ran, or None for a result that did not record them.
 
-    A row written before tracks were recorded (0.2.1 and earlier) is judged
-    on its values as a whole, with no claim about a track: taking both tracks
+    A row written before ``system.tracks`` was recorded is judged on its
+    values as a whole, with no claim about a track: taking both tracks
     for granted told a retrieval-only run that its generation track ran with
     the arm's own value. None, not an empty tuple, so it cannot be confused
     with two rows that recorded their tracks and share none.

@@ -112,7 +112,7 @@ def _row(name, overrides, manifest, profile="speed", bench="b", tracks=None):
         "config_overrides": overrides,
         "profile": profile,
         "error": None,
-        "system": {"stages": manifest, **({"tracks": list(tracks)} if tracks else {})},
+        "system": {"stages": manifest, **({} if tracks is None else {"tracks": list(tracks)})},
     }
 
 
@@ -494,13 +494,14 @@ def test_two_arms_with_no_track_in_common_are_not_compared():
     ]
     assert isolation_report(rows) == {"undeclared": [], "inert": [], "unverified": []}
     assert compared_pairs(rows) == 0
-    # "Not recorded" is told apart from "none in common".
+    # "Not recorded" is told apart from "none in common", and from "recorded, none ran".
     assert tracks_ran(_row("old", {}, control)) is None
     assert tracks_ran(rows[0]) == ("retrieval",)
+    assert tracks_ran(_row("empty", {}, control, tracks=[])) == ()
 
 
 def test_a_row_that_did_not_record_its_tracks_is_judged_whole_with_no_track_claim():
-    # A results file written by 0.2.1 or earlier: scalar settings,
+    # A results file written before system.tracks was recorded: scalar settings,
     # context_order for both tracks, no record in the row of which ran.
     # Re-bundled, a retrieval-only run's reordering arm was told its
     # generation track ran with its own value.
