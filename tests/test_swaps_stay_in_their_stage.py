@@ -443,6 +443,32 @@ def test_an_agentic_arm_is_inert_on_retrieval_and_live_on_generation(overrides, 
     assert isolation_report(generation_only)["inert"] == []
 
 
+def test_what_the_harness_sets_on_one_track_is_excused_on_that_track_only():
+    # metric_k sets the depth the retrieval track asks for; the generation
+    # track keeps the arm's own default_top_k. Excused on both tracks, a
+    # default_top_k that leaked into a metric_k arm's generation config went
+    # unreported.
+    def tracked(metric_k, retrieval_depth, generation_depth):
+        harness = {"metric_k": metric_k}
+        return track_manifest(
+            {
+                "retrieval": stage_manifest(
+                    _Config(**BASE, default_top_k=retrieval_depth), {}, harness=harness
+                ),
+                "generation": stage_manifest(
+                    _Config(**BASE, default_top_k=generation_depth), {}, harness=harness
+                ),
+            }
+        )
+
+    control = _row("control", {}, tracked(10, 40, 5), tracks=BOTH)
+    deeper = _row("deeper", {"metric_k": 20}, tracked(20, 80, 5), tracks=BOTH)
+    assert isolation_report([control, deeper])["undeclared"] == []
+    leaked = _row("deeper", {"metric_k": 20}, tracked(20, 80, 7), tracks=BOTH)
+    (line,) = isolation_report([control, leaked])["undeclared"]
+    assert "default_top_k" in line and "retriever" in line
+
+
 def test_split_keys_are_recorded_per_track_and_the_rest_once():
     m = _tracked(retrieval={"default_top_k": 40}, generation={"default_top_k": 10}, chunk_size=500)
     assert m["retriever"]["settings"]["default_top_k"] == {"retrieval": 40, "generation": 10}

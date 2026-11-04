@@ -278,11 +278,11 @@ CHUNKER_DISPATCH_KEYS = (
 #: the check charges it to the declaration rather than calling it a leak:
 #: naming a reranker turns reranking on and naming an agentic pipeline the
 #: loop; an embedder, named or set, gets a collection of its own at its
-#: dimension; ``metric_k`` and the over-fetch set the depth retrieval is asked
-#: for; a structural chunker setting decides which chunker runs; and context
-#: reordering is recorded per track. Each is traced to ``experiment.py``. A
-#: key the harness starts setting for a new declaration belongs here, or the
-#: arms that declare it block their bundle.
+#: dimension; a structural chunker setting decides which chunker runs; and
+#: context reordering is recorded per track. Each is traced to
+#: ``experiment.py``. A key the harness starts setting for a new declaration
+#: belongs here, or in :data:`_ENTAILED_ON_TRACK` when it sets it on one
+#: track only, or the arms that declare it block their bundle.
 _ENTAILED: Dict[str, Tuple[str, ...]] = {
     "reranker": ("enable_reranking",),
     "ensemble_reranker_models": ("enable_reranking",),
@@ -290,10 +290,20 @@ _ENTAILED: Dict[str, Tuple[str, ...]] = {
     "embedder": ("embedding_dim", "collection_name"),
     "embedding_model": ("embedding_dim", "collection_name"),
     "embedding_dim": ("collection_name",),
-    "metric_k": ("default_top_k",),
-    "retrieval_chunk_overfetch": ("default_top_k",),
     "enable_context_reordering": ("context_order",),
     **{key: ("chunking_strategy",) for key in CHUNKER_DISPATCH_KEYS},
+}
+
+#: What the harness sets on a declared key's account on one track only:
+#: ``metric_k`` and the over-fetch set the depth the retrieval track asks for
+#: (``experiment._fix_retrieval_depth``), and the generation track keeps the
+#: arm's own ``default_top_k``. Excused on both tracks, a ``default_top_k``
+#: that leaked into a ``metric_k`` arm's generation config went unreported.
+_ENTAILED_ON_TRACK: Dict[str, Dict[str, Tuple[str, ...]]] = {
+    "retrieval": {
+        "metric_k": ("default_top_k",),
+        "retrieval_chunk_overfetch": ("default_top_k",),
+    },
 }
 
 #: The two tracks a task runs: retrieval scores ranked lists, generation
@@ -513,6 +523,14 @@ def _shared_tracks(a: Mapping[str, Any], b: Mapping[str, Any]) -> Optional[Tuple
     return tuple(t for t in ta if t in tb)
 
 
+def _entailed(key: str, track: Optional[str]) -> Tuple[str, ...]:
+    """What the harness sets on ``key``'s account on ``track``; on any track
+    when ``track`` is None (a row that did not record its tracks)."""
+    tracks = TRACKS if track is None else (track,)
+    on_track = tuple(k for t in tracks for k in _ENTAILED_ON_TRACK.get(t, {}).get(key, ()))
+    return _ENTAILED.get(key, ()) + on_track
+
+
 def _on_track(key: str, value: Any, track: Optional[str]) -> Any:
     """A split key's value on ``track``; any other value, or ``None`` for the
     track, is the value as a whole."""
@@ -539,19 +557,20 @@ def declared_stages(overrides: Optional[Mapping[str, Any]]) -> Set[str]:
     return out
 
 
-def declared_keys(overrides: Optional[Mapping[str, Any]]) -> Set[str]:
-    """The manifest keys an arm's overrides account for.
+def declared_keys(overrides: Optional[Mapping[str, Any]], track: Optional[str] = None) -> Set[str]:
+    """The manifest keys an arm's overrides account for on ``track``.
 
     Each override that belongs to a stage, and what the harness sets because
-    of it (:data:`_ENTAILED`). A component slot is declared under its stage's
-    name, which is the name the manifest files it under too.
+    of it there (:func:`_entailed`); on any track when ``track`` is None. A
+    component slot is declared under its stage's name, which is the name the
+    manifest files it under too.
     """
     out: Set[str] = set()
     for key in overrides or {}:
         if stage_of(key) is None:
             continue
         out.add(key)
-        out.update(_ENTAILED.get(key, ()))
+        out.update(_entailed(key, track))
     return out
 
 
@@ -596,7 +615,7 @@ def _inert_tracks(
     """The tracks on which a key the arm declared ran as the control's.
 
     Inert on a track when the key, and everything the harness sets on its
-    account (:data:`_ENTAILED`), reached its stage with the control's value
+    account there (:func:`_entailed`), reached its stage with the control's value
     there, or when the track empties the slot for every arm. ``(None,)``
     judges the values as a whole, for rows that did not record their tracks.
     """
@@ -607,7 +626,7 @@ def _inert_tracks(
             continue
         if all(
             _on_track(k, _recorded(arm, k), track) == _on_track(k, _recorded(control, k), track)
-            for k in (key, *_ENTAILED.get(key, ()))
+            for k in (key, *_entailed(key, track))
         ):
             out.append(track)
     return out
@@ -857,9 +876,14 @@ def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
                 if not _comparable(a, b):
                     continue
                 shared = _shared_tracks(a, b)
-                declared = declared_keys(a.get("config_overrides")) | declared_keys(
-                    b.get("config_overrides")
-                )
+                # Each track judged on its own: what the harness sets on a
+                # declared key's account on one track is excused there only.
+                judged: Tuple[Optional[str], ...] = (None,) if shared is None else shared
+                declared = {
+                    t: declared_keys(a.get("config_overrides"), t)
+                    | declared_keys(b.get("config_overrides"), t)
+                    for t in judged
+                }
                 ma, mb = a["system"]["stages"], b["system"]["stages"]
                 for stage in (*STAGES, OTHER):
                     sa, sb = ma.get(stage) or {}, mb.get(stage) or {}
@@ -870,10 +894,18 @@ def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
                     # an arm naming hybrid_alpha hid a leaked default_top_k,
                     # and a reranker sweep, where every arm names a reranker,
                     # hid a leaked rerank_top_k.
+                    differs_on = {
+                        t: set(_differing_keys(sa, sb, None if t is None else (t,))) for t in judged
+                    }
                     leaked = [
                         key
                         for key in _differing_keys(sa, sb, shared)
-                        if key not in declared and not (key == "component" and stage in declared)
+                        if any(
+                            key in differs_on[t]
+                            and key not in declared[t]
+                            and not (key == "component" and stage in declared[t])
+                            for t in judged
+                        )
                     ]
                     if not leaked:
                         continue
