@@ -41,7 +41,14 @@ for a fixed depth), and the generation track searches with the arm's own; the
 manifest records those settings for each track, and which tracks ran. An arm
 that names one of them is inert on the retrieval track, where its retrieval
 numbers are the control's, and live on the generation track, and the run says
-so.
+so. The same holds for a setting only the agentic loop acts on, such as
+`max_agent_iterations` or `self_ask_max_follow_ups`: the retrieval track runs no
+loop. Context compression is an agentic setting the standard search applies too,
+so it counts on both tracks.
+
+Two arms are compared only on a track both ran. A pair that shares no track, or
+one arm from a results file written before the tracks were recorded beside a
+newer one, is not compared, and the run lists it as unverified.
 
 The run prints both. `lasagna results validate` refuses a bundle with an
 undeclared change, and `lasagna results view` shows the check on its page.

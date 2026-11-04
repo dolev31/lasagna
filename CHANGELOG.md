@@ -21,20 +21,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   is checked.
 - The stage manifest records the routing and retrieval-depth settings
   (`use_agentic_rag`, `agentic_pipeline`, `routing_default_tier`,
-  `similarity_threshold`, `chunk_cite_retrieval`, `default_top_k`) per track,
-  as `{"retrieval": ..., "generation": ...}`, the way `context_order` already
-  was, and `system.tracks` records which tracks ran. It digested the values
-  the retrieval track forces on every arm, so on a generation track an arm
-  that set `use_agentic_rag: true` ran the loop, digested like its control,
-  and was called inert; two arms that differed only in `routing_default_tier`
+  `similarity_threshold`, `chunk_cite_retrieval`, `default_top_k`,
+  `enable_context_reordering`) per track, as `{"retrieval": ...,
+  "generation": ...}`, the way `context_order` already was, and
+  `system.tracks` records which tracks ran. It digested the values the
+  retrieval track forces on every arm, so on a generation track an arm that
+  set `use_agentic_rag: true` ran the loop, digested like its control, and
+  was called inert; two arms that differed only in `routing_default_tier`
   could not be told apart. The check now judges such an arm per track: inert
-  on retrieval, where the setting is forced, and live on generation. Stage
-  digests, and so comparability keys, change for every run from this change
-  on: a bundle written before `system.tracks` was recorded keeps its verdict
-  under `results validate`, which reads the integrity block the bundle
-  records, and groups on a leaderboard only with bundles written before it;
-  `results bundle` on a results.json written before it runs the new check,
-  so it can refuse what passed then.
+  on retrieval, where the setting is forced, and live on generation. For
+  anyone parsing `results.json`: each of these settings, under
+  `system.stages.<stage>.settings`, is now that dict where it was a single
+  value. Stage digests, and so comparability keys, change for every run from
+  this change on: a bundle written before `system.tracks` was recorded keeps
+  its verdict under `results validate`, which reads the integrity block the
+  bundle records, and groups on a leaderboard only with bundles written
+  before it; `results bundle` on a results.json written before it runs the
+  new check, so it can refuse what passed then.
+- The isolation check calls a setting only the agentic loop acts on
+  (`max_agent_iterations`, `enable_crag`, `self_ask_*`, `ircot_*`, `flare_*`
+  and the rest) inert on the retrieval track, which runs no loop; it called
+  such an arm live there. What the harness sets on one track only (the depth
+  `metric_k` asks retrieval for) is excused on that track only, so a
+  `default_top_k` leaked into a `metric_k` arm's generation config is caught.
+  A pair of arms that shares no track, or pairs a row from before
+  `system.tracks` was recorded with a newer one, is listed as unverified
+  instead of being dropped without a word or, for the second, blocking the
+  bundle with every split key reported undeclared.
 
 ## [0.2.1] - 2026-11-04
 
