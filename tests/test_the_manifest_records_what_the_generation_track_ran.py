@@ -28,18 +28,15 @@ from tests.test_the_generator_reads_the_top_passages_reordered import (  # noqa:
 
 
 def test_every_key_the_retrieval_track_forces_is_recorded_per_track():
-    # A key the retrieval track starts forcing fails here until it is listed:
-    # recorded per track, filed as operational, or recorded otherwise the way
-    # context order is.
+    # A key the retrieval track starts forcing fails here until it is recorded
+    # per track or filed as operational. enable_context_reordering, forced off,
+    # was recorded once, as the retrieval track's False, for an arm whose
+    # generator read its passages reordered.
     written: dict = {}
     exp._fix_retrieval_routing(written)
     exp._fix_retrieval_depth(written, 40)
     assert stage_of("enable_search_cache") is None
-    assert stage_of("context_order") == stage_of("enable_context_reordering") == "reranker"
-    accounted = exp._RETRIEVAL_TRACK_FORCED | {"enable_search_cache", "enable_context_reordering"}
-    assert set(written) <= accounted
-    assert exp._RETRIEVAL_TRACK_FORCED <= set(written)
-    assert exp._RETRIEVAL_TRACK_FORCED <= TRACK_SPLIT_KEYS
+    assert {k for k in written if stage_of(k) is not None} <= TRACK_SPLIT_KEYS
 
 
 def _run(tmp_path, tracks, arms):

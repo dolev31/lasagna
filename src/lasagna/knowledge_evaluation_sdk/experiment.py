@@ -1346,24 +1346,6 @@ def _fix_retrieval_routing(task_config: Dict[str, Any]) -> None:
     task_config["routing_default_tier"] = "standard"
 
 
-#: What the retrieval track sets on every arm whatever the arm says: the
-#: routing (:func:`_fix_retrieval_routing`) and the depth policies
-#: (:func:`_fix_retrieval_depth`), less the two the manifest handles otherwise
-#: (the search cache is operational, and context order is recorded per
-#: track). The generation track reads the arm's own values, so the stage
-#: manifest records each of these per track (``stages.TRACK_SPLIT_KEYS``).
-_RETRIEVAL_TRACK_FORCED = frozenset(
-    {
-        "use_agentic_rag",
-        "agentic_pipeline",
-        "routing_default_tier",
-        "similarity_threshold",
-        "chunk_cite_retrieval",
-        "default_top_k",
-    }
-)
-
-
 def _context_order(gen_config: Any) -> Dict[str, str]:
     """The order each track reads its results in, for the stage manifest.
 

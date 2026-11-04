@@ -301,10 +301,10 @@ _ENTAILED: Dict[str, Tuple[str, ...]] = {
 TRACKS: Tuple[str, ...] = ("retrieval", "generation")
 
 #: Settings recorded per track, as ``{"retrieval": ..., "generation": ...}``:
-#: the routing and depth policies the retrieval track forces on every arm
-#: (``experiment._fix_retrieval_routing`` and ``_fix_retrieval_depth``) and
-#: the generation track reads from the arm, and the order each track read its
-#: results in. Each track's value is a function of the arm's configuration
+#: every setting the retrieval track forces on every arm
+#: (``experiment._fix_retrieval_routing`` and ``_fix_retrieval_depth``, which
+#: a test holds to this list) and the generation track reads from the arm,
+#: and the order each track read its results in. Each track's value is a function of the arm's configuration
 #: alone and is recorded whether or not the track ran, so an arm digests alike
 #: on a retrieval-only run and a full one; ``system.tracks`` beside the
 #: manifest says which tracks ran, and two arms differ in one of these only
@@ -319,6 +319,7 @@ TRACK_SPLIT_KEYS = frozenset(
         "similarity_threshold",
         "chunk_cite_retrieval",
         "default_top_k",
+        "enable_context_reordering",
         "context_order",
     }
 )
