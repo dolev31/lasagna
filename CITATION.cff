@@ -28,8 +28,10 @@ version: "0.2.1"
 # the two differ.
 date-released: "2026-11-04"
 # The concept DOI, which names every version and resolves to the latest one.
-# Replace it with this version's own DOI once Zenodo mints it after the
-# release (0.1.0's is 10.5281/zenodo.23548069).
+# It stays: Zenodo mints a version's own DOI only after the release, so the
+# tagged tree can never carry it, and the concept DOI's record lists every
+# version's DOI. scripts/check_release.py refuses a tree that names another DOI
+# (in CI on every pull request, and before a release).
 doi: "10.5281/zenodo.23548068"
 abstract: >-
   Lasagna isolates the stages of a retrieval-augmented generation pipeline
