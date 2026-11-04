@@ -91,7 +91,10 @@ def test_an_inert_arm_still_gets_the_isolation_verdict(monkeypatch, capsys):
     cli._print_isolation(SimpleNamespace(_results=[{}, {}]))
     out = " ".join(capsys.readouterr().out.split())
     assert "Stage isolation: the configuration that reached each stage differs only" in out
-    assert "(3 pairs compared), but 1 arm changed nothing there:" in out
+    # Findings, not arms: a per-track finding is about an arm that changed
+    # something on the other track.
+    assert "(3 pairs compared), but some of what they name changed nothing" in out
+    assert "on one track or on all (1 finding below):" in out
     assert "Inert arm: hybrid" in out
 
 

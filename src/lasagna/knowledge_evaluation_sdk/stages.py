@@ -884,29 +884,94 @@ def _reranker_never_moved(
     return lines
 
 
+def _not_compared(a: Mapping[str, Any], b: Mapping[str, Any]) -> Optional[str]:
+    """Why two arms on one profile are not compared, or None if they are.
+
+    ``"mixed"`` when one recorded its tracks and the other did not: the new
+    row's split keys are per-track dicts and the old row's scalars, so judged
+    whole every split key differed and blocked the bundle as undeclared.
+    ``"no_track"`` when they recorded tracks and share none: what one
+    measured, the other never ran.
+    """
+    ta, tb = tracks_ran(a), tracks_ran(b)
+    if (ta is None) != (tb is None):
+        return "mixed"
+    if _shared_tracks(a, b) == ():
+        return "no_track"
+    return None
+
+
 def _comparable(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
     """Whether two arms are compared at all: the same profile, and a track in
-    common (or tracks unknown)."""
-    return a.get("profile") == b.get("profile") and _shared_tracks(a, b) != ()
+    common (or neither recorded its tracks)."""
+    return a.get("profile") == b.get("profile") and _not_compared(a, b) is None
+
+
+def _by_bench(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[Tuple[str, Mapping[str, Any]]]]:
+    """Each benchmark's arms, one row each, sorted by arm name."""
+    by_bench: Dict[str, List[Tuple[str, Mapping[str, Any]]]] = {}
+    for (bench, arm), row in _arm_rows(rows).items():
+        by_bench.setdefault(bench, []).append((arm, row))
+    for entries in by_bench.values():
+        entries.sort()
+    return by_bench
+
+
+def _pairs(rows: Iterable[Mapping[str, Any]]):
+    """Every pair of arms on one benchmark and profile, as ``(bench, (name, row), (name, row))``."""
+    for bench, entries in sorted(_by_bench(rows).items()):
+        for i, a in enumerate(entries):
+            for b in entries[i + 1 :]:
+                if a[1].get("profile") == b[1].get("profile"):
+                    yield bench, a, b
 
 
 def compared_pairs(rows: Iterable[Mapping[str, Any]]) -> int:
     """How many pairs of arms the isolation check could compare.
 
     Zero when every arm but one failed, or none recorded a manifest: then
-    "the arms differ only in the stages they name" would be a claim about
-    nothing. A pair with no track in common is not compared, so not counted.
+    "the arms differ only in the settings they name" would be a claim about
+    nothing. A pair the check skipped (:func:`uncompared_pairs`) is not
+    counted.
     """
-    by_bench: Dict[str, List[Mapping[str, Any]]] = {}
-    for (bench, _arm), row in _arm_rows(rows).items():
-        by_bench.setdefault(bench, []).append(row)
-    return sum(
-        1
-        for entries in by_bench.values()
-        for i, a in enumerate(entries)
-        for b in entries[i + 1 :]
-        if _comparable(a, b)
-    )
+    return sum(1 for _bench, (_, a), (_, b) in _pairs(rows) if _not_compared(a, b) is None)
+
+
+def uncompared_pairs(rows: Iterable[Mapping[str, Any]]) -> int:
+    """How many pairs of arms on one benchmark and profile the check skipped.
+
+    They share no track, or one recorded its tracks and the other did not;
+    the report says which, among its ``unverified`` lines. With none compared,
+    "fewer than two arms finished" would not be why.
+    """
+    return sum(1 for _bench, (_, a), (_, b) in _pairs(rows) if _not_compared(a, b) is not None)
+
+
+def _skipped_lines(rows: Iterable[Mapping[str, Any]]) -> List[str]:
+    """What the check skipped and why, one line per benchmark for rows of two
+    kinds and one per pair for arms with no track in common."""
+    lines: List[str] = []
+    mixed: Dict[str, Set[Tuple[str, bool]]] = {}
+    for bench, (name_a, a), (name_b, b) in _pairs(rows):
+        why = _not_compared(a, b)
+        if why == "mixed":
+            for name, row in ((name_a, a), (name_b, b)):
+                mixed.setdefault(bench, set()).add((name, tracks_ran(row) is not None))
+        elif why == "no_track":
+            ta, tb = tracks_ran(a) or ("none",), tracks_ran(b) or ("none",)
+            lines.append(
+                f"{bench}: arms {name_a!r} and {name_b!r} ran no track in common "
+                f"({', '.join(ta)} against {', '.join(tb)}), so they were not compared"
+            )
+    for bench, arms in sorted(mixed.items()):
+        new = sorted(name for name, recorded in arms if recorded)
+        old = sorted(name for name, recorded in arms if not recorded)
+        lines.append(
+            f"{bench}: arms {new} recorded which tracks they ran and arms {old} were "
+            f"written before system.tracks was recorded, so no arm of one was compared "
+            f"with an arm of the other; run {old} again to compare them"
+        )
+    return lines
 
 
 def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
@@ -917,7 +982,6 @@ def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
     whole pipelines, since a profile is a declared change to every stage.
     """
     rows = list(rows)
-    arms = _arm_rows(rows)
     report: Dict[str, List[str]] = {"undeclared": [], "inert": [], "unverified": []}
 
     unverified = sorted(
@@ -931,13 +995,9 @@ def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
         report["unverified"].append(
             f"no stage manifest recorded for {unverified}; isolation was not checked"
         )
+    report["unverified"].extend(_skipped_lines(rows))
 
-    by_bench: Dict[str, List[Tuple[str, Mapping[str, Any]]]] = {}
-    for (bench, arm), row in arms.items():
-        by_bench.setdefault(bench, []).append((arm, row))
-
-    for bench, entries in sorted(by_bench.items()):
-        entries.sort()
+    for bench, entries in sorted(_by_bench(rows).items()):
         for i, (name_a, a) in enumerate(entries):
             for name_b, b in entries[i + 1 :]:
                 # Only on a track both arms ran: a no_rag arm skips retrieval,

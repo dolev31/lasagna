@@ -20,22 +20,21 @@ class _Config:
         self._config = values
 
 
-def _row(name, overrides, error=None, manifest=True):
+def _row(name, overrides, error=None, manifest=True, tracks=None):
+    system = (
+        {"stages": stage_manifest(_Config(chunk_size=800), {"reranker": overrides.get("reranker")})}
+        if manifest
+        else {}
+    )
+    if tracks is not None:
+        system["tracks"] = list(tracks)
     return {
         "benchmark_name": "b",
         "config_name": name,
         "config_overrides": overrides,
         "profile": "speed",
         "error": error,
-        "system": (
-            {
-                "stages": stage_manifest(
-                    _Config(chunk_size=800), {"reranker": overrides.get("reranker")}
-                )
-            }
-            if manifest
-            else {}
-        ),
+        "system": system,
     }
 
 
@@ -59,3 +58,15 @@ def test_one_finished_arm_is_not_called_isolated(monkeypatch):
 def test_runs_without_manifests_say_so(monkeypatch):
     text = _summary(monkeypatch, [_row("a", {}, manifest=False), _row("b", {}, manifest=False)])
     assert "differ only" not in text and "unverified" in text
+
+
+def test_arms_that_were_skipped_are_not_called_unfinished(monkeypatch):
+    # Both finished; they share no track. It said "fewer than two arms finished".
+    rows = [
+        _row("a", {}, tracks=["retrieval"]),
+        _row("b", {"reranker": "x"}, tracks=["generation"]),
+    ]
+    text = " ".join(_summary(monkeypatch, rows).split())
+    assert "fewer than two arms finished" not in text
+    assert "no two arms could be compared, for the reasons below" in text
+    assert "ran no track in common" in text

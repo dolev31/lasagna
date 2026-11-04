@@ -2362,7 +2362,11 @@ def _next_steps(results, results_file: str, *, factorial: bool) -> List[str]:
 
 def _print_isolation(results) -> None:
     """Say whether the arms differed only in the settings they named."""
-    from .knowledge_evaluation_sdk.stages import compared_pairs, isolation_report
+    from .knowledge_evaluation_sdk.stages import (
+        compared_pairs,
+        isolation_report,
+        uncompared_pairs,
+    )
 
     rows = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results._results]
     report = isolation_report(rows)
@@ -2377,15 +2381,23 @@ def _print_isolation(results) -> None:
     elif pairs and report["inert"]:
         # Said, not left out: an inert arm printed only its own line, with no
         # verdict on the rest of the comparison.
+        # Findings, not arms: an arm can have one per track, and a per-track
+        # line is about an arm that changed something on the other track.
         console.print(
             f"[yellow]Stage isolation: the configuration that reached each stage differs "
             f"only in the settings the arms name ({_count(pairs, 'pair')} compared), but "
-            f"{_count(len(report['inert']), 'arm')} changed nothing there:[/yellow]"
+            f"some of what they name changed nothing, on one track or on all "
+            f"({_count(len(report['inert']), 'finding')} below):[/yellow]"
         )
     elif pairs:
         console.print(
             f"[green]Stage isolation: the configuration that reached each stage differs "
             f"only in the settings the arms name ({_count(pairs, 'pair')} compared).[/green]"
+        )
+    elif not pairs and uncompared_pairs(rows):
+        console.print(
+            "[yellow]Stage isolation not checked: no two arms could be compared, for "
+            "the reasons below.[/yellow]"
         )
     elif not pairs and len(rows) > 1:
         console.print(

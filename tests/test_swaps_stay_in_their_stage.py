@@ -24,6 +24,7 @@ from lasagna.knowledge_evaluation_sdk.stages import (
     declared_stages,
     compared_pairs,
     isolation_report,
+    uncompared_pairs,
     stage_manifest,
     stage_of,
     track_manifest,
@@ -561,6 +562,23 @@ def test_the_ranked_lists_judge_only_what_the_retrieval_track_ran():
     assert isolation_report(rows)["inert"] == []
 
 
+def test_a_row_from_before_tracks_were_recorded_is_not_compared_with_a_newer_one():
+    # A sweep resumed across the change on a source install keeps its old rows
+    # (the resume fingerprint hashes the package version, not the code). Judged
+    # whole, an old scalar against a new {"retrieval": ..., "generation": ...}
+    # always differed, and every split key blocked the bundle as undeclared.
+    old = _manifest(default_top_k=40)
+    new = _tracked(retrieval={"default_top_k": 40}, generation={"default_top_k": 5})
+    rows = [_row("control", {}, old), _row("fused", {"hybrid_alpha": 0.3}, new, tracks=BOTH)]
+    report = isolation_report(rows)
+    assert report["undeclared"] == report["inert"] == []
+    (line,) = report["unverified"]
+    assert "arms ['fused'] recorded which tracks they ran" in line
+    assert "arms ['control'] were written before system.tracks was recorded" in line
+    assert compared_pairs(rows) == 0 and uncompared_pairs(rows) == 1
+    assert "UNDECLARED_STAGE_CHANGE" not in _integrity(rows, {})["blocking"]
+
+
 def test_split_keys_are_recorded_per_track_and_the_rest_once():
     m = _tracked(retrieval={"default_top_k": 40}, generation={"default_top_k": 10}, chunk_size=500)
     assert m["retriever"]["settings"]["default_top_k"] == {"retrieval": 40, "generation": 10}
@@ -610,8 +628,14 @@ def test_two_arms_with_no_track_in_common_are_not_compared():
         _row("control", {}, control, tracks=["retrieval"]),
         _row("closed", {"no_rag": True}, arm, tracks=["generation"]),
     ]
-    assert isolation_report(rows) == {"undeclared": [], "inert": [], "unverified": []}
-    assert compared_pairs(rows) == 0
+    report = isolation_report(rows)
+    assert report["undeclared"] == report["inert"] == []
+    # Said, not dropped: with no pair compared, the run said "fewer than two
+    # arms finished".
+    (line,) = report["unverified"]
+    assert "'closed' and 'control' ran no track in common" in line
+    assert "(generation against retrieval)" in line
+    assert compared_pairs(rows) == 0 and uncompared_pairs(rows) == 1
     # "Not recorded" is told apart from "none in common", and from "recorded, none ran".
     assert tracks_ran(_row("old", {}, control)) is None
     assert tracks_ran(rows[0]) == ("retrieval",)
