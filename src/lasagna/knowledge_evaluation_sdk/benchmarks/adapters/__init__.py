@@ -33,6 +33,7 @@ def register_all(registry: "BenchmarkRegistry") -> None:
     from .ragbench import register as register_ragbench
     from .kilt import register as register_kilt
     from .fever import register as register_fever
+    from .miracl import register as register_miracl
 
     # First, so it heads `lasagna benchmark list`: it is the only entry that
     # needs no download and the only sane place to start.
@@ -52,6 +53,7 @@ def register_all(registry: "BenchmarkRegistry") -> None:
     register_ragbench(registry)
     register_kilt(registry)
     register_fever(registry)
+    register_miracl(registry)
 
     # The private evaluation set, only once it has been built: listed before
     # that, its four entries sat among the public benchmarks and failed when

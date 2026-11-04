@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A `miracl/sw` benchmark adapter, the first benchmark that is not in English:
+  MIRACL's Swahili queries, written and judged by native speakers, searched
+  against all 131,924 Swahili Wikipedia passages. Queries and qrels, and the
+  passages, are read from two repositories at two pinned commits, and
+  `hf_revision` names both. `dev` is the default split; test-a and test-b have
+  no qrels.
+
 ## [0.2.1] - 2026-11-04
 
 A patch release: uploads to the default Docker Compose stack are indexed again.

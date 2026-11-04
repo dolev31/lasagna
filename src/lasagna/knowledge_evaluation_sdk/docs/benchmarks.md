@@ -1,6 +1,6 @@
 # Benchmark Catalog
 
-32 public benchmarks registered in the evaluation SDK, organized by category. The registry
+33 public benchmarks registered in the evaluation SDK, organized by category. The registry
 can also hold names this count leaves out: the `smoke` fixture (always registered), the four
 `private_eval/*` tasks (registered only when the private evaluation suite builds them), and
 benchmarks from installed plugins, such as the plugin template's `template_tiny`.
@@ -44,6 +44,7 @@ for name, info in sorted(r.list_benchmarks().items()):
 | `hotpotqa` | multi_hop | end_to_end | HotpotQA: multi-hop question answering with supporting facts |
 | `kilt/nq` | single_hop | generation | KILT Natural Questions: knowledge-intensive QA |
 | `kilt/triviaqa` | single_hop | generation | KILT TriviaQA: trivia questions as knowledge-intensive task |
+| `miracl/sw` | passage_ranking | retrieval | MIRACL (Swahili): passage retrieval over Swahili Wikipedia |
 | `ms_marco` | passage_ranking | generation | MS MARCO: passage ranking (8.8M passages) |
 | `multihop_rag` | multi_hop | end_to_end | MultiHop-RAG: multi-hop RAG benchmark from news articles |
 | `musique` | multi_hop | generation | MuSiQue: multi-hop questions requiring 2-4 composition steps |
@@ -85,12 +86,13 @@ for name, info in sorted(r.list_benchmarks().items()):
 | `multihop_rag` | end_to_end | MultiHop-RAG from news articles | 2,556 | arxiv:2401.15391 |
 | `bamboogle` | generation | 125 curated multi-hop questions Google cannot answer directly | 125 | arxiv:2304.09848 |
 
-### Passage Ranking (2 benchmarks)
+### Passage Ranking (3 benchmarks)
 
 | Name | Eval Mode | Description | Queries | Docs |
 |------|-----------|-------------|---------|------|
 | `ms_marco` | generation | MS MARCO passage ranking | 808,731 | 8.8M |
 | `beir/msmarco` | retrieval | MS MARCO (BEIR split): dev queries | 6,900 | 8.8M |
+| `miracl/sw` | retrieval | MIRACL Swahili: questions by native speakers, judged against Swahili Wikipedia passages | 482 (dev) | 132K |
 
 ### Fact Verification (3 benchmarks)
 
