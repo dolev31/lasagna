@@ -84,3 +84,20 @@ def test_on_a_retrieval_only_run_the_forced_setting_is_inert_outright(tmp_path, 
     assert any(
         "identical to the control" in line and "forces" in line for line in report["inert"]
     ), report["inert"]
+
+
+def test_an_arm_digests_alike_whichever_tracks_ran(tmp_path, llm):  # noqa: F811 - the fixture, not a redefinition
+    # Each track's values are recorded whether or not the track ran, so a
+    # retrieval-only, a generation-only and a full run record one manifest for
+    # an arm, and their comparability keys agree. stages.py, experiment.py and
+    # the CHANGELOG said so; nothing held it.
+    arms = [*ARMS, {"name": "reordered", "enable_context_reordering": True}]
+    runs = {
+        "+".join(tracks): _run(tmp_path / "+".join(tracks), tracks, arms)
+        for tracks in (["retrieval"], ["generation"], ["retrieval", "generation"])
+    }
+    for run, results in runs.items():
+        assert {r.system["tracks"] == run.split("+") for r in results.values()} == {True}
+    for arm in ("control", "shallow", "reordered"):
+        manifests = [results[arm].system["stages"] for results in runs.values()]
+        assert manifests[0] == manifests[1] == manifests[2], arm
