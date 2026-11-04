@@ -19,6 +19,7 @@ import pytest
 from lasagna.core.registry import _get_expected_abc, registry
 from lasagna.knowledge_evaluation_sdk.bundle import _integrity
 from lasagna.knowledge_evaluation_sdk.stages import (
+    MIN_QUERIES_TO_CALL_INERT,
     STAGES,
     declared_stages,
     compared_pairs,
@@ -522,6 +523,41 @@ def test_every_agentic_setting_is_traced_to_the_loop_or_the_standard_path():
             tracks=BOTH,
         ),
     ]
+    assert isolation_report(rows)["inert"] == []
+
+
+def _ranked(row):
+    """The row with the same ranked list on each of enough queries to judge."""
+    row["per_sample_scores"] = [
+        {"_sample_id": f"q{i}", "_retrieved_ids": [f"d{i}", "d0"]}
+        for i in range(MIN_QUERIES_TO_CALL_INERT)
+    ]
+    return row
+
+
+def test_the_ranked_lists_judge_only_what_the_retrieval_track_ran():
+    # The lists are the retrieval track's, which forces default_top_k on every
+    # arm. The pair check said "(default_top_k) changed nothing here" beside
+    # the line saying the generation track ran with the arm's own value.
+    control = _tracked(retrieval={"default_top_k": 40}, generation={"default_top_k": 5})
+    shallow = _tracked(retrieval={"default_top_k": 40}, generation={"default_top_k": 3})
+    rows = [
+        _ranked(_row("control", {}, control, tracks=BOTH)),
+        _ranked(_row("shallow", {"default_top_k": 3}, shallow, tracks=BOTH)),
+    ]
+    (line,) = isolation_report(rows)["inert"]
+    assert "generation track ran with its own value" in line and "ranked lists" not in line
+
+    # A setting the track does not force is still judged by its lists.
+    fused = _tracked(
+        retrieval={"default_top_k": 40}, generation={"default_top_k": 5}, hybrid_alpha=0.3
+    )
+    rows[1] = _ranked(_row("fused", {"hybrid_alpha": 0.3}, fused, tracks=BOTH))
+    (line,) = isolation_report(rows)["inert"]
+    assert "identical ranked lists" in line and "changed nothing on the retrieval track" in line
+
+    # Without a retrieval track in common there are no lists to compare.
+    rows[0] = _ranked(_row("control", {}, control, tracks=["generation"]))
     assert isolation_report(rows)["inert"] == []
 
 

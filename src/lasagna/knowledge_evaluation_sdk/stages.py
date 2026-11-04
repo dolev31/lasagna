@@ -802,33 +802,44 @@ def _same_output(
     is on, a technique can fail into a fallback, a component can be ignored.
     The config manifest cannot see that; the ranked lists can. A pair compared
     on fewer than ``MIN_QUERIES_TO_CALL_INERT`` queries goes to ``too_few``.
+
+    The ranked lists are the retrieval track's, so a pair is judged only when
+    both arms ran it (or did not record their tracks), and a setting that
+    track runs alike for every arm is no difference there: it said
+    "(default_top_k) changed nothing here" beside the line saying the
+    generation track ran with the arm's own value.
     """
     lines: List[str] = []
     lists = {name: _ranked_lists(row) for name, row in entries}
     for i, (name_a, a) in enumerate(entries):
         for name_b, b in entries[i + 1 :]:
-            if a.get("profile") != b.get("profile"):
+            shared = _shared_tracks(a, b)
+            if not _comparable(a, b) or (shared is not None and "retrieval" not in shared):
                 continue
-            keys = _differing_overrides(a.get("config_overrides"), b.get("config_overrides"))
+            keys = [
+                k
+                for k in _differing_overrides(a.get("config_overrides"), b.get("config_overrides"))
+                if _why_alike(k, "retrieval") is None
+            ]
             if not keys or not all(stage_of(k) in _RETRIEVAL_STAGES for k in keys):
                 continue
             la, lb = lists[name_a], lists[name_b]
-            shared = sorted(set(la) & set(lb))
-            if shared and all(la[q] == lb[q] for q in shared):
-                if len(shared) < MIN_QUERIES_TO_CALL_INERT:
+            queries = sorted(set(la) & set(lb))
+            if queries and all(la[q] == lb[q] for q in queries):
+                if len(queries) < MIN_QUERIES_TO_CALL_INERT:
                     too_few.append(
                         _too_few(
                             bench,
                             f"arms {name_a!r} and {name_b!r} returned identical ranked lists "
                             f"({', '.join(keys)} tells them apart)",
-                            len(shared),
+                            len(queries),
                         )
                     )
                     continue
                 lines.append(
                     f"{bench}: arms {name_a!r} and {name_b!r} returned identical ranked lists "
-                    f"on all {len(shared)} queries, so what tells them apart ({', '.join(keys)}) "
-                    f"changed nothing here"
+                    f"on all {len(queries)} queries, so what tells them apart ({', '.join(keys)}) "
+                    f"changed nothing on the retrieval track"
                 )
     return lines
 
