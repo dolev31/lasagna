@@ -794,15 +794,20 @@ everyone whose work is merged:
 - [@juliasadler](https://github.com/juliasadler): the fix for two services
   racing to create a collection, measured against the stack's own Qdrant
   ([#23](https://github.com/dolev31/lasagna/pull/23)).
+- [@tnalbant](https://github.com/tnalbant): a CLI reference that no longer
+  changes with the installed Typer version
+  ([#37](https://github.com/dolev31/lasagna/pull/37)).
 
-To join them, pick a
-[good first issue](https://github.com/dolev31/lasagna/labels/good%20first%20issue)
-or read [Start here](https://github.com/dolev31/lasagna/discussions/33). Every
-issue is written as numbered steps with a "Done when" list, and every pull
-request gets a line-by-line review. AI coding agents are welcome, under the
-same bar.
+To join the contributors, pick a
+[size: feature](https://github.com/dolev31/lasagna/labels/size%3A%20feature)
+issue (a [good first issue](https://github.com/dolev31/lasagna/labels/good%20first%20issue)
+if it is your first) or read
+[Start here](https://github.com/dolev31/lasagna/discussions/33). Lasagna does
+not take tiny pull requests: every issue is written as numbered steps with a
+"Done when" list, a pull request delivers all of it, and every pull request gets
+a line-by-line review. AI coding agents are welcome, under the same bar.
 
-If Lasagna is useful to you, a star helps others find it.
+If Lasagna is useful to you, star it: stars help other researchers find it.
 
 ---
 
