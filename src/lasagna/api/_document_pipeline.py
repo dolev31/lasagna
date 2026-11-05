@@ -1461,6 +1461,8 @@ class DocumentPipeline:
                 self._retire_replaced_chunks(
                     document, old_copy, config, backend, new_ids, partition_key
                 )
+            self._wait_until_searchable(document, config, backend, partition_key)
+            if replacing:
                 # From here the old copy's chunks are gone: the row is pointed at
                 # the new ones in one write, and what follows it cannot undo it.
                 processing_time = _time.monotonic() - start_time
@@ -1604,6 +1606,35 @@ class DocumentPipeline:
             finally:
                 with self._rebuild_lock:
                     self._rebuilding = False
+
+    def _wait_until_searchable(
+        self, document: Document, config: RAGConfig, backend: Any, partition_key: Optional[str]
+    ) -> None:
+        """Wait until a search sees the document's new chunks, then let it be marked ready.
+
+        On a Milvus server a search sent right after the insert missed them,
+        so "ready" did not yet mean a search finds the document. For a
+        replacement this runs after the old copy's chunks are retired, so a
+        search also stops seeing those (in the same collection). Logged, never
+        raised: a failure here must not discard chunks that are already
+        stored, or a replaced copy; the document is then marked ready as
+        before.
+        """
+        wait = getattr(backend, "wait_until_searchable", None)
+        if wait is None:  # a store that does not derive from VectorStoreAdapter
+            return
+        try:
+            wait(
+                config.collection_name,
+                FilterExpression.eq("document_id", document.document_id),
+                partition_key=partition_key,
+            )
+        except Exception as exc:  # noqa: BLE001 - logged; the document is still stored and complete
+            logger.warning(
+                f"Could not confirm that a search sees {document.document_id} yet "
+                f"({type(exc).__name__}: {exc}); it is marked ready, and a search sent "
+                "in the next second may still miss it."
+            )
 
     def _clear_previous_attempt(
         self, document: Document, backend: Any, config: RAGConfig, partition_key: Optional[str]
