@@ -311,10 +311,10 @@ _ENTAILED_ON_TRACK: Dict[str, Dict[str, Tuple[str, ...]]] = {
 TRACKS: Tuple[str, ...] = ("retrieval", "generation")
 
 #: Settings recorded per track, as ``{"retrieval": ..., "generation": ...}``:
-#: every setting the retrieval track forces on every arm and the generation
-#: track reads from the arm (``experiment._fix_retrieval_routing`` and
-#: ``_fix_retrieval_depth``, which a test holds to this list), and the order
-#: each track read its results in.
+#: every setting the retrieval track forces on every arm
+#: (``experiment._fix_retrieval_routing`` and ``_fix_retrieval_depth``, which
+#: a test holds to this list) and the generation track reads from the arm, and
+#: the order each track read its results in.
 #:
 #: Each track's value is a function of the arm's configuration alone and is
 #: recorded whether or not the track ran, so an arm digests alike on a
@@ -342,15 +342,15 @@ TRACK_SPLIT_KEYS = frozenset(
 TRACK_EMPTIES_SLOT: Dict[str, frozenset] = {"retrieval": frozenset({"agentic_pipeline"})}
 
 #: Agentic settings only the loop acts on (``agentic/`` and the orchestrator's
-#: comprehensive tier), and speculative RAG's, which only the generation
-#: track's answer step reads. The retrieval track runs no loop, so an arm that
-#: sweeps one of these has its control's retrieval metrics whatever it sets,
-#: and is inert there. ``enable_crag`` asks for the comprehensive tier, which
+#: comprehensive tier). The retrieval track runs no loop, so an arm that sweeps
+#: one of these has its control's retrieval metrics whatever it sets, and is
+#: inert there. ``enable_crag`` asks for the comprehensive tier, which
 #: the router turns back to the standard one while ``use_agentic_rag`` is off,
 #: as the retrieval track forces it. Not every agentic setting is loop-only:
 #: context compression (``enable_context_compression``, ``compression_*``) is
-#: applied on the standard path too, so it is live on retrieval. A test holds
-#: every agentic setting to one side or the other.
+#: applied on the standard path too, so it is live on retrieval, and
+#: speculative RAG's settings are read by no loop (:data:`ANSWER_ONLY_KEYS`).
+#: A test holds every agentic setting to exactly one of these sides.
 LOOP_ONLY_KEYS = frozenset(
     {
         "use_structured_graph",
@@ -365,12 +365,10 @@ LOOP_ONLY_KEYS = frozenset(
         "max_quality_check_attempts",
         "chunk_refinement_method",
         "coverage_scorer_mode",
-        "enable_speculative_rag",
     }
 )
 LOOP_ONLY_PREFIXES: Tuple[str, ...] = (
     "auto_refine_",
-    "speculative_",
     "self_ask_",
     "ircot_",
     "flare_",
@@ -384,10 +382,19 @@ def _loop_only(key: str, track: Optional[str]) -> bool:
     return track == "retrieval" and (key in LOOP_ONLY_KEYS or key.startswith(LOOP_ONLY_PREFIXES))
 
 
-def _answer_only(key: str) -> bool:
-    """Whether ``key`` is speculative RAG's, which only the generation track's
-    answer step reads (``experiment.py``), not the agentic loop."""
-    return key == "enable_speculative_rag" or key.startswith("speculative_")
+#: Speculative RAG's settings: only the generation track's answer step reads
+#: them (``experiment.py``, where it drafts and verifies answers), never the
+#: agentic loop. The retrieval track makes no answers, so an arm that sweeps
+#: one has its control's retrieval metrics, and is inert there.
+ANSWER_ONLY_KEYS = frozenset({"enable_speculative_rag"})
+ANSWER_ONLY_PREFIXES: Tuple[str, ...] = ("speculative_",)
+
+
+def _answer_only(key: str, track: Optional[str]) -> bool:
+    """Whether ``key`` is one only the answer step reads, on a track that makes no answers."""
+    return track == "retrieval" and (
+        key in ANSWER_ONLY_KEYS or key.startswith(ANSWER_ONLY_PREFIXES)
+    )
 
 
 def effective_chunking_strategy(settings: Mapping[str, Any]) -> Optional[str]:
@@ -696,7 +703,9 @@ def _why_alike(key: str, track: Optional[str]) -> Optional[str]:
     if track == "retrieval" and key in TRACK_SPLIT_KEYS:
         return "forced"
     if _loop_only(key, track):
-        return "answer_only" if _answer_only(key) else "loop_only"
+        return "loop_only"
+    if _answer_only(key, track):
+        return "answer_only"
     return None
 
 
@@ -991,13 +1000,23 @@ def _skipped_lines(rows: Iterable[Mapping[str, Any]]) -> List[str]:
     return lines
 
 
+#: Reasons a track cannot act on a key: :func:`_why_alike` without "forced",
+#: since a forced key that differs means the forcing failed, which acts.
+_ACTS_ON_NOTHING = ("emptied", "loop_only", "answer_only")
+
+
 def _where(key: str, tracks: List[Optional[str]]) -> str:
-    """A leaked key and the tracks it leaked on, for rows that recorded them."""
+    """A leaked key and the tracks it leaked on that act on it, for rows that
+    recorded their tracks: a loop's setting that leaked on both tracks acts on
+    generation only, and the reader is sent there."""
     if tracks == [None]:
         return key
-    if len(tracks) == len(TRACKS):
+    acting = [t for t in tracks if _why_alike(key, t) not in _ACTS_ON_NOTHING]
+    if not acting:
+        return f"{key} on the {tracks[0]} track, which does not act on it"
+    if len(acting) == len(TRACKS):
         return f"{key} on both tracks"
-    return f"{key} on the {tracks[0]} track"
+    return f"{key} on the {acting[0]} track"
 
 
 def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:

@@ -487,6 +487,46 @@ def test_what_the_harness_sets_on_one_track_is_excused_on_that_track_only():
     assert "(embedding_model on both tracks)" in line
 
 
+def test_a_leak_names_the_track_that_acts_on_it():
+    # max_agent_iterations leaked on both tracks, but the retrieval track runs
+    # no loop: the line sends the reader to generation, where the loop read it.
+    leak = dict(hybrid_alpha=0.3, max_agent_iterations=7)
+    control = _row("control", {}, _tracked(), tracks=BOTH)
+    rows = [control, _row("fused", {"hybrid_alpha": 0.3}, _tracked(**leak), tracks=BOTH)]
+    (line,) = isolation_report(rows)["undeclared"]
+    assert "(max_agent_iterations on the generation track)" in line
+
+    # On a retrieval-only run no track acts on it, and the line says so.
+    only = ["retrieval"]
+    rows = [
+        _row("control", {}, _tracked(), tracks=only),
+        _row("fused", {"hybrid_alpha": 0.3}, _tracked(**leak), tracks=only),
+    ]
+    (line,) = isolation_report(rows)["undeclared"]
+    assert "(max_agent_iterations on the retrieval track, which does not act on it)" in line
+
+    # One track in common: the leak is named on it.
+    rows = [
+        _row("control", {}, _tracked(), tracks=only),
+        _row("fused", {"hybrid_alpha": 0.3}, _tracked(embedding_model="x"), tracks=BOTH),
+    ]
+    (line,) = isolation_report(rows)["undeclared"]
+    assert "(embedding_model on the retrieval track)" in line
+
+
+def test_two_reasons_on_one_track_give_no_reason_rather_than_a_wrong_one():
+    # One reason for the loop's setting, another for speculative RAG's: one
+    # phrase for both would be false for one of them, so the line gives none.
+    keys = {"max_agent_iterations": 7, "enable_speculative_rag": True}
+    only = ["retrieval"]
+    rows = [
+        _row("control", {}, _tracked(), tracks=only),
+        _row("mixed", keys, _tracked(**keys), tracks=only),
+    ]
+    (line,) = isolation_report(rows)["inert"]
+    assert "identical to the control" in line and "since" not in line
+
+
 def test_a_leak_between_rows_without_tracks_names_no_track():
     rows = [
         _row("control", {}, _manifest()),
@@ -571,10 +611,12 @@ def test_every_agentic_setting_is_traced_to_the_loop_or_the_standard_path():
     standard_path = {"enable_context_compression", "compression_method", "compression_ratio"}
     forced = agentic & stages.TRACK_SPLIT_KEYS
     assert forced == {"use_agentic_rag", "agentic_pipeline"}
-    assert not stages.LOOP_ONLY_KEYS & (standard_path | forced)
-    assert agentic == stages.LOOP_ONLY_KEYS | standard_path | forced
+    sides = [stages.LOOP_ONLY_KEYS, stages.ANSWER_ONLY_KEYS, standard_path, forced]
+    assert sum(len(side) for side in sides) == len(set().union(*sides))  # disjoint
+    assert agentic == set().union(*sides)
     prefixes = {p for p, s in stages._PREFIXES if s == "agentic_pipeline"}
-    assert prefixes == set(stages.LOOP_ONLY_PREFIXES)
+    loop, answer = set(stages.LOOP_ONLY_PREFIXES), set(stages.ANSWER_ONLY_PREFIXES)
+    assert not loop & answer and prefixes == loop | answer
 
     rows = [
         _row("control", {}, _tracked(), tracks=BOTH),

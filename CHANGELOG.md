@@ -26,10 +26,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stage; a reranker sweep, where every arm names a reranker, hid a leaked
   `rerank_top_k`; an arm that named `hybrid_alpha` and `rrf_k` passed as live
   when only `rrf_k` arrived. The first two now mark the bundle
-  `UNDECLARED_STAGE_CHANGE`, naming the settings; the third is flagged inert
-  for the setting that never arrived. The run's isolation line and `results
-  view` say the arms differ only in the *settings* they name, which is what
-  is checked.
+  `UNDECLARED_STAGE_CHANGE`, naming the settings and the track each leaked on
+  that acts on it (`default_top_k on the generation track`); the third is
+  flagged inert for the setting that never arrived. The run's isolation line
+  and `results view` say the arms differ only in the *settings* they name,
+  which is what is checked.
 - The stage manifest records the routing and retrieval-depth settings
   (`use_agentic_rag`, `agentic_pipeline`, `routing_default_tier`,
   `similarity_threshold`, `chunk_cite_retrieval`, `default_top_k`,
@@ -51,24 +52,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   new check, so it can refuse what passed then.
 - The isolation check calls a setting only the agentic loop acts on
   (`max_agent_iterations`, `enable_crag`, `self_ask_*`, `ircot_*`, `flare_*`
-  and the rest) inert on the retrieval track, which runs no loop; it called
-  such an arm live there. What the harness sets on one track only (the depth
-  `metric_k` asks retrieval for) is excused on that track only, so a
-  `default_top_k` leaked into a `metric_k` arm's generation config is caught.
+  and the rest) inert on the retrieval track, which runs no loop, and so
+  speculative RAG's (`enable_speculative_rag`, `speculative_*`), which only the
+  answer step reads, since that track makes no answers; it called such an arm
+  live there. An arm inert on one track only marks the bundle `INERT_ARM`, a
+  warning, so `results validate --strict` fails a full-run sweep of such a
+  setting. What the harness sets on one track only (the depth `metric_k` asks
+  retrieval for) is excused on that track only, so a `default_top_k` leaked
+  into a `metric_k` arm's generation config is caught.
   A pair of arms that shares no track is not compared, and neither is a row
   written before `system.tracks` was recorded paired with a newer one (a
   sweep resumed across the upgrade); each is listed as unverified, and with
   no pair compared the run says why.
-- The isolation check gives speculative RAG's settings
-  (`enable_speculative_rag`, `speculative_*`) their own reason on the
-  retrieval track: it makes no answers, and only the generation track's answer
-  step reads them. It said the track "runs no agentic loop, and only the loop
-  acts on" them, but the loop never reads them. An undeclared change now names
-  the track it leaked on (`default_top_k on the generation track`), so a reader
-  of a `metric_k` sweep is not sent to the retrieval config, where the harness
-  set the depth as declared. An arm inert on one track only still marks the
-  bundle `INERT_ARM`, as before, now written down: its numbers on that track
-  are the control's under another name.
 
 ## [0.2.1] - 2026-11-04
 
