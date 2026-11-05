@@ -347,7 +347,7 @@ def _anchor(bench: str) -> str:
 
 def _isolation(run: _Run) -> str:
     """The isolation check, in the words `lasagna benchmark experiment` prints."""
-    from .stages import compared_pairs, isolation_report
+    from .stages import compared_pairs, isolation_report, uncompared_pairs
 
     rows = run.rows
     report = isolation_report(rows)
@@ -356,15 +356,20 @@ def _isolation(run: _Run) -> str:
     if report["undeclared"]:
         items = "".join(f"<li>{_e(line)}</li>" for line in report["undeclared"])
         parts.append(
-            '<div class="note bad"><p>Stage isolation FAILED: the arms differ outside the '
-            "stages they name, so the comparison is not attributable.</p>"
+            '<div class="note bad"><p>Stage isolation FAILED: the arms differ in settings '
+            "neither names, so the comparison is not attributable.</p>"
             f"<ul>{items}</ul></div>"
         )
     elif pairs and not report["inert"]:
         noun = "pair" if pairs == 1 else "pairs"
         parts.append(
             '<div class="note good"><p>Stage isolation: the configuration that reached each '
-            f"stage differs only in the stages the arms name ({pairs} {noun} compared).</p></div>"
+            f"stage differs only in the settings the arms name ({pairs} {noun} compared).</p></div>"
+        )
+    elif not pairs and uncompared_pairs(rows):
+        parts.append(
+            '<div class="note warn"><p>Stage isolation not checked: no two arms could be '
+            "compared, for the reasons below.</p></div>"
         )
     elif not pairs and len(rows) > 1:
         parts.append(

@@ -1053,9 +1053,10 @@ def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str
     if run_meta.get("determinism") not in SEEDED_LABELS:
         warnings.append("UNSEEDED")
 
-    # Stage isolation: two arms may differ only in the stages they name. A
-    # difference anywhere else means the comparison is not attributable, which
-    # is the property the whole framework exists to provide, so it blocks.
+    # Stage isolation: two arms may differ only in the settings they name (and
+    # what the harness sets on their account). A difference anywhere else means
+    # the comparison is not attributable, which is the property the whole
+    # framework exists to provide, so it blocks.
     from .stages import isolation_report
 
     isolation = isolation_report(rows)
