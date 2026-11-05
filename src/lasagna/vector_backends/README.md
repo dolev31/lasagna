@@ -113,8 +113,8 @@ From each backend's `capabilities` property:
 
 | | Milvus Lite | Milvus server | Qdrant | Pinecone | Weaviate | PgVector | OpenSearch |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Native hybrid search | no | yes | no | no | yes | yes (tsvector + RRF) | yes (BM25 + k-NN) |
-| Native BM25 | no | yes | no | no | yes | no | yes |
+| Native hybrid search | no | on a collection with `sparse_embedding` | no | no | yes | yes (tsvector + RRF) | yes (BM25 + k-NN) |
+| Native BM25 | no | on a collection with `sparse_embedding` | no | no | yes | no | yes |
 | Partitions / namespaces | yes | yes | no | yes | no | no | no |
 | Dynamic schema | yes | yes | yes | yes | yes | no | yes |
 | Max batch size | 1000 | 1000 | 1000 | 100 | 1000 | 5000 | 10000 |
@@ -122,9 +122,13 @@ From each backend's `capabilities` property:
 
 Calling `hybrid_search()` on a backend without native hybrid search falls back
 to dense search on Milvus Lite and Pinecone, and raises `NotImplementedError`
-on Qdrant. The search pipeline does not call it there: with
-`enable_hybrid_search` on, it fuses dense results with an in-process BM25 index
-(`rank_bm25`) instead.
+on Qdrant. A Milvus server runs it only on a collection with a
+`sparse_embedding` field, and the collections Lasagna creates have none; on
+those it returns dense results and reports a degraded `hybrid` stage.
+`collection_supports_native_hybrid(name)` says which applies to one collection,
+and a connection pool asks one of its instances. The search pipeline asks it
+first: where the answer is no, with `enable_hybrid_search` on, it fuses dense
+results with an in-process BM25 index (`rank_bm25`) instead.
 
 ## The interface
 
@@ -170,7 +174,8 @@ The same code runs on Qdrant with `get_backend("qdrant", path="/tmp/demo_qdrant"
 Other methods: `disconnect`, `is_connected`, `has_collection`, `drop_collection`,
 `describe_collection`, `get_collection_stats`, `create_index`, `list_indexes`,
 `query` (filter only, with `limit` and `offset`). With defaults you can
-override: `hybrid_search`, `iter_all` (every matching row, page by page),
+override: `hybrid_search`, `collection_supports_native_hybrid`, `iter_all`
+(every matching row, page by page),
 `list_document_ids`, `session_filter`, `describe_fields`, `async_search`,
 `async_insert`, the partition methods, `flush` and `compact`.
 

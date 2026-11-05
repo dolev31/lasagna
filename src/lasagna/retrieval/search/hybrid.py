@@ -846,7 +846,11 @@ class HybridSearcher:
         per_collection = getattr(backend, "collection_supports_native_hybrid", None)
         if per_collection is None:
             return False
-        return bool(per_collection(collection_name))
+        try:
+            return bool(per_collection(collection_name))
+        except Exception as e:  # an unconnected pool: BM25 fusion is the safe answer
+            logger.debug(f"Could not ask about native hybrid search on {collection_name}: {e}")
+            return False
 
     def _legacy_native_serves(
         self, session_id: Optional[str] = None, collection_name: Optional[str] = None
@@ -858,8 +862,11 @@ class HybridSearcher:
         """
         if not self.is_native_mode_available():
             return False
-        collection = collection_name or self._get_session_backend(session_id)[1]
-        return collection == getattr(self._native_searcher, "collection_name", None)
+        own = getattr(self._native_searcher, "collection_name", None)
+        # Set up with `set_milvus_client` alone, the searcher has no default
+        # collection of its own: the legacy searcher's is the one searched.
+        collection = collection_name or self._get_session_backend(session_id)[1] or own
+        return collection == own
 
     def is_native_mode_available(self) -> bool:
         """Check if native Milvus hybrid search is available.
@@ -1005,7 +1012,10 @@ class HybridSearcher:
                 or explicitly via build_session_index(). Use False during bulk
                 ingestion to avoid O(N²) repeated rebuilds.
         """
-        if self.is_native_mode_available():
+        if self._legacy_native_serves(session_id):
+            # Only when the legacy searcher serves this session's collection:
+            # asked globally, a default collection with a sparse field dropped
+            # the chunks of every other collection's session.
             logger.debug("Using native BM25 - no fallback indexing needed")
             return
 

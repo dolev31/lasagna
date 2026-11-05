@@ -432,10 +432,14 @@ class TestCapabilities:
         if not caps.supports_hybrid_search:
             pytest.skip(f"{backend.backend_name} does not advertise hybrid search")
         # A Milvus server advertised hybrid search, then refused it on a
-        # collection with no sparse field (#50). It now answers per collection
-        # and falls back to dense results there.
+        # collection with no sparse field (#50). It now answers per collection,
+        # and where it cannot run it, returns dense results and says so.
+        from lasagna.utils import degraded
 
-        results = backend.hybrid_search(
-            collection, query_text="content", query_embedding=_vec(1.0), limit=3
-        )
+        with degraded.collecting() as stages:
+            results = backend.hybrid_search(
+                collection, query_text="content", query_embedding=_vec(1.0), limit=3
+            )
         assert isinstance(results, list)
+        if not backend.collection_supports_native_hybrid(collection):
+            assert stages == ["hybrid"]

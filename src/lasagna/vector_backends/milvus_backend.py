@@ -246,7 +246,8 @@ class MilvusBackend(VectorStoreAdapter):
         # Whether each collection has a scalar session_id field (see session_filter).
         self._session_column: Dict[str, bool] = {}
         # Whether each collection has the sparse field native hybrid search reads.
-        self._native_hybrid: Dict[str, bool] = {}
+        #: The field names of each collection asked about, for native hybrid search.
+        self._native_hybrid: Dict[str, frozenset] = {}
 
     # =========================================================================
     # Capability Detection
@@ -305,16 +306,20 @@ class MilvusBackend(VectorStoreAdapter):
         """
         if not self.capabilities.supports_hybrid_search:
             return False
-        found = self._native_hybrid.get(collection_name)
-        if found is None:
+        return bool(self._has_field(collection_name, "sparse_embedding"))
+
+    def _has_field(self, collection_name: str, field: str) -> Optional[bool]:
+        """Whether ``collection_name`` has ``field``; None when its fields cannot be read."""
+        names = self._native_hybrid.get(collection_name)
+        if names is None:
             try:
                 fields = self.describe_fields(collection_name)
             except Exception as e:
                 logger.debug(f"Could not read the fields of {collection_name}: {e}")
-                return False
-            found = any(f.get("name") == "sparse_embedding" for f in fields)
-            self._native_hybrid[collection_name] = found
-        return found
+                return None
+            names = frozenset(str(f.get("name")) for f in fields)
+            self._native_hybrid[collection_name] = names
+        return field in names
 
     @property
     def backend_name(self) -> str:
@@ -1076,12 +1081,16 @@ class MilvusBackend(VectorStoreAdapter):
         `collection_supports_native_hybrid` first and uses BM25 fusion there.
         """
         supported = self.capabilities.supports_hybrid_search
-        if supported and not self.collection_supports_native_hybrid(collection_name):
+        present = self._has_field(collection_name, sparse_field) if supported else None
+        if supported and not present:
             from lasagna.utils import degraded
 
             degraded.record(
                 "hybrid",
-                f"collection {collection_name} has no {sparse_field} field; dense results only",
+                f"collection {collection_name} has no {sparse_field} field; dense results only"
+                if present is False
+                else f"could not read the fields of collection {collection_name}; "
+                "dense results only",
             )
             supported = False
         if not supported:

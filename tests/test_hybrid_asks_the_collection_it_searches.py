@@ -43,9 +43,11 @@ def _server(fields_by_collection):
         {"name": f, "params": {}} for f in fields_by_collection.get(name, [])
     ]
 
-    def hybrid_search(**kw):
-        backend.native_calls.append(kw)
-        if "sparse_embedding" not in fields_by_collection.get(kw["collection_name"], []):
+    def hybrid_search(*args, **kw):
+        # The pool passes the collection on positionally.
+        collection = args[0] if args else kw["collection_name"]
+        backend.native_calls.append(collection)
+        if "sparse_embedding" not in fields_by_collection.get(collection, []):
             raise RuntimeError("fieldName(sparse_embedding) not found")
         return []
 
@@ -74,10 +76,10 @@ def test_a_pool_answers_for_the_collection_as_its_server_does():
     assert pool.collection_supports_native_hybrid("with_sparse") is True
 
 
-def test_through_a_pool_a_collection_without_the_field_uses_bm25_fusion_quietly():
+def _pooled_search(fields):
     from lasagna.core.config import get_rag_config
 
-    server = _server({COLLECTION: LASAGNA_FIELDS})
+    server = _server({COLLECTION: fields})
     pool = _pooled(server)
     searcher = HybridSearcher()
     searcher.set_vector_backend(pool, COLLECTION)
@@ -95,10 +97,39 @@ def test_through_a_pool_a_collection_without_the_field_uses_bm25_fusion_quietly(
             config=config,
             return_metrics=True,
         )
+    return server, hits, metrics, stages
+
+
+def test_through_a_pool_a_collection_without_the_field_uses_bm25_fusion_quietly():
+    server, hits, metrics, stages = _pooled_search(LASAGNA_FIELDS)
     assert server.native_calls == []
     assert stages == []
     assert metrics["hybrid_mode"] == "rank_bm25_fallback"
     assert [h.document_id for h in hits] == ["d2"]
+
+
+def test_through_a_pool_a_collection_with_the_field_still_runs_native_hybrid():
+    server, _, metrics, stages = _pooled_search(LASAGNA_FIELDS + ["sparse_embedding"])
+    assert server.native_calls == [COLLECTION]
+    assert metrics["hybrid_mode"] == "native_milvus"
+    assert stages == []
+
+
+def test_a_store_that_runs_native_hybrid_everywhere_still_says_so():
+    """pgvector, OpenSearch and Weaviate answer from their capabilities, as before."""
+    native = SimpleNamespace(
+        capabilities=SimpleNamespace(supports_hybrid_search=True, supports_native_bm25=False)
+    )
+    none = SimpleNamespace(
+        capabilities=SimpleNamespace(supports_hybrid_search=False, supports_native_bm25=False)
+    )
+    assert VectorStoreAdapter.collection_supports_native_hybrid(native, COLLECTION) is True
+    assert VectorStoreAdapter.collection_supports_native_hybrid(none, COLLECTION) is False
+
+
+def test_an_unconnected_pool_is_a_no_not_an_error():
+    pool = PooledVectorBackend(factory=lambda: _server({}), pool_size=1)
+    assert HybridSearcher._native_hybrid_on(pool, COLLECTION) is False
 
 
 def test_the_session_collection_is_asked_about_not_the_default():
@@ -127,9 +158,16 @@ def test_the_legacy_native_searcher_serves_only_its_own_collection():
     searcher._native_searcher = SimpleNamespace(
         collection_name="default", is_native_bm25_supported=lambda: True
     )
+    # Set up with `set_milvus_client` alone: no default collection of its own.
+    assert searcher._collection_name is None
+    assert searcher._legacy_native_serves("s1") is True
     searcher._collection_name = "default"
     assert searcher._legacy_native_serves("s1") is True
     assert searcher._legacy_native_serves("s1", COLLECTION) is False
+    # Its BM25 shortcut is per session too: another collection's chunks are kept.
+    searcher.set_session_backend("s2", object(), COLLECTION)
+    searcher.index_chunks([{"chunk_id": "c", "content": "harbor tide", "document_id": "d"}], "s2")
+    assert [d["chunk_id"] for d in searcher.get_session_index("s2").documents] == ["c"]
 
 
 def test_a_milvus_server_answers_a_hybrid_search_without_the_field_with_dense_results():
@@ -149,18 +187,38 @@ def test_a_milvus_server_answers_a_hybrid_search_without_the_field_with_dense_re
     )
 
 
-#: Methods a backend keeps to itself: raw client passthroughs its own code
-#: calls, never through the adapter interface (checked: no caller outside the
-#: backend's module).
-_BACKEND_INTERNAL = {
-    "client",
-    "insert_raw",
-    "search_raw",
-    "query_raw",
-    "delete_raw",
-    "filter",
-    "translate",
-}
+def test_a_milvus_server_reads_the_sparse_field_its_caller_names():
+    backend = MilvusBackend(uri="http://milvus.example:19530")
+    backend.describe_fields = lambda name: [{"name": f} for f in LASAGNA_FIELDS + ["sparse"]]
+
+    def _native():
+        raise RuntimeError("reached the native call")
+
+    backend._ensure_connected = _native
+    with pytest.raises(RuntimeError, match="reached the native call"):
+        backend.hybrid_search(COLLECTION, "q", [0.1] * 4, sparse_field="sparse")
+
+
+def test_fields_that_cannot_be_read_are_said_to_be_unread():
+    backend = MilvusBackend(uri="http://milvus.example:19530")
+
+    def _unreadable(name):
+        raise ConnectionError("server busy")
+
+    backend.describe_fields = _unreadable
+    backend.search = lambda **kw: []
+    with degraded.collecting():
+        backend.hybrid_search(COLLECTION, "q", [0.1] * 4)
+        why = degraded.reasons()
+    assert why["hybrid"] == (
+        f"could not read the fields of collection {COLLECTION}; dense results only"
+    )
+
+
+#: What a backend offers on itself only: the raw client and raw passthroughs.
+#: Nothing in `src/` reaches them through an adapter (searched: only tests,
+#: on bare backends), so the pool need not.
+_BACKEND_INTERNAL = {"client", "insert_raw", "search_raw", "query_raw", "delete_raw"}
 
 
 def _backend_classes():
