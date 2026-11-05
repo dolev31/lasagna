@@ -17,9 +17,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failed and fell back (all 12 queries of a `standard` run on `smoke`). The
   same answer skipped filling the BM25 index from the store, so wherever a
   process had not indexed the chunks itself, the fallback found it empty and
-  returned dense results only. In the stack that is every REST and MCP hybrid
-  search after an upload the Celery worker ingested, or after a restart; in a
-  benchmark, a hybrid arm on a corpus ingested with hybrid off: under `speed`
+  returned dense results only. In the stack, the Celery worker ingests
+  uploads, so this was every REST and MCP hybrid search an API worker ran: in
+  a test of 22 searches on one upload, all 4 that ran (one per worker) fell
+  back to dense-only, and the search cache served the other 18 from them. In a
+  benchmark, it was a hybrid arm on a corpus ingested with hybrid off: under `speed`
   it scored exactly the control, ndcg@10 0.9464 on `smoke`, where Milvus Lite
   gives 0.9505. In the stack it now gives 0.9505, with map@10 and R-precision
   as on Milvus Lite. The base adapter answers per collection from its
