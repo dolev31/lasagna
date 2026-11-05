@@ -798,9 +798,11 @@ everyone whose work is merged:
   racing to create a collection, measured against the stack's own Qdrant
   ([#23](https://github.com/dolev31/lasagna/pull/23)).
 - [@segevshlomovIBM](https://github.com/segevshlomovIBM): the stage isolation
-  check that judges each setting an arm names, on each track that ran
-  ([#25](https://github.com/dolev31/lasagna/pull/25)), and the evidence runs in
-  the Compose stack that found seven harness bugs, filed as #46 to #52.
+  check's move to judging each setting an arm names, on each track that ran
+  ([#25](https://github.com/dolev31/lasagna/pull/25)), and the evidence runs on
+  Milvus Lite and in the Compose stack that found seven harness bugs, filed as
+  [#46](https://github.com/dolev31/lasagna/issues/46) to
+  [#52](https://github.com/dolev31/lasagna/issues/52).
 - [@tnalbant](https://github.com/tnalbant): a CLI reference that no longer
   changes with the installed Typer version
   ([#37](https://github.com/dolev31/lasagna/pull/37)).

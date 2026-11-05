@@ -57,7 +57,8 @@ The check works setting by setting and per track since
 [#25](https://github.com/dolev31/lasagna/pull/25), by
 [@segevshlomovIBM](https://github.com/segevshlomovIBM). Before it, a stage that
 either arm named was skipped whole, so a setting that leaked inside it went
-unreported.
+unreported, and an arm that named two settings passed as live when only one
+arrived.
 
 ## What the check does not see
 
