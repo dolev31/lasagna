@@ -89,8 +89,8 @@ def test_on_a_retrieval_only_run_the_forced_setting_is_inert_outright(tmp_path, 
 def test_an_arm_digests_alike_whichever_tracks_ran(tmp_path, llm):  # noqa: F811 - the fixture, not a redefinition
     # Each track's values are recorded whether or not the track ran, so a
     # retrieval-only, a generation-only and a full run record one manifest for
-    # an arm, and their comparability keys agree. stages.py, experiment.py and
-    # the CHANGELOG said so; nothing held it.
+    # an arm (``system.stages``, which is all this asserts). stages.py,
+    # experiment.py and the CHANGELOG said so; nothing held it.
     arms = [*ARMS, {"name": "reordered", "enable_context_reordering": True}]
     runs = {
         "+".join(tracks): _run(tmp_path / "+".join(tracks), tracks, arms)

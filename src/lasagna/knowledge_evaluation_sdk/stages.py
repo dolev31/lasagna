@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Set, Tuple
 
 #: The eight swappable stages, plus "other" for settings outside them.
 STAGES: Tuple[str, ...] = (
@@ -313,14 +313,16 @@ TRACKS: Tuple[str, ...] = ("retrieval", "generation")
 #: Settings recorded per track, as ``{"retrieval": ..., "generation": ...}``:
 #: every setting the retrieval track forces on every arm
 #: (``experiment._fix_retrieval_routing`` and ``_fix_retrieval_depth``, which
-#: a test holds to this list) and the generation track reads from the arm,
-#: and the order each track read its results in. Each track's value is a function of the arm's configuration
-#: alone and is recorded whether or not the track ran, so an arm digests alike
-#: on a retrieval-only run and a full one; ``system.tracks`` beside the
-#: manifest says which tracks ran, and two arms differ in one of these only
-#: on a track both ran. Digesting the retrieval track's values alone hid an
-#: agentic arm on the generation track: forced off on retrieval, it digested
-#: like its control and was called inert while its loop answered.
+#: a test holds to this list) and the generation track reads from the arm, and
+#: the order each track read its results in.
+#:
+#: Each track's value is a function of the arm's configuration alone and is
+#: recorded whether or not the track ran, so an arm digests alike on a
+#: retrieval-only run and a full one. ``system.tracks`` beside the manifest
+#: says which tracks ran, and two arms differ in one of these only on a track
+#: both ran. Digesting the retrieval track's values alone hid an agentic arm
+#: on the generation track: forced off on retrieval, it digested like its
+#: control and was called inert while its loop answered.
 TRACK_SPLIT_KEYS = frozenset(
     {
         "use_agentic_rag",
@@ -340,15 +342,15 @@ TRACK_SPLIT_KEYS = frozenset(
 TRACK_EMPTIES_SLOT: Dict[str, frozenset] = {"retrieval": frozenset({"agentic_pipeline"})}
 
 #: Agentic settings only the loop acts on (``agentic/`` and the orchestrator's
-#: comprehensive tier), and speculative RAG's, which only the generation
-#: track's answer step reads. The retrieval track runs no loop, so an arm that
-#: sweeps one of these has its control's retrieval metrics whatever it sets,
-#: and is inert there. ``enable_crag`` asks for the comprehensive tier, which
+#: comprehensive tier). The retrieval track runs no loop, so an arm that sweeps
+#: one of these has its control's retrieval metrics whatever it sets, and is
+#: inert there. ``enable_crag`` asks for the comprehensive tier, which
 #: the router turns back to the standard one while ``use_agentic_rag`` is off,
 #: as the retrieval track forces it. Not every agentic setting is loop-only:
 #: context compression (``enable_context_compression``, ``compression_*``) is
-#: applied on the standard path too, so it is live on retrieval. A test holds
-#: every agentic setting to one side or the other.
+#: applied on the standard path too, so it is live on retrieval, and
+#: speculative RAG's settings are read by no loop (:data:`ANSWER_ONLY_KEYS`).
+#: A test holds every agentic setting to exactly one of these sides.
 LOOP_ONLY_KEYS = frozenset(
     {
         "use_structured_graph",
@@ -363,12 +365,10 @@ LOOP_ONLY_KEYS = frozenset(
         "max_quality_check_attempts",
         "chunk_refinement_method",
         "coverage_scorer_mode",
-        "enable_speculative_rag",
     }
 )
 LOOP_ONLY_PREFIXES: Tuple[str, ...] = (
     "auto_refine_",
-    "speculative_",
     "self_ask_",
     "ircot_",
     "flare_",
@@ -380,6 +380,21 @@ LOOP_ONLY_PREFIXES: Tuple[str, ...] = (
 def _loop_only(key: str, track: Optional[str]) -> bool:
     """Whether ``key`` is one only the agentic loop acts on, on a track that runs none."""
     return track == "retrieval" and (key in LOOP_ONLY_KEYS or key.startswith(LOOP_ONLY_PREFIXES))
+
+
+#: Speculative RAG's settings: only the generation track's answer step reads
+#: them (``experiment.py``, where it drafts and verifies answers), never the
+#: agentic loop. The retrieval track makes no answers, so an arm that sweeps
+#: one has its control's retrieval metrics, and is inert there.
+ANSWER_ONLY_KEYS = frozenset({"enable_speculative_rag"})
+ANSWER_ONLY_PREFIXES: Tuple[str, ...] = ("speculative_",)
+
+
+def _answer_only(key: str, track: Optional[str]) -> bool:
+    """Whether ``key`` is one only the answer step reads, on a track that makes no answers."""
+    return track == "retrieval" and (
+        key in ANSWER_ONLY_KEYS or key.startswith(ANSWER_ONLY_PREFIXES)
+    )
 
 
 def effective_chunking_strategy(settings: Mapping[str, Any]) -> Optional[str]:
@@ -664,7 +679,7 @@ def _inert_tracks(
     """
     out: List[Optional[str]] = []
     for track in tracks:
-        if _why_alike(key, track) in ("emptied", "loop_only"):
+        if _why_alike(key, track) in ("emptied", "loop_only", "answer_only"):
             out.append(track)
             continue
         if all(
@@ -677,8 +692,10 @@ def _inert_tracks(
 
 def _why_alike(key: str, track: Optional[str]) -> Optional[str]:
     """Why ``track`` runs ``key`` alike for every arm, if it does: it forces
-    the value (``"forced"``), empties the slot (``"emptied"``), or runs no
-    agentic loop, the only thing that acts on the key (``"loop_only"``)."""
+    the value (``"forced"``), empties the slot (``"emptied"``), runs no
+    agentic loop, the only thing that acts on the key (``"loop_only"``), or
+    makes no answers, and only the answer step reads the key
+    (``"answer_only"``, speculative RAG's settings)."""
     if track is None:
         return None
     if key in TRACK_EMPTIES_SLOT.get(track, ()):
@@ -687,6 +704,8 @@ def _why_alike(key: str, track: Optional[str]) -> Optional[str]:
         return "forced"
     if _loop_only(key, track):
         return "loop_only"
+    if _answer_only(key, track):
+        return "answer_only"
     return None
 
 
@@ -698,6 +717,10 @@ _BECAUSE = {
     "loop_only": (
         "runs no agentic loop, and only the loop acts on it",
         "runs no agentic loop, and only the loop acts on them",
+    ),
+    "answer_only": (
+        "makes no answers, and only the answer step reads it",
+        "makes no answers, and only the answer step reads them",
     ),
 }
 
@@ -917,7 +940,10 @@ def _by_bench(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[Tuple[str, Ma
     return by_bench
 
 
-def _pairs(rows: Iterable[Mapping[str, Any]]):
+_Arm = Tuple[str, Mapping[str, Any]]
+
+
+def _pairs(rows: Iterable[Mapping[str, Any]]) -> Iterator[Tuple[str, _Arm, _Arm]]:
     """Every pair of arms on one benchmark and profile, as ``(bench, (name, row), (name, row))``."""
     for bench, entries in sorted(_by_bench(rows).items()):
         for i, a in enumerate(entries):
@@ -974,6 +1000,25 @@ def _skipped_lines(rows: Iterable[Mapping[str, Any]]) -> List[str]:
     return lines
 
 
+#: Reasons a track cannot act on a key: :func:`_why_alike` without "forced",
+#: since a forced key that differs means the forcing failed, which acts.
+_ACTS_ON_NOTHING = ("emptied", "loop_only", "answer_only")
+
+
+def _where(key: str, tracks: List[Optional[str]]) -> str:
+    """A leaked key and the tracks it leaked on that act on it, for rows that
+    recorded their tracks: a loop's setting that leaked on both tracks acts on
+    generation only, and the reader is sent there."""
+    if tracks == [None]:
+        return key
+    acting = [t for t in tracks if _why_alike(key, t) not in _ACTS_ON_NOTHING]
+    if not acting:
+        return f"{key} on the {tracks[0]} track, which does not act on it"
+    if len(acting) == len(TRACKS):
+        return f"{key} on both tracks"
+    return f"{key} on the {acting[0]} track"
+
+
 def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
     """Compare every pair of arms on each benchmark against what they declared.
 
@@ -1028,16 +1073,17 @@ def isolation_report(rows: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
                     differs_on = {
                         t: set(_differing_keys(sa, sb, None if t is None else (t,))) for t in judged
                     }
-                    leaked = [
-                        key
-                        for key in _differing_keys(sa, sb, shared)
-                        if any(
-                            key in differs_on[t]
+                    leaked_on = {
+                        key: [
+                            t
+                            for t in judged
+                            if key in differs_on[t]
                             and key not in declared[t]
                             and not (key == "component" and stage in declared[t])
-                            for t in judged
-                        )
-                    ]
+                        ]
+                        for key in _differing_keys(sa, sb, shared)
+                    }
+                    leaked = [_where(k, ts) for k, ts in leaked_on.items() if ts]
                     if not leaked:
                         continue
                     report["undeclared"].append(

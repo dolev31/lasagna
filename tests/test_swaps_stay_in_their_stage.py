@@ -472,7 +472,68 @@ def test_what_the_harness_sets_on_one_track_is_excused_on_that_track_only():
     assert isolation_report([control, deeper])["undeclared"] == []
     leaked = _row("deeper", {"metric_k": 20}, tracked(20, 80, 7), tracks=BOTH)
     (line,) = isolation_report([control, leaked])["undeclared"]
-    assert "default_top_k" in line and "retriever" in line
+    assert "retriever" in line
+    # The line names the track it leaked on: "(default_top_k)" alone sent a
+    # reader to the retrieval config, which the harness had set as declared.
+    assert "(default_top_k on the generation track)" in line
+
+    # On retrieval, metric_k sets default_top_k on the arm's account, so it
+    # cannot leak there; an embedding model leaks on both.
+    rows = [
+        _row("control", {}, _tracked(), tracks=BOTH),
+        _row("fused", {"hybrid_alpha": 0.3}, _tracked(embedding_model="x"), tracks=BOTH),
+    ]
+    (line,) = isolation_report(rows)["undeclared"]
+    assert "(embedding_model on both tracks)" in line
+
+
+def test_a_leak_names_the_track_that_acts_on_it():
+    # max_agent_iterations leaked on both tracks, but the retrieval track runs
+    # no loop: the line sends the reader to generation, where the loop read it.
+    leak = dict(hybrid_alpha=0.3, max_agent_iterations=7)
+    control = _row("control", {}, _tracked(), tracks=BOTH)
+    rows = [control, _row("fused", {"hybrid_alpha": 0.3}, _tracked(**leak), tracks=BOTH)]
+    (line,) = isolation_report(rows)["undeclared"]
+    assert "(max_agent_iterations on the generation track)" in line
+
+    # On a retrieval-only run no track acts on it, and the line says so.
+    only = ["retrieval"]
+    rows = [
+        _row("control", {}, _tracked(), tracks=only),
+        _row("fused", {"hybrid_alpha": 0.3}, _tracked(**leak), tracks=only),
+    ]
+    (line,) = isolation_report(rows)["undeclared"]
+    assert "(max_agent_iterations on the retrieval track, which does not act on it)" in line
+
+    # One track in common: the leak is named on it.
+    rows = [
+        _row("control", {}, _tracked(), tracks=only),
+        _row("fused", {"hybrid_alpha": 0.3}, _tracked(embedding_model="x"), tracks=BOTH),
+    ]
+    (line,) = isolation_report(rows)["undeclared"]
+    assert "(embedding_model on the retrieval track)" in line
+
+
+def test_two_reasons_on_one_track_give_no_reason_rather_than_a_wrong_one():
+    # One reason for the loop's setting, another for speculative RAG's: one
+    # phrase for both would be false for one of them, so the line gives none.
+    keys = {"max_agent_iterations": 7, "enable_speculative_rag": True}
+    only = ["retrieval"]
+    rows = [
+        _row("control", {}, _tracked(), tracks=only),
+        _row("mixed", keys, _tracked(**keys), tracks=only),
+    ]
+    (line,) = isolation_report(rows)["inert"]
+    assert "identical to the control" in line and "since" not in line
+
+
+def test_a_leak_between_rows_without_tracks_names_no_track():
+    rows = [
+        _row("control", {}, _manifest()),
+        _row("mine", {"reranker": "mine"}, _manifest({"reranker": "mine"}, embedding_model="x")),
+    ]
+    (line,) = isolation_report(rows)["undeclared"]
+    assert "(embedding_model)" in line and "track" not in line
 
 
 @pytest.mark.parametrize(
@@ -500,6 +561,46 @@ def test_a_setting_only_the_loop_acts_on_is_inert_on_retrieval(key, value):
     assert "no agentic loop" in line
 
 
+@pytest.mark.parametrize(
+    ("key", "value"), [("enable_speculative_rag", True), ("speculative_n_drafts", 5)]
+)
+def test_a_speculative_setting_is_inert_on_retrieval_because_it_makes_no_answers(key, value):
+    # Speculative RAG drafts and verifies answers (experiment.py, the
+    # generation track's answer step); the agentic loop never reads it. The
+    # line said "runs no agentic loop, and only the loop acts on it".
+    control, arm = _tracked(), _tracked(**{key: value})
+    both = [_row("control", {}, control, tracks=BOTH), _row("spec", {key: value}, arm, tracks=BOTH)]
+    (line,) = isolation_report(both)["inert"]
+    assert "(the track makes no answers, and only the answer step reads it)" in line
+    assert "loop" not in line
+
+    only = ["retrieval"]
+    rows = [_row("control", {}, control, tracks=only), _row("spec", {key: value}, arm, tracks=only)]
+    (line,) = isolation_report(rows)["inert"]
+    assert "the only track both ran, makes no answers, and only the answer step reads it" in line
+
+    # Two speculative settings, one reason, in its plural.
+    two = {"enable_speculative_rag": True, "speculative_n_drafts": 5}
+    rows[1] = _row("spec", two, _tracked(**two), tracks=only)
+    (line,) = isolation_report(rows)["inert"]
+    assert "makes no answers, and only the answer step reads them" in line
+
+
+def test_an_arm_inert_on_one_track_only_still_warns_inert_arm():
+    # Decided after #25: an agentic arm on a full run is live on generation,
+    # but its retrieval numbers are the control's under another name, and a
+    # retrieval leaderboard would rank it as an arm of its own. The bundle
+    # warns (it does not block), and the line says which track is live.
+    rows = [
+        _row("control", {}, _tracked(), tracks=BOTH),
+        _row("loop", {"max_agent_iterations": 7}, _tracked(max_agent_iterations=7), tracks=BOTH),
+    ]
+    (line,) = isolation_report(rows)["inert"]
+    assert "the generation track ran with its own value" in line
+    integrity = _integrity(rows, {})
+    assert "INERT_ARM" in integrity["warnings"] and "INERT_ARM" not in integrity["blocking"]
+
+
 def test_every_agentic_setting_is_traced_to_the_loop_or_the_standard_path():
     # A setting added to the agentic stage fails here until someone traces
     # where it is read. Context compression is applied on the standard path
@@ -510,10 +611,12 @@ def test_every_agentic_setting_is_traced_to_the_loop_or_the_standard_path():
     standard_path = {"enable_context_compression", "compression_method", "compression_ratio"}
     forced = agentic & stages.TRACK_SPLIT_KEYS
     assert forced == {"use_agentic_rag", "agentic_pipeline"}
-    assert not stages.LOOP_ONLY_KEYS & (standard_path | forced)
-    assert agentic == stages.LOOP_ONLY_KEYS | standard_path | forced
+    sides = [stages.LOOP_ONLY_KEYS, stages.ANSWER_ONLY_KEYS, standard_path, forced]
+    assert sum(len(side) for side in sides) == len(set().union(*sides))  # disjoint
+    assert agentic == set().union(*sides)
     prefixes = {p for p, s in stages._PREFIXES if s == "agentic_pipeline"}
-    assert prefixes == set(stages.LOOP_ONLY_PREFIXES)
+    loop, answer = set(stages.LOOP_ONLY_PREFIXES), set(stages.ANSWER_ONLY_PREFIXES)
+    assert not loop & answer and prefixes == loop | answer
 
     rows = [
         _row("control", {}, _tracked(), tracks=BOTH),

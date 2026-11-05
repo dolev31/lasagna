@@ -395,3 +395,29 @@ def test_a_lower_is_better_leaderboard_ranks_the_smallest_first(tmp_path):
         "latency_ms",
     )
     assert [r["config"] for r in group(rows)["beir/scifact"]["k"]] == ["fast", "slow"]
+
+
+class TestTheIsolationNoteSaysWhyNothingWasCompared:
+    """The page's two "not checked" notes, as the CLI words them: no pair was
+    compared, either because one arm finished or because the arms that did
+    share no track. The CLI tests held these; the page's copy had none."""
+
+    def test_one_finished_arm_is_fewer_than_two(self, tmp_path):
+        failed = _task("mine", [0.6] * N)
+        failed["error"] = "boom"
+        page = _text(render_html(_results(tmp_path, [_task("control", [0.5] * N), failed])))
+        assert (
+            "Stage isolation not checked: fewer than two arms finished on a benchmark, "
+            "so there was nothing to compare."
+        ) in page
+        assert "differs only in the settings the arms name" not in page
+
+    def test_arms_with_no_track_in_common_are_not_called_unfinished(self, tmp_path):
+        control, mine = _task("control", [0.5] * N), _task("mine", [0.6] * N)
+        control["system"]["tracks"], mine["system"]["tracks"] = ["retrieval"], ["generation"]
+        page = _text(render_html(_results(tmp_path, [control, mine])))
+        assert (
+            "Stage isolation not checked: no two arms could be compared, for the reasons below."
+        ) in page
+        assert "arms 'control' and 'mine' ran no track in common" in page
+        assert "fewer than two arms finished" not in page
