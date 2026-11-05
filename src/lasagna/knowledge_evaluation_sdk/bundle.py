@@ -938,6 +938,64 @@ def exercised_fallbacks(rows: List[Dict[str, Any]], fallbacks: Optional[List[str
     return out
 
 
+def degraded_findings(rows: List[Dict[str, Any]]) -> List[str]:
+    """One line per benchmark, arm, track and stage that fell back during the run.
+
+    Read from each task's ``system.degraded_stages``, which the harness fills
+    from `lasagna.utils.degraded` as each query runs. The runs of an arm add up
+    into one line. A fallback is named whether or not it changed the numbers,
+    with how many queries each reason covered: hybrid search that falls back to
+    BM25 fusion scores as hybrid search does, and one whose BM25 index is empty
+    returns dense results only, the control's number (#52).
+    """
+    totals: Dict[tuple, Dict[str, Any]] = {}
+    for row in rows:
+        by_track = (row.get("system") or {}).get("degraded_stages") or {}
+        for track, stages in by_track.items():
+            for stage, entry in (stages or {}).items():
+                key = (row.get("benchmark_name", ""), row.get("config_name", ""), track, stage)
+                if not isinstance(entry, dict):
+                    continue
+                total = totals.setdefault(
+                    key, {"queries": 0, "of": 0, "runs": 0, "reasons": {}, "other": 0}
+                )
+                total["queries"] += int(entry.get("queries") or 0)
+                total["of"] += int(entry.get("of") or 0)
+                total["runs"] += 1
+                total["other"] += int(entry.get("other_reasons") or 0)
+                for reason in entry.get("reasons") or []:
+                    if not isinstance(reason, dict):
+                        continue
+                    text = str(reason.get("reason", ""))
+                    total["reasons"][text] = total["reasons"].get(text, 0) + int(
+                        reason.get("queries") or 0
+                    )
+    runs_of: Dict[tuple, int] = {}
+    for row in rows:
+        arm = (row.get("benchmark_name", ""), row.get("config_name", ""))
+        runs_of[arm] = runs_of.get(arm, 0) + 1
+    lines = []
+    for (benchmark, arm, track, stage), total in sorted(totals.items()):
+        line = (
+            f"{stage} fell back during the run: {benchmark}, arm {arm!r}, {track} track, "
+            f"{total['queries']} of {total['of']} queries"
+        )
+        runs = runs_of.get((benchmark, arm), 1)
+        if runs > 1:
+            line += f" in {total['runs']} of its {runs} runs"
+        why = [
+            f"{n} {'query' if n == 1 else 'queries'}: {text}"
+            for text, n in total["reasons"].items()
+        ]
+        if total["other"]:
+            n = total["other"]
+            why.append(f"{n} {'query' if n == 1 else 'queries'}: other reasons, not kept")
+        if why:
+            line += f" ({'; '.join(why)})"
+        lines.append(line)
+    return lines
+
+
 def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str, Any]:
     """Machine-readable reasons a bundle should not be trusted or published.
 
@@ -970,7 +1028,12 @@ def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str
     exercised = exercised_fallbacks(
         rows, (run_meta.get("environment") or {}).get("active_fallbacks")
     )
-    if exercised:
+    # A stage that fell back while the queries ran is the same kind of fact:
+    # the install's stand-ins are known before the run, these only during it.
+    # `environment.active_fallbacks` stays the install's, captured before any
+    # query; these come from the tasks' rows.
+    fell_back = degraded_findings(rows)
+    if exercised or fell_back:
         warnings.append("ACTIVE_FALLBACKS")
 
     # A number computed against part of a corpus is not the benchmark's number,
@@ -1073,7 +1136,8 @@ def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str
         "isolation": isolation,
         # Each exercised stand-in with what it changes and how to remove it, so
         # ACTIVE_FALLBACKS is something a reader can act on.
-        "fallbacks": [f"{f}: {FALLBACK_FIXES.get(f, 'see lasagna doctor')}" for f in exercised],
+        "fallbacks": [f"{f}: {FALLBACK_FIXES.get(f, 'see lasagna doctor')}" for f in exercised]
+        + fell_back,
     }
 
 
