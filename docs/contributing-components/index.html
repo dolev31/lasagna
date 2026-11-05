@@ -2623,8 +2623,9 @@ lasagna<span class="w"> </span>results<span class="w"> </span>significance<span 
 like-for-like control. Naming a reranker turns reranking on for that arm, even
 on <code>speed</code>. Before ingesting anything the run checks that each named component
 passes its stage's contract, and when it finishes it confirms that the
-configuration reaching each stage differed only at the reranker (or says which
-other stage moved), and flags your arm as inert if its ranked lists never moved.
+configuration reaching each stage differed only in the settings the arms name
+(or says which other setting moved), and flags your arm as inert if its ranked
+lists never moved.
 The second command prints each pair with the difference, the effect size and
 both the raw and the Holm-adjusted p. For <code>keyword_overlap</code> (query words found
 in the passage) against the cross-encoder on 100 SciFact queries, a real run
