@@ -15,6 +15,13 @@ x-build-args: &build-args
 services:
   qdrant:
     image: qdrant/qdrant:v1.13.2
+    # Eight concurrent clients creating collections and payload indexes
+    # exhausted the container's default 1024 FDs ("Too many open files")
+    # during stress testing; 524288 is validated by that run.
+    ulimits:
+      nofile:
+        soft: 524288
+        hard: 524288
     ports:
       - "127.0.0.1:${QDRANT_HTTP_PORT:-6333}:6333"
       - "127.0.0.1:${QDRANT_GRPC_PORT:-6334}:6334"
