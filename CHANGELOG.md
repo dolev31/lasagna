@@ -59,6 +59,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   written before `system.tracks` was recorded paired with a newer one (a
   sweep resumed across the upgrade); each is listed as unverified, and with
   no pair compared the run says why.
+- The isolation check gives speculative RAG's settings
+  (`enable_speculative_rag`, `speculative_*`) their own reason on the
+  retrieval track: it makes no answers, and only the generation track's answer
+  step reads them. It said the track "runs no agentic loop, and only the loop
+  acts on" them, but the loop never reads them. An undeclared change now names
+  the track it leaked on (`default_top_k on the generation track`), so a reader
+  of a `metric_k` sweep is not sent to the retrieval config, where the harness
+  set the depth as declared. An arm inert on one track only still marks the
+  bundle `INERT_ARM`, as before, now written down: its numbers on that track
+  are the control's under another name.
 
 ## [0.2.1] - 2026-11-04
 

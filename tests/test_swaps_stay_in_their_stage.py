@@ -472,7 +472,28 @@ def test_what_the_harness_sets_on_one_track_is_excused_on_that_track_only():
     assert isolation_report([control, deeper])["undeclared"] == []
     leaked = _row("deeper", {"metric_k": 20}, tracked(20, 80, 7), tracks=BOTH)
     (line,) = isolation_report([control, leaked])["undeclared"]
-    assert "default_top_k" in line and "retriever" in line
+    assert "retriever" in line
+    # The line names the track it leaked on: "(default_top_k)" alone sent a
+    # reader to the retrieval config, which the harness had set as declared.
+    assert "(default_top_k on the generation track)" in line
+
+    # On retrieval, metric_k sets default_top_k on the arm's account, so it
+    # cannot leak there; an embedding model leaks on both.
+    rows = [
+        _row("control", {}, _tracked(), tracks=BOTH),
+        _row("fused", {"hybrid_alpha": 0.3}, _tracked(embedding_model="x"), tracks=BOTH),
+    ]
+    (line,) = isolation_report(rows)["undeclared"]
+    assert "(embedding_model on both tracks)" in line
+
+
+def test_a_leak_between_rows_without_tracks_names_no_track():
+    rows = [
+        _row("control", {}, _manifest()),
+        _row("mine", {"reranker": "mine"}, _manifest({"reranker": "mine"}, embedding_model="x")),
+    ]
+    (line,) = isolation_report(rows)["undeclared"]
+    assert "(embedding_model)" in line and "track" not in line
 
 
 @pytest.mark.parametrize(
@@ -498,6 +519,46 @@ def test_a_setting_only_the_loop_acts_on_is_inert_on_retrieval(key, value):
     (line,) = isolation_report(retrieval_only)["inert"]
     assert "identical to the control" in line and "the only track both ran" in line
     assert "no agentic loop" in line
+
+
+@pytest.mark.parametrize(
+    ("key", "value"), [("enable_speculative_rag", True), ("speculative_n_drafts", 5)]
+)
+def test_a_speculative_setting_is_inert_on_retrieval_because_it_makes_no_answers(key, value):
+    # Speculative RAG drafts and verifies answers (experiment.py, the
+    # generation track's answer step); the agentic loop never reads it. The
+    # line said "runs no agentic loop, and only the loop acts on it".
+    control, arm = _tracked(), _tracked(**{key: value})
+    both = [_row("control", {}, control, tracks=BOTH), _row("spec", {key: value}, arm, tracks=BOTH)]
+    (line,) = isolation_report(both)["inert"]
+    assert "(the track makes no answers, and only the answer step reads it)" in line
+    assert "loop" not in line
+
+    only = ["retrieval"]
+    rows = [_row("control", {}, control, tracks=only), _row("spec", {key: value}, arm, tracks=only)]
+    (line,) = isolation_report(rows)["inert"]
+    assert "the only track both ran, makes no answers, and only the answer step reads it" in line
+
+    # Two speculative settings, one reason, in its plural.
+    two = {"enable_speculative_rag": True, "speculative_n_drafts": 5}
+    rows[1] = _row("spec", two, _tracked(**two), tracks=only)
+    (line,) = isolation_report(rows)["inert"]
+    assert "makes no answers, and only the answer step reads them" in line
+
+
+def test_an_arm_inert_on_one_track_only_still_warns_inert_arm():
+    # Decided after #25: an agentic arm on a full run is live on generation,
+    # but its retrieval numbers are the control's under another name, and a
+    # retrieval leaderboard would rank it as an arm of its own. The bundle
+    # warns (it does not block), and the line says which track is live.
+    rows = [
+        _row("control", {}, _tracked(), tracks=BOTH),
+        _row("loop", {"max_agent_iterations": 7}, _tracked(max_agent_iterations=7), tracks=BOTH),
+    ]
+    (line,) = isolation_report(rows)["inert"]
+    assert "the generation track ran with its own value" in line
+    integrity = _integrity(rows, {})
+    assert "INERT_ARM" in integrity["warnings"] and "INERT_ARM" not in integrity["blocking"]
 
 
 def test_every_agentic_setting_is_traced_to_the_loop_or_the_standard_path():
