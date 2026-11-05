@@ -797,6 +797,10 @@ everyone whose work is merged:
 - [@juliasadler](https://github.com/juliasadler): the fix for two services
   racing to create a collection, measured against the stack's own Qdrant
   ([#23](https://github.com/dolev31/lasagna/pull/23)).
+- [@segevshlomovIBM](https://github.com/segevshlomovIBM): the stage isolation
+  check that judges each setting an arm names, on each track that ran
+  ([#25](https://github.com/dolev31/lasagna/pull/25)), and the evidence runs in
+  the Compose stack that found seven harness bugs, filed as #46 to #52.
 - [@tnalbant](https://github.com/tnalbant): a CLI reference that no longer
   changes with the installed Typer version
   ([#37](https://github.com/dolev31/lasagna/pull/37)).

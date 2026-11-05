@@ -53,6 +53,12 @@ newer one, is not compared, and the run lists it as unverified.
 The run prints both. `lasagna results validate` refuses a bundle with an
 undeclared change, and `lasagna results view` shows the check on its page.
 
+The check works setting by setting and per track since
+[#25](https://github.com/dolev31/lasagna/pull/25), by
+[@segevshlomovIBM](https://github.com/segevshlomovIBM). Before it, a stage that
+either arm named was skipped whole, so a setting that leaked inside it went
+unreported.
+
 ## What the check does not see
 
 The manifest digests configuration, not behavior. A component that changes state

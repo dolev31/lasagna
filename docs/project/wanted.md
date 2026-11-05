@@ -137,10 +137,10 @@ For people running Lasagna as a service. Labeled
   searches, but has no route that retrieves and then answers, and nothing
   streams.
 - **A knowledge graph every process shares.** The graph `enable_graph_retrieval`
-  builds lives in the memory of the process that ingested. From reading the
-  code, search served by another process, such as the API when a Celery worker
-  ingests in the Compose stack, finds no graph; this is not reproduced yet
-  ([#55](https://github.com/dolev31/lasagna/issues/55)).
+  builds lives in the memory of the process that ingested, so search served by
+  another process finds no graph. This is reproduced in the default Compose
+  stack: the Celery worker builds the graph, and each API worker makes its own
+  empty one ([#55](https://github.com/dolev31/lasagna/issues/55)).
 - **Weights & Biases and MLflow.** A run writes a results bundle; nothing sends
   it to a tracker yet.
 
