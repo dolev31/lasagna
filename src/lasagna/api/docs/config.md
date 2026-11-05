@@ -24,6 +24,7 @@ These are server settings read from the environment, under their `RAG_` names on
 | `RAG_MAX_BATCH_FILES` | `20` | `rest/limits.py` | Files in one `POST /api/v1/documents/batch`. |
 | `RAG_MAX_BATCH_BYTES` | `209715200` (200 MiB) | `rest/limits.py` | Total body of one batch upload. |
 | `RAG_SEARCH_TIMEOUT` | `120` | `rest/limits.py` | Seconds a REST search may run before it answers 504. |
+| `RAG_CHAT_TIMEOUT` | `120` | `rest/limits.py` | Seconds the answer of `POST /api/v1/chat/completions` may take once its search is done, before it answers 504 (or ends a streamed answer with an error event). |
 | `LASAGNA_LOG_FORMAT` | `text` | `rest/limits.py` | `json` writes one JSON object per log line. |
 | `PROMETHEUS_MULTIPROC_DIR` | unset | `rest/app.py` | Directory for Prometheus multi-process metric aggregation (gunicorn deployments). |
 

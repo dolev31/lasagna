@@ -13,6 +13,7 @@ header. The session decides what is searched and how; ``model`` is echoed.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 import uuid
@@ -63,6 +64,10 @@ MAX_INSTRUCTION_CHARS = 10000
 #: On an error a retry cannot fix, or one that would run the whole search
 #: again: the OpenAI clients retry 5xx answers unless told not to.
 _NO_RETRY = {"x-should-retry": "false"}
+
+#: A timer may fire this much before its deadline; a TimeoutError raised
+#: earlier than that is the provider's own.
+_TIMER_SLACK = 0.05
 
 _CHAT_ERRORS = {
     400: {
@@ -166,18 +171,33 @@ def _usage(message: Any) -> Optional[ChatCompletionUsage]:
     )
 
 
+def _add(total: Optional[ChatCompletionUsage], more: Optional[ChatCompletionUsage]):
+    """Usage summed over a stream's chunks: some providers report the prompt's
+    tokens on the first chunk and the answer's on the last."""
+    if more is None:
+        return total
+    if total is None:
+        return more
+    prompt = total.prompt_tokens + more.prompt_tokens
+    completion = total.completion_tokens + more.completion_tokens
+    return ChatCompletionUsage(
+        prompt_tokens=prompt, completion_tokens=completion, total_tokens=prompt + completion
+    )
+
+
 def _finish_reason(message: Any) -> Optional[str]:
     """``length`` when the provider says the answer was cut at ``max_tokens``; else ``stop``.
 
-    OpenAI-compatible providers report ``finish_reason``, Ollama ``done_reason``.
-    Chat front ends offer to continue an answer cut at ``length``. None when
-    the provider said nothing.
+    OpenAI-compatible providers report ``finish_reason`` (``length``), Ollama
+    ``done_reason`` (``length``), Anthropic ``stop_reason`` (``max_tokens``),
+    Google ``finish_reason`` (``MAX_TOKENS``). Chat front ends offer to continue
+    an answer cut at ``length``. None when the provider said nothing.
     """
     meta = getattr(message, "response_metadata", None) or {}
-    reason = meta.get("finish_reason") or meta.get("done_reason")
+    reason = meta.get("finish_reason") or meta.get("done_reason") or meta.get("stop_reason")
     if reason is None:
         return None
-    return "length" if str(reason) == "length" else "stop"
+    return "length" if str(reason).lower() in ("length", "max_tokens") else "stop"
 
 
 def _event(payload: Dict[str, Any]) -> str:
@@ -227,7 +247,12 @@ async def chat_completions(
                     )
                 )
         except Exception as exc:
-            raise search_http_error(exc, session_id, "Chat completion search")
+            error = search_http_error(exc, session_id, "Chat completion search")
+            if error.status_code in (503, 504):
+                # A model not on disk, an unreadable focus, a search past its
+                # deadline: retried, each runs the search again, to the same end.
+                error.headers = {**(error.headers or {}), **_NO_RETRY}
+            raise error
         cited = [citation_to_response(c) for c in citations]
         _remember_citations(session_id, user_id, cited, results)
         if not cited:
@@ -260,9 +285,20 @@ async def chat_completions(
         from lasagna.api.rest.limits import chat_timeout
 
         deadline = chat_timeout()
+        loop = asyncio.get_running_loop()
+        started = loop.time()
         try:
             reply = await asyncio.wait_for(llm.ainvoke(prompt), timeout=deadline)
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as exc:
+            if loop.time() - started < deadline - _TIMER_SLACK:
+                # The provider's own timeout, not this deadline: from 3.11 both
+                # are the built-in TimeoutError.
+                logger.error(f"Chat completion: the LLM provider timed out: {exc}")
+                raise HTTPException(
+                    status_code=502,
+                    detail="The LLM provider timed out while answering.",
+                    headers=_NO_RETRY,
+                ) from None
             raise HTTPException(
                 status_code=504,
                 detail=f"The answer did not finish within {deadline:g} s (RAG_CHAT_TIMEOUT).",
@@ -328,13 +364,13 @@ async def _stream(
     finish = "stop"
     usage: Optional[ChatCompletionUsage] = None
     deadline = chat_timeout()
+    loop = asyncio.get_running_loop()
+    stop_at = loop.time() + deadline
     yield chunk({"role": "assistant", "content": ""})
     try:
         if fixed is not None:
             yield chunk({"content": fixed})
         else:
-            loop = asyncio.get_running_loop()
-            stop_at = loop.time() + deadline
             parts = llm.astream(prompt).__aiter__()
             try:
                 while True:
@@ -349,12 +385,28 @@ async def _stream(
                     if text:
                         yield chunk({"content": text})
                     finish = _finish_reason(part) or finish
-                    usage = _usage(part) or usage
+                    usage = _add(usage, _usage(part))
             finally:
                 closer = getattr(parts, "aclose", None)
                 if closer is not None:
-                    await closer()
-    except asyncio.TimeoutError:
+                    # On a client disconnect before 3.12, a repeated cancel can
+                    # leave the generator running: closing it then raises.
+                    with contextlib.suppress(RuntimeError):
+                        await closer()
+    except asyncio.TimeoutError as exc:
+        if loop.time() < stop_at - _TIMER_SLACK:
+            # The provider's own timeout, not this deadline (see the plain path).
+            logger.error(f"Chat completion: the LLM provider timed out while streaming: {exc}")
+            yield _event(
+                {
+                    "error": {
+                        "message": "The LLM provider timed out while answering.",
+                        "type": "upstream_error",
+                    }
+                }
+            )
+            yield "data: [DONE]\n\n"
+            return
         yield _event(
             {
                 "error": {

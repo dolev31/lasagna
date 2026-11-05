@@ -104,7 +104,8 @@ What it does:
   deadline (`RAG_SEARCH_TIMEOUT`), quota and errors. Then the `cited` generator
   writes the answer, within `RAG_CHAT_TIMEOUT` (120 s).
 - `citations` and `degraded_stages` are extra top-level fields. A streamed answer
-  carries them on its last chunk, before `data: [DONE]`.
+  carries them on the chunk with its `finish_reason` (with `include_usage`, a
+  usage chunk follows it), before `data: [DONE]`.
 - `temperature` (default 0.0) and `max_tokens` or `max_completion_tokens`
   (default 1000) reach the LLM; `finish_reason` is `length` when the answer was
   cut there. `stream_options: {"include_usage": true}` adds the token usage to a
@@ -202,6 +203,7 @@ These security variables are read under their `RAG_` names only.
 | One batch upload | 200 MiB and 20 files | `RAG_MAX_BATCH_BYTES`, `RAG_MAX_BATCH_FILES` |
 | Other request bodies | 1 MiB | fixed |
 | One search | 120 seconds | `RAG_SEARCH_TIMEOUT` |
+| One chat completion's answer, after its search | 120 seconds | `RAG_CHAT_TIMEOUT` |
 | Concurrent uploads | 5 | `RAG_MAX_CONCURRENT_UPLOADS` |
 | Sessions per API key | 100 | `RAG_MAX_SESSIONS_PER_KEY` |
 | Request rate | 60 per minute, burst 10, adaptive | `RAG_RATE_LIMITING_ENABLED` |
@@ -225,7 +227,7 @@ chunks, 600 searches per minute and 200 uploads per hour.
 | 429 | Rate limited or over quota. Rate limits include `Retry-After`. |
 | 500 | An unhandled backend error. |
 | 503 | The backend is starting, a dependency is down, the processing pool is full, or the embedding model is not downloaded. |
-| 504 | The search ran past `RAG_SEARCH_TIMEOUT`. |
+| 504 | The search ran past `RAG_SEARCH_TIMEOUT`, or a chat completion's answer past `RAG_CHAT_TIMEOUT`. |
 
 A server never downloads a model inside a request. If the session's embedding
 model is not on disk, search answers 503 with the command that fixes it.

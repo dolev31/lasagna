@@ -469,3 +469,69 @@ def test_through_the_whole_app_a_stream_works_and_no_answer_is_counted_as_load(s
     assert seen == []
     client.models.list()
     assert len(seen) == 1
+
+
+# -- what the second review found ------------------------------------------
+
+
+def test_a_search_past_its_deadline_is_not_retried(served, monkeypatch):
+    import asyncio
+
+    monkeypatch.setenv("RAG_SEARCH_TIMEOUT", "1")
+
+    class _Slow(_Backend):
+        async def async_search_with_citations(self, **kwargs):
+            self.calls.append(kwargs)
+            await asyncio.sleep(5)
+
+    s = served(_Slow())
+    with pytest.raises(openai.APIStatusError) as caught:
+        s.client.with_options(max_retries=2).chat.completions.create(
+            model="lasagna", messages=[{"role": "user", "content": "tides?"}]
+        )
+    assert caught.value.status_code == 504
+    assert len(s.backend.calls) == 1
+
+
+def test_usage_split_across_chunks_is_added_up(served, monkeypatch):
+    s = served()
+
+    async def split(self, prompt):
+        yield SimpleNamespace(
+            content="The moon", usage_metadata={"input_tokens": 40, "output_tokens": 0}
+        )
+        yield SimpleNamespace(
+            content=" [1].",
+            usage_metadata={"input_tokens": 0, "output_tokens": 7},
+            response_metadata={"stop_reason": "max_tokens"},
+        )
+
+    monkeypatch.setattr(_Chat, "astream", split)
+    chunks = list(_ask(s.client, stream=True, stream_options={"include_usage": True}))
+    assert chunks[-1].usage.prompt_tokens == 40
+    assert chunks[-1].usage.completion_tokens == 7
+    assert chunks[-2].choices[0].finish_reason == "length"
+
+
+@pytest.mark.parametrize("meta", [{"stop_reason": "max_tokens"}, {"finish_reason": "MAX_TOKENS"}])
+def test_other_providers_names_for_a_cut_answer_say_length(served, monkeypatch, meta):
+    s = served()
+    monkeypatch.setattr(_Chat, "metadata", meta)
+    assert _ask(s.client).choices[0].finish_reason == "length"
+
+
+def test_a_providers_own_timeout_is_not_called_the_deadline(served, monkeypatch):
+    s = served()
+
+    async def times_out(self, prompt):
+        raise TimeoutError("read timed out")
+
+    monkeypatch.setattr(_Chat, "ainvoke", times_out)
+    answered = s.http.post(
+        "/api/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "tides?"}]},
+        headers={"X-Session-ID": SESSION},
+    )
+    assert answered.status_code == 502
+    assert "timed out" in answered.json()["detail"]
+    assert "RAG_CHAT_TIMEOUT" not in answered.json()["detail"]
