@@ -127,9 +127,19 @@ def test_a_store_without_the_method_is_not_warned_about(tmp_path, monkeypatch):
 # -- the Milvus backend -------------------------------------------------------
 
 
+class _SearchingServer(_BoundedServer):
+    """The bounded server, answering searches at the default level too."""
+
+    def search(self, **kwargs):
+        self.calls.append(("search", kwargs))
+        return [
+            [{"id": r["chunk_id"], "distance": 0.9, "entity": r} for r in self._visible(kwargs)]
+        ]
+
+
 def _server_backend(**kw) -> MilvusBackend:
     backend = MilvusBackend(**kw)
-    backend._client = _BoundedServer([{"document_id": "doc_old", "chunk_id": "c0"}])
+    backend._client = _SearchingServer([{"document_id": "doc_old", "chunk_id": "c0"}])
     backend._ensure_loaded = lambda client, name: None
     return backend
 
@@ -147,9 +157,14 @@ def test_on_a_server_a_default_read_misses_a_new_row_until_the_wait():
     assert probe["output_fields"] == ["count(*)"]
     assert probe["filter"] == new.to_milvus()
     assert probe["partition_names"] == ["t_s1"]
-    # The reads after it, at the fast default, see the new row.
+    # The reads after it, at the fast default, see the new row: a query and a
+    # search, which stays on the fast default.
     assert any(r["document_id"] == "doc_new" for r in backend.query("rag_documents", limit=10))
     assert "consistency_level" not in backend._client.calls[-1][1]
+    hits = backend.search("rag_documents", [0.1, 0.2], limit=10)
+    name, sent = backend._client.calls[-1]
+    assert name == "search" and "consistency_level" not in sent
+    assert "c1" in {str(h.id) for h in hits}
 
 
 def test_without_a_partition_the_probe_names_none():
@@ -199,3 +214,54 @@ def test_a_pool_waits_on_one_instance_and_frees_it():
     assert member._client.calls[-1][1]["consistency_level"] == "Strong"
     # The only instance is free again.
     assert pool.query("rag_documents", limit=1) is not None
+
+
+# -- the benchmark's fast ingest --------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_fast_ingest_waits_once_for_the_whole_corpus(monkeypatch):
+    from lasagna.knowledge_evaluation_sdk._fast_ingest import fast_ingest_corpus
+    from tests.test_fast_ingest import (
+        MockBackend,
+        MockCollectionManager,
+        MockConfig,
+        MockVectorBackend,
+        _make_corpus,
+        _make_corpus_to_valid,
+        _PartitionedTenants,
+    )
+
+    class _Waiting(MockVectorBackend):
+        def __init__(self):
+            super().__init__()
+            self.waits = []
+
+        def wait_until_searchable(self, collection_name, filter_expr, partition_key=None):
+            self.waits.append(
+                (
+                    collection_name,
+                    filter_expr.field,
+                    filter_expr.value,
+                    partition_key,
+                    len(self.inserted),
+                )
+            )
+
+    monkeypatch.setattr("lasagna.core.tenant.get_tenant_manager", lambda: _PartitionedTenants())
+    backend = MockBackend()
+    store = _Waiting()
+    backend._vector_backend = store
+    backend._collection_manager = MockCollectionManager(store, backend._embedding_manager)
+    corpus = _make_corpus(3)
+    total, ingested, errors = await fast_ingest_corpus(
+        corpus=corpus,
+        corpus_to_valid=_make_corpus_to_valid(corpus),
+        ready_ids=set(),
+        session_id="s1",
+        config=MockConfig(),
+        backend=backend,
+    )
+    assert total > 0 and not errors
+    # Once, for the session, after every chunk was inserted.
+    assert store.waits == [("test_collection", "session_id", "s1", "tenant_s1", total)]

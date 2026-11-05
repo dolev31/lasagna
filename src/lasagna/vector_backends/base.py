@@ -524,7 +524,8 @@ class VectorStoreAdapter(ABC):
         searchable when the write returns needs nothing, which is this default
         (Milvus Lite, Qdrant with ``wait``, OpenSearch with ``refresh``,
         pgvector, Weaviate). A store that serves searches from a slightly stale
-        view overrides it.
+        view overrides it. Pinecone is eventually consistent and does not, so
+        there a search sent right after ready can still miss the document.
         """
         return None
 

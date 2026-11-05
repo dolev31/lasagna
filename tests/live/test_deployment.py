@@ -962,43 +962,49 @@ class TestReadyMeansSearchable:
     27 of 30 such searches missed the document they had just seen turn ready,
     and every one found it a second later. Most tests here poll once a second,
     so they rarely sent their search inside that window, and CI failed only
-    once on it. This one polls every 0.1 s and searches at once.
+    once on it.
+
+    The stack limits requests per session, and this module's ``http`` waits
+    out a 429, which would send the search late and pass without the fix. So
+    each document gets a session of its own, its polls and its search go
+    through a client that does not retry, and a search that is limited counts
+    as inconclusive rather than as a hit.
     """
 
-    def _ready_now(self, document_id, headers):
-        url = f"{BASE_URL}/documents/{document_id}/status"
-        deadline = time.time() + POLL_MAX_WAIT
-        while time.time() < deadline:
-            resp = http.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
-            if resp.status_code == 200:
-                status = resp.json().get("status")
-                if status == "ready":
-                    return
-                assert status != "error", resp.text
-            time.sleep(0.1)
-        raise AssertionError(f"{document_id} was not ready within {POLL_MAX_WAIT}s")
-
-    def test_a_search_right_after_ready_finds_the_document(
-        self, own_session_headers, tmp_path_factory
-    ):
-        missed, uploaded = [], []
+    def test_a_search_right_after_ready_finds_the_document(self, tmp_path_factory):
+        plain = requests.Session()  # no retries: a 429 must show, not be waited out
+        missed, limited, uploaded = [], 0, []
         folder = tmp_path_factory.mktemp("ready")
         try:
             for i, (text, question) in enumerate(_READY_DOCS):
+                headers = {"X-Session-ID": f"test-ready-{uuid.uuid4().hex[:8]}"}
                 path = folder / f"fact_{i}.txt"
                 path.write_text(text, encoding="utf-8")
                 with open(path, "rb") as f:
                     resp = http.post(
                         f"{BASE_URL}/documents",
                         files={"file": (path.name, f, "text/plain")},
-                        headers=own_session_headers,
+                        headers=headers,
                         timeout=UPLOAD_TIMEOUT,
                     )
                 assert resp.status_code == 201, resp.text
                 document_id = resp.json()["document_id"]
-                uploaded.append(document_id)
-                self._ready_now(document_id, own_session_headers)
-                found = http.post(
+                uploaded.append((document_id, headers))
+                deadline = time.time() + POLL_MAX_WAIT
+                while True:
+                    assert time.time() < deadline, f"{document_id} was not ready in time"
+                    status = plain.get(
+                        f"{BASE_URL}/documents/{document_id}/status",
+                        headers=headers,
+                        timeout=DEFAULT_TIMEOUT,
+                    )
+                    if status.status_code == 200:
+                        state = status.json().get("status")
+                        assert state != "error", status.text
+                        if state == "ready":
+                            break
+                    time.sleep(0.25 if status.status_code == 429 else 0.1)
+                found = plain.post(
                     f"{BASE_URL}/search",
                     json={
                         "query": question,
@@ -1006,21 +1012,29 @@ class TestReadyMeansSearchable:
                         "use_hyde": False,
                         "use_reranking": False,
                     },
-                    headers=own_session_headers,
+                    headers=headers,
                     timeout=SEARCH_TIMEOUT,
                 )
+                if found.status_code == 429:
+                    limited += 1
+                    continue
                 assert found.status_code == 200, found.text
                 if document_id not in {r["document_id"] for r in found.json()["results"]}:
                     missed.append(question)
+            conclusive = len(_READY_DOCS) - limited
+            assert conclusive >= len(_READY_DOCS) - 2, (
+                f"the rate limiter answered {limited} of {len(_READY_DOCS)} searches, "
+                "so the test measured too little"
+            )
             assert not missed, (
-                f"{len(missed)} of {len(_READY_DOCS)} searches sent as their document "
-                f"turned ready missed it: {missed}"
+                f"{len(missed)} of {conclusive} searches sent as their document turned "
+                f"ready missed it: {missed}"
             )
         finally:
-            for document_id in uploaded:
+            for document_id, headers in uploaded:
                 http.delete(
                     f"{BASE_URL}/documents/{document_id}",
-                    headers=own_session_headers,
+                    headers=headers,
                     timeout=DEFAULT_TIMEOUT,
                 )
 

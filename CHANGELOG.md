@@ -16,7 +16,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   has applied its chunks (one Strong count per document, about 200 ms);
   searches keep the fast default. Milvus Lite, Qdrant, OpenSearch, pgvector
   and Weaviate searches already saw a write when it returned, so nothing
-  changes there.
+  changes there. Pinecone is eventually consistent and is not covered: there a
+  search sent right after ready can still miss the document.
 - The stage isolation check excuses only the settings an arm declares, and
   what the harness sets on their account, rather than every setting in a
   stage an arm names, and judges an inert arm setting by setting. An arm that

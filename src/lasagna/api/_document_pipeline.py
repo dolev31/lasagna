@@ -1615,7 +1615,7 @@ class DocumentPipeline:
         On a Milvus server a search sent right after the insert missed them,
         so "ready" did not yet mean a search finds the document. For a
         replacement this runs after the old copy's chunks are retired, so a
-        search also stops seeing those. Logged, never raised: a failure here
+        search also stops seeing those (in the same collection). Logged, never raised: a failure here
         must not discard chunks that are already stored, or a replaced copy;
         the document is then marked ready as before.
         """

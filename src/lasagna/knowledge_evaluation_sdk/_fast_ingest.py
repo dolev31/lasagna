@@ -589,6 +589,28 @@ def _flush_insert(
 # ---------------------------------------------------------------------------
 
 
+def _wait_until_searchable(
+    resolved_backend, collection_name: str, session_id: str, partition_key: Optional[str]
+) -> None:
+    """Wait until a search sees the session's new chunks; logged, never raised."""
+    wait = getattr(resolved_backend, "wait_until_searchable", None)
+    if wait is None:  # a store that does not derive from VectorStoreAdapter
+        return
+    from ..vector_backends.filters import FilterExpression
+
+    try:
+        wait(
+            collection_name,
+            FilterExpression.eq("session_id", session_id),
+            partition_key=partition_key,
+        )
+    except Exception as exc:  # noqa: BLE001 - logged; the corpus census after ingest reads fresh too
+        logger.warning(
+            f"Could not confirm that a search sees the corpus just ingested for {session_id} "
+            f"({type(exc).__name__}: {exc}); the first queries may miss its newest chunks."
+        )
+
+
 async def fast_ingest_corpus(
     corpus: Dict[str, str],
     corpus_to_valid: Dict[str, str],
@@ -815,6 +837,14 @@ async def fast_ingest_corpus(
             raise RuntimeError(
                 f"Chunking failed for {len(error_doc_ids)} of {total_docs} documents "
                 f"(first: {first_chunk_error})"
+            )
+
+        # Ready means a search finds them: on a Milvus server a search sent
+        # right after the insert can miss new rows (see
+        # VectorStoreAdapter.wait_until_searchable). Once per corpus.
+        if insert_result[1]:
+            _wait_until_searchable(
+                resolved_backend, config.collection_name, session_id, partition_key
             )
 
         # Register the documents themselves.

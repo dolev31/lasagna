@@ -439,8 +439,8 @@ class MilvusBackend(VectorStoreAdapter):
         in the default Compose stack, a search sent as a document turned
         ``ready`` missed it in 27 of 30 tries, and every one found it a second
         later. A Strong read waits until the server has applied every earlier
-        write, and the searches after it see them, as the scans after
-        ``_catch_up`` do. The ingest pipeline pays it once per document, never
+        write, and, with one replica (the default), the searches after it see
+        them, as the scans after ``_catch_up`` do. The ingest pipeline pays it once per document, never
         per search. Milvus Lite has no staleness window and gets nothing extra.
         """
         if self.is_lite:
