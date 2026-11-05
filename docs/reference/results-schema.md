@@ -25,7 +25,7 @@ The bundle schema version is 1.0. Readers accept 1.0 up to, not including, 2.0.
 | `experiment` | yes | The environment and run-level facts. See below. |
 | `configs` | yes | One entry per benchmark and arm. See below. |
 | `results` | yes | One entry per benchmark and arm with its metrics and per-query scores. |
-| `integrity` | yes | `warnings` and `blocking`, both lists of strings. |
+| `integrity` | yes | `warnings` and `blocking`, both lists of strings, and `fallbacks`: one line per stand-in or fallback behind `ACTIVE_FALLBACKS`. |
 
 ## `experiment`
 
@@ -70,6 +70,14 @@ Each entry has `benchmark_name`, `config_name` and `metrics`, and usually
 the ranked list the metrics were computed on, and `_retrieved` with the document
 id, score and rank of each result. The `rank` is authoritative. Scores can tie, so
 sorting by score does not rebuild the ranking.
+
+`system.degraded_stages`, present only when something fell back, says which
+stages fell back while the task's queries ran, per track:
+`{"retrieval": {"hybrid": {"queries": 12, "of": 12, "reasons": [{"reason": "...",
+"queries": 12}]}}}`, with up to three distinct reasons and the queries each covered; `other_reasons`
+counts queries that also fell back for a reason past those three.
+Reasons are redacted like the rest of the bundle.
+It is outside the comparability key; the bundle's `ACTIVE_FALLBACKS` reports it.
 
 ## Integrity messages
 

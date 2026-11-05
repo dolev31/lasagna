@@ -382,7 +382,24 @@ def _isolation(run: _Run) -> str:
         parts.append(f'<div class="note warn"><p>Inert arm: {_e(line)}</p></div>')
     if not parts:
         parts.append('<p class="muted">One arm only, so there was nothing to compare.</p>')
+    parts.append(_fallbacks(rows))
     return f'<section id="isolation"><h2>Stage isolation</h2>{"".join(parts)}</section>'
+
+
+def _fallbacks(rows: List[Dict[str, Any]]) -> str:
+    """Each stage that fell back while the queries ran, as `validate` names it (#50)."""
+    from .bundle import degraded_findings
+
+    lines = degraded_findings(rows)
+    if not lines:
+        return ""
+    items = "".join(f"<li>{_e(line)}</li>" for line in lines)
+    return (
+        '<div class="note warn"><p>Some stages fell back while the queries ran '
+        "(ACTIVE_FALLBACKS). Each line names the arm, the track and on how many queries; "
+        "a fallback that changed what was retrieved changed the arm's numbers:</p>"
+        f"<ul>{items}</ul></div>"
+    )
 
 
 def _leaderboard(ranking: List[Dict[str, Any]], metric: str) -> str:
