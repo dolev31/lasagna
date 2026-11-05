@@ -785,7 +785,7 @@ class TestDegradedPathsAreVisible:
 
         h = HybridSearcher.__new__(HybridSearcher)
         h._backend_supports_native_hybrid = lambda sid: False
-        h.is_native_mode_available = lambda: True
+        h._legacy_native_serves = lambda sid, collection_name=None: True
         h._native_searcher = SimpleNamespace(hybrid_search=down)
         h._fallback_hybrid_search = lambda **kw: (
             ["bm25 hit"],

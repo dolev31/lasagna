@@ -817,32 +817,49 @@ class HybridSearcher:
                     return override
         return (self._vector_backend, self._collection_name)
 
-    def _backend_supports_native_hybrid(self, session_id: Optional[str] = None) -> bool:
-        """Check if the session's backend supports native hybrid search.
+    def _backend_supports_native_hybrid(
+        self, session_id: Optional[str] = None, collection_name: Optional[str] = None
+    ) -> bool:
+        """Whether native hybrid search can run on the collection being searched.
 
         Args:
-            session_id: Optional session identifier (for per-session backend lookup)
+            session_id: The session, for its registered backend and collection.
+            collection_name: The collection to ask about, when the caller
+                knows it (a benchmark asks before its first search registers
+                the session's); otherwise the session's or the default.
 
-        Returns:
-            True if native hybrid search is available via the backend
+        Asked of the backend for that collection, and never answered yes
+        without asking: a store can run native hybrid search and still hold a
+        collection made without what it needs (Milvus: the ``sparse_embedding``
+        field), and then BM25 fusion is the normal path, not a fallback. A
+        connection pool used not to pass the question on, so on a Milvus
+        server every collection claimed native hybrid search (#50, #52).
         """
-        backend, collection_name = self._get_session_backend(session_id)
-        if backend is None:
+        backend, registered = self._get_session_backend(session_id)
+        return self._native_hybrid_on(backend, collection_name or registered)
+
+    @staticmethod
+    def _native_hybrid_on(backend: Any, collection_name: Optional[str]) -> bool:
+        """Ask ``backend`` about ``collection_name``; no backend or no name is a no."""
+        if backend is None or not collection_name:
             return False
+        per_collection = getattr(backend, "collection_supports_native_hybrid", None)
+        if per_collection is None:
+            return False
+        return bool(per_collection(collection_name))
 
-        if hasattr(backend, "capabilities"):
-            caps = backend.capabilities
-            if not (caps.supports_hybrid_search or caps.supports_native_bm25):
-                return False
-            # A backend that can run it may hold a collection made without
-            # what it needs (Milvus: the sparse_embedding field). Then BM25
-            # fusion is the normal path, not a fallback.
-            per_collection = getattr(backend, "collection_supports_native_hybrid", None)
-            if per_collection is not None and collection_name:
-                return bool(per_collection(collection_name))
-            return True
+    def _legacy_native_serves(
+        self, session_id: Optional[str] = None, collection_name: Optional[str] = None
+    ) -> bool:
+        """Whether the legacy Milvus native searcher can serve this search.
 
-        return False
+        It searches the one collection it was built for. A session searching
+        another (each embedder has its own) would get that collection's rows.
+        """
+        if not self.is_native_mode_available():
+            return False
+        collection = collection_name or self._get_session_backend(session_id)[1]
+        return collection == getattr(self._native_searcher, "collection_name", None)
 
     def is_native_mode_available(self) -> bool:
         """Check if native Milvus hybrid search is available.
@@ -1146,7 +1163,7 @@ class HybridSearcher:
                 # Fall through to legacy native or BM25 fallback
 
         # Legacy: Try Milvus native mode
-        if self.is_native_mode_available() and query_embedding is not None:
+        if self._legacy_native_serves(session_id) and query_embedding is not None:
             metrics["hybrid_mode"] = "native_milvus"
             timer = time.perf_counter()
             try:
@@ -1571,7 +1588,9 @@ class HybridSearcher:
 
         done = False  # marked only after a scan that completed
         try:
-            if self.is_native_mode_available() or self._backend_supports_native_hybrid(session_id):
+            if self._legacy_native_serves(session_id, collection_name) or self._native_hybrid_on(
+                backend or self._get_session_backend(session_id)[0], collection_name
+            ):
                 done = True
                 return 0
             if backend is None or not hasattr(backend, "iter_all"):

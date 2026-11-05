@@ -1067,10 +1067,24 @@ class MilvusBackend(VectorStoreAdapter):
     ) -> List[VectorSearchResult]:
         """Perform hybrid dense + sparse search.
 
-        Only works on Milvus Standalone/Distributed with sparse vectors.
-        Falls back to dense-only search on Milvus Lite.
+        Only works on Milvus Standalone/Distributed, on a collection with a
+        sparse vector field. Falls back to dense-only search on Milvus Lite,
+        and on a server collection without the field, where the native call
+        failed with "fieldName(sparse_embedding) not found" (#50). The second
+        is reported as a degraded stage: a caller that asked a server for
+        hybrid search gets dense results only. `HybridSearcher` asks
+        `collection_supports_native_hybrid` first and uses BM25 fusion there.
         """
-        if not self.capabilities.supports_hybrid_search:
+        supported = self.capabilities.supports_hybrid_search
+        if supported and not self.collection_supports_native_hybrid(collection_name):
+            from lasagna.utils import degraded
+
+            degraded.record(
+                "hybrid",
+                f"collection {collection_name} has no {sparse_field} field; dense results only",
+            )
+            supported = False
+        if not supported:
             # Fallback to dense search
             return self.search(
                 collection_name=collection_name,

@@ -139,7 +139,8 @@ def live(monkeypatch, llm):
     backend = SimpleNamespace(
         embedding_manager=SimpleNamespace(model_name="stub-embedder", dimension=8),
         hybrid_searcher=SimpleNamespace(
-            is_native_mode_available=lambda: True, _backend_supports_native_hybrid=lambda s: True
+            _legacy_native_serves=lambda s, c=None: True,
+            _backend_supports_native_hybrid=lambda s, c=None: True,
         ),
     )
     monkeypatch.setattr(rag_backend, "get_rag_backend", lambda *a, **k: backend)

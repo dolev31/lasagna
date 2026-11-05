@@ -419,7 +419,7 @@ class TestCapabilities:
         assert caps is not None
         assert isinstance(caps.supports_hybrid_search, bool)
 
-    def test_hybrid_search_matches_its_declaration(self, backend, collection, request):
+    def test_hybrid_search_matches_its_declaration(self, backend, collection):
         """A backend must not advertise hybrid search it cannot do.
 
         Callers branch on `capabilities`, so a false advertisement produces a
@@ -431,17 +431,9 @@ class TestCapabilities:
 
         if not caps.supports_hybrid_search:
             pytest.skip(f"{backend.backend_name} does not advertise hybrid search")
-        if backend.backend_name == "milvus" and not getattr(backend, "is_lite", True):
-            # Known, and filed as #50: a Milvus server advertises hybrid search,
-            # then refuses it on a collection with no sparse field. Strict, so
-            # this fails once #50 is fixed and the mark has to go.
-            request.applymarker(
-                pytest.mark.xfail(
-                    reason="#50: a Milvus server advertises hybrid search, then refuses it "
-                    "on a collection with no sparse_embedding field",
-                    strict=True,
-                )
-            )
+        # A Milvus server advertised hybrid search, then refused it on a
+        # collection with no sparse field (#50). It now answers per collection
+        # and falls back to dense results there.
 
         results = backend.hybrid_search(
             collection, query_text="content", query_embedding=_vec(1.0), limit=3
