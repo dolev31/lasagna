@@ -91,7 +91,8 @@ intervals, Holm-Bonferroni correction across a sweep (with adjusted p-values),
 a 2x2 interaction test with a t interval, per-sample scores joined by sample
 identity, comparability keys that record what was held fixed, a check from
 what actually ran that two arms differ only in the settings they name, and
-integrity-checked result bundles. Significance testing itself is not new
+integrity-checked result bundles that flag the stages that reported a
+fallback while the queries ran. Significance testing itself is not new
 (PyTerrier and ranx have it for IR runs, UltraRAG has a paired permutation
 test); what we did not find elsewhere is the combination inside a RAG pipeline
 framework, from one sweep file. Typed swap points are not new either (LlamaIndex has
@@ -107,7 +108,7 @@ in neither the docs nor a code search, not that it is proven absent.
 |---|---|---|---|---|---|---|
 | Significance tests | Paired sign-flip test, Holm, power | Not found | Not found | Paired permutation, no correction | Not found | Yes, IR runs only |
 | Interaction between components | 2×2 test with CI | Not found | Not found | Not found | Greedy search assumes none | Not found |
-| Result provenance | Bundles with a validator | Saved configs and scores | Experiment folders | Not found | Trial folders | Not found |
+| Result provenance | Bundles with a validator, which flags the stages that reported a fallback | Saved configs and scores | Experiment folders | Not found | Trial folders | Not found |
 | Published methods | 30 of 55 components cite the paper they implement | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
 | Ready corpora and indexes | Benchmark loaders, no prebuilt index | Wikipedia + prebuilt index | KILT + prebuilt index | Not found | Not found | Via ir_datasets |
 | License | Apache-2.0 | MIT | CC BY-NC-SA 4.0 | Apache-2.0 | MIT (badge) | MPL-2.0 / MIT |
