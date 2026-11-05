@@ -1,6 +1,6 @@
 # REST API
 
-`lasagna serve` runs an HTTP server with 41 endpoints: 32 under `/api/v1/` and 9
+`lasagna serve` runs an HTTP server with 43 endpoints: 34 under `/api/v1/` and 9
 that are not versioned. Every endpoint takes and returns JSON, except the two
 upload routes, which take multipart form data.
 
@@ -64,6 +64,62 @@ The search body has these fields:
 A stage that failed and fell back is named in `degraded_stages`, so an empty list
 means every configured stage ran.
 
+## Chat with an OpenAI client
+
+`POST /api/v1/chat/completions` takes the OpenAI chat format and answers from
+the session's documents. Point any OpenAI client library or chat front end at
+`.../api/v1` and send the session as you would to `/search`. An LLM must be
+configured, as for generation (`OPENAI_API_KEY`, or `OLLAMA_BASE_URL` and
+`MODEL_NAME`).
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8000/api/v1",
+    api_key="unused",  # required by the client; Lasagna reads the session header
+    default_headers={"X-Session-ID": "my-corpus"},  # X-Session-Token in the stack
+)
+reply = client.chat.completions.create(
+    model="lasagna",
+    messages=[{"role": "user", "content": "what did the ablation show?"}],
+)
+print(reply.choices[0].message.content)
+print(reply.model_dump()["citations"])  # the passages; [n] in the answer is citations[n-1]
+
+for chunk in client.chat.completions.create(
+    model="lasagna",
+    messages=[{"role": "user", "content": "what did the ablation show?"}],
+    stream=True,
+):
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
+What it does:
+
+- The last `user` message is the question. A `system` message becomes the
+  generator's instructions. Earlier turns are not used.
+- The session's own search runs, as on `/search/citations`, with the same
+  deadline, quota and errors. Then the `cited` generator writes the answer.
+- `citations` and `degraded_stages` are extra top-level fields. A streamed answer
+  carries them on its last chunk, before `data: [DONE]`.
+- `temperature` and `max_tokens` reach the LLM. `top_k` and `document_ids` go
+  in `extra_body`.
+- `n` above 1, `tools` and a non-text `response_format` are refused with 400.
+- A session with no documents gets the note `/search` gives. A search that
+  finds nothing gets "No passage in this session matches the question.". Neither
+  calls the LLM.
+- `GET /api/v1/models` lists the one model, `lasagna`. The name you send is
+  echoed and changes nothing.
+
+With `curl`, `-N` shows the events as they arrive:
+
+```bash
+curl -N -X POST http://127.0.0.1:8000/api/v1/chat/completions \
+  -H "X-Session-ID: my-corpus" -H "Content-Type: application/json" \
+  -d '{"model": "lasagna", "stream": true, "messages": [{"role": "user", "content": "what did the ablation show?"}]}'
+```
+
 ## Endpoints at a glance
 
 | Group | Routes |
@@ -73,6 +129,7 @@ means every configured stage ran.
 | Documents | `POST /api/v1/documents`, `POST /documents/batch`, `GET /documents`, and `GET`, `DELETE`, `/chunks`, `/status`, `/reindex`, `/archive`, `/restore` under `/documents/{document_id}` |
 | Admin | Garbage collection, orphan repair, the lifecycle policy and session deletion under `/api/v1/admin/` |
 | Search | `POST /api/v1/search`, `/search/citations`, `/search/multi-query`, `/search/agentic` |
+| Chat (OpenAI format) | `POST /api/v1/chat/completions`, `GET /api/v1/models` |
 | Citations | `GET /api/v1/citations` and `/citations/{citation_id}` |
 | Config | `GET` and `PATCH /api/v1/config`, `GET /config/profiles`, `PUT /config/profiles/{profile_name}` |
 | Pipelines | `GET /api/v1/pipelines` |

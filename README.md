@@ -312,6 +312,28 @@ lasagna serve --mcp -s my-corpus   # REST API, and MCP over SSE at /mcp/sse
 `-s` names the session that MCP tool calls and REST requests use when they
 name none; without it, MCP tools must pass `session_id`.
 
+### Any OpenAI client
+
+`POST /api/v1/chat/completions` answers from a session's documents in the
+OpenAI format, plain or streamed, so an OpenAI client library or chat front end
+needs no glue code. It searches with the session's pipeline, writes the answer
+with the `cited` generator from the LLM you configured, and returns the
+passages as `citations`.
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://127.0.0.1:8000/api/v1", api_key="unused",
+                default_headers={"X-Session-ID": "my-corpus"})
+reply = client.chat.completions.create(
+    model="lasagna", messages=[{"role": "user", "content": "what did the ablation show?"}])
+print(reply.choices[0].message.content)
+```
+
+In the Compose stack, send the session token instead (`X-Session-Token`). The
+[REST guide](https://dolev31.github.io/lasagna/docs/serving/rest-api/#chat-with-an-openai-client)
+covers streaming, citations and what is not served.
+
 ```json
 { "mcpServers": { "lasagna": { "type": "sse", "url": "http://127.0.0.1:8000/mcp/sse" } } }
 ```

@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +125,106 @@ class SearchWithCitationsResponse(BaseModel):
     routing: Optional[RoutingInfo] = None
     degraded_stages: List[str] = _DEGRADED_STAGES
     note: Optional[str] = _NOTE
+
+
+# ---------------------------------------------------------------------------
+# Chat completions, in the OpenAI format
+# ---------------------------------------------------------------------------
+
+
+class ChatMessage(BaseModel):
+    """One message of an OpenAI-format conversation."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    role: str = Field(..., description="system, user, assistant or tool")
+    content: Any = Field(
+        default=None,
+        description="A string, or a list of content parts whose text parts are joined",
+    )
+
+    def text(self) -> str:
+        """The message's text: the string, or its text parts joined by newlines."""
+        if isinstance(self.content, str):
+            return self.content
+        if isinstance(self.content, list):
+            return "\n".join(
+                str(part.get("text", ""))
+                for part in self.content
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
+        return ""
+
+
+class ChatCompletionRequest(BaseModel):
+    """The OpenAI chat-completions request, as much of it as this route serves.
+
+    Unknown OpenAI fields are ignored; the ones that would change what a
+    client expects back (several choices, tool calls, a response format) are
+    refused by the route rather than silently dropped.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    model: str = Field(
+        default="lasagna", description="Echoed back; the session decides what is searched"
+    )
+    messages: List[ChatMessage] = Field(..., min_length=1, max_length=200)
+    stream: bool = Field(default=False, description="Answer with server-sent events")
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    max_tokens: Optional[int] = Field(default=None, ge=1, le=32768)
+    n: Optional[int] = Field(default=None, description="Only 1 is served")
+    tools: Optional[List[Any]] = Field(default=None, description="Not served")
+    response_format: Optional[Any] = Field(default=None, description="Not served")
+    top_k: int = Field(default=5, ge=1, le=100, description="Passages to retrieve (Lasagna)")
+    document_ids: Optional[List[str]] = Field(
+        default=None, description="Search only these documents (Lasagna)"
+    )
+
+
+class ChatCompletionMessage(BaseModel):
+    role: str = "assistant"
+    content: str
+
+
+class ChatCompletionChoice(BaseModel):
+    index: int = 0
+    message: ChatCompletionMessage
+    finish_reason: str = "stop"
+
+
+class ChatCompletionUsage(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class ChatCompletionResponse(BaseModel):
+    """An OpenAI ``chat.completion``, plus the passages the answer cites."""
+
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: List[ChatCompletionChoice]
+    usage: Optional[ChatCompletionUsage] = None
+    citations: List[CitationResponse] = Field(
+        default_factory=list,
+        description="The passages the answer was written from; [n] in the answer is citations[n-1]",
+    )
+    degraded_stages: List[str] = _DEGRADED_STAGES
+
+
+class ModelCard(BaseModel):
+    id: str
+    object: str = "model"
+    created: int = 0
+    owned_by: str = "lasagna"
+
+
+class ModelList(BaseModel):
+    object: str = "list"
+    data: List[ModelCard]
 
 
 # ---------------------------------------------------------------------------
