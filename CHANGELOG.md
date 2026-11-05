@@ -13,7 +13,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   document turned ready missed it: in the default Compose stack 27 of 30 such
   searches came back without it, and each found it a second later. Before it
   marks a document ready, an upload or a reindex now waits until the server
-  has applied its chunks (one Strong count per document, about 200 ms);
+  has applied its chunks (one Strong count per document, about 200 ms; a
+  benchmark's ingest waits once per corpus);
   searches keep the fast default. Milvus Lite, Qdrant, OpenSearch, pgvector
   and Weaviate searches already saw a write when it returned, so nothing
   changes there. Pinecone is eventually consistent and is not covered: there a

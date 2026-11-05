@@ -1615,9 +1615,10 @@ class DocumentPipeline:
         On a Milvus server a search sent right after the insert missed them,
         so "ready" did not yet mean a search finds the document. For a
         replacement this runs after the old copy's chunks are retired, so a
-        search also stops seeing those (in the same collection). Logged, never raised: a failure here
-        must not discard chunks that are already stored, or a replaced copy;
-        the document is then marked ready as before.
+        search also stops seeing those (in the same collection). Logged, never
+        raised: a failure here must not discard chunks that are already
+        stored, or a replaced copy; the document is then marked ready as
+        before.
         """
         wait = getattr(backend, "wait_until_searchable", None)
         if wait is None:  # a store that does not derive from VectorStoreAdapter
