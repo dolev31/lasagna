@@ -1003,7 +1003,9 @@ class TestReadyMeansSearchable:
                         assert state != "error", status.text
                         if state == "ready":
                             break
-                    time.sleep(0.25 if status.status_code == 429 else 0.1)
+                    # 0.2 s: inside the ~0.3 s window, and slow enough that the
+                    # session's 10-request burst lasts a document that takes 2 s.
+                    time.sleep(0.5 if status.status_code == 429 else 0.2)
                 found = plain.post(
                     f"{BASE_URL}/search",
                     json={
