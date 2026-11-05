@@ -1453,7 +1453,7 @@ class RAGConfig:
             logger.info(f"Applied {len(overrides)} environment overrides: {list(overrides.keys())}")
         return overrides
 
-    def _get_knowledge_setting(self, *keys, default=None):
+    def _get_knowledge_setting(self, *keys, default=None, skip_session=False):
         """Safely get nested setting from knowledge settings.
 
         Priority order (highest to lowest):
@@ -1462,11 +1462,16 @@ class RAGConfig:
         3. TOML settings (settings.lasagna.toml)
         4. default parameter (typically self._config[key], which merges
            defaults < knowledge.toml < settings.memory.rag < env vars)
+
+        ``skip_session`` drops priority 1. It is for settings that name the
+        server's infrastructure rather than the session's behavior: a session
+        must never redirect where vectors live (see ``_session_keys``).
         """
         # 1. Check session overrides first (highest priority)
-        session_value = self._get_session_override(*keys)
-        if session_value is not None:
-            return session_value
+        if not skip_session:
+            session_value = self._get_session_override(*keys)
+            if session_value is not None:
+                return session_value
 
         # 2. Check env var overrides — use the leaf key for flat lookup
         #    e.g., keys=('rag', 'enable_reranking') → leaf='enable_reranking'
@@ -1504,9 +1509,19 @@ class RAGConfig:
         Set via:
             - Environment variable: RAG_VECTOR_BACKEND (legacy: LASAGNA_VECTOR_BACKEND)
             - Config file: settings.lasagna.toml [rag] vector_backend
+
+        Never from session or per-query overrides: the vector store is the
+        server's infrastructure (``_session_keys._SERVER_KEYS``). A profile's
+        full configuration carries the packaged settings file's
+        ``vector_backend``, which used to beat ``RAG_VECTOR_BACKEND`` once the
+        evaluation harness applied it as session overrides, redirecting every
+        non-Milvus stack's benchmark to Milvus (dolev31/lasagna#32).
         """
         return self._get_knowledge_setting(
-            "rag", "vector_backend", default=self._config["vector_backend"]
+            "rag",
+            "vector_backend",
+            default=self._config["vector_backend"],
+            skip_session=True,
         )
 
     @property
@@ -1531,9 +1546,15 @@ class RAGConfig:
         For Weaviate:
             - url: Weaviate server URL
             - api_key: API key (optional)
+
+        Never from session or per-query overrides: same reason as
+        ``vector_backend`` (dolev31/lasagna#32).
         """
         return self._get_knowledge_setting(
-            "rag", "vector_backend_config", default=self._config["vector_backend_config"]
+            "rag",
+            "vector_backend_config",
+            default=self._config["vector_backend_config"],
+            skip_session=True,
         )
 
     @property

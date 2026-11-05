@@ -87,6 +87,12 @@ Milvus Lite and in the Compose stack found seven harness bugs, filed as #46 to
   benchmarks, components or published loops there are is now checked against
   the code, so a pull request that adds one updates each page that counts it.
 
+- A benchmark run on a non-Milvus stack (e.g. Qdrant) no longer talks to
+  Milvus: `vector_backend` and `vector_backend_config` are the server's
+  infrastructure and are never resolved from session or per-query overrides,
+  and `KnowledgePipeline` no longer writes them into a session's overrides
+  (#32).
+
 ## [0.2.0] - 2026-11-01
 
 The first release with outside contributors. Thank you to
