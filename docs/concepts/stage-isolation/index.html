@@ -2291,6 +2291,12 @@ one arm from a results file written before the tracks were recorded beside a
 newer one, is not compared, and the run lists it as unverified.</p>
 <p>The run prints both. <code>lasagna results validate</code> refuses a bundle with an
 undeclared change, and <code>lasagna results view</code> shows the check on its page.</p>
+<p>The check works setting by setting and per track since
+<a href="https://github.com/dolev31/lasagna/pull/25">#25</a>, by
+<a href="https://github.com/segevshlomovIBM">@segevshlomovIBM</a>. Before it, a stage that
+either arm named was skipped whole, so a setting that leaked inside it went
+unreported, and an arm that named two settings passed as live when only one
+arrived.</p>
 <h2 id="what-the-check-does-not-see">What the check does not see<a class="headerlink" href="#what-the-check-does-not-see" title="Permanent link">&para;</a></h2>
 <p>The manifest digests configuration, not behavior. A component that changes state
 outside its stage while it runs, such as patching another module, leaves every
