@@ -1136,6 +1136,12 @@ class RAGConfig:
             "self_rag_weight_sup": 1.0,
             "self_rag_weight_use": 0.5,
             "self_rag_retrieval": "adaptive",  # 'adaptive' (Retrieve judgement) | 'always'
+            "search_o1_max_searches": 10,  # Search-o1: searches before the model is refused
+            "search_o1_max_turns": 15,  # Search-o1: generations before the loop stops
+            "search_o1_docs_per_search": 10,  # Search-o1: passages per search (the code's top_k)
+            "search_o1_continuation": "auto",  # 'auto' | 'ollama' | 'vllm' | 'off'
+            "search_o1_context_tokens": 32768,  # Search-o1: context window (Ollama num_ctx)
+            "search_o1_max_tokens": 20480,  # Search-o1: output cap per generation (QwQ on QA)
             "enable_mmr": True,
             "mmr_lambda": 0.5,  # LangChain and LlamaIndex default; a pre-MMR filter keeps only relevant items
             "mmr_score_normalization": "sigmoid",  # Options: 'sigmoid', 'minmax', 'sigmoid_minmax', 'none'. Plain sigmoid preserves cross-encoder calibration.
@@ -3233,6 +3239,48 @@ class RAGConfig:
         """Self-RAG: 'adaptive' (the model judges) or 'always' retrieve."""
         return self._get_knowledge_setting(
             "rag", "self_rag_retrieval", default=self._config["self_rag_retrieval"]
+        )
+
+    @property
+    def search_o1_max_searches(self) -> int:
+        """Search-o1: searches made before further queries are refused."""
+        return self._get_knowledge_setting(
+            "rag", "search_o1_max_searches", default=self._config["search_o1_max_searches"]
+        )
+
+    @property
+    def search_o1_max_turns(self) -> int:
+        """Search-o1: generations before the loop stops."""
+        return self._get_knowledge_setting(
+            "rag", "search_o1_max_turns", default=self._config["search_o1_max_turns"]
+        )
+
+    @property
+    def search_o1_docs_per_search(self) -> int:
+        """Search-o1: passages retrieved per search."""
+        return self._get_knowledge_setting(
+            "rag", "search_o1_docs_per_search", default=self._config["search_o1_docs_per_search"]
+        )
+
+    @property
+    def search_o1_continuation(self) -> str:
+        """Search-o1: 'auto', 'ollama', 'vllm' or 'off' (one turn continued, or a new turn)."""
+        return self._get_knowledge_setting(
+            "rag", "search_o1_continuation", default=self._config["search_o1_continuation"]
+        )
+
+    @property
+    def search_o1_context_tokens(self) -> int:
+        """Search-o1: context window the loop asks Ollama for (num_ctx)."""
+        return self._get_knowledge_setting(
+            "rag", "search_o1_context_tokens", default=self._config["search_o1_context_tokens"]
+        )
+
+    @property
+    def search_o1_max_tokens(self) -> int:
+        """Search-o1: output cap for each generation."""
+        return self._get_knowledge_setting(
+            "rag", "search_o1_max_tokens", default=self._config["search_o1_max_tokens"]
         )
 
     @property

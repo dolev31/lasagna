@@ -771,6 +771,12 @@ class ComponentRegistry:
                 "Self-RAG (prompted critic): retrieve on demand, critique each passage's answer",
                 "arxiv:2310.11511",
             ),
+            (
+                "search_o1",
+                _l + "search_o1:SearchO1Pipeline",
+                "Search-o1: a reasoning model searches mid-reasoning, Reason-in-Documents reads",
+                "arxiv:2501.05366",
+            ),
         ]:
             self._components["agentic_pipeline"][name] = _Registration(
                 description=description, paper=paper, _factory=factory, implements_contract=True

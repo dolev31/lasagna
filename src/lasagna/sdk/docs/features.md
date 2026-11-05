@@ -73,7 +73,7 @@ config = KnowledgeConfig(
 config = KnowledgeConfig(
     agentic_pipeline="default",  # Built-in structured graph (13 nodes, CRAG, quality gates)
     # agentic_pipeline="legacy_react",  # ReAct agent; what runs when nothing selects a pipeline
-    # agentic_pipeline="self_ask",  # Also ircot, flare, adaptive, self_rag (published loops)
+    # agentic_pipeline="self_ask",  # Also ircot, flare, adaptive, self_rag, search_o1 (published loops)
     # agentic_pipeline="my_custom_rag",  # Any registered BaseAgenticPipeline
 )
 ```
