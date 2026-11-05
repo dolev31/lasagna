@@ -2284,13 +2284,21 @@ that names one of them is inert on the retrieval track, where its retrieval
 numbers are the control's, and live on the generation track, and the run says
 so. The same holds for a setting only the agentic loop acts on, such as
 <code>max_agent_iterations</code> or <code>self_ask_max_follow_ups</code>: the retrieval track runs no
-loop. Context compression is an agentic setting the standard search applies too,
-so it counts on both tracks.</p>
+loop. It holds too for speculative RAG's settings (<code>enable_speculative_rag</code>,
+<code>speculative_*</code>), which only the generation track's answer step reads: the
+retrieval track makes no answers. Context compression is an agentic setting
+the standard search applies too, so it counts on both tracks.</p>
 <p>Two arms are compared only on a track both ran. A pair that shares no track, or
 one arm from a results file written before the tracks were recorded beside a
 newer one, is not compared, and the run lists it as unverified.</p>
-<p>The run prints both. <code>lasagna results validate</code> refuses a bundle with an
-undeclared change, and <code>lasagna results view</code> shows the check on its page.</p>
+<p>The run prints both, and names the track where a leaked setting acts. <code>lasagna
+results validate</code> refuses a bundle with an undeclared change, and <code>lasagna
+results view</code> shows the check on its page. An inert change is a warning
+(<code>INERT_ARM</code>), also when the arm is inert on one track only: its numbers on that
+track are the control's, and a leaderboard of that track would rank it as an arm
+of its own. So <code>lasagna results validate --strict</code>, which fails on any warning,
+fails a full-run sweep of an agentic or speculative setting; that is intended,
+and plain <code>validate</code> passes it.</p>
 <p>The check works setting by setting and per track since
 <a href="https://github.com/dolev31/lasagna/pull/25">#25</a>, by
 <a href="https://github.com/segevshlomovIBM">@segevshlomovIBM</a>. Before it, a stage that
