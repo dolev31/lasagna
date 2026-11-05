@@ -916,6 +916,115 @@ class TestReindex:
             )
 
 
+#: Distinct one-sentence documents, each with the question only it answers.
+_READY_DOCS = [
+    (
+        "Photosynthesis turns light, water and carbon dioxide into glucose in plant cells.",
+        "How do plants make glucose from light?",
+    ),
+    (
+        "The Danube flows through ten countries before it reaches the Black Sea.",
+        "Which river reaches the Black Sea after ten countries?",
+    ),
+    (
+        "A sourdough starter is flour and water fermented by wild yeast and bacteria.",
+        "What ferments a sourdough starter?",
+    ),
+    (
+        "Mercury is the planet closest to the Sun and has almost no atmosphere.",
+        "Which planet is closest to the Sun?",
+    ),
+    (
+        "Basalt forms when lava rich in iron and magnesium cools quickly at the surface.",
+        "How does basalt form from lava?",
+    ),
+    (
+        "The violin has four strings tuned in perfect fifths: G, D, A and E.",
+        "How are the violin's four strings tuned?",
+    ),
+    (
+        "Honeybees tell each other where flowers are with a waggle dance.",
+        "How do honeybees share where flowers are?",
+    ),
+    (
+        "A lunar eclipse happens when the Earth passes between the Sun and the Moon.",
+        "When does a lunar eclipse happen?",
+    ),
+]
+
+
+@pytest.mark.usefixtures("docker_service_available")
+class TestReadyMeansSearchable:
+    """A search sent the moment a document turns ready finds it.
+
+    On a Milvus server searches read at the Bounded level, and a search sent
+    right after the insert missed the new chunks: in the default Compose stack
+    27 of 30 such searches missed the document they had just seen turn ready,
+    and every one found it a second later. Most tests here poll once a second,
+    so they rarely sent their search inside that window, and CI failed only
+    once on it. This one polls every 0.1 s and searches at once.
+    """
+
+    def _ready_now(self, document_id, headers):
+        url = f"{BASE_URL}/documents/{document_id}/status"
+        deadline = time.time() + POLL_MAX_WAIT
+        while time.time() < deadline:
+            resp = http.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
+            if resp.status_code == 200:
+                status = resp.json().get("status")
+                if status == "ready":
+                    return
+                assert status != "error", resp.text
+            time.sleep(0.1)
+        raise AssertionError(f"{document_id} was not ready within {POLL_MAX_WAIT}s")
+
+    def test_a_search_right_after_ready_finds_the_document(
+        self, own_session_headers, tmp_path_factory
+    ):
+        missed, uploaded = [], []
+        folder = tmp_path_factory.mktemp("ready")
+        try:
+            for i, (text, question) in enumerate(_READY_DOCS):
+                path = folder / f"fact_{i}.txt"
+                path.write_text(text, encoding="utf-8")
+                with open(path, "rb") as f:
+                    resp = http.post(
+                        f"{BASE_URL}/documents",
+                        files={"file": (path.name, f, "text/plain")},
+                        headers=own_session_headers,
+                        timeout=UPLOAD_TIMEOUT,
+                    )
+                assert resp.status_code == 201, resp.text
+                document_id = resp.json()["document_id"]
+                uploaded.append(document_id)
+                self._ready_now(document_id, own_session_headers)
+                found = http.post(
+                    f"{BASE_URL}/search",
+                    json={
+                        "query": question,
+                        "top_k": 3,
+                        "use_hyde": False,
+                        "use_reranking": False,
+                    },
+                    headers=own_session_headers,
+                    timeout=SEARCH_TIMEOUT,
+                )
+                assert found.status_code == 200, found.text
+                if document_id not in {r["document_id"] for r in found.json()["results"]}:
+                    missed.append(question)
+            assert not missed, (
+                f"{len(missed)} of {len(_READY_DOCS)} searches sent as their document "
+                f"turned ready missed it: {missed}"
+            )
+        finally:
+            for document_id in uploaded:
+                http.delete(
+                    f"{BASE_URL}/documents/{document_id}",
+                    headers=own_session_headers,
+                    timeout=DEFAULT_TIMEOUT,
+                )
+
+
 @pytest.mark.usefixtures("docker_service_available")
 class TestMultiSessionIsolation:
     """Documents in one session must be invisible to another."""

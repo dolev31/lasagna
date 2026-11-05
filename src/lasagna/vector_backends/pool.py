@@ -347,6 +347,21 @@ class PooledVectorBackend(VectorStoreAdapter):
         finally:
             self._release(backend)
 
+    def wait_until_searchable(
+        self,
+        collection_name: str,
+        filter_expr: FilterExpression,
+        partition_key: Optional[str] = None,
+    ) -> None:
+        # One instance is enough: the wait is on the server, which every
+        # instance searches. Without this the pool kept the base no-op, as it
+        # once did for ``read_fresh``.
+        backend = self._acquire()
+        try:
+            backend.wait_until_searchable(collection_name, filter_expr, partition_key=partition_key)
+        finally:
+            self._release(backend)
+
     def query(
         self,
         collection_name: str,

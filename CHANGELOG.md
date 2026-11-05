@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A document turns `ready` only once a search finds it. On a Milvus server,
+  where searches read at the Bounded level, a search sent the moment a
+  document turned ready missed it: in the default Compose stack 27 of 30 such
+  searches came back without it, and each found it a second later. Before it
+  marks a document ready, an upload or a reindex now waits until the server
+  has applied its chunks (one Strong count per document, about 200 ms);
+  searches keep the fast default. Milvus Lite, Qdrant, OpenSearch, pgvector
+  and Weaviate searches already saw a write when it returned, so nothing
+  changes there.
 - The stage isolation check excuses only the settings an arm declares, and
   what the harness sets on their account, rather than every setting in a
   stage an arm names, and judges an inert arm setting by setting. An arm that

@@ -511,6 +511,23 @@ class VectorStoreAdapter(ABC):
                 return
             offset += len(rows)
 
+    def wait_until_searchable(
+        self,
+        collection_name: str,
+        filter_expr: FilterExpression,
+        partition_key: Optional[str] = None,
+    ) -> None:
+        """Return once a search sees every write made so far to the rows ``filter_expr`` names.
+
+        The ingest pipeline calls it before it marks a document ready, so that
+        "ready" means a search finds the document. A store whose writes are
+        searchable when the write returns needs nothing, which is this default
+        (Milvus Lite, Qdrant with ``wait``, OpenSearch with ``refresh``,
+        pgvector, Weaviate). A store that serves searches from a slightly stale
+        view overrides it.
+        """
+        return None
+
     def read_fresh(self) -> ContextManager[None]:
         """A block whose filter reads see every write made before it.
 

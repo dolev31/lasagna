@@ -425,6 +425,36 @@ class MilvusBackend(VectorStoreAdapter):
             return {}
         return {"consistency_level": "Strong"}
 
+    def wait_until_searchable(
+        self,
+        collection_name: str,
+        filter_expr: FilterExpression,
+        partition_key: Optional[str] = None,
+    ) -> None:
+        """One Strong ``count(*)`` of the rows ``filter_expr`` names, on a server.
+
+        Searches read at the collection's level, Bounded by default, and stay
+        so (Strong costs about 200 ms per query on the stack's Milvus 2.4).
+        Read that way, a search sent right after an insert missed the new rows:
+        in the default Compose stack, a search sent as a document turned
+        ``ready`` missed it in 27 of 30 tries, and every one found it a second
+        later. A Strong read waits until the server has applied every earlier
+        write, and the searches after it see them, as the scans after
+        ``_catch_up`` do. The ingest pipeline pays it once per document, never
+        per search. Milvus Lite has no staleness window and gets nothing extra.
+        """
+        if self.is_lite:
+            return
+        client = self._ensure_connected()
+        self._ensure_loaded(client, collection_name)
+        probe: Dict[str, Any] = {
+            "collection_name": collection_name,
+            "filter": filter_expr.to_milvus(),
+        }
+        if partition_key is not None:
+            probe["partition_names"] = [partition_key]
+        self._catch_up(client, probe)
+
     def _catch_up(self, client: MilvusClient, query_kwargs: Dict[str, Any]) -> None:
         """Make a server's next reads of this collection see every earlier write.
 
