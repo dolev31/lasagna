@@ -2124,6 +2124,7 @@ def benchmark_run(
         _error(f"Benchmark failed: {exc}", exc=exc)
 
     _print_leaderboard(results)
+    _print_fallbacks(results)
 
     if results.failed_tasks:
         n_failed = len(results.failed_tasks)
@@ -2298,6 +2299,7 @@ def benchmark_experiment(
         # Before the summary: printed after "Output" and "Next", a failed check
         # read as an afterthought to a run that had looked complete.
         _print_isolation(results)
+        _print_fallbacks(results)
     console.print(
         Panel.fit(
             (
@@ -2408,6 +2410,24 @@ def _print_isolation(results) -> None:
         console.print(f"[yellow]Stage isolation unverified: {escape(line)}[/yellow]")
     for line in report["inert"]:
         console.print(f"[yellow]Inert arm: {escape(line)}[/yellow]")
+
+
+def _print_fallbacks(results) -> None:
+    """Name each stage that fell back while the run's queries ran (#50).
+
+    The same lines `lasagna results validate` prints under ACTIVE_FALLBACKS.
+    """
+    from .knowledge_evaluation_sdk.bundle import degraded_findings
+
+    rows = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results._results]
+    lines = degraded_findings(rows)
+    if lines:
+        console.print(
+            "[yellow]Some stages fell back while the queries ran, so the bundle will "
+            "carry ACTIVE_FALLBACKS:[/yellow]"
+        )
+    for line in lines:
+        console.print(f"[yellow]  - {escape(line)}[/yellow]")
 
 
 def _release_backend() -> None:

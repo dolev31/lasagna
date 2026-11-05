@@ -48,6 +48,7 @@ from .benchmarks._base import BaseBenchmarkAdapter as _BaseBenchmarkAdapter
 from .checkpoint import CheckpointManager
 from .results import BenchmarkResults, primary_metric
 from .runner import HARNESS_KEYS, BenchmarkRunner, BenchmarkTask, TaskResult
+from ..utils import degraded as _degraded
 from ..utils.llm_cache import CacheStats, LLMCacheSettings, llm_cache_scope
 from .cost import PriceTable
 
@@ -752,6 +753,72 @@ def _reranker_that_ran(component: Optional[str], task_config: Dict[str, Any]) ->
     key = _RERANKER_MODEL_KEYS.get(component)
     model = task_config.get(key) if key else None
     return f"{component}:{model}" if model else component
+
+
+class _DegradedTally:
+    """The stages that fell back on one track of a task, counted by query.
+
+    A stage that catches its own failure and carries on with less calls
+    `lasagna.utils.degraded.record`, which collects it only inside
+    ``degraded.collecting()``. REST, MCP and the SDK open one per request; the
+    harness opened none, so every fallback during a benchmark reached the
+    metrics counter and nothing a reader of the results sees (#50).
+
+    Counted per reason too: hybrid search that falls back to BM25 fusion
+    scores as hybrid search does, and one that then finds its BM25 index empty
+    returns dense results only, which is the control's number (#52). One stage
+    name covers both, so the reason says which happened, on how many queries.
+    """
+
+    #: A Milvus error message runs to a few hundred characters.
+    _REASON_CHARS = 300
+    #: Distinct reasons kept per stage; queries with others still count.
+    _REASONS_KEPT = 3
+
+    def __init__(self) -> None:
+        self.queries = 0
+        self._stages: Dict[str, Dict[str, Any]] = {}
+
+    @contextlib.contextmanager
+    def query(self):
+        """Count one query, and what fell back while it ran."""
+        from lasagna.core.provenance import redact
+
+        self.queries += 1
+        with _degraded.collecting() as stages:
+            try:
+                yield
+            finally:
+                reasons = _degraded.all_reasons()
+                for stage in list(stages):
+                    entry = self._stages.setdefault(stage, {"queries": 0, "reasons": []})
+                    entry["queries"] += 1
+                    dropped = False
+                    for reason in reasons.get(stage, []):
+                        # Bundles are published: no machine-local paths.
+                        text = str(redact(reason))[: self._REASON_CHARS]
+                        kept = next((r for r in entry["reasons"] if r["reason"] == text), None)
+                        if kept is not None:
+                            kept["queries"] += 1
+                        elif len(entry["reasons"]) < self._REASONS_KEPT:
+                            entry["reasons"].append({"reason": text, "queries": 1})
+                        else:
+                            dropped = True
+                    if dropped:
+                        # Said, not lost: a reason first seen after the cap (an
+                        # index rebuilt empty mid-run) may be the one that
+                        # changed the results.
+                        entry["other_reasons"] = entry.get("other_reasons", 0) + 1
+
+    def to_dict(self) -> Dict[str, Dict[str, Any]]:
+        """``{stage: {"queries": n, "of": total, "reasons": [{"reason", "queries"}]}}``.
+
+        ``other_reasons``, when present, counts the queries that also fell back
+        for a reason past the cap.
+        """
+        return {
+            stage: {**entry, "of": self.queries} for stage, entry in sorted(self._stages.items())
+        }
 
 
 def _ran_system(
@@ -4536,6 +4603,9 @@ async def _eval_live(
     eval_meter = UsageMeter()
     #: Set when the generator read no passages, for the reports' footnote.
     _context_free = False
+    # What fell back while each track's queries ran (#50).
+    _ir_degraded = _DegradedTally()
+    _gen_degraded = _DegradedTally()
 
     # The cutoff the IR metrics are reported at. Was hard-coded to 10 in six
     # places, so NDCG@100 and Recall@1000 -- the cutoffs much of the retrieval
@@ -4610,7 +4680,12 @@ async def _eval_live(
             # made deep inside the pipeline -- HyDE, query expansion, the whole
             # agentic graph -- are attributed to this sample.
             sample_meter = UsageMeter()
-            with sample_meter, sample_meter.scope(SYSTEM), observe_reranking() as moved:
+            with (
+                sample_meter,
+                sample_meter.scope(SYSTEM),
+                observe_reranking() as moved,
+                _ir_degraded.query(),
+            ):
                 search_results = await asyncio.to_thread(
                     pipeline.query,
                     sample.question,
@@ -4853,6 +4928,7 @@ async def _eval_live(
                             gen_meter,
                             gen_meter.scope(SYSTEM),
                             present_context_order() as _presented,
+                            _gen_degraded.query(),
                         ):
                             search_results = await asyncio.wait_for(
                                 asyncio.to_thread(
@@ -5445,6 +5521,16 @@ async def _eval_live(
     if _context_free:
         # Read by the reports, which say why this arm has no faithfulness.
         _system["generator_context"] = "none"
+    # Only when something fell back, so a clean task's row, and the run id of
+    # its bundle, are what they were. Outside the comparability key, which
+    # reads named fields only: the bundle's integrity block reports it.
+    _fell_back = {
+        track: tally.to_dict()
+        for track, tally in (("retrieval", _ir_degraded), ("generation", _gen_degraded))
+        if tally.to_dict()
+    }
+    if _fell_back:
+        _system["degraded_stages"] = _fell_back
 
     result = TaskResult(
         task_key=task.task_key,

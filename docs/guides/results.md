@@ -69,6 +69,12 @@ It also lists integrity warnings that do not invalidate a bundle:
 - `SINGLE_RUN`: one run of a pipeline in which something samples.
 - `UNRESOLVED_JUDGE_ALIAS`: a judge named by a floating alias.
 - `PARTIAL_CORPUS`: some corpus documents failed to ingest.
+- `ACTIVE_FALLBACKS`: something ran with less than the arm names. Either the
+  install swapped in a stand-in (no `nltk`, no `rank_bm25`), and `validate`
+  prints what it changes and what to install; or a stage fell back while the
+  queries ran (hybrid search running as BM25 fusion or dense-only, a graph
+  expansion that failed), and `validate` prints the arm, the track, on how
+  many queries, and why.
 
 `--strict` turns the warnings into failures. A run records `nothing_samples` when
 only retrieval ran and no task called an LLM. One run of it is complete and raises

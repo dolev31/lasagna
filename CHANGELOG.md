@@ -8,6 +8,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A stage that falls back while a benchmark's queries run is named in the
+  results and the bundle (Part of #50). Hybrid search, the graph expansion
+  and other stages catch their own failure, carry on with less and record it;
+  REST, MCP and the SDK reported those stages, and the benchmark harness
+  never collected them. In the Compose stack, every query of a hybrid arm
+  under `speed` failed the native call and then ran dense-only, scoring
+  exactly the control (#52), and its bundle carried no fallback. Each task now
+  records `system.degraded_stages`: per track, the stage, on how many of its
+  queries, and up to three reasons with the queries each covered, so a
+  dense-only fallback is told apart from one that changed nothing. The bundle
+  raises `ACTIVE_FALLBACKS` with one line per arm, track and stage
+  (`hybrid fell back during the run: smoke, arm 'hybrid', retrieval track,
+  12 of 12 queries (12 queries: ...; 12 queries: BM25 index empty; dense
+  results only)`), which `lasagna results validate` prints and `--strict`
+  refuses; `lasagna benchmark run`, `benchmark experiment` and
+  `lasagna results view` show the same lines. A task where nothing fell back
+  records nothing new, so its bundle is what it was. Reasons are redacted
+  like the rest of a bundle. A `degraded.collecting()` block opened inside
+  another now hands its stages to the outer one.
 - A document turns `ready` only once a search finds it. On a Milvus server,
   where searches read at the Bounded level, a search sent the moment a
   document turned ready missed it: in the default Compose stack 27 of 30 such
