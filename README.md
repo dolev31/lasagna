@@ -330,7 +330,8 @@ reply = client.chat.completions.create(
 print(reply.choices[0].message.content)
 ```
 
-In the Compose stack, send the session token instead (`X-Session-Token`). The
+In the Compose stack, with auth on, send the session token instead
+(`X-Session-Token`); a front end that can only set an API key cannot, yet. The
 [REST guide](https://dolev31.github.io/lasagna/docs/serving/rest-api/#chat-with-an-openai-client)
 covers streaming, citations and what is not served.
 

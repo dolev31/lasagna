@@ -57,6 +57,9 @@ class _Backend:
 class _Chat:
     """A LangChain-like chat model that answers from the prompt it was given."""
 
+    #: What the provider says about how the answer ended.
+    metadata = {"finish_reason": "stop"}
+
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.prompts = []
@@ -66,12 +69,19 @@ class _Chat:
         return SimpleNamespace(
             content="The moon causes tides [1].",
             usage_metadata={"input_tokens": 40, "output_tokens": 7},
+            response_metadata=dict(self.metadata),
         )
 
     async def astream(self, prompt):
         self.prompts.append(prompt)
         for piece in ("The moon ", "causes tides ", "[1]."):
             yield SimpleNamespace(content=piece)
+        # Providers report usage and the finish reason on a last, empty chunk.
+        yield SimpleNamespace(
+            content="",
+            usage_metadata={"input_tokens": 40, "output_tokens": 7},
+            response_metadata=dict(self.metadata),
+        )
 
 
 @pytest.fixture
@@ -184,7 +194,7 @@ def test_a_search_that_fell_back_says_so(served):
 def test_nothing_found_is_said_without_asking_the_model(served):
     s = served(_Backend(citations=()))
     assert _ask(s.client).choices[0].message.content == chat.NO_PASSAGE
-    assert s.models == []
+    assert all(model.prompts == [] for model in s.models)
 
 
 def test_a_session_with_no_documents_gets_the_note_search_gives(served, monkeypatch):
@@ -273,3 +283,189 @@ def test_auth_applies_as_on_search(monkeypatch):
     assert unsigned.status_code == 401
     assert forged.status_code == 401
     assert backend.calls == []
+
+
+# -- limits, retries and what a front end relies on -------------------------
+
+
+def test_the_inputs_are_bounded_as_on_search(served):
+    s = served()
+    with pytest.raises(openai.UnprocessableEntityError):
+        s.client.chat.completions.create(
+            model="m" * 257, messages=[{"role": "user", "content": "tides?"}]
+        )
+    with pytest.raises(openai.BadRequestError, match="limit is 10000, as on /search"):
+        s.client.chat.completions.create(
+            model="lasagna", messages=[{"role": "user", "content": "q" * 10001}]
+        )
+    with pytest.raises(openai.BadRequestError, match="system instructions"):
+        s.client.chat.completions.create(
+            model="lasagna",
+            messages=[
+                {"role": "system", "content": "s" * 10001},
+                {"role": "user", "content": "tides?"},
+            ],
+        )
+    assert s.backend.calls == []
+
+
+def test_without_an_llm_nothing_is_searched_and_the_client_is_told_not_to_retry(
+    served, monkeypatch
+):
+    import lasagna.providers as providers
+
+    def _missing():
+        raise providers.LLMProviderNotConfigured("No LLMProvider configured")
+
+    s = served()
+    monkeypatch.setattr(providers, "get_llm_provider", _missing)
+    answered = s.http.post(
+        "/api/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "tides?"}]},
+        headers={"X-Session-ID": SESSION},
+    )
+    assert answered.status_code == 503
+    assert answered.headers["x-should-retry"] == "false"
+    assert s.backend.calls == []
+
+
+def test_a_provider_error_is_a_502_that_is_not_retried(served, monkeypatch):
+    s = served()
+
+    async def broken(self, prompt):
+        raise ConnectionError("provider went away")
+
+    monkeypatch.setattr(_Chat, "ainvoke", broken)
+    answered = s.http.post(
+        "/api/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "tides?"}]},
+        headers={"X-Session-ID": SESSION},
+    )
+    assert answered.status_code == 502
+    assert answered.headers["x-should-retry"] == "false"
+    assert len(s.backend.calls) == 1
+
+
+def test_an_answer_cut_at_max_tokens_says_length(served, monkeypatch):
+    s = served()
+    monkeypatch.setattr(_Chat, "metadata", {"finish_reason": "length"})
+    assert _ask(s.client).choices[0].finish_reason == "length"
+    assert list(_ask(s.client, stream=True))[-1].choices[0].finish_reason == "length"
+    monkeypatch.setattr(_Chat, "metadata", {"done_reason": "length"})  # Ollama's name
+    assert _ask(s.client).choices[0].finish_reason == "length"
+
+
+def test_developer_messages_and_max_completion_tokens_are_read(served):
+    s = served()
+    s.client.chat.completions.create(
+        model="lasagna",
+        messages=[
+            {"role": "developer", "content": "Answer in French."},
+            {"role": "user", "content": "What causes tides?"},
+        ],
+        max_completion_tokens=50,
+    )
+    assert "Answer in French." in s.models[0].prompts[0]
+    assert s.models[0].kwargs == {"max_tokens": 50}
+
+
+def test_a_stream_can_carry_its_usage(served):
+    s = served()
+    chunks = list(_ask(s.client, stream=True, stream_options={"include_usage": True}))
+    assert chunks[-1].choices == []
+    assert chunks[-1].usage.total_tokens == 47
+    assert chunks[-2].choices[0].finish_reason == "stop"
+
+
+def test_an_answer_past_the_chat_deadline_is_a_504(served, monkeypatch):
+    import asyncio
+
+    monkeypatch.setenv("RAG_CHAT_TIMEOUT", "1")
+    s = served()
+
+    async def slow(self, prompt):
+        await asyncio.sleep(5)
+
+    monkeypatch.setattr(_Chat, "ainvoke", slow)
+    answered = s.http.post(
+        "/api/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "tides?"}]},
+        headers={"X-Session-ID": SESSION},
+    )
+    assert answered.status_code == 504
+    assert "RAG_CHAT_TIMEOUT" in answered.json()["detail"]
+
+
+def test_a_stream_past_the_chat_deadline_ends_with_a_timeout_event(served, monkeypatch):
+    import asyncio
+
+    monkeypatch.setenv("RAG_CHAT_TIMEOUT", "1")
+    s = served()
+
+    async def slow(self, prompt):
+        yield SimpleNamespace(content="The moon")
+        await asyncio.sleep(5)
+        yield SimpleNamespace(content=" never")
+
+    monkeypatch.setattr(_Chat, "astream", slow)
+    with pytest.raises(openai.APIError, match="RAG_CHAT_TIMEOUT"):
+        list(_ask(s.client, stream=True))
+
+
+def test_a_search_past_its_deadline_is_a_504_before_any_answer(served, monkeypatch):
+    import asyncio
+
+    monkeypatch.setenv("RAG_SEARCH_TIMEOUT", "1")
+
+    class _Slow(_Backend):
+        async def async_search_with_citations(self, **kwargs):
+            await asyncio.sleep(5)
+
+    s = served(_Slow())
+    answered = s.http.post(
+        "/api/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "tides?"}], "stream": True},
+        headers={"X-Session-ID": SESSION},
+    )
+    assert answered.status_code == 504
+    assert s.models[0].prompts == []
+
+
+def test_a_model_that_is_not_downloaded_is_a_503(served):
+    from lasagna.core.model_downloads import ModelNotDownloaded
+
+    s = served(_Backend(fail=ModelNotDownloaded("BAAI/bge-m3", offline=True)))
+    answered = s.http.post(
+        "/api/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "tides?"}]},
+        headers={"X-Session-ID": SESSION},
+    )
+    assert answered.status_code == 503
+    assert "BAAI/bge-m3 is not downloaded" in answered.json()["detail"]
+
+
+def test_through_the_whole_app_a_stream_works_and_no_answer_is_counted_as_load(served, monkeypatch):
+    """The served app, middleware included; the LLM's wait is not this server's load."""
+    from lasagna.api.rest.app import create_app
+    from lasagna.core import rate_limiter
+
+    monkeypatch.delenv("RAG_REQUIRE_AUTH", raising=False)
+    s = served()
+    seen = []
+    limiter = rate_limiter.get_rate_limiter()
+    monkeypatch.setattr(limiter, "record_request_latency", lambda ms: seen.append(ms))
+    app = create_app()
+    app.dependency_overrides[get_backend] = lambda: s.backend
+    client = openai.OpenAI(
+        base_url="http://testserver/api/v1",
+        api_key="unused",
+        http_client=TestClient(app),
+        default_headers={"X-Session-ID": SESSION},
+        max_retries=0,
+    )
+    text = "".join(c.choices[0].delta.content or "" for c in _ask(client, stream=True))
+    assert text == "The moon causes tides [1]."
+    assert _ask(client).choices[0].message.content == "The moon causes tides [1]."
+    assert seen == []
+    client.models.list()
+    assert len(seen) == 1

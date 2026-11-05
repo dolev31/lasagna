@@ -137,7 +137,7 @@ class ChatMessage(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    role: str = Field(..., description="system, user, assistant or tool")
+    role: str = Field(..., description="system, developer, user, assistant or tool")
     content: Any = Field(
         default=None,
         description="A string, or a list of content parts whose text parts are joined",
@@ -167,12 +167,20 @@ class ChatCompletionRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     model: str = Field(
-        default="lasagna", description="Echoed back; the session decides what is searched"
+        default="lasagna",
+        max_length=256,
+        description="Echoed back; the session decides what is searched",
     )
     messages: List[ChatMessage] = Field(..., min_length=1, max_length=200)
     stream: bool = Field(default=False, description="Answer with server-sent events")
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, ge=1, le=32768)
+    max_completion_tokens: Optional[int] = Field(
+        default=None, ge=1, le=32768, description="The newer name for max_tokens"
+    )
+    stream_options: Optional[Dict[str, Any]] = Field(
+        default=None, description="include_usage: true sends a last chunk with the token usage"
+    )
     n: Optional[int] = Field(default=None, description="Only 1 is served")
     tools: Optional[List[Any]] = Field(default=None, description="Not served")
     response_format: Optional[Any] = Field(default=None, description="Not served")

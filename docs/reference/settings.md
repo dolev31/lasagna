@@ -403,6 +403,7 @@ environment only: not from the settings file, and not per session.
 | `RAG_MAX_BATCH_FILES` | `20` | Files in one POST /api/v1/documents/batch; more is refused with 400. |
 | `RAG_MAX_BATCH_BYTES` | `209715200` | Total body of one batch upload (200 MiB); more is refused with 413 before the body is read. |
 | `RAG_SEARCH_TIMEOUT` | `120` | Seconds a REST search may run before it answers 504. |
+| `RAG_CHAT_TIMEOUT` | `120` | Seconds the answer of POST /api/v1/chat/completions may take once its search is done, before it answers 504 (or ends a streamed answer with an error event). |
 | `RAG_MAX_SESSIONS_PER_KEY` | `100` | With RAG_REQUIRE_AUTH on, how many sessions one API key may mint per token lifetime (RAG_SESSION_TOKEN_TTL_SECONDS); one more answers 429. Raise it for an application that makes a session per end user. |
 | `RAG_EMBED_MCP` | `false` | Mount the MCP server at /mcp inside the REST process, for single-process deployments such as Milvus Lite. |
 | `RAG_CONFIGURATOR` | `false` | Mount the configurator UI at /configurator, with its API routes. |

@@ -569,19 +569,24 @@ what is searched; `model` is echoed back.
 
 #### `POST /api/v1/chat/completions`
 
-The last `user` message is the question, and a `system` message is passed to
-the generator as instructions; earlier turns are not used. The session's
-search runs as on `/search/citations`, under the same deadline, quota and
-errors. The `cited` generator writes the answer from the passages found, and
-`citations` lists them: `[n]` in the answer is `citations[n-1]`.
-`degraded_stages` names any search stage that fell back.
+The last `user` message is the question, at most 10,000 characters as on
+`/search`, and `system` and `developer` messages are passed to the generator as
+instructions (at most 10,000 characters together); earlier turns are not used.
+The session's search runs as on `/search/citations`, under the same deadline
+(`RAG_SEARCH_TIMEOUT`), quota and errors. The `cited` generator then writes the
+answer with the configured LLM, under `RAG_CHAT_TIMEOUT` (120 s), and
+`citations` lists the passages: `[n]` in the answer is `citations[n-1]`.
+`degraded_stages` names any search stage that fell back. `finish_reason` is
+`length` when the provider cut the answer at `max_tokens`.
 
 | Field | Default | Description |
 |---|---|---|
 | `messages` | required | The conversation, 1 to 200 messages. Content is a string or a list of text parts. |
-| `model` | `lasagna` | Echoed back. |
-| `stream` | `false` | Answer as server-sent `chat.completion.chunk` events. The last carries `finish_reason: "stop"`, `citations` and `degraded_stages`; then `data: [DONE]`. |
-| `temperature`, `max_tokens` | the provider's | Passed to the session's LLM. |
+| `model` | `lasagna` | Echoed back; at most 256 characters. |
+| `stream` | `false` | Answer as server-sent `chat.completion.chunk` events. The last carries `finish_reason`, `citations` and `degraded_stages`; then `data: [DONE]`. |
+| `stream_options` | none | `{"include_usage": true}` adds a chunk with no choices and the token usage before `[DONE]`. |
+| `temperature` | `0.0` | Passed to the configured LLM (one per server, set by `OPENAI_API_KEY`, `OLLAMA_BASE_URL` and `MODEL_NAME`). |
+| `max_tokens`, `max_completion_tokens` | `1000` | The answer's length limit, under either name. |
 | `top_k` | `5` | Passages to retrieve (Lasagna's own; `extra_body` in the OpenAI SDKs). |
 | `document_ids` | none | Search only these documents (Lasagna's own). |
 
@@ -598,10 +603,13 @@ passage in this session matches the question."; neither calls the LLM.
 | 429 | Rate limit or quota exceeded |
 | 502 | The LLM provider failed while answering |
 | 503 | No LLM is configured, a model is not downloaded, or the session's focused documents could not be read |
-| 504 | The search ran past `RAG_SEARCH_TIMEOUT` |
+| 504 | The search ran past `RAG_SEARCH_TIMEOUT`, or the answer past `RAG_CHAT_TIMEOUT` |
 
-A provider that fails after a streamed answer has started ends the stream with
-an `error` event, then `data: [DONE]`.
+The LLM is checked before the search, so without one nothing is searched. The
+502, 503 and 504 answers that come from the LLM carry `x-should-retry: false`:
+the OpenAI clients would otherwise retry them, running the whole search again.
+A provider that fails or times out after a streamed answer has started ends the
+stream with an `error` event, then `data: [DONE]`.
 
 ---
 

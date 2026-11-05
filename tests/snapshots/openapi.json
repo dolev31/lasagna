@@ -202,6 +202,20 @@
             "description": "Search only these documents (Lasagna)",
             "title": "Document Ids"
           },
+          "max_completion_tokens": {
+            "anyOf": [
+              {
+                "maximum": 32768.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newer name for max_tokens",
+            "title": "Max Completion Tokens"
+          },
           "max_tokens": {
             "anyOf": [
               {
@@ -227,6 +241,7 @@
           "model": {
             "default": "lasagna",
             "description": "Echoed back; the session decides what is searched",
+            "maxLength": 256,
             "title": "Model",
             "type": "string"
           },
@@ -257,6 +272,19 @@
             "description": "Answer with server-sent events",
             "title": "Stream",
             "type": "boolean"
+          },
+          "stream_options": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "include_usage: true sends a last chunk with the token usage",
+            "title": "Stream Options"
           },
           "temperature": {
             "anyOf": [
@@ -393,7 +421,7 @@
             "title": "Content"
           },
           "role": {
-            "description": "system, user, assistant or tool",
+            "description": "system, developer, user, assistant or tool",
             "title": "Role",
             "type": "string"
           }
@@ -4587,7 +4615,7 @@
     },
     "/api/v1/chat/completions": {
       "post": {
-        "description": "Answer the last user message from the session's documents, in the OpenAI format.\n\nThe search is the session's own, as on ``/search/citations``, under the\nsame deadline, quota and errors. The `cited` generator writes the answer,\nand ``citations`` lists the passages it read: ``[n]`` in the answer is\n``citations[n-1]``. ``degraded_stages`` names any search stage that fell\nback. With ``stream: true`` the answer arrives as ``chat.completion.chunk``\nevents, the last of which carries the citations, then ``data: [DONE]``.\nA system message is passed to the generator as instructions; earlier turns\nare not used. A session with no documents, or a search that found nothing,\nis answered with a note and no LLM call.",
+        "description": "Answer the last user message from the session's documents, in the OpenAI format.\n\nThe search is the session's own, as on ``/search/citations``, under the\nsame deadline, quota and errors. The `cited` generator writes the answer\nwith the configured LLM, under ``RAG_CHAT_TIMEOUT``, and ``citations``\nlists the passages it read: ``[n]`` in the answer is ``citations[n-1]``.\n``degraded_stages`` names any search stage that fell back. With\n``stream: true`` the answer arrives as ``chat.completion.chunk`` events,\nthe last of which carries the citations, then ``data: [DONE]``. System and\ndeveloper messages are passed to the generator as instructions; earlier\nturns are not used. A session with no documents, or a search that found\nnothing, is answered with a note and no LLM call.",
         "operationId": "chat_completions_api_v1_chat_completions_post",
         "parameters": [
           {
@@ -4700,7 +4728,7 @@
                 }
               }
             },
-            "description": "The request asks for what this route does not serve"
+            "description": "The request asks for what this route does not serve, or is too long"
           },
           "401": {
             "content": {
@@ -4780,7 +4808,7 @@
                 }
               }
             },
-            "description": "The search ran past RAG_SEARCH_TIMEOUT"
+            "description": "The search ran past RAG_SEARCH_TIMEOUT, or the answer past RAG_CHAT_TIMEOUT"
           }
         },
         "summary": "Chat Completions",

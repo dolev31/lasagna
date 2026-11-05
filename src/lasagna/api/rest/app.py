@@ -215,6 +215,12 @@ async def _host_middleware(request: Request, call_next):
     return JSONResponse(status_code=421, content={"detail": foreign_host_message(host)})
 
 
+#: Paths whose time is the LLM provider's, kept out of the load estimate. The
+#: request path, not the route template, which is the sub-router's
+#: ("/chat/completions") for every /api/v1 route.
+_LLM_BOUND_PATHS = frozenset({"/api/v1/chat/completions"})
+
+
 async def _timing_middleware(request: Request, call_next):
     """Record request duration in the ``X-Response-Time`` header."""
     # Skip timing for exempt paths (SSE connections would skew metrics)
@@ -247,10 +253,13 @@ async def _timing_middleware(request: Request, call_next):
         },
     )
 
-    # Feed latency to rate limiter load estimator
-    from lasagna.core.rate_limiter import get_rate_limiter
+    # Feed latency to rate limiter load estimator. Not a chat completion's:
+    # its seconds are spent waiting on the LLM provider, not on this server,
+    # and counted as load they throttled every tenant (500 ms reads as full).
+    if path not in _LLM_BOUND_PATHS:
+        from lasagna.core.rate_limiter import get_rate_limiter
 
-    get_rate_limiter().record_request_latency(elapsed_ms)
+        get_rate_limiter().record_request_latency(elapsed_ms)
 
     return response
 

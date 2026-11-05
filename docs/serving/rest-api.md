@@ -97,20 +97,27 @@ for chunk in client.chat.completions.create(
 
 What it does:
 
-- The last `user` message is the question. A `system` message becomes the
-  generator's instructions. Earlier turns are not used.
+- The last `user` message is the question, at most 10,000 characters as on
+  `/search`. `system` and `developer` messages become the generator's
+  instructions. Earlier turns are not used.
 - The session's own search runs, as on `/search/citations`, with the same
-  deadline, quota and errors. Then the `cited` generator writes the answer.
+  deadline (`RAG_SEARCH_TIMEOUT`), quota and errors. Then the `cited` generator
+  writes the answer, within `RAG_CHAT_TIMEOUT` (120 s).
 - `citations` and `degraded_stages` are extra top-level fields. A streamed answer
   carries them on its last chunk, before `data: [DONE]`.
-- `temperature` and `max_tokens` reach the LLM. `top_k` and `document_ids` go
-  in `extra_body`.
+- `temperature` (default 0.0) and `max_tokens` or `max_completion_tokens`
+  (default 1000) reach the LLM; `finish_reason` is `length` when the answer was
+  cut there. `stream_options: {"include_usage": true}` adds the token usage to a
+  stream. `top_k` and `document_ids` go in `extra_body`.
 - `n` above 1, `tools` and a non-text `response_format` are refused with 400.
 - A session with no documents gets the note `/search` gives. A search that
   finds nothing gets "No passage in this session matches the question.". Neither
   calls the LLM.
 - `GET /api/v1/models` lists the one model, `lasagna`. The name you send is
   echoed and changes nothing.
+- With auth on (the Compose stack), send the session token as
+  `X-Session-Token`. A chat front end that can only set an API key cannot send
+  it yet.
 
 With `curl`, `-N` shows the events as they arrive:
 
