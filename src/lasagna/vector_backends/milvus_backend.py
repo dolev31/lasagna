@@ -245,7 +245,6 @@ class MilvusBackend(VectorStoreAdapter):
         self._loaded_collections: set = set()
         # Whether each collection has a scalar session_id field (see session_filter).
         self._session_column: Dict[str, bool] = {}
-        # Whether each collection has the sparse field native hybrid search reads.
         #: The field names of each collection asked about, for native hybrid search.
         self._native_hybrid: Dict[str, frozenset] = {}
 

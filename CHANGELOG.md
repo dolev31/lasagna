@@ -14,21 +14,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `collection_supports_native_hybrid`, so every collection counted as able to
   run native hybrid search. The collections Lasagna creates have no
   `sparse_embedding` field, so every hybrid search tried the native call,
-  failed and fell back (12 times in a 12-query `standard` run). Under
-  `standard` the fallback fused with BM25 and the numbers were right. Under
-  `speed`, on a corpus ingested with hybrid off, the same answer had skipped
-  the benchmark's BM25 prebuild, so a hybrid arm ran dense-only and scored
-  exactly the control: ndcg@10 0.9464 on `smoke`, where Milvus Lite gives
-  0.9505. In the stack it now gives 0.9505. The base adapter answers per
-  collection from its capabilities (pgvector, OpenSearch and Weaviate as
-  before), Milvus reads the collection's fields, and the pool asks one of its
-  instances. The searcher never answers yes without asking, and asks about the
-  collection a session searches (the benchmark's prebuild names the task's). The legacy
+  failed and fell back (all 12 queries of a `standard` run on `smoke`). The
+  same answer skipped filling the BM25 index from the store, so wherever a
+  process had not indexed the chunks itself, the fallback found it empty and
+  returned dense results only. In the stack that is every REST and MCP hybrid
+  search after an upload the Celery worker ingested, or after a restart; in a
+  benchmark, a hybrid arm on a corpus ingested with hybrid off: under `speed`
+  it scored exactly the control, ndcg@10 0.9464 on `smoke`, where Milvus Lite
+  gives 0.9505. In the stack it now gives 0.9505, with map@10 and R-precision
+  as on Milvus Lite. The base adapter answers per collection from its
+  capabilities (pgvector, OpenSearch and Weaviate as before), Milvus reads the
+  collection's fields, and the pool asks one of its instances. The searcher
+  never answers yes without asking, and asks about the collection a session
+  searches, which the benchmark names before its first search. The legacy
   Milvus searcher serves only the collection it was built for. On a collection
   without the field, `MilvusBackend.hybrid_search` returns dense results and
   reports a degraded `hybrid` stage instead of failing. Numbers move only for
-  hybrid arms on a Milvus server that had run dense-only; they now match Milvus
-  Lite.
+  hybrid search on a Milvus server where it had run dense-only.
 - A stage that falls back while a benchmark's queries run is named in the
   results and the bundle (Part of #50). Hybrid search, the graph expansion
   and other stages catch their own failure, carry on with less and record it;

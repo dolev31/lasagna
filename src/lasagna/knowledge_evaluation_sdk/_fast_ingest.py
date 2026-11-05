@@ -579,7 +579,9 @@ def _flush_insert(
 
     # BM25 append (deferred build)
     if enable_hybrid and hybrid_searcher:
-        hybrid_searcher.index_chunks(bm25_docs, session_id, build_now=False)
+        hybrid_searcher.index_chunks(
+            bm25_docs, session_id, build_now=False, collection_name=collection_name
+        )
 
     return len(batch_data)
 

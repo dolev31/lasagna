@@ -109,7 +109,9 @@ with no arguments fills in the environment defaults above. OpenSearch's
 
 ## What each backend supports
 
-From each backend's `capabilities` property:
+From each backend's `capabilities` property, except the two Milvus server cells
+that name a collection: those come from `collection_supports_native_hybrid`,
+which a Milvus server answers per collection.
 
 | | Milvus Lite | Milvus server | Qdrant | Pinecone | Weaviate | PgVector | OpenSearch |
 | --- | --- | --- | --- | --- | --- | --- | --- |

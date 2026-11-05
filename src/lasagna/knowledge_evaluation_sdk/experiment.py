@@ -4543,7 +4543,7 @@ async def _eval_live(
                 # Convert to BM25 chunk format and build index.
                 _bm25_docs = build_bm25_docs(_all_chunks)
                 if _bm25_docs:
-                    _hybrid.index_chunks(_bm25_docs, shared_session_id)
+                    _hybrid.index_chunks(_bm25_docs, shared_session_id, collection_name=_coll)
                     logger.info(
                         f"BM25 fallback index built: {len(_bm25_docs)} chunks "
                         f"for session {shared_session_id}"

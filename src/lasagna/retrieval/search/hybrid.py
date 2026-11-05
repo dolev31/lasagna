@@ -848,8 +848,13 @@ class HybridSearcher:
             return False
         try:
             return bool(per_collection(collection_name))
-        except Exception as e:  # an unconnected pool: BM25 fusion is the safe answer
-            logger.debug(f"Could not ask about native hybrid search on {collection_name}: {e}")
+        except Exception as e:
+            # An unconnected pool, or a backend's own override failing: BM25
+            # fusion is the safe answer, and a warning says why it was taken.
+            logger.warning(
+                f"Could not ask whether {collection_name} runs native hybrid search, "
+                f"so it uses BM25 fusion: {e}"
+            )
             return False
 
     def _legacy_native_serves(
@@ -997,6 +1002,7 @@ class HybridSearcher:
         session_id: str,
         *,
         build_now: bool = True,
+        collection_name: Optional[str] = None,
     ):
         """Index chunks for BM25 fallback search.
 
@@ -1011,8 +1017,11 @@ class HybridSearcher:
                 be built lazily on the first search via _ensure_index_built(),
                 or explicitly via build_session_index(). Use False during bulk
                 ingestion to avoid O(N²) repeated rebuilds.
+            collection_name: The collection the chunks are stored in, when the
+                caller knows it: a session is registered with this searcher
+                only at its first search, and a benchmark indexes before that.
         """
-        if self._legacy_native_serves(session_id):
+        if self._legacy_native_serves(session_id, collection_name):
             # Only when the legacy searcher serves this session's collection:
             # asked globally, a default collection with a sparse field dropped
             # the chunks of every other collection's session.
@@ -1629,7 +1638,9 @@ class HybridSearcher:
                 logger.warning(f"Could not load stored chunks into the BM25 index: {e}")
                 return 0
             if missing:
-                self.index_chunks(missing, session_id, build_now=False)
+                self.index_chunks(
+                    missing, session_id, build_now=False, collection_name=collection_name
+                )
                 self.build_session_index(session_id)
                 logger.info(f"BM25 index filled from the store: {len(missing)} chunks")
             done = True
