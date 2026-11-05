@@ -2344,6 +2344,12 @@ run id and every aggregate from the per-query scores.</p>
 <li><code>SINGLE_RUN</code>: one run of a pipeline in which something samples.</li>
 <li><code>UNRESOLVED_JUDGE_ALIAS</code>: a judge named by a floating alias.</li>
 <li><code>PARTIAL_CORPUS</code>: some corpus documents failed to ingest.</li>
+<li><code>ACTIVE_FALLBACKS</code>: something ran with less than the arm names. Either the
+  install swapped in a stand-in (no <code>nltk</code>, no <code>rank_bm25</code>), and <code>validate</code>
+  prints what it changes and what to install; or a stage fell back while the
+  queries ran (hybrid search running as BM25 fusion or dense-only, a graph
+  expansion that failed), and <code>validate</code> prints the arm, the track, on how
+  many queries, and why.</li>
 </ul>
 <p><code>--strict</code> turns the warnings into failures. A run records <code>nothing_samples</code> when
 only retrieval ran and no task called an LLM. One run of it is complete and raises

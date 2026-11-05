@@ -2339,7 +2339,7 @@ lasagna<span class="w"> </span>results<span class="w"> </span>schema<span class=
 <tr>
 <td><code>integrity</code></td>
 <td>yes</td>
-<td><code>warnings</code> and <code>blocking</code>, both lists of strings.</td>
+<td><code>warnings</code> and <code>blocking</code>, both lists of strings, and <code>fallbacks</code>: one line per stand-in or fallback behind <code>ACTIVE_FALLBACKS</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -2422,6 +2422,13 @@ yet is not required from older bundles. See
 the ranked list the metrics were computed on, and <code>_retrieved</code> with the document
 id, score and rank of each result. The <code>rank</code> is authoritative. Scores can tie, so
 sorting by score does not rebuild the ranking.</p>
+<p><code>system.degraded_stages</code>, present only when something fell back, says which
+stages fell back while the task's queries ran, per track:
+<code>{"retrieval": {"hybrid": {"queries": 12, "of": 12, "reasons": [{"reason": "...",
+"queries": 12}]}}}</code>, with up to three distinct reasons and the queries each covered; <code>other_reasons</code>
+counts queries that also fell back for a reason past those three.
+Reasons are redacted like the rest of the bundle.
+It is outside the comparability key; the bundle's <code>ACTIVE_FALLBACKS</code> reports it.</p>
 <h2 id="integrity-messages">Integrity messages<a class="headerlink" href="#integrity-messages" title="Permanent link">&para;</a></h2>
 <p><code>blocking</code> problems make <code>lasagna results validate</code> fail. <code>warnings</code> do not, unless
 you pass <code>--strict</code>. The codes you will meet include <code>SINGLE_RUN</code>,
