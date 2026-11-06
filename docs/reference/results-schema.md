@@ -79,6 +79,13 @@ counts queries that also fell back for a reason past those three.
 Reasons are redacted like the rest of the bundle.
 It is outside the comparability key; the bundle's `ACTIVE_FALLBACKS` reports it.
 
+`system.graph`, present when the arm turns on `enable_graph_retrieval`, says how
+the corpus got its knowledge graph: `{"state": "built" | "reused" | "rebuilt",
+"documents": n, "entities": n, "rebuilt": n}`. `reused` is a corpus an earlier run
+ingested, with its graph; `rebuilt` is one reused without a graph (ingested before the
+graph was stored in the metadata database, or after it was reset), whose documents'
+parts were extracted again from the stored chunks.
+
 ## Integrity messages
 
 `blocking` problems make `lasagna results validate` fail. `warnings` do not, unless

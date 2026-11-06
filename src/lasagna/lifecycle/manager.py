@@ -297,6 +297,16 @@ class DocumentLifecycleManager:
                 logger.warning(f"bulk_delete_session: delete failed for {doc_id}: {exc}")
                 result.errors += 1
 
+        if result.errors == 0:
+            # Each document took its part of the graph with it; what remains
+            # (a part whose removal failed) goes with the session (#55).
+            try:
+                from lasagna.retrieval.graph.graph_store import drop_loaded_graphs
+
+                self._db.drop_graphs(session_id)
+                drop_loaded_graphs(session_id)
+            except Exception as exc:
+                logger.warning(f"bulk_delete_session: graph of {session_id} not dropped: {exc}")
         logger.info(
             f"bulk_delete_session: deleted {result.deleted}/{total} docs from session {session_id}"
         )

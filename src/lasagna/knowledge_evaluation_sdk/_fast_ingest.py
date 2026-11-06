@@ -89,6 +89,7 @@ def _chunk_one_doc(
     config,
     embedding_manager=None,
     chunker=None,
+    pending_graphs: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, List[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
     """Chunk one document from in-memory text.
 
@@ -183,33 +184,26 @@ def _chunk_one_doc(
     # GraphRAG entity extraction
     if getattr(config, "enable_graph_retrieval", False):
         try:
-            from ..retrieval.graph import EntityExtractor
+            from ..retrieval.graph.entity_extractor import extract_graph
             from ..retrieval.graph.graph_store import index_document_graph
-            from ..providers.llm_provider import SimpleLLMProvider
 
-            from ..utils.model_utils import get_default_model_name
-
-            extraction_model = (
-                getattr(config, "graph_extraction_model", "") or get_default_model_name()
-            )
-            extractor = EntityExtractor(
-                entity_types=getattr(config, "graph_entity_types", None),
-                model_name=extraction_model,
-            )
-            llm = SimpleLLMProvider().get_llm(model_name=extraction_model, temperature=0)
-            chunk_texts = [c["content"] for c in chunk_dicts]
-            extractions = extractor.extract_batch_sync(chunk_texts, llm, max_workers=4)
-            # Note: encode_document uses _encode_lock, which is why
-            # enable_graph_retrieval forces workers=1. Stored in the shared
-            # metadata database, so a later run that reuses the corpus finds it.
-            index_document_graph(
-                session_id,
-                config.collection_name,
-                valid_id,
-                extractions,
-                [f"{valid_id}_chunk_{idx}" for idx in range(len(extractions))],
-                embedding_manager.encode_document,
-            )
+            extractions = extract_graph([c["content"] for c in chunk_dicts], config)
+            chunk_ids = [f"{valid_id}_chunk_{idx}" for idx in range(len(extractions))]
+            if pending_graphs is not None:
+                # Written once the document is ingested and registered, so a
+                # document that fails later leaves no graph behind.
+                pending_graphs[valid_id] = (extractions, chunk_ids)
+            else:
+                # Note: encode_document uses _encode_lock, which is why
+                # enable_graph_retrieval forces workers=1.
+                index_document_graph(
+                    session_id,
+                    config.collection_name,
+                    valid_id,
+                    extractions,
+                    chunk_ids,
+                    embedding_manager.encode_document,
+                )
         except Exception as e:
             logger.warning(f"GraphRAG extraction failed for {valid_id}: {e}")
 
@@ -584,6 +578,31 @@ def _flush_insert(
 # ---------------------------------------------------------------------------
 
 
+def _store_pending_graphs(pending, ingested_ids, session_id, config, embedding_manager) -> int:
+    """Store the extracted graph of each ingested document; logged, never raised."""
+    from ..retrieval.graph.graph_store import index_document_graph
+
+    stored = 0
+    for doc_id in ingested_ids:
+        found = pending.get(doc_id)
+        if found is None:
+            continue
+        extractions, chunk_ids = found
+        try:
+            index_document_graph(
+                session_id,
+                config.collection_name,
+                doc_id,
+                extractions,
+                chunk_ids,
+                embedding_manager.encode_document,
+            )
+            stored += 1
+        except Exception as e:
+            logger.warning(f"GraphRAG: the graph of {doc_id} was not stored: {e}")
+    return stored
+
+
 def _wait_until_searchable(
     resolved_backend, collection_name: str, session_id: str, partition_key: Optional[str]
 ) -> None:
@@ -763,6 +782,8 @@ async def fast_ingest_corpus(
         t0 = time.perf_counter()
         first_chunk_error = ""
         chunk_errors_seen: Dict[str, int] = {}
+        #: valid_id -> (extractions, chunk ids), stored once the document is in
+        pending_graphs: Dict[str, Any] = {}
         with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="ingest-chunk") as pool:
             futures = []
             for corpus_id, text, valid_id in docs_to_ingest:
@@ -777,6 +798,7 @@ async def fast_ingest_corpus(
                     config,
                     embedding_manager if (_uses_semantic or _uses_llm_features) else None,
                     chunker,
+                    pending_graphs,
                 )
                 futures.append((valid_id, text, fut))
 
@@ -877,9 +899,12 @@ async def fast_ingest_corpus(
                     registered += bool(ok)
                 logger.info(f"Registered {registered}/{len(ingested_ids)} benchmark documents")
                 if getattr(config, "enable_graph_retrieval", False):
-                    # The graph was written document by document; one change
-                    # tells every process that loaded the session's graph to
-                    # load it again, as an upload's change does.
+                    # Only the documents that made it in get their part of the
+                    # graph, then one change tells every process that loaded
+                    # the session's graph to load it again, as an upload's does.
+                    _store_pending_graphs(
+                        pending_graphs, ingested_ids, session_id, config, embedding_manager
+                    )
                     try:
                         rag_db.bump_content_generation(session_id)
                     except Exception as bump_error:

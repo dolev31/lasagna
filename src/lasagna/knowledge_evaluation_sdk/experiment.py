@@ -4144,6 +4144,27 @@ async def _ensure_corpus_ingested(
             pass  # a store without filtered queries: nothing to compare
         except Exception as exc:  # noqa: BLE001 - the census only guards the result
             logger.warning(f"Could not count the published corpus: {exc}")
+        graph_info = None
+        if getattr(_rag_cfg.with_session(shared_session_id), "enable_graph_retrieval", False):
+            # Under the corpus lock: a task waiting for this corpus waits for
+            # its graph too (#55).
+            try:
+                from ..retrieval.graph.graph_store import ensure_corpus_graph
+
+                _graph_cfg = _rag_cfg.with_session(shared_session_id)
+                graph_info = await asyncio.to_thread(
+                    ensure_corpus_graph,
+                    shared_session_id,
+                    _coll_name,
+                    _resolved,
+                    {corpus_to_valid[cid] for cid in corpus} - failed_valid_ids,
+                    set(ingested_ids) if not _skip_ingest else set(),
+                    _graph_cfg,
+                    _ingest_backend._collection_manager.embedder_for(_graph_cfg).encode_document,
+                )
+            except Exception as exc:  # noqa: BLE001 - the record says what is known
+                logger.warning(f"Could not check the corpus graph: {exc}")
+                graph_info = {"state": "unknown", "error": str(exc)[:200]}
         corpus_lock.release()
         logger.info(f"Corpus ingestion complete for '{benchmark_name}' (cache_key='{cache_key}')")
         ingest_gap = _ingest_gap(corpus, valid_to_corpus, failed_valid_ids)
@@ -4172,6 +4193,7 @@ async def _ensure_corpus_ingested(
             # could never fire and truncated bundles validated clean.
             slot["corpus_truncated"] = bool(getattr(adapter, "corpus_truncated", False))
             slot["corpus_ingest_gap"] = ingest_gap
+            slot["graph"] = graph_info
             slot["corpus_census"] = census
             slot["_census_store"] = (
                 lambda: _get_ingest_backend()._collection_manager.resolve_backend(shared_session_id)
@@ -5534,6 +5556,11 @@ async def _eval_live(
     }
     if _fell_back:
         _system["degraded_stages"] = _fell_back
+    if corpus_info.get("graph"):
+        # Whether this corpus's knowledge graph was built by this run, reused
+        # from an earlier one, or rebuilt because a reused corpus had none (#55).
+        # Outside the comparability key, which reads named fields only.
+        _system["graph"] = corpus_info["graph"]
 
     result = TaskResult(
         task_key=task.task_key,

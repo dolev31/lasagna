@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A benchmark's run record says how each graph arm's corpus got its knowledge
+  graph: `system.graph.state` is `built`, `reused`, or `rebuilt` when a reused
+  corpus had none (ingested before the graph was stored in the metadata
+  database), whose documents' parts are then extracted again from the chunks
+  already stored (#55). The benchmark ingest stores a document's graph only
+  once the document is in, so a corpus whose ingest failed leaves none.
 - `POST /api/v1/chat/completions` and `GET /api/v1/models`: chat with a
   session's documents from any OpenAI client library or chat front end (#13).
   The route searches with the session's pipeline, as `/search/citations` does,
@@ -40,6 +46,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   builds a graph no other process sees, and retrieval no longer reads it); use
   `graph_for` and `index_document_graph`. `GraphRetriever.expand` takes
   `collection_name`, defaulting to the session's.
+- Deleting a document removes its part of the session's knowledge graphs, on
+  every delete path, and deleting a session drops what is left; a reset
+  forgets the graphs a process had loaded (#55).
 - Hybrid search asks about the collection it searches, and a connection pool
   passes the question on (#50, #52). The Compose stack wraps its Milvus server
   in a pool (`RAG_CONNECTION_POOL_SIZE=10`) that did not pass on

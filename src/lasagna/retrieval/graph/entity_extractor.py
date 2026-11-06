@@ -116,3 +116,21 @@ class EntityExtractor:
                 )
             )
         return results
+
+
+def extract_graph(chunk_texts, config) -> list:
+    """Entities and relationships of each chunk, with the extraction model ``config`` names.
+
+    The one place the upload pipeline, the benchmark ingest and a rebuild of a
+    reused corpus's graph extract: ``graph_extraction_model``, or the default
+    model, at temperature 0. Raises when no LLM can be built.
+    """
+    from ...providers.llm_provider import SimpleLLMProvider
+    from ...utils.model_utils import get_default_model_name
+
+    model = getattr(config, "graph_extraction_model", "") or get_default_model_name()
+    extractor = EntityExtractor(
+        entity_types=getattr(config, "graph_entity_types", None), model_name=model
+    )
+    llm = SimpleLLMProvider().get_llm(model_name=model, temperature=0)
+    return extractor.extract_batch_sync(list(chunk_texts), llm, max_workers=4)

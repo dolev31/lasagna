@@ -530,3 +530,78 @@ def remove_session_graph(session_id: str) -> None:
     """Remove the session's in-memory graph (see `get_or_create_session_graph`)."""
     with _session_graphs_lock:
         _session_graphs.pop(session_id, None)
+
+
+def ensure_corpus_graph(
+    session_id: str,
+    collection_name: str,
+    vectors: Any,
+    document_ids: Set[str],
+    built_now: Set[str],
+    config: Any,
+    encode: Any,
+) -> Dict[str, Any]:
+    """Make sure a benchmark corpus has its graph, and say how it got it.
+
+    A corpus a later run reuses from the vector store keeps its graph in the
+    metadata database. A corpus ingested before the graph was stored there, or
+    whose database was reset, has chunks and no graph: its documents' parts
+    are extracted again from the stored chunks, so a graph arm never runs on an
+    empty graph unnoticed. The answer goes in the run record:
+    ``{"state": "built" | "reused" | "rebuilt", "documents": n, "entities": n, "rebuilt": n}``.
+    """
+    from lasagna.core.database import get_rag_database
+
+    db = get_rag_database()
+    _, mentions, _ = db.load_graph(session_id, collection_name)
+    with_graph = {doc for _, _, doc in mentions}
+    missing = sorted((set(document_ids) - set(built_now)) - with_graph)
+    rebuilt = 0
+    if missing:
+        from .entity_extractor import extract_graph
+
+        chunks: Dict[str, List[Tuple[int, str, str]]] = {}
+        wanted = set(missing)
+        rows = vectors.iter_all(
+            collection_name=collection_name,
+            filter_expr=vectors.session_filter(collection_name, session_id),
+            output_fields=["chunk_id", "content", "document_id", "metadata"],
+        )
+        for row in rows:
+            doc = str(row.get("document_id") or "")
+            if doc not in wanted:
+                continue
+            meta = row.get("metadata") or {}
+            index = int(meta.get("chunk_index", 0) or 0) if isinstance(meta, dict) else 0
+            chunks.setdefault(doc, []).append(
+                (index, str(row.get("chunk_id")), row.get("content") or "")
+            )
+        for doc in missing:
+            stored = sorted(chunks.get(doc, []))
+            if not stored:
+                continue
+            try:
+                extractions = extract_graph([text for _, _, text in stored], config)
+                index_document_graph(
+                    session_id,
+                    collection_name,
+                    doc,
+                    extractions,
+                    [cid for _, cid, _ in stored],
+                    encode,
+                )
+                rebuilt += 1
+            except Exception as e:
+                logger.warning(f"GraphRAG: the graph of reused document {doc} was not rebuilt: {e}")
+        if rebuilt:
+            db.bump_content_generation(session_id)
+    entities, mentions, _ = db.load_graph(session_id, collection_name)
+    state = "rebuilt" if rebuilt else ("built" if built_now else "reused")
+    info = {
+        "state": state,
+        "documents": len({doc for _, _, doc in mentions}),
+        "entities": len(entities),
+        "rebuilt": rebuilt,
+    }
+    logger.info(f"GraphRAG: the corpus graph of {session_id} was {state} ({info})")
+    return info
