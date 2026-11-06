@@ -289,10 +289,10 @@ async def chat_completions(
         started = loop.time()
         try:
             reply = await asyncio.wait_for(llm.ainvoke(prompt), timeout=deadline)
-        except asyncio.TimeoutError as exc:
+        except (asyncio.TimeoutError, TimeoutError) as exc:
             if loop.time() - started < deadline - _TIMER_SLACK:
-                # The provider's own timeout, not this deadline: from 3.11 both
-                # are the built-in TimeoutError.
+                # The provider's own timeout, not this deadline. Both are caught:
+                # before 3.11 asyncio's is not the built-in TimeoutError.
                 logger.error(f"Chat completion: the LLM provider timed out: {exc}")
                 raise HTTPException(
                     status_code=502,
@@ -393,7 +393,7 @@ async def _stream(
                     # leave the generator running: closing it then raises.
                     with contextlib.suppress(RuntimeError):
                         await closer()
-    except asyncio.TimeoutError as exc:
+    except (asyncio.TimeoutError, TimeoutError) as exc:
         if loop.time() < stop_at - _TIMER_SLACK:
             # The provider's own timeout, not this deadline (see the plain path).
             logger.error(f"Chat completion: the LLM provider timed out while streaming: {exc}")
