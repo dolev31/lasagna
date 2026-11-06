@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `POST /api/v1/chat/completions` and `GET /api/v1/models`: chat with a
+  session's documents from any OpenAI client library or chat front end (#13).
+  The route searches with the session's pipeline, as `/search/citations` does,
+  under the same session header, auth, deadline and quota, and writes the
+  answer with the `cited` generator from the configured LLM. It answers in the
+  OpenAI format, at once or streamed as server-sent events ending with
+  `data: [DONE]`, with the passages as `citations` (`[n]` in the answer is
+  `citations[n-1]`) and `degraded_stages`. The answer runs under the new
+  `RAG_CHAT_TIMEOUT` (120 s); the LLM is checked before the search, and an
+  answer that fails is not retried by the client (`x-should-retry: false`), so
+  nothing is searched for an answer that cannot be written. The endpoint reference, the REST
+  guide and the README show how; every stated endpoint count is now checked
+  against the API's OpenAPI schema, and every route against the reference.
+
 ### Fixed
 
 - The knowledge graph `enable_graph_retrieval` builds is kept in the metadata
@@ -24,6 +40,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   builds a graph no other process sees, and retrieval no longer reads it); use
   `graph_for` and `index_document_graph`. `GraphRetriever.expand` takes
   `collection_name`, defaulting to the session's.
+- Hybrid search asks about the collection it searches, and a connection pool
+  passes the question on (#50, #52). The Compose stack wraps its Milvus server
+  in a pool (`RAG_CONNECTION_POOL_SIZE=10`) that did not pass on
+  `collection_supports_native_hybrid`, so every collection counted as able to
+  run native hybrid search. The collections Lasagna creates have no
+  `sparse_embedding` field, so every hybrid search tried the native call,
+  failed and fell back (all 12 queries of a `standard` run on `smoke`). The
+  same answer skipped filling the BM25 index from the store, so wherever a
+  process had not indexed the chunks itself, the fallback found it empty and
+  returned dense results only. In the stack, the Celery worker ingests
+  uploads, so this was every REST and MCP hybrid search an API worker ran: in
+  a test of 22 searches on one upload, all 4 that ran (one per worker) fell
+  back to dense-only, and the search cache served the other 18 from them. In a
+  benchmark, it was a hybrid arm on a corpus ingested with hybrid off: under `speed`
+  it scored exactly the control, ndcg@10 0.9464 on `smoke`, where Milvus Lite
+  gives 0.9505. In the stack it now gives 0.9505, with map@10 and R-precision
+  as on Milvus Lite. The base adapter answers per collection from its
+  capabilities (pgvector, OpenSearch and Weaviate as before), Milvus reads the
+  collection's fields, and the pool asks one of its instances. The searcher
+  never answers yes without asking, and asks about the collection a session
+  searches, which the benchmark names before its first search. The legacy
+  Milvus searcher serves only the collection it was built for. On a collection
+  without the field, `MilvusBackend.hybrid_search` returns dense results and
+  reports a degraded `hybrid` stage instead of failing. Numbers move only for
+  hybrid search on a Milvus server where it had run dense-only.
 - A stage that falls back while a benchmark's queries run is named in the
   results and the bundle (Part of #50). Hybrid search, the graph expansion
   and other stages catch their own failure, carry on with less and record it;

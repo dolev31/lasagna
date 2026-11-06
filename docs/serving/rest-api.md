@@ -1,6 +1,6 @@
 # REST API
 
-`lasagna serve` runs an HTTP server with 41 endpoints: 32 under `/api/v1/` and 9
+`lasagna serve` runs an HTTP server with 43 endpoints: 34 under `/api/v1/` and 9
 that are not versioned. Every endpoint takes and returns JSON, except the two
 upload routes, which take multipart form data.
 
@@ -64,6 +64,70 @@ The search body has these fields:
 A stage that failed and fell back is named in `degraded_stages`, so an empty list
 means every configured stage ran.
 
+## Chat with an OpenAI client
+
+`POST /api/v1/chat/completions` takes the OpenAI chat format and answers from
+the session's documents. Point any OpenAI client library or chat front end at
+`.../api/v1` and send the session as you would to `/search`. An LLM must be
+configured, as for generation (`OPENAI_API_KEY`, or `OLLAMA_BASE_URL` and
+`MODEL_NAME`).
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8000/api/v1",
+    api_key="...",  # the client requires one; Lasagna ignores it
+    default_headers={"X-Session-ID": "my-corpus"},  # X-Session-Token in the stack
+)
+reply = client.chat.completions.create(
+    model="lasagna",
+    messages=[{"role": "user", "content": "what did the ablation show?"}],
+)
+print(reply.choices[0].message.content)
+print(reply.model_dump()["citations"])  # the passages; [n] in the answer is citations[n-1]
+
+for chunk in client.chat.completions.create(
+    model="lasagna",
+    messages=[{"role": "user", "content": "what did the ablation show?"}],
+    stream=True,
+):
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
+What it does:
+
+- The last `user` message is the question, at most 10,000 characters as on
+  `/search`. `system` and `developer` messages become the generator's
+  instructions. Earlier turns are not used.
+- The session's own search runs, as on `/search/citations`, with the same
+  deadline (`RAG_SEARCH_TIMEOUT`), quota and errors. Then the `cited` generator
+  writes the answer, within `RAG_CHAT_TIMEOUT` (120 s).
+- `citations` and `degraded_stages` are extra top-level fields. A streamed answer
+  carries them on the chunk with its `finish_reason` (with `include_usage`, a
+  usage chunk follows it), before `data: [DONE]`.
+- `temperature` (default 0.0) and `max_tokens` or `max_completion_tokens`
+  (default 1000) reach the LLM; `finish_reason` is `length` when the answer was
+  cut there. `stream_options: {"include_usage": true}` adds the token usage to a
+  stream. `top_k` and `document_ids` go in `extra_body`.
+- `n` above 1, `tools` and a non-text `response_format` are refused with 400.
+- A session with no documents gets the note `/search` gives. A search that
+  finds nothing gets "No passage in this session matches the question.". Neither
+  calls the LLM.
+- `GET /api/v1/models` lists the one model, `lasagna`. The name you send is
+  echoed and changes nothing.
+- With auth on (the Compose stack), send the session token as
+  `X-Session-Token`. A chat front end that can only set an API key cannot send
+  it yet.
+
+With `curl`, `-N` shows the events as they arrive:
+
+```bash
+curl -N -X POST http://127.0.0.1:8000/api/v1/chat/completions \
+  -H "X-Session-ID: my-corpus" -H "Content-Type: application/json" \
+  -d '{"model": "lasagna", "stream": true, "messages": [{"role": "user", "content": "what did the ablation show?"}]}'
+```
+
 ## Endpoints at a glance
 
 | Group | Routes |
@@ -73,6 +137,7 @@ means every configured stage ran.
 | Documents | `POST /api/v1/documents`, `POST /documents/batch`, `GET /documents`, and `GET`, `DELETE`, `/chunks`, `/status`, `/reindex`, `/archive`, `/restore` under `/documents/{document_id}` |
 | Admin | Garbage collection, orphan repair, the lifecycle policy and session deletion under `/api/v1/admin/` |
 | Search | `POST /api/v1/search`, `/search/citations`, `/search/multi-query`, `/search/agentic` |
+| Chat (OpenAI format) | `POST /api/v1/chat/completions`, `GET /api/v1/models` |
 | Citations | `GET /api/v1/citations` and `/citations/{citation_id}` |
 | Config | `GET` and `PATCH /api/v1/config`, `GET /config/profiles`, `PUT /config/profiles/{profile_name}` |
 | Pipelines | `GET /api/v1/pipelines` |
@@ -138,6 +203,7 @@ These security variables are read under their `RAG_` names only.
 | One batch upload | 200 MiB and 20 files | `RAG_MAX_BATCH_BYTES`, `RAG_MAX_BATCH_FILES` |
 | Other request bodies | 1 MiB | fixed |
 | One search | 120 seconds | `RAG_SEARCH_TIMEOUT` |
+| One chat completion's answer, after its search | 120 seconds | `RAG_CHAT_TIMEOUT` |
 | Concurrent uploads | 5 | `RAG_MAX_CONCURRENT_UPLOADS` |
 | Sessions per API key | 100 | `RAG_MAX_SESSIONS_PER_KEY` |
 | Request rate | 60 per minute, burst 10, adaptive | `RAG_RATE_LIMITING_ENABLED` |
@@ -161,7 +227,7 @@ chunks, 600 searches per minute and 200 uploads per hour.
 | 429 | Rate limited or over quota. Rate limits include `Retry-After`. |
 | 500 | An unhandled backend error. |
 | 503 | The backend is starting, a dependency is down, the processing pool is full, or the embedding model is not downloaded. |
-| 504 | The search ran past `RAG_SEARCH_TIMEOUT`. |
+| 504 | The search ran past `RAG_SEARCH_TIMEOUT`, or a chat completion's answer past `RAG_CHAT_TIMEOUT`. |
 
 A server never downloads a model inside a request. If the session's embedding
 model is not on disk, search answers 503 with the command that fixes it.

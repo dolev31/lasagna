@@ -4494,10 +4494,14 @@ async def _eval_live(
     )
     if _enable_hybrid:
         _hybrid = _backend.hybrid_searcher
+        # The collection this task searches: each embedder has its own. Asked
+        # about before the first search registers it with the searcher, which
+        # otherwise answered for the default collection.
+        _coll = pipeline._config.get("collection_name", _rag_cfg.collection_name)
         # Guard 1: Skip entirely if native hybrid is available (no fallback needed)
-        if _hybrid.is_native_mode_available() or _hybrid._backend_supports_native_hybrid(
-            shared_session_id
-        ):
+        if _hybrid._legacy_native_serves(
+            shared_session_id, _coll
+        ) or _hybrid._backend_supports_native_hybrid(shared_session_id, _coll):
             logger.debug("Native hybrid available: skipping BM25 fallback prebuild")
         elif not _BM25_AVAIL:
             # Guard 2: rank_bm25 not installed
@@ -4521,7 +4525,6 @@ async def _eval_live(
                     f"(fetching from vector store)"
                 )
                 _vec = _backend._vector_backend
-                _coll = pipeline._config.get("collection_name", _rag_cfg.collection_name)
                 # Fetch every chunk for this session. This must be exhaustive:
                 # a BM25 index built from part of the corpus still returns
                 # results, so a truncated scan produces a plausible retrieval
@@ -4540,7 +4543,7 @@ async def _eval_live(
                 # Convert to BM25 chunk format and build index.
                 _bm25_docs = build_bm25_docs(_all_chunks)
                 if _bm25_docs:
-                    _hybrid.index_chunks(_bm25_docs, shared_session_id)
+                    _hybrid.index_chunks(_bm25_docs, shared_session_id, collection_name=_coll)
                     logger.info(
                         f"BM25 fallback index built: {len(_bm25_docs)} chunks "
                         f"for session {shared_session_id}"

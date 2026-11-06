@@ -277,7 +277,8 @@ one in front. Health and `/metrics` answer any `Host`.
 | Total body of `POST /api/v1/documents/batch` | `RAG_MAX_BATCH_BYTES` = 209715200 (200 MiB), plus 1 MiB | 413, before the body is read |
 | Files in one batch | `RAG_MAX_BATCH_FILES` = 20 | 400 |
 | Any other request body | 1 MiB, fixed | 413 |
-| Search time, `POST /api/v1/search`, `/search/citations`, `/search/multi-query`, `/search/agentic` | `RAG_SEARCH_TIMEOUT` = 120 s | 504; the search thread finishes on its own |
+| Search time, `POST /api/v1/search`, `/search/citations`, `/search/multi-query`, `/search/agentic`, `/chat/completions` | `RAG_SEARCH_TIMEOUT` = 120 s | 504; the search thread finishes on its own |
+| Answer time, `POST /api/v1/chat/completions`, once its search is done | `RAG_CHAT_TIMEOUT` = 120 s | 504, or an `error` event that ends a streamed answer |
 | Processing threads, single upload without Celery | `RAG_MAX_CONCURRENT_UPLOADS` = 5 | 503 with `Retry-After: 5`; nothing is stored, so a retry is a clean upload |
 | Processing threads, a file in a batch without Celery | `RAG_MAX_CONCURRENT_UPLOADS` = 5 | waits for a thread, at most `processing_timeout` (300 s); after that, that item reports `status: "error"` |
 | Request rate | 60 per minute, burst 10, `adaptive` | 429 with `Retry-After` (seconds, rounded up) |
@@ -293,7 +294,7 @@ minted with the admin token, and every session with auth off, has a quota of its
 
 A chunked body is counted as it arrives and refused once it passes its limit.
 `RAG_MAX_BATCH_FILES` (1 to 1000), `RAG_MAX_BATCH_BYTES` (1 to 2^40),
-`RAG_SEARCH_TIMEOUT` (1 to 3600) and `RAG_MAX_SESSIONS_PER_KEY` (1 to 1,000,000) are
+`RAG_SEARCH_TIMEOUT` and `RAG_CHAT_TIMEOUT` (1 to 3600) and `RAG_MAX_SESSIONS_PER_KEY` (1 to 1,000,000) are
 checked when the app starts: a value out of range or not a number stops it with an error
 naming the variable.
 
@@ -503,7 +504,7 @@ Each setting resolves from, highest first: the session's overrides, the environm
 ([Configuration](../../../docs/configuration.md#where-a-setting-comes-from)). The server
 switches on this page that are not settings are read only by the name shown:
 `RAG_REQUIRE_AUTH`, `RAG_API_KEYS`, `RAG_JWT_SECRET`, `RAG_ADMIN_TOKEN`,
-`RAG_MAX_BATCH_FILES`, `RAG_MAX_BATCH_BYTES`, `RAG_SEARCH_TIMEOUT`, `RAG_CORS_ORIGINS`,
+`RAG_MAX_BATCH_FILES`, `RAG_MAX_BATCH_BYTES`, `RAG_SEARCH_TIMEOUT`, `RAG_CHAT_TIMEOUT`, `RAG_CORS_ORIGINS`,
 `RAG_BIND_IS_PROTECTED`, `RAG_EMBED_MCP`, `RAG_SESSION_BACKEND`, `LASAGNA_LOG_FORMAT` and
 `LASAGNA_MCP_TOOLS`.
 
