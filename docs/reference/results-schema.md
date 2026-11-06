@@ -80,11 +80,16 @@ Reasons are redacted like the rest of the bundle.
 It is outside the comparability key; the bundle's `ACTIVE_FALLBACKS` reports it.
 
 `system.graph`, present when the arm turns on `enable_graph_retrieval`, says how
-the corpus got its knowledge graph: `{"state": "built" | "reused" | "rebuilt",
-"documents": n, "entities": n, "rebuilt": n}`. `reused` is a corpus an earlier run
-ingested, with its graph; `rebuilt` is one reused without a graph (ingested before the
-graph was stored in the metadata database, or after it was reset), whose documents'
-parts were extracted again from the stored chunks.
+the corpus got its knowledge graph: `{"state": "built" | "reused" | "rebuilt" |
+"incomplete", "documents": n, "missing": n, "entities": n, "rebuilt": n,
+"extraction_model": "..."}`. `reused` is a corpus an earlier run ingested, with its
+graph; `rebuilt` is one reused without a graph (ingested before the graph was stored in
+the metadata database, or after it was reset), whose documents were extracted again
+from the stored chunks. A document counts once every chunk of it was extracted, even if
+it names no entity. `incomplete` means `missing` documents still have no graph: no LLM
+could be built (`error` says why), or a call failed. Every query of such an arm then
+counts as a `graph` stage in `degraded_stages`, so the bundle raises `ACTIVE_FALLBACKS`.
+`unknown`, with an `error`, is a check that itself failed, and is reported the same way.
 
 ## Integrity messages
 

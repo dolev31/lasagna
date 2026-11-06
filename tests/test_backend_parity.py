@@ -536,6 +536,35 @@ class TestKnowledgeGraph:
         backend.drop_graphs(session)
         assert backend.load_graph(session, "coll") == ([], [], [])
 
+    def test_extracted_documents_are_recorded_and_dropped_by_collection(self, backend):
+        session = f"graph_{uuid.uuid4().hex[:8]}"
+        # A document whose chunks named nothing is still extracted.
+        backend.save_graph_document(session, "coll", "d1", [], [], [], extraction_model="m1")
+        backend.save_graph_document(
+            session, "coll", "d2", [("A", "T", None)], [("A", "d2_c0")], [], complete=False
+        )
+        backend.save_graph_document(
+            session, "other", "d1", [("A", "T", None)], [("A", "d1_c0")], [], extraction_model="m1"
+        )
+        assert backend.extracted_graph_documents(session, "coll") == {"d1": "m1"}
+        backend.save_graph_document(
+            session, "coll", "d2", [("A", "T", None)], [("A", "d2_c0")], [], extraction_model="m2"
+        )
+        assert backend.extracted_graph_documents(session, "coll") == {"d1": "m1", "d2": "m2"}
+        # A later extraction that failed part-way is not done any more.
+        backend.save_graph_document(session, "coll", "d2", [], [], [], complete=False)
+        assert backend.extracted_graph_documents(session, "coll") == {"d1": "m1"}
+
+        backend.drop_graphs(session, "coll")
+        assert backend.extracted_graph_documents(session, "coll") == {}
+        assert backend.load_graph(session, "coll") == ([], [], [])
+        assert backend.extracted_graph_documents(session, "other") == {"d1": "m1"}
+        assert backend.load_graph(session, "other")[1] == [("A", "d1_c0", "d1")]
+
+        backend.delete_graph_document(session, "d1")
+        assert backend.extracted_graph_documents(session, "other") == {}
+        backend.drop_graphs(session)
+
 
 # =========================================================================
 # PARITY TEST: Statistics

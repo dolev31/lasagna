@@ -89,6 +89,10 @@ _INGESTION_TIME_KEYS = frozenset(
         "raptor_max_cluster_size",
         "raptor_max_levels",
         "enable_graph_retrieval",
+        # Two graph arms that differ in the extraction model or the entity
+        # types build different graphs, so each gets a corpus of its own.
+        "graph_extraction_model",
+        "graph_entity_types",
         "collection_name",
     }
 )
@@ -753,6 +757,18 @@ def _reranker_that_ran(component: Optional[str], task_config: Dict[str, Any]) ->
     key = _RERANKER_MODEL_KEYS.get(component)
     model = task_config.get(key) if key else None
     return f"{component}:{model}" if model else component
+
+
+def _drop_corpus_graph(session_id: str, collection_name: str) -> None:
+    """Drop a stale corpus's graph with its vectors: its parts name deleted chunks."""
+    try:
+        from lasagna.core.database import get_rag_database
+        from lasagna.retrieval.graph.graph_store import drop_loaded_graphs
+
+        get_rag_database().drop_graphs(session_id, collection_name)
+        drop_loaded_graphs(session_id)
+    except Exception as exc:  # noqa: BLE001 - a re-ingest replaces each document's part
+        logger.warning(f"Could not drop the stale corpus graph of {session_id}: {exc}")
 
 
 class _DegradedTally:
@@ -4076,6 +4092,7 @@ async def _ensure_corpus_ingested(
                             f"or collection and rerun."
                         ) from _del_exc
                     _ingest_backend.hybrid_searcher.clear_session(shared_session_id)
+                    _drop_corpus_graph(shared_session_id, _coll_name)
                     ready_ids = set()
         except _StaleCorpusCleanupError:
             raise
@@ -4098,6 +4115,7 @@ async def _ensure_corpus_ingested(
                     f"that session or collection and rerun."
                 ) from _del_exc
             _ingest_backend.hybrid_searcher.clear_session(shared_session_id)
+            _drop_corpus_graph(shared_session_id, _coll_name)
             ready_ids = set()
 
         if not _skip_ingest:
@@ -4163,8 +4181,10 @@ async def _ensure_corpus_ingested(
                     _ingest_backend._collection_manager.embedder_for(_graph_cfg).encode_document,
                 )
             except Exception as exc:  # noqa: BLE001 - the record says what is known
+                from lasagna.core.provenance import redact
+
                 logger.warning(f"Could not check the corpus graph: {exc}")
-                graph_info = {"state": "unknown", "error": str(exc)[:200]}
+                graph_info = {"state": "unknown", "error": str(redact(str(exc)))[:200]}
         corpus_lock.release()
         logger.info(f"Corpus ingestion complete for '{benchmark_name}' (cache_key='{cache_key}')")
         ingest_gap = _ingest_gap(corpus, valid_to_corpus, failed_valid_ids)
@@ -5561,6 +5581,23 @@ async def _eval_live(
         # from an earlier one, or rebuilt because a reused corpus had none (#55).
         # Outside the comparability key, which reads named fields only.
         _system["graph"] = corpus_info["graph"]
+        _graph_state = corpus_info["graph"].get("state")
+        if _graph_state in ("incomplete", "unknown"):
+            # Every query of the arm ran on a graph missing documents: a
+            # fallback, reported as the bundle reports the others (#84).
+            _why = (
+                "the corpus graph is incomplete; documents with no graph: "
+                f"{corpus_info['graph'].get('missing')}"
+                if _graph_state == "incomplete"
+                else "the corpus graph could not be checked"
+            )
+            for _track, _tally in (("retrieval", _ir_degraded), ("generation", _gen_degraded)):
+                if _tally.queries:
+                    _system.setdefault("degraded_stages", {}).setdefault(_track, {})["graph"] = {
+                        "queries": _tally.queries,
+                        "of": _tally.queries,
+                        "reasons": [{"reason": _why, "queries": _tally.queries}],
+                    }
 
     result = TaskResult(
         task_key=task.task_key,

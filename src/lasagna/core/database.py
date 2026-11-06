@@ -2089,9 +2089,16 @@ class RAGDatabase:
         entities: List[tuple],
         mentions: List[tuple],
         edges: List[tuple],
+        extraction_model: Optional[str] = None,
+        complete: bool = True,
     ) -> None:
         """Replace the document's part of a graph: ``(name, type, embedding)``,
-        ``(name, chunk_id)``, ``(source, target, rel_type)``, in one transaction."""
+        ``(name, chunk_id)``, ``(source, target, rel_type)``, in one transaction.
+
+        ``complete``: every chunk was extracted, so the document is recorded as
+        done (``graph_documents``), entities or none. A document with a failed
+        chunk keeps what was found and stays to be extracted again.
+        """
         with self._lock:
             conn = self._graph_conn()
             try:
@@ -2130,6 +2137,17 @@ class RAGDatabase:
                     [(*key, src, tgt, rel, document_id) for src, tgt, rel in edges],
                 )
                 _delete_orphan_entities(conn, "?", session_id, touched, collection_name)
+                conn.execute(
+                    "DELETE FROM graph_documents WHERE session_id = ? AND collection_name = ? "
+                    "AND document_id = ?",
+                    (*key, document_id),
+                )
+                if complete:
+                    conn.execute(
+                        "INSERT INTO graph_documents (session_id, collection_name, document_id, "
+                        "extraction_model) VALUES (?, ?, ?, ?)",
+                        (*key, document_id, extraction_model),
+                    )
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -2168,6 +2186,20 @@ class RAGDatabase:
             finally:
                 conn.close()
 
+    def extracted_graph_documents(self, session_id: str, collection_name: str) -> Dict[str, Any]:
+        """The documents whose every chunk was extracted: ``{document_id: extraction_model}``."""
+        with self._lock:
+            conn = self._graph_conn()
+            try:
+                rows = conn.execute(
+                    "SELECT document_id, extraction_model FROM graph_documents "
+                    "WHERE session_id = ? AND collection_name = ?",
+                    (session_id, collection_name),
+                ).fetchall()
+                return {r[0]: r[1] for r in rows}
+            finally:
+                conn.close()
+
     def delete_graph_document(self, session_id: str, document_id: str) -> None:
         """Remove the document's mentions and edges from every graph of the session,
         and the entities left with neither."""
@@ -2175,7 +2207,7 @@ class RAGDatabase:
             conn = self._graph_conn()
             try:
                 touched = _touched_names(conn, "?", session_id, document_id)
-                for table in ("graph_mentions", "graph_edges"):
+                for table in ("graph_mentions", "graph_edges", "graph_documents"):
                     conn.execute(
                         f"DELETE FROM {table} WHERE session_id = ? AND document_id = ?",
                         (session_id, document_id),
@@ -2185,13 +2217,15 @@ class RAGDatabase:
             finally:
                 conn.close()
 
-    def drop_graphs(self, session_id: str) -> None:
-        """Remove every graph of the session."""
+    def drop_graphs(self, session_id: str, collection_name: Optional[str] = None) -> None:
+        """Remove every graph of the session, or only its graph over ``collection_name``."""
+        where = "session_id = ?" + (" AND collection_name = ?" if collection_name else "")
+        params = (session_id, collection_name) if collection_name else (session_id,)
         with self._lock:
             conn = self._graph_conn()
             try:
-                for table in ("graph_mentions", "graph_edges", "graph_entities"):
-                    conn.execute(f"DELETE FROM {table} WHERE session_id = ?", (session_id,))
+                for table in _GRAPH_TABLES:
+                    conn.execute(f"DELETE FROM {table} WHERE {where}", params)
                 conn.commit()
             finally:
                 conn.close()
@@ -2281,7 +2315,18 @@ CREATE TABLE IF NOT EXISTS graph_edges (
     PRIMARY KEY (session_id, collection_name, source, target, document_id)
 );
 CREATE INDEX IF NOT EXISTS idx_graph_edges_document ON graph_edges(session_id, document_id);
+CREATE TABLE IF NOT EXISTS graph_documents (
+    session_id TEXT NOT NULL,
+    collection_name TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    extraction_model TEXT,
+    PRIMARY KEY (session_id, collection_name, document_id)
+);
 """
+
+
+#: Every table of the knowledge graph, children first.
+_GRAPH_TABLES = ("graph_mentions", "graph_edges", "graph_entities", "graph_documents")
 
 
 def _touched_names(conn, placeholder: str, session_id: str, document_id: str, collection=None):

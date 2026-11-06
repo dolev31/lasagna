@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS parent_chunks (
 );
 ```
 
-### `graph_entities`, `graph_mentions`, `graph_edges`
+### `graph_entities`, `graph_mentions`, `graph_edges`, `graph_documents`
 
 The knowledge graph `enable_graph_retrieval` builds, one per session and
 collection, shared by every process (`retrieval/graph/graph_store.py`). One DDL
@@ -112,7 +112,9 @@ for both stores, `CREATE_GRAPH_TABLES` in `database.py`, with `BYTEA` for the
 embedding on PostgreSQL. Created with the schema on PostgreSQL and on first use
 on SQLite. Every mention and edge names its document, so a document's part can
 be replaced or removed; an entity no mention and no edge names is deleted with
-it.
+it. `graph_documents` lists the documents whose every chunk was extracted, and
+with which model, so a document that names no entity still counts as done, and
+one with a failed call does not.
 
 ```sql
 CREATE TABLE IF NOT EXISTS graph_entities (
@@ -129,6 +131,11 @@ CREATE TABLE IF NOT EXISTS graph_edges (
     session_id TEXT NOT NULL, collection_name TEXT NOT NULL, source TEXT NOT NULL,
     target TEXT NOT NULL, rel_type TEXT, document_id TEXT NOT NULL,
     PRIMARY KEY (session_id, collection_name, source, target, document_id)
+);
+CREATE TABLE IF NOT EXISTS graph_documents (
+    session_id TEXT NOT NULL, collection_name TEXT NOT NULL, document_id TEXT NOT NULL,
+    extraction_model TEXT,
+    PRIMARY KEY (session_id, collection_name, document_id)
 );
 ```
 

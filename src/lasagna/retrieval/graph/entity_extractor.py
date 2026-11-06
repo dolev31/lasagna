@@ -6,8 +6,9 @@ Uses ThreadPoolExecutor for batch parallelism.
 
 import json
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 from loguru import logger
 
@@ -46,6 +47,13 @@ class EntityExtractor:
             "EVENT",
         ]
         self._model_name = model_name
+        #: Chunks whose call failed or whose reply held no readable JSON.
+        self.failures = 0
+        self._failures_lock = threading.Lock()
+
+    def _failed(self) -> None:
+        with self._failures_lock:
+            self.failures += 1
 
     def extract_from_chunk(self, chunk_text: str, llm: Any) -> Dict[str, List[Dict[str, str]]]:
         """Extract entities and relationships from a single chunk.
@@ -84,9 +92,10 @@ class EntityExtractor:
                     if isinstance(r, dict) and "source" in r and "target" in r and "type" in r
                 ]
                 return {"entities": valid_entities, "relationships": valid_rels}
+            logger.debug("Entity extraction failed: the reply holds no JSON object")
         except (json.JSONDecodeError, Exception) as e:
             logger.debug(f"Entity extraction failed: {e}")
-
+        self._failed()
         return {"entities": [], "relationships": []}
 
     def extract_batch_sync(
@@ -118,12 +127,27 @@ class EntityExtractor:
         return results
 
 
-def extract_graph(chunk_texts, config) -> list:
+class GraphExtraction(NamedTuple):
+    """What `extract_graph` found: one extraction per chunk, and how many chunks failed."""
+
+    extractions: list
+    failed: int
+    model: str
+
+    @property
+    def complete(self) -> bool:
+        """Every chunk was extracted (a chunk too short to extract counts as done)."""
+        return self.failed == 0
+
+
+def extract_graph(chunk_texts, config) -> GraphExtraction:
     """Entities and relationships of each chunk, with the extraction model ``config`` names.
 
     The one place the upload pipeline, the benchmark ingest and a rebuild of a
     reused corpus's graph extract: ``graph_extraction_model``, or the default
-    model, at temperature 0. Raises when no LLM can be built.
+    model, at temperature 0. Raises when no LLM can be built; a chunk whose
+    call fails is counted in ``failed``, so the document is not recorded as
+    extracted and is extracted again later.
     """
     from ...providers.llm_provider import SimpleLLMProvider
     from ...utils.model_utils import get_default_model_name
@@ -133,4 +157,5 @@ def extract_graph(chunk_texts, config) -> list:
         entity_types=getattr(config, "graph_entity_types", None), model_name=model
     )
     llm = SimpleLLMProvider().get_llm(model_name=model, temperature=0)
-    return extractor.extract_batch_sync(list(chunk_texts), llm, max_workers=4)
+    extractions = extractor.extract_batch_sync(list(chunk_texts), llm, max_workers=4)
+    return GraphExtraction(extractions, extractor.failures, model)

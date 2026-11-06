@@ -1264,10 +1264,15 @@ class DocumentPipeline:
             try:
                 from ..retrieval.graph.entity_extractor import extract_graph
 
-                extractions = extract_graph([ct for ct, _ in chunks_with_metadata], config)
+                found = extract_graph([ct for ct, _ in chunks_with_metadata], config)
+                if found.failed:
+                    logger.warning(
+                        f"GraphRAG: {found.failed} chunks of {document.document_id} could not "
+                        f"be extracted; its graph keeps what the others named"
+                    )
                 pending_graph = (
-                    extractions,
-                    [f"{chunk_prefix}_chunk_{idx}" for idx in range(len(extractions))],
+                    found,
+                    [f"{chunk_prefix}_chunk_{idx}" for idx in range(len(found.extractions))],
                     embedder.encode_document,
                 )
             except Exception as e:
@@ -1650,15 +1655,17 @@ class DocumentPipeline:
         """
         from ..retrieval.graph.graph_store import index_document_graph
 
-        extractions, chunk_ids, encode = pending_graph
+        found, chunk_ids, encode = pending_graph
         try:
             index_document_graph(
                 document.session_id,
                 config.collection_name,
                 document.document_id,
-                extractions,
+                found.extractions,
                 chunk_ids,
                 encode,
+                extraction_model=found.model,
+                complete=found.complete,
             )
             return True
         except Exception as e:

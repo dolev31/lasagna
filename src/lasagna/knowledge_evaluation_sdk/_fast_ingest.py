@@ -187,12 +187,12 @@ def _chunk_one_doc(
             from ..retrieval.graph.entity_extractor import extract_graph
             from ..retrieval.graph.graph_store import index_document_graph
 
-            extractions = extract_graph([c["content"] for c in chunk_dicts], config)
-            chunk_ids = [f"{valid_id}_chunk_{idx}" for idx in range(len(extractions))]
+            found = extract_graph([c["content"] for c in chunk_dicts], config)
+            chunk_ids = [f"{valid_id}_chunk_{idx}" for idx in range(len(found.extractions))]
             if pending_graphs is not None:
                 # Written once the document is ingested and registered, so a
                 # document that fails later leaves no graph behind.
-                pending_graphs[valid_id] = (extractions, chunk_ids)
+                pending_graphs[valid_id] = (found, chunk_ids)
             else:
                 # Note: encode_document uses _encode_lock, which is why
                 # enable_graph_retrieval forces workers=1.
@@ -200,9 +200,11 @@ def _chunk_one_doc(
                     session_id,
                     config.collection_name,
                     valid_id,
-                    extractions,
+                    found.extractions,
                     chunk_ids,
                     embedding_manager.encode_document,
+                    extraction_model=found.model,
+                    complete=found.complete,
                 )
         except Exception as e:
             logger.warning(f"GraphRAG extraction failed for {valid_id}: {e}")
@@ -587,15 +589,17 @@ def _store_pending_graphs(pending, ingested_ids, session_id, config, embedding_m
         found = pending.get(doc_id)
         if found is None:
             continue
-        extractions, chunk_ids = found
+        extraction, chunk_ids = found
         try:
             index_document_graph(
                 session_id,
                 config.collection_name,
                 doc_id,
-                extractions,
+                extraction.extractions,
                 chunk_ids,
                 embedding_manager.encode_document,
+                extraction_model=extraction.model,
+                complete=extraction.complete,
             )
             stored += 1
         except Exception as e:

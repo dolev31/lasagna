@@ -379,8 +379,15 @@ class DatabaseGraphStore:
         document_id: str,
         entities: Sequence[GraphEntity],
         relationships: Sequence[GraphRelationship],
+        *,
+        extraction_model: Optional[str] = None,
+        complete: bool = True,
     ) -> None:
-        """Store what one document's chunks mention, replacing what it stored before."""
+        """Store what one document's chunks mention, replacing what it stored before.
+
+        ``complete``: every chunk was extracted, so the document counts as done
+        even when it names no entity.
+        """
         rows: Dict[str, Tuple[str, Optional[bytes]]] = {}
         for e in entities:
             known = rows.get(e.name)
@@ -400,6 +407,8 @@ class DatabaseGraphStore:
             ],
             sorted({(e.name, e.chunk_id) for e in entities if e.chunk_id}),
             sorted({(r.source, r.target, r.rel_type or "RELATED") for r in relationships}),
+            extraction_model=extraction_model,
+            complete=complete,
         )
         self._forget()
 
@@ -462,6 +471,9 @@ def index_document_graph(
     extractions: Sequence[Dict[str, Any]],
     chunk_ids: Sequence[str],
     encode: Any,
+    *,
+    extraction_model: Optional[str] = None,
+    complete: bool = True,
 ) -> DatabaseGraphStore:
     """Store the entities and relationships extracted from a document's chunks.
 
@@ -492,7 +504,13 @@ def index_document_graph(
                 GraphRelationship(source, target, str(rel.get("type") or "RELATED"))
             )
     store = graph_for(session_id, collection_name)
-    store.add_document(document_id, entities, relationships)
+    store.add_document(
+        document_id,
+        entities,
+        relationships,
+        extraction_model=extraction_model,
+        complete=complete,
+    )
     logger.info(
         f"GraphRAG: stored {len(embedded)} entities and {len(relationships)} relationships "
         f"for document {document_id}"
@@ -545,63 +563,96 @@ def ensure_corpus_graph(
 
     A corpus a later run reuses from the vector store keeps its graph in the
     metadata database. A corpus ingested before the graph was stored there, or
-    whose database was reset, has chunks and no graph: its documents' parts
-    are extracted again from the stored chunks, so a graph arm never runs on an
-    empty graph unnoticed. The answer goes in the run record:
-    ``{"state": "built" | "reused" | "rebuilt", "documents": n, "entities": n, "rebuilt": n}``.
+    whose database was reset, has chunks and no graph: its documents are
+    extracted again from the stored chunks, so a graph arm never runs on an
+    empty graph unnoticed. A document counts as done once every chunk of it was
+    extracted (``graph_documents``), even when it names no entity.
+
+    The answer goes in the run record: ``state`` is ``built``, ``reused``,
+    ``rebuilt``, or ``incomplete`` when some documents still have no graph (no
+    LLM, failed calls), with ``missing`` saying how many.
     """
     from lasagna.core.database import get_rag_database
+    from lasagna.core.provenance import redact
 
     db = get_rag_database()
-    _, mentions, _ = db.load_graph(session_id, collection_name)
-    with_graph = {doc for _, _, doc in mentions}
-    missing = sorted((set(document_ids) - set(built_now)) - with_graph)
+    wanted = set(document_ids)
+    done = db.extracted_graph_documents(session_id, collection_name)
+    to_rebuild = sorted((wanted - set(built_now)) - set(done))
     rebuilt = 0
-    if missing:
+    error = None
+    model = None
+    if to_rebuild:
+        from lasagna.vector_backends.filters import FilterExpression
+
         from .entity_extractor import extract_graph
 
         chunks: Dict[str, List[Tuple[int, str, str]]] = {}
-        wanted = set(missing)
+        rebuilding = set(to_rebuild)
+        filters = [vectors.session_filter(collection_name, session_id)]
+        filters.append(FilterExpression.in_list("document_id", to_rebuild))
         rows = vectors.iter_all(
             collection_name=collection_name,
-            filter_expr=vectors.session_filter(collection_name, session_id),
+            filter_expr=FilterExpression.and_all([f for f in filters if f is not None]),
             output_fields=["chunk_id", "content", "document_id", "metadata"],
         )
         for row in rows:
             doc = str(row.get("document_id") or "")
-            if doc not in wanted:
+            if doc not in rebuilding:
                 continue
             meta = row.get("metadata") or {}
             index = int(meta.get("chunk_index", 0) or 0) if isinstance(meta, dict) else 0
             chunks.setdefault(doc, []).append(
                 (index, str(row.get("chunk_id")), row.get("content") or "")
             )
-        for doc in missing:
+        for doc in to_rebuild:
             stored = sorted(chunks.get(doc, []))
             if not stored:
                 continue
             try:
-                extractions = extract_graph([text for _, _, text in stored], config)
-                index_document_graph(
-                    session_id,
-                    collection_name,
-                    doc,
-                    extractions,
-                    [cid for _, cid, _ in stored],
-                    encode,
-                )
-                rebuilt += 1
+                found = extract_graph([text for _, _, text in stored], config)
             except Exception as e:
-                logger.warning(f"GraphRAG: the graph of reused document {doc} was not rebuilt: {e}")
+                # No LLM to extract with: the rest would fail the same way.
+                error = str(redact(str(e)))[:200]
+                logger.warning(f"GraphRAG: the reused corpus's graph cannot be rebuilt: {error}")
+                break
+            model = found.model
+            index_document_graph(
+                session_id,
+                collection_name,
+                doc,
+                found.extractions,
+                [cid for _, cid, _ in stored],
+                encode,
+                extraction_model=found.model,
+                complete=found.complete,
+            )
+            rebuilt += 1
         if rebuilt:
             db.bump_content_generation(session_id)
-    entities, mentions, _ = db.load_graph(session_id, collection_name)
-    state = "rebuilt" if rebuilt else ("built" if built_now else "reused")
+    done = db.extracted_graph_documents(session_id, collection_name)
+    entities, _, _ = db.load_graph(session_id, collection_name)
+    missing = len(wanted - set(done))
+    if missing:
+        state = "incomplete"
+    elif rebuilt:
+        state = "rebuilt"
+    elif built_now:
+        state = "built"
+    else:
+        state = "reused"
+    models = sorted({m for m in done.values() if m} | ({model} if model else set()))
     info = {
         "state": state,
-        "documents": len({doc for _, _, doc in mentions}),
+        "documents": len(wanted & set(done)),
+        "missing": missing,
         "entities": len(entities),
         "rebuilt": rebuilt,
+        # One model, as a rule; a list when documents were extracted with several.
+        "extraction_model": models[0] if len(models) == 1 else (models or None),
     }
-    logger.info(f"GraphRAG: the corpus graph of {session_id} was {state} ({info})")
+    if error:
+        info["error"] = error
+    log = logger.warning if missing else logger.info
+    log(f"GraphRAG: the corpus graph of {session_id} was {state} ({info})")
     return info

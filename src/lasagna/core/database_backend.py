@@ -179,9 +179,16 @@ class DatabaseBackend(Protocol):
         entities: List[tuple],
         mentions: List[tuple],
         edges: List[tuple],
+        extraction_model: Optional[str] = None,
+        complete: bool = True,
     ) -> None:
         """Replace the document's part of a graph: ``(name, type, embedding)``,
-        ``(name, chunk_id)`` and ``(source, target, rel_type)`` rows."""
+        ``(name, chunk_id)`` and ``(source, target, rel_type)`` rows; ``complete``
+        records the document as extracted."""
+        ...
+
+    def extracted_graph_documents(self, session_id: str, collection_name: str) -> Dict[str, Any]:
+        """The documents whose every chunk was extracted: ``{document_id: extraction_model}``."""
         ...
 
     def load_graph(self, session_id: str, collection_name: str) -> tuple:
@@ -192,8 +199,8 @@ class DatabaseBackend(Protocol):
         """Remove the document's part of every graph of the session."""
         ...
 
-    def drop_graphs(self, session_id: str) -> None:
-        """Remove every graph of the session."""
+    def drop_graphs(self, session_id: str, collection_name: Optional[str] = None) -> None:
+        """Remove every graph of the session, or only its graph over ``collection_name``."""
         ...
 
     # ------------------------------------------------------------------

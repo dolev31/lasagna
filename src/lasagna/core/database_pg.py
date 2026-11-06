@@ -1973,6 +1973,8 @@ class PostgresRAGDatabase:
         entities: List[tuple],
         mentions: List[tuple],
         edges: List[tuple],
+        extraction_model: Optional[str] = None,
+        complete: bool = True,
     ) -> None:
         """Replace the document's part of a graph, in one transaction (see RAGDatabase).
 
@@ -1981,13 +1983,28 @@ class PostgresRAGDatabase:
         """
         return _retry_deadlock(
             lambda: self._save_graph_document(
-                session_id, collection_name, document_id, entities, mentions, edges
+                session_id,
+                collection_name,
+                document_id,
+                entities,
+                mentions,
+                edges,
+                extraction_model,
+                complete,
             ),
             f"Graph write for {document_id}",
         )
 
     def _save_graph_document(
-        self, session_id, collection_name, document_id, entities, mentions, edges
+        self,
+        session_id,
+        collection_name,
+        document_id,
+        entities,
+        mentions,
+        edges,
+        extraction_model=None,
+        complete=True,
     ) -> None:
         from lasagna.core.database import _delete_orphan_entities, _touched_names
 
@@ -2036,6 +2053,18 @@ class PostgresRAGDatabase:
                             [(*key, a, b, r, document_id) for a, b, r in sorted(edges)],
                         )
                 _delete_orphan_entities(conn, "%s", session_id, touched, collection_name)
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM graph_documents WHERE session_id = %s AND collection_name = %s "
+                        "AND document_id = %s",
+                        (*key, document_id),
+                    )
+                    if complete:
+                        cur.execute(
+                            "INSERT INTO graph_documents (session_id, collection_name, document_id, "
+                            "extraction_model) VALUES (%s, %s, %s, %s)",
+                            (*key, document_id, extraction_model),
+                        )
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -2070,6 +2099,19 @@ class PostgresRAGDatabase:
             conn.commit()
         return entities, mentions, edges
 
+    def extracted_graph_documents(self, session_id: str, collection_name: str) -> Dict[str, Any]:
+        """The documents whose every chunk was extracted (see RAGDatabase)."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT document_id, extraction_model FROM graph_documents "
+                    "WHERE session_id = %s AND collection_name = %s",
+                    (session_id, collection_name),
+                )
+                rows = cur.fetchall()
+            conn.commit()
+        return {r[0]: r[1] for r in rows}
+
     def delete_graph_document(self, session_id: str, document_id: str) -> None:
         """Remove the document's part of every graph of the session (see RAGDatabase)."""
         _retry_deadlock(
@@ -2084,7 +2126,7 @@ class PostgresRAGDatabase:
             touched = _touched_names(conn, "%s", session_id, document_id)
             with conn.cursor() as cur:
                 _lock_entities(cur, session_id, touched)
-                for table in ("graph_mentions", "graph_edges"):
+                for table in ("graph_mentions", "graph_edges", "graph_documents"):
                     cur.execute(
                         f"DELETE FROM {table} WHERE session_id = %s AND document_id = %s",
                         (session_id, document_id),
@@ -2092,12 +2134,16 @@ class PostgresRAGDatabase:
             _delete_orphan_entities(conn, "%s", session_id, touched)
             conn.commit()
 
-    def drop_graphs(self, session_id: str) -> None:
-        """Remove every graph of the session."""
+    def drop_graphs(self, session_id: str, collection_name: Optional[str] = None) -> None:
+        """Remove every graph of the session, or only its graph over ``collection_name``."""
+        from lasagna.core.database import _GRAPH_TABLES
+
+        where = "session_id = %s" + (" AND collection_name = %s" if collection_name else "")
+        params = (session_id, collection_name) if collection_name else (session_id,)
         with self._conn() as conn:
             with conn.cursor() as cur:
-                for table in ("graph_mentions", "graph_edges", "graph_entities"):
-                    cur.execute(f"DELETE FROM {table} WHERE session_id = %s", (session_id,))
+                for table in _GRAPH_TABLES:
+                    cur.execute(f"DELETE FROM {table} WHERE {where}", params)
             conn.commit()
 
     # ------------------------------------------------------------------
