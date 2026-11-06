@@ -648,7 +648,8 @@ def ensure_corpus_graph(
             db.bump_content_generation(session_id)
     done = db.extracted_graph_documents(session_id, collection_name)
     entities, _, _ = db.load_graph(session_id, collection_name)
-    have = wanted & set(done)
+    # Still extracted by another model: not rebuilt (no LLM), so not done.
+    have = {d for d in wanted & set(done) if done[d].get("model") in (None, model_now)}
     missing = len(wanted - have - no_chunks)
     if missing:
         state = "incomplete"

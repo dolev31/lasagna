@@ -3620,6 +3620,13 @@ def _corpus_cache_key(task: "BenchmarkTask") -> Optional[str]:
         k: v for k, v in (task.config_overrides or {}).items() if k in _ingestion_time_keys()
     }
     merged = {**_profile_ingestion, **_explicit_ingestion}
+    if merged.get("enable_graph_retrieval") and not merged.get("graph_extraction_model"):
+        # The graph is part of a graph arm's corpus: keyed by the model that
+        # extracts it, the default model when the arm names none, so two runs
+        # with different MODEL_NAMEs never share, or swap, one graph (#55).
+        from lasagna.core.config import rag_config as _graph_cfg
+
+        merged["graph_extraction_model"] = _graph_cfg.graph_extraction_model
     # A chunker or embedder component makes its own corpus: keyed by what the
     # component is, so a changed function is never served an old corpus.
     for _slot in _INGEST_COMPONENTS:
@@ -5582,17 +5589,26 @@ async def _eval_live(
         # Outside the comparability key, which reads named fields only.
         _system["graph"] = corpus_info["graph"]
         _graph = corpus_info["graph"]
-        if _graph.get("state") in ("incomplete", "unknown"):
-            # Every query of the arm ran on a graph missing documents: a
-            # fallback, reported as the bundle reports the others (#84), under
-            # the stage name the search's own graph expansion records.
-            _cause = f" ({_graph['error']})" if _graph.get("error") else ""
-            if _graph["state"] == "incomplete":
-                _of = _graph.get("documents", 0) + _graph.get("missing", 0)
-                _why = f"the corpus graph is missing {_graph.get('missing')} of {_of} documents"
-            else:
-                _why = "the corpus graph could not be checked"
+        # Every query of the arm ran on a graph missing documents, or on none
+        # at all: a fallback, reported as the bundle reports the others (#84),
+        # under the stage name the search's own graph expansion records.
+        _cause = f" ({_graph['error']})" if _graph.get("error") else ""
+        _why = None
+        if _graph.get("state") == "incomplete":
+            _of = _graph.get("documents", 0) + _graph.get("missing", 0)
+            _why = f"the corpus graph is missing {_graph.get('missing')} of {_of} documents"
             _why += _cause
+        elif _graph.get("state") == "unknown":
+            _why = "the corpus graph could not be checked" + _cause
+        elif _graph.get("entities") == 0 and _graph.get("unparsed_chunks"):
+            # An endpoint that answers 200 with no JSON (a reasoning model's
+            # empty content, a proxy's HTML page) leaves every document done
+            # and the graph empty.
+            _why = (
+                "the corpus graph is empty: "
+                f"{_graph['unparsed_chunks']} replies of the extraction model held no readable JSON"
+            )
+        if _why:
             for _track, _tally in (("retrieval", _ir_degraded), ("generation", _gen_degraded)):
                 if not _tally.queries:
                     continue

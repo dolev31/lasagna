@@ -350,6 +350,25 @@ def test_a_graph_that_could_not_be_checked_says_why(monkeypatch):
     )
 
 
+def test_a_graph_left_empty_by_unreadable_replies_is_a_fallback(monkeypatch):
+    graph = {
+        "state": "rebuilt",
+        "documents": 2,
+        "missing": 0,
+        "entities": 0,
+        "rebuilt": 2,
+        "unparsed_chunks": 2,
+    }
+    result = _run_with_graph(monkeypatch, graph)
+    (reason,) = result.system["degraded_stages"]["retrieval"]["graphrag"]["reasons"]
+    assert reason["reason"] == (
+        "the corpus graph is empty: 2 replies of the extraction model held no readable JSON"
+    )
+    # A graph with entities and a few unreadable replies is not a fallback.
+    result = _run_with_graph(monkeypatch, {**graph, "entities": 5})
+    assert "degraded_stages" not in result.system
+
+
 class _LLM:
     """An extraction model that answers, fails, or answers in prose on chunks naming a word."""
 
@@ -533,6 +552,40 @@ def test_a_document_with_no_stored_chunks_is_not_missing(tmp_path, monkeypatch):
     assert info["state"] == "rebuilt" and info["missing"] == 0 and info["no_chunks"] == 1
 
 
+def test_a_stale_model_with_no_llm_to_replace_it_is_incomplete(tmp_path, monkeypatch):
+    from lasagna.providers.llm_provider import SimpleLLMProvider
+    from lasagna.retrieval.graph.graph_store import ensure_corpus_graph
+
+    _corpus_db(tmp_path, monkeypatch)
+    _use_llm(monkeypatch, _LLM())
+    ensure_corpus_graph(
+        "s",
+        "c",
+        _StoredChunks(LONG_ROWS),
+        {"d1", "d2"},
+        set(),
+        _graph_config(graph_extraction_model="old"),
+        _ones,
+    )
+
+    def no_llm(self, **kw):
+        raise RuntimeError("no LLM configured")
+
+    monkeypatch.setattr(SimpleLLMProvider, "get_llm", no_llm)
+    info = ensure_corpus_graph(
+        "s",
+        "c",
+        _StoredChunks(LONG_ROWS),
+        {"d1", "d2"},
+        set(),
+        _graph_config(graph_extraction_model="new"),
+        _ones,
+    )
+    # The graph is the old model's: not the one this arm asked for.
+    assert info["state"] == "incomplete" and info["missing"] == 2 and info["documents"] == 0
+    assert info["error"] == "no LLM configured"
+
+
 def test_a_rebuild_reads_only_the_documents_it_needs(tmp_path, monkeypatch, stub_extraction):
     from lasagna.retrieval.graph.graph_store import ensure_corpus_graph, index_document_graph
 
@@ -593,3 +646,30 @@ def test_two_graph_arms_with_different_extraction_settings_get_corpora_of_their_
     assert key(graph_extraction_model="a") != key(graph_extraction_model="b")
     assert key(graph_entity_types=["PERSON"]) != key(graph_entity_types=["ORG"])
     assert key(graph_extraction_model="a") == key(graph_extraction_model="a")
+
+
+def test_a_graph_arm_that_names_no_model_is_keyed_by_the_default_model(monkeypatch):
+    from lasagna.knowledge_evaluation_sdk import experiment as exp
+    from lasagna.knowledge_evaluation_sdk.runner import BenchmarkTask
+
+    monkeypatch.delenv("RAG_GRAPH_EXTRACTION_MODEL", raising=False)
+
+    def key(**overrides):
+        return exp._corpus_cache_key(
+            BenchmarkTask(
+                benchmark_name="smoke",
+                config_name="arm",
+                run_index=0,
+                mode="live",
+                config_overrides=overrides,
+                tracks=("retrieval",),
+            )
+        )
+
+    monkeypatch.setenv("MODEL_NAME", "model-a")
+    graph_a, plain_a = key(enable_graph_retrieval=True), key(chunk_size=300)
+    monkeypatch.setenv("MODEL_NAME", "model-b")
+    # Two runs with different default models never share one graph.
+    assert key(enable_graph_retrieval=True) != graph_a
+    # An arm without the graph does not care which model is the default.
+    assert key(chunk_size=300) == plain_a

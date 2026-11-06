@@ -92,7 +92,10 @@ documents with nothing stored to extract. `incomplete` means `missing` documents
 have no graph: no LLM could be built (`error` says why), or a call failed. Every query
 of such an arm then counts as a `graphrag` stage in `degraded_stages`, the name the
 search's own graph expansion records, so the bundle raises `ACTIVE_FALLBACKS`.
-`unknown`, with an `error`, is a check that itself failed, and is reported the same way.
+`unknown`, with an `error`, is a check that itself failed, and is reported the same way,
+as is a graph left with no entity because the model's replies held no readable JSON.
+A graph arm's corpus is keyed by its extraction model, the default model when the arm
+names none, so two runs with different default models never share one graph.
 
 ## Integrity messages
 
