@@ -1682,9 +1682,14 @@ class DocumentPipeline:
     def _unstore_graph(self, document) -> None:
         """Remove the document's part of the session's graphs; logged, never raised."""
         try:
+            from lasagna.core.database import get_rag_database
+
             from ..retrieval.graph.graph_store import graph_for
 
             graph_for(document.session_id, "").remove_document(document.document_id)
+            # A process that loaded the graph after the upload's own change
+            # would keep the removed part until the next one.
+            get_rag_database().bump_content_generation(document.session_id)
         except Exception as e:
             logger.warning(
                 f"GraphRAG: the graph part of {document.document_id} could not be removed: {e}"
