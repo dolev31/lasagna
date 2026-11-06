@@ -529,6 +529,18 @@ class VectorStoreAdapter(ABC):
         """
         return None
 
+    def collection_supports_native_hybrid(self, collection_name: str) -> bool:
+        """Whether native hybrid search can run on ``collection_name``.
+
+        ``capabilities`` says what the store can do; this says what one
+        collection can. A Milvus server runs native hybrid search only on a
+        collection with a ``sparse_embedding`` field, and the collections
+        Lasagna creates have none, so it overrides this to read the fields.
+        Every other store answers from its capabilities.
+        """
+        caps = self.capabilities
+        return bool(caps.supports_hybrid_search or caps.supports_native_bm25)
+
     def read_fresh(self) -> ContextManager[None]:
         """A block whose filter reads see every write made before it.
 
