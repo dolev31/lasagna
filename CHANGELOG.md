@@ -21,7 +21,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   document's graph only once the document is in, so a corpus whose ingest
   failed leaves none. Two graph arms that differ in `graph_extraction_model`
   or `graph_entity_types` get a corpus each, and an arm that names no model is
-  keyed by the default model.
+  keyed by the default model. That key is new: a graph arm's corpus ingested
+  before it is ingested once more.
 - `POST /api/v1/chat/completions` and `GET /api/v1/models`: chat with a
   session's documents from any OpenAI client library or chat front end (#13).
   The route searches with the session's pipeline, as `/search/citations` does,

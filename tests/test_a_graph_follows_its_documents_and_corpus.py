@@ -648,11 +648,20 @@ def test_two_graph_arms_with_different_extraction_settings_get_corpora_of_their_
     assert key(graph_extraction_model="a") == key(graph_extraction_model="a")
 
 
+def _env_overrides(monkeypatch, **values):
+    """RAG_* settings as the config read them at start, without RAG_GRAPH_EXTRACTION_MODEL."""
+    from lasagna.core.config import rag_config
+
+    overrides = dict(rag_config._env_overrides or {})
+    overrides.pop("graph_extraction_model", None)
+    monkeypatch.setattr(rag_config, "_env_overrides", {**overrides, **values})
+
+
 def test_a_graph_arm_that_names_no_model_is_keyed_by_the_default_model(monkeypatch):
     from lasagna.knowledge_evaluation_sdk import experiment as exp
     from lasagna.knowledge_evaluation_sdk.runner import BenchmarkTask
 
-    monkeypatch.delenv("RAG_GRAPH_EXTRACTION_MODEL", raising=False)
+    _env_overrides(monkeypatch, enable_graph_retrieval=False)
 
     def key(**overrides):
         return exp._corpus_cache_key(
@@ -673,3 +682,30 @@ def test_a_graph_arm_that_names_no_model_is_keyed_by_the_default_model(monkeypat
     assert key(enable_graph_retrieval=True) != graph_a
     # An arm without the graph does not care which model is the default.
     assert key(chunk_size=300) == plain_a
+
+
+def test_a_graph_on_for_every_arm_is_keyed_by_the_default_model_too(monkeypatch):
+    from lasagna.knowledge_evaluation_sdk import experiment as exp
+    from lasagna.knowledge_evaluation_sdk.runner import BenchmarkTask
+
+    _env_overrides(monkeypatch, enable_graph_retrieval=True)
+
+    def key(**overrides):
+        return exp._corpus_cache_key(
+            BenchmarkTask(
+                benchmark_name="smoke",
+                config_name="arm",
+                run_index=0,
+                mode="live",
+                config_overrides=overrides,
+                tracks=("retrieval",),
+            )
+        )
+
+    monkeypatch.setenv("MODEL_NAME", "model-a")
+    plain_a, off_a = key(), key(enable_graph_retrieval=False)
+    monkeypatch.setenv("MODEL_NAME", "model-b")
+    # The Compose stack turns the graph on for every arm.
+    assert key() != plain_a
+    # An arm that turns it off keys no model.
+    assert key(enable_graph_retrieval=False) == off_a

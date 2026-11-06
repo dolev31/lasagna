@@ -3620,12 +3620,15 @@ def _corpus_cache_key(task: "BenchmarkTask") -> Optional[str]:
         k: v for k, v in (task.config_overrides or {}).items() if k in _ingestion_time_keys()
     }
     merged = {**_profile_ingestion, **_explicit_ingestion}
-    if merged.get("enable_graph_retrieval") and not merged.get("graph_extraction_model"):
+    from lasagna.core.config import rag_config as _graph_cfg
+
+    # On for this arm, or for every arm (RAG_ENABLE_GRAPH_RETRIEVAL, as in the
+    # Compose stack) unless the arm turns it off.
+    _graph_on = merged.get("enable_graph_retrieval", _graph_cfg.enable_graph_retrieval)
+    if _graph_on and not merged.get("graph_extraction_model"):
         # The graph is part of a graph arm's corpus: keyed by the model that
         # extracts it, the default model when the arm names none, so two runs
         # with different MODEL_NAMEs never share, or swap, one graph (#55).
-        from lasagna.core.config import rag_config as _graph_cfg
-
         merged["graph_extraction_model"] = _graph_cfg.graph_extraction_model
     # A chunker or embedder component makes its own corpus: keyed by what the
     # component is, so a changed function is never served an old corpus.
