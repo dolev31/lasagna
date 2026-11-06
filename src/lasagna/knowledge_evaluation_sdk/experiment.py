@@ -2183,19 +2183,6 @@ class Experiment:
             f"{cfg.n_runs} {'run' if cfg.n_runs == 1 else 'runs'}, mode={cfg.mode})"
         )
 
-        # Set judge model for offline eval (module-level so _eval_offline can read it)
-        # RAG_EVAL_JUDGE_MODEL env var takes precedence over YAML judge_model so
-        # operators can override the model without editing YAML files (e.g. for OpenRouter).
-        global _active_judge_model
-        _active_judge_model = _resolve_judge_model(cfg)
-        if _active_judge_model:
-            logger.info(f"Judge model: {_active_judge_model}")
-        # Said once, before any work: a model that takes no temperature makes
-        # repeated runs differ, and n_runs is how a reader learns by how much.
-        if "generation" in _parse_tracks(cfg.tracks):
-            for note in _sampling_notes():
-                logger.warning(note)
-
         # Checkpoint manager
         cp_dir = cfg.checkpoint_dir or output_dir
         checkpoint = CheckpointManager(cp_dir)
@@ -2203,6 +2190,21 @@ class Experiment:
         # Generate tasks
         tasks = self.generate_tasks()
         logger.info(f"Generated {len(tasks)} tasks")
+
+        # Set judge model for offline eval (module-level so _eval_offline can read it)
+        # RAG_EVAL_JUDGE_MODEL env var takes precedence over YAML judge_model so
+        # operators can override the model without editing YAML files (e.g. for OpenRouter).
+        # After the tasks: a local benchmark file is named only then, and
+        # whether the run writes answers depends on its mode.
+        global _active_judge_model
+        _active_judge_model = _resolve_judge_model(cfg)
+        if _active_judge_model:
+            logger.info(f"Judge model: {_active_judge_model}")
+        # Said once, before any work: a model that takes no temperature makes
+        # repeated runs differ, and n_runs is how a reader learns by how much.
+        if _writes_answers(cfg):
+            for note in _sampling_notes():
+                logger.warning(note)
 
         # Offline, a benchmark whose data is not cached fails here, once, rather
         # than in every task with the same "dataset_info.json not found".
@@ -2276,8 +2278,9 @@ class Experiment:
             # The table and the rates behind every cost_usd_estimate.
             from .cost import generator_model_name, judge_model_name
 
+            # The judge's rates only for a run that wrote answers to judge.
             results.experiment_config["cost_estimate"] = prices.record(
-                [generator_model_name(), judge_model_name()]
+                [generator_model_name()] + ([judge_model_name()] if _writes_answers(cfg) else [])
             )
 
         # Save outputs
@@ -2408,6 +2411,7 @@ def _run_metadata(cfg: "ExperimentConfig", concurrency: Optional[int] = None) ->
     from .bundle import METRICS_VERSION
     from .run_provenance import determinism_label, package_version, rag_overrides
 
+    _generates = _writes_answers(cfg)
     meta: Dict[str, Any] = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "experiment_name": cfg.name,
@@ -2451,14 +2455,18 @@ def _run_metadata(cfg: "ExperimentConfig", concurrency: Optional[int] = None) ->
             "generators": list(cfg.pipeline.generators),
             "config_overrides": list(cfg.pipeline.config_overrides),
         },
-        "judge_model": _active_judge_model or cfg.judge_model or None,
+        # The judge and the embedder behind answer_similarity only score
+        # answers: a run that writes none names neither, so the environment's
+        # judge neither flags it UNRESOLVED_JUDGE_ALIAS nor splits it from an
+        # identical run on a leaderboard.
+        "judge_model": (_active_judge_model or cfg.judge_model or None) if _generates else None,
         # Whether temperature reached the generator and the judge. A model that
         # takes none ("provider-default") samples between runs however the
-        # pipeline is configured. None for a run that generates nothing.
-        "sampling": _sampling_record() if "generation" in _parse_tracks(cfg.tracks) else None,
-        # The embedder behind answer_similarity: a different one gives
-        # different numbers, so it belongs in the comparability key.
-        "similarity_model": _similarity_model_for_record(),
+        # pipeline is configured. None for a run that writes no answers.
+        "sampling": _sampling_record() if _generates else None,
+        # A different embedder gives different answer_similarity numbers, so
+        # it belongs in the comparability key of a run that generates.
+        "similarity_model": _similarity_model_for_record() if _generates else None,
         "max_corpus_docs": cfg.max_corpus_docs,
         "ingest_failure_tolerance": cfg.ingest_failure_tolerance,
         "tracks": list(cfg.tracks),
@@ -2731,7 +2739,7 @@ def _set_resume_fingerprints(cfg: "ExperimentConfig", tasks: List[BenchmarkTask]
         llms["judge_base_url"] = (
             os.environ.get("RAG_EVAL_JUDGE_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or None
         )
-    scorers = [_similarity_model_for_record()] if "generation" in _parse_tracks(cfg.tracks) else []
+    scorers = [_similarity_model_for_record()] if _writes_answers(cfg) else []
     by_arm: Dict[str, str] = {}
     for task in tasks:
         if task.config_hash not in by_arm:
@@ -2746,14 +2754,28 @@ def _set_resume_fingerprints(cfg: "ExperimentConfig", tasks: List[BenchmarkTask]
         task.resume_fingerprint = by_arm[task.config_hash]
 
 
+def _writes_answers(cfg: "ExperimentConfig") -> bool:
+    """Whether any task of the run writes answers, the only thing a judge scores.
+
+    A generation track does, and so does a benchmark whose mode resolves to
+    ``generation_only`` (``auto`` on a benchmark with no corpus, such as
+    TriviaQA): it answers and is judged whatever ``tracks`` says.
+    """
+    if "generation" in _parse_tracks(cfg.tracks):
+        return True
+    # resolve_mode never raises: a benchmark it cannot inspect resolves to
+    # generation_only, so it counts as judged.
+    return any(resolve_mode(cfg.mode, spec.name)[0] == "generation_only" for spec in cfg.benchmarks)
+
+
 def _resolve_judge_model(cfg: "ExperimentConfig") -> Optional[str]:
     """``RAG_EVAL_JUDGE_MODEL``, then ``judge_model:``, then the default.
 
-    A run with no generation track has no judge: None, so its comparability
-    key stays what it was.
+    A run that writes no answers judges nothing: only a judge it was told to
+    use, which the run record then leaves out.
     """
     named = os.environ.get("RAG_EVAL_JUDGE_MODEL") or cfg.judge_model or None
-    if named or "generation" not in _parse_tracks(cfg.tracks):
+    if named or not _writes_answers(cfg):
         return named
     return DEFAULT_JUDGE_MODEL
 
