@@ -4856,6 +4856,11 @@ environment only: not from the settings file, and not per session.</p>
 <td>Seconds a REST search may run before it answers 504.</td>
 </tr>
 <tr>
+<td><code>RAG_CHAT_TIMEOUT</code></td>
+<td><code>120</code></td>
+<td>Seconds the answer of POST /api/v1/chat/completions may take once its search is done, before it answers 504 (or ends a streamed answer with an error event).</td>
+</tr>
+<tr>
 <td><code>RAG_MAX_SESSIONS_PER_KEY</code></td>
 <td><code>100</code></td>
 <td>With RAG_REQUIRE_AUTH on, how many sessions one API key may mint per token lifetime (RAG_SESSION_TOKEN_TTL_SECONDS); one more answers 429. Raise it for an application that makes a session per end user.</td>

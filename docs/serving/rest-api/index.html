@@ -1246,6 +1246,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#chat-with-an-openai-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat with an OpenAI client
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#endpoints-at-a-glance" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2217,6 +2228,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#chat-with-an-openai-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat with an OpenAI client
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#endpoints-at-a-glance" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2292,7 +2314,7 @@
 
 
 <h1 id="rest-api">REST API<a class="headerlink" href="#rest-api" title="Permanent link">&para;</a></h1>
-<p><code>lasagna serve</code> runs an HTTP server with 41 endpoints: 32 under <code>/api/v1/</code> and 9
+<p><code>lasagna serve</code> runs an HTTP server with 43 endpoints: 34 under <code>/api/v1/</code> and 9
 that are not versioned. Every endpoint takes and returns JSON, except the two
 upload routes, which take multipart form data.</p>
 <h2 id="start-the-server">Start the server<a class="headerlink" href="#start-the-server" title="Permanent link">&para;</a></h2>
@@ -2402,6 +2424,63 @@ already holds is not uploaded again, and the response names the original in
 </table>
 <p>A stage that failed and fell back is named in <code>degraded_stages</code>, so an empty list
 means every configured stage ran.</p>
+<h2 id="chat-with-an-openai-client">Chat with an OpenAI client<a class="headerlink" href="#chat-with-an-openai-client" title="Permanent link">&para;</a></h2>
+<p><code>POST /api/v1/chat/completions</code> takes the OpenAI chat format and answers from
+the session's documents. Point any OpenAI client library or chat front end at
+<code>.../api/v1</code> and send the session as you would to <code>/search</code>. An LLM must be
+configured, as for generation (<code>OPENAI_API_KEY</code>, or <code>OLLAMA_BASE_URL</code> and
+<code>MODEL_NAME</code>).</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAI</span>
+
+<span class="n">client</span> <span class="o">=</span> <span class="n">OpenAI</span><span class="p">(</span>
+    <span class="n">base_url</span><span class="o">=</span><span class="s2">"http://127.0.0.1:8000/api/v1"</span><span class="p">,</span>
+    <span class="n">api_key</span><span class="o">=</span><span class="s2">"..."</span><span class="p">,</span>  <span class="c1"># the client requires one; Lasagna ignores it</span>
+    <span class="n">default_headers</span><span class="o">=</span><span class="p">{</span><span class="s2">"X-Session-ID"</span><span class="p">:</span> <span class="s2">"my-corpus"</span><span class="p">},</span>  <span class="c1"># X-Session-Token in the stack</span>
+<span class="p">)</span>
+<span class="n">reply</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">"lasagna"</span><span class="p">,</span>
+    <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"what did the ablation show?"</span><span class="p">}],</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">reply</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">reply</span><span class="o">.</span><span class="n">model_dump</span><span class="p">()[</span><span class="s2">"citations"</span><span class="p">])</span>  <span class="c1"># the passages; [n] in the answer is citations[n-1]</span>
+
+<span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">"lasagna"</span><span class="p">,</span>
+    <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"what did the ablation show?"</span><span class="p">}],</span>
+    <span class="n">stream</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">chunk</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">delta</span><span class="o">.</span><span class="n">content</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">""</span><span class="p">)</span>
+</code></pre></div>
+<p>What it does:</p>
+<ul>
+<li>The last <code>user</code> message is the question, at most 10,000 characters as on
+  <code>/search</code>. <code>system</code> and <code>developer</code> messages become the generator's
+  instructions. Earlier turns are not used.</li>
+<li>The session's own search runs, as on <code>/search/citations</code>, with the same
+  deadline (<code>RAG_SEARCH_TIMEOUT</code>), quota and errors. Then the <code>cited</code> generator
+  writes the answer, within <code>RAG_CHAT_TIMEOUT</code> (120 s).</li>
+<li><code>citations</code> and <code>degraded_stages</code> are extra top-level fields. A streamed answer
+  carries them on the chunk with its <code>finish_reason</code> (with <code>include_usage</code>, a
+  usage chunk follows it), before <code>data: [DONE]</code>.</li>
+<li><code>temperature</code> (default 0.0) and <code>max_tokens</code> or <code>max_completion_tokens</code>
+  (default 1000) reach the LLM; <code>finish_reason</code> is <code>length</code> when the answer was
+  cut there. <code>stream_options: {"include_usage": true}</code> adds the token usage to a
+  stream. <code>top_k</code> and <code>document_ids</code> go in <code>extra_body</code>.</li>
+<li><code>n</code> above 1, <code>tools</code> and a non-text <code>response_format</code> are refused with 400.</li>
+<li>A session with no documents gets the note <code>/search</code> gives. A search that
+  finds nothing gets "No passage in this session matches the question.". Neither
+  calls the LLM.</li>
+<li><code>GET /api/v1/models</code> lists the one model, <code>lasagna</code>. The name you send is
+  echoed and changes nothing.</li>
+<li>With auth on (the Compose stack), send the session token as
+  <code>X-Session-Token</code>. A chat front end that can only set an API key cannot send
+  it yet.</li>
+</ul>
+<p>With <code>curl</code>, <code>-N</code> shows the events as they arrive:</p>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-N<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://127.0.0.1:8000/api/v1/chat/completions<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">"X-Session-ID: my-corpus"</span><span class="w"> </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"model": "lasagna", "stream": true, "messages": [{"role": "user", "content": "what did the ablation show?"}]}'</span>
+</code></pre></div>
 <h2 id="endpoints-at-a-glance">Endpoints at a glance<a class="headerlink" href="#endpoints-at-a-glance" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2430,6 +2509,10 @@ means every configured stage ran.</p>
 <tr>
 <td>Search</td>
 <td><code>POST /api/v1/search</code>, <code>/search/citations</code>, <code>/search/multi-query</code>, <code>/search/agentic</code></td>
+</tr>
+<tr>
+<td>Chat (OpenAI format)</td>
+<td><code>POST /api/v1/chat/completions</code>, <code>GET /api/v1/models</code></td>
 </tr>
 <tr>
 <td>Citations</td>
@@ -2525,6 +2608,11 @@ access. A request with a non-loopback <code>Host</code> header gets 421 unless t
 <td><code>RAG_SEARCH_TIMEOUT</code></td>
 </tr>
 <tr>
+<td>One chat completion's answer, after its search</td>
+<td>120 seconds</td>
+<td><code>RAG_CHAT_TIMEOUT</code></td>
+</tr>
+<tr>
 <td>Concurrent uploads</td>
 <td>5</td>
 <td><code>RAG_MAX_CONCURRENT_UPLOADS</code></td>
@@ -2599,7 +2687,7 @@ chunks, 600 searches per minute and 200 uploads per hour.</p>
 </tr>
 <tr>
 <td>504</td>
-<td>The search ran past <code>RAG_SEARCH_TIMEOUT</code>.</td>
+<td>The search ran past <code>RAG_SEARCH_TIMEOUT</code>, or a chat completion's answer past <code>RAG_CHAT_TIMEOUT</code>.</td>
 </tr>
 </tbody>
 </table>
