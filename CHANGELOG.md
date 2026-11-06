@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The knowledge graph `enable_graph_retrieval` builds is kept in the metadata
+  database every process shares, so a search finds the graph whichever process
+  built it (Part of #55). It lived in the memory of the process that ingested:
+  in the Compose stack the Celery worker built it and every API worker searched
+  an empty one, silently, and a restart lost it. It is now stored per session
+  and collection (SQLite, or PostgreSQL in the stack), each mention and edge
+  with its document, and loaded into each process again when the session's
+  documents change. Storing a document again replaces its part, so a reindex
+  leaves no old chunk ids behind. A search no longer creates an empty graph.
 - A stage that falls back while a benchmark's queries run is named in the
   results and the bundle (Part of #50). Hybrid search, the graph expansion
   and other stages catch their own failure, carry on with less and record it;

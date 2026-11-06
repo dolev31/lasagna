@@ -183,7 +183,8 @@ def _chunk_one_doc(
     # GraphRAG entity extraction
     if getattr(config, "enable_graph_retrieval", False):
         try:
-            from ..retrieval.graph import EntityExtractor, get_or_create_session_graph
+            from ..retrieval.graph import EntityExtractor
+            from ..retrieval.graph.graph_store import index_document_graph
             from ..providers.llm_provider import SimpleLLMProvider
 
             from ..utils.model_utils import get_default_model_name
@@ -198,25 +199,17 @@ def _chunk_one_doc(
             llm = SimpleLLMProvider().get_llm(model_name=extraction_model, temperature=0)
             chunk_texts = [c["content"] for c in chunk_dicts]
             extractions = extractor.extract_batch_sync(chunk_texts, llm, max_workers=4)
-            graph_store = get_or_create_session_graph(session_id)
-            for idx, extraction in enumerate(extractions):
-                chunk_id = f"{valid_id}_chunk_{idx}"
-                for entity in extraction.get("entities", []):
-                    # Note: encode_document uses _encode_lock — this is why
-                    # enable_graph_retrieval forces workers=1.
-                    entity_emb = embedding_manager.encode_document(entity["name"])
-                    graph_store.add_entity(
-                        entity_id=entity["name"],
-                        entity_type=entity.get("type", "UNKNOWN"),
-                        embedding=entity_emb,
-                        chunk_id=chunk_id,
-                    )
-                for rel in extraction.get("relationships", []):
-                    graph_store.add_relationship(
-                        source_id=rel["source"],
-                        target_id=rel["target"],
-                        rel_type=rel.get("type", "RELATED"),
-                    )
+            # Note: encode_document uses _encode_lock, which is why
+            # enable_graph_retrieval forces workers=1. Stored in the shared
+            # metadata database, so a later run that reuses the corpus finds it.
+            index_document_graph(
+                session_id,
+                config.collection_name,
+                valid_id,
+                extractions,
+                [f"{valid_id}_chunk_{idx}" for idx in range(len(extractions))],
+                embedding_manager.encode_document,
+            )
         except Exception as e:
             logger.warning(f"GraphRAG extraction failed for {valid_id}: {e}")
 

@@ -2065,6 +2065,132 @@ class RAGDatabase:
             finally:
                 conn.close()
 
+    # =========================================================================
+    # KNOWLEDGE GRAPH (one per session and collection, shared by every process)
+    # =========================================================================
+    #
+    # The graph graph retrieval expands through (retrieval/graph/graph_store.py).
+    # Every mention and edge names its document, so a document's part can be
+    # removed. Created on first use, like content_generations.
+
+    def _graph_conn(self):
+        conn = self._get_connection()
+        if not getattr(self, "_graph_tables_ready", False):
+            conn.executescript(CREATE_GRAPH_TABLES)
+            conn.commit()
+            self._graph_tables_ready = True
+        return conn
+
+    def save_graph_document(
+        self,
+        session_id: str,
+        collection_name: str,
+        document_id: str,
+        entities: List[tuple],
+        mentions: List[tuple],
+        edges: List[tuple],
+    ) -> None:
+        """Replace the document's part of a graph: ``(name, type, embedding)``,
+        ``(name, chunk_id)``, ``(source, target, rel_type)``, in one transaction."""
+        with self._lock:
+            conn = self._graph_conn()
+            try:
+                key = (session_id, collection_name)
+                conn.execute(
+                    "DELETE FROM graph_mentions WHERE session_id = ? AND collection_name = ? "
+                    "AND document_id = ?",
+                    (*key, document_id),
+                )
+                conn.execute(
+                    "DELETE FROM graph_edges WHERE session_id = ? AND collection_name = ? "
+                    "AND document_id = ?",
+                    (*key, document_id),
+                )
+                conn.executemany(
+                    "INSERT INTO graph_entities (session_id, collection_name, name, entity_type, "
+                    "embedding) VALUES (?, ?, ?, ?, ?) ON CONFLICT (session_id, collection_name, "
+                    "name) DO UPDATE SET entity_type = excluded.entity_type, "
+                    "embedding = COALESCE(excluded.embedding, graph_entities.embedding)",
+                    [
+                        (*key, name, entity_type, embedding)
+                        for name, entity_type, embedding in entities
+                    ],
+                )
+                conn.executemany(
+                    "INSERT OR IGNORE INTO graph_mentions (session_id, collection_name, name, "
+                    "chunk_id, document_id) VALUES (?, ?, ?, ?, ?)",
+                    [(*key, name, chunk_id, document_id) for name, chunk_id in mentions],
+                )
+                conn.executemany(
+                    "INSERT OR IGNORE INTO graph_edges (session_id, collection_name, source, "
+                    "target, rel_type, document_id) VALUES (?, ?, ?, ?, ?, ?)",
+                    [(*key, src, tgt, rel, document_id) for src, tgt, rel in edges],
+                )
+                _delete_orphan_entities(conn, "?", session_id)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+    def load_graph(self, session_id: str, collection_name: str) -> tuple:
+        """The graph's ``(entities, mentions, edges)`` rows, as `save_graph_document` takes them,
+        with each mention and edge's document."""
+        with self._lock:
+            conn = self._graph_conn()
+            try:
+                key = (session_id, collection_name)
+                entities = conn.execute(
+                    "SELECT name, entity_type, embedding FROM graph_entities "
+                    "WHERE session_id = ? AND collection_name = ?",
+                    key,
+                ).fetchall()
+                mentions = conn.execute(
+                    "SELECT name, chunk_id, document_id FROM graph_mentions "
+                    "WHERE session_id = ? AND collection_name = ?",
+                    key,
+                ).fetchall()
+                edges = conn.execute(
+                    "SELECT source, target, rel_type, document_id FROM graph_edges "
+                    "WHERE session_id = ? AND collection_name = ?",
+                    key,
+                ).fetchall()
+                return (
+                    [tuple(r) for r in entities],
+                    [tuple(r) for r in mentions],
+                    [tuple(r) for r in edges],
+                )
+            finally:
+                conn.close()
+
+    def delete_graph_document(self, session_id: str, document_id: str) -> None:
+        """Remove the document's mentions and edges from every graph of the session,
+        and the entities left with neither."""
+        with self._lock:
+            conn = self._graph_conn()
+            try:
+                for table in ("graph_mentions", "graph_edges"):
+                    conn.execute(
+                        f"DELETE FROM {table} WHERE session_id = ? AND document_id = ?",
+                        (session_id, document_id),
+                    )
+                _delete_orphan_entities(conn, "?", session_id)
+                conn.commit()
+            finally:
+                conn.close()
+
+    def drop_graphs(self, session_id: str) -> None:
+        """Remove every graph of the session."""
+        with self._lock:
+            conn = self._graph_conn()
+            try:
+                for table in ("graph_mentions", "graph_edges", "graph_entities"):
+                    conn.execute(f"DELETE FROM {table} WHERE session_id = ?", (session_id,))
+                conn.commit()
+            finally:
+                conn.close()
+
 
 #: Statuses of a document that some process is still working on.
 _UNFINISHED_SQL = "'uploading', 'processing', 'indexing'"
@@ -2122,6 +2248,60 @@ CREATE TABLE IF NOT EXISTS profile_switches (
 
 #: One row per session: a counter bumped on every upload and delete, which tells
 #: each process whether its in-memory BM25 index of the session is current.
+#: The knowledge graph's rows (see RAGDatabase.save_graph_document). The same
+#: DDL runs on PostgreSQL (database_pg.py), with BYTEA for the embedding.
+CREATE_GRAPH_TABLES = """
+CREATE TABLE IF NOT EXISTS graph_entities (
+    session_id TEXT NOT NULL,
+    collection_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    entity_type TEXT,
+    embedding BLOB,
+    PRIMARY KEY (session_id, collection_name, name)
+);
+CREATE TABLE IF NOT EXISTS graph_mentions (
+    session_id TEXT NOT NULL,
+    collection_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    chunk_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    PRIMARY KEY (session_id, collection_name, name, chunk_id)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_mentions_document ON graph_mentions(session_id, document_id);
+CREATE TABLE IF NOT EXISTS graph_edges (
+    session_id TEXT NOT NULL,
+    collection_name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    target TEXT NOT NULL,
+    rel_type TEXT,
+    document_id TEXT NOT NULL,
+    PRIMARY KEY (session_id, collection_name, source, target, document_id)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_edges_document ON graph_edges(session_id, document_id);
+"""
+
+
+def _delete_orphan_entities(conn, placeholder: str, session_id: str) -> None:
+    """Delete the session's entities no mention and no edge names any more.
+
+    ``placeholder`` is the driver's parameter marker (``?`` or ``%s``), so the
+    two databases run the same statement.
+    """
+    sql = (
+        "DELETE FROM graph_entities WHERE session_id = {p} "
+        "AND NOT EXISTS (SELECT 1 FROM graph_mentions m WHERE m.session_id = graph_entities.session_id "
+        "AND m.collection_name = graph_entities.collection_name AND m.name = graph_entities.name) "
+        "AND NOT EXISTS (SELECT 1 FROM graph_edges e WHERE e.session_id = graph_entities.session_id "
+        "AND e.collection_name = graph_entities.collection_name "
+        "AND (e.source = graph_entities.name OR e.target = graph_entities.name))"
+    ).format(p=placeholder)
+    if hasattr(conn, "execute"):
+        conn.execute(sql, (session_id,))
+    else:  # a psycopg cursor's connection: run it on a cursor
+        with conn.cursor() as cur:
+            cur.execute(sql, (session_id,))
+
+
 CREATE_CONTENT_GENERATIONS_TABLE = """
 CREATE TABLE IF NOT EXISTS content_generations (
     session_id TEXT PRIMARY KEY,

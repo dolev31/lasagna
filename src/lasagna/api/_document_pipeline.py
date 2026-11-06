@@ -1259,7 +1259,8 @@ class DocumentPipeline:
         # GraphRAG entity extraction (synchronous, ThreadPoolExecutor for parallelism)
         if getattr(config, "enable_graph_retrieval", False):
             try:
-                from ..retrieval.graph import EntityExtractor, get_or_create_session_graph
+                from ..retrieval.graph import EntityExtractor
+                from ..retrieval.graph.graph_store import index_document_graph
                 from ..providers.llm_provider import SimpleLLMProvider
 
                 extractor = EntityExtractor(
@@ -1276,27 +1277,16 @@ class DocumentPipeline:
                 extractions = extractor.extract_batch_sync(
                     chunk_texts_for_graph, llm, max_workers=4
                 )
-                graph_store = get_or_create_session_graph(document.session_id)
-                for idx, extraction in enumerate(extractions):
-                    chunk_id = f"{chunk_prefix}_chunk_{idx}"
-                    for entity in extraction.get("entities", []):
-                        entity_emb = embedder.encode_document(entity["name"])
-                        graph_store.add_entity(
-                            entity_id=entity["name"],
-                            entity_type=entity.get("type", "UNKNOWN"),
-                            embedding=entity_emb,
-                            chunk_id=chunk_id,
-                        )
-                    for rel in extraction.get("relationships", []):
-                        graph_store.add_relationship(
-                            source_id=rel["source"],
-                            target_id=rel["target"],
-                            rel_type=rel.get("type", "RELATED"),
-                        )
-                logger.info(
-                    f"GraphRAG: extracted {graph_store.num_entities} entities, "
-                    f"{graph_store.num_relationships} relationships "
-                    f"for document {document.document_id}"
+                # Stored where every process reads it: in the stack the Celery
+                # worker builds the graph and the API workers search it (#55).
+                # A reindex's new chunk ids replace the document's old ones.
+                index_document_graph(
+                    document.session_id,
+                    config.collection_name,
+                    document.document_id,
+                    extractions,
+                    [f"{chunk_prefix}_chunk_{idx}" for idx in range(len(extractions))],
+                    embedder.encode_document,
                 )
             except Exception as e:
                 logger.warning(f"GraphRAG entity extraction failed: {e}")

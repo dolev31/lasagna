@@ -23,7 +23,7 @@ What each profile turns on: [docs/configuration.md](../../../docs/configuration.
 | `enhancement/classifier.py` | `QueryClassifier`: rule-based query type, with recommended retrieval parameters; no LLM |
 | `enhancement/coverage.py`, `enhancement/llm_coverage.py` | `CoverageScorer` (keyword aspects) and `LLMCoverageScorer`, used by the agentic loop to decide whether to search again |
 | `routing/` | `QueryRouter` (`router.py`, process singleton), `RuleBasedStrategy` and `AdaptiveStrategy` (`strategies.py`), signal extraction (`signals.py`), `RoutingTier`, `RoutingSignals`, `RoutingDecision` (`models.py`) |
-| `graph/` | GraphRAG: `EntityExtractor` at ingestion, `InMemoryGraphStore` per session (NetworkX, `graphrag` extra), `GraphRetriever` expansion at query time; on with `enable_graph_retrieval` |
+| `graph/` | GraphRAG: `EntityExtractor` at ingestion; the graph in the metadata database every process shares (`DatabaseGraphStore`, one per session and collection: SQLite, or PostgreSQL in the stack), loaded into each process as an `InMemoryGraphStore` (NetworkX, `graphrag` extra); `GraphRetriever` expansion at query time; on with `enable_graph_retrieval` |
 | `raptor/` | RAPTOR (Sarthi et al. 2024): `RaptorTreeBuilder` adds recursive summary chunks at ingestion when `enable_raptor` is on; `RaptorRetriever` |
 | `registry.py` | `component_registry`: the core registry (`lasagna.core.registry.registry`) under its older name |
 

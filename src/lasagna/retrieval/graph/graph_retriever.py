@@ -4,11 +4,11 @@ Expands the retrieval candidate set by finding entities mentioned in the query,
 traversing the knowledge graph, and retrieving associated chunks.
 """
 
-from typing import Any, List, Set
+from typing import Any, List, Optional, Set
 
 from loguru import logger
 
-from .graph_store import get_or_create_session_graph
+from .graph_store import graph_for
 
 
 class GraphRetriever:
@@ -24,6 +24,7 @@ class GraphRetriever:
         session_id: str,
         max_hops: int = 2,
         max_graph_chunks: int = 10,
+        collection_name: Optional[str] = None,
     ) -> List[str]:
         """Find additional chunk_ids via graph traversal.
 
@@ -33,16 +34,19 @@ class GraphRetriever:
             session_id: Session ID to look up graph.
             max_hops: Maximum traversal depth.
             max_graph_chunks: Maximum chunks to add from graph.
+            collection_name: The collection the session's chunks are in: each
+                embedder has its own, and so its own graph.
 
         Returns:
             List of new chunk_ids not in existing_chunk_ids.
         """
+        # Read from the store every process shares; a read never creates a
+        # graph, so a worker that built none finds the one another built.
         try:
-            graph = get_or_create_session_graph(session_id)
+            graph = graph_for(session_id, collection_name or "")
+            if graph.num_entities == 0:
+                return []
         except ImportError:
-            return []
-
-        if graph.num_entities == 0:
             return []
 
         # Step 1: Find entities matching the query via embedding similarity
@@ -56,17 +60,7 @@ class GraphRetriever:
 
         # Step 2: Fallback — keyword matching on entity names
         if not matching_entities:
-            query_lower = query.lower()
-            query_terms = set(query_lower.split())
-            for node in graph._graph.nodes():
-                node_lower = node.lower()
-                # Match if entity name appears in query or shares terms
-                if node_lower in query_lower or any(
-                    t in node_lower for t in query_terms if len(t) > 3
-                ):
-                    matching_entities.add(node)
-                    if len(matching_entities) >= 5:
-                        break
+            matching_entities = set(graph.find_entities_by_name(query, limit=5))
 
         if not matching_entities:
             return []

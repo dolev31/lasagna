@@ -1120,6 +1120,7 @@ class SearchOrchestrator:
                     existing_chunk_ids=existing_ids,
                     session_id=session_id,
                     max_hops=getattr(config, "graph_max_hops", 2),
+                    collection_name=config.collection_name,
                 )
                 if new_chunk_ids:
                     # Fetch chunk data from vector backend
