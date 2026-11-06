@@ -7,6 +7,8 @@ candidates via entity traversal at query time.
 
 from .graph_store import (
     DatabaseGraphStore,
+    GraphEntity,
+    GraphRelationship,
     GraphStore,
     InMemoryGraphStore,
     get_or_create_session_graph,
@@ -18,6 +20,8 @@ from .graph_retriever import GraphRetriever
 
 __all__ = [
     "DatabaseGraphStore",
+    "GraphEntity",
+    "GraphRelationship",
     "GraphStore",
     "InMemoryGraphStore",
     "get_or_create_session_graph",

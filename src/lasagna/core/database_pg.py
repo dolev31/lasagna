@@ -1942,49 +1942,70 @@ class PostgresRAGDatabase:
         mentions: List[tuple],
         edges: List[tuple],
     ) -> None:
-        """Replace the document's part of a graph, in one transaction (see RAGDatabase)."""
-        from lasagna.core.database import _delete_orphan_entities
+        """Replace the document's part of a graph, in one transaction (see RAGDatabase).
+
+        Rows arrive sorted, so two writers lock shared entities in the same
+        order; a deadlock the server still reports is retried.
+        """
+        for attempt in range(3):
+            try:
+                return self._save_graph_document(
+                    session_id, collection_name, document_id, entities, mentions, edges
+                )
+            except Exception as exc:
+                code = getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)
+                if code != "40P01" or attempt == 2:
+                    raise
+                logger.debug(f"Graph write for {document_id} deadlocked; retrying")
+
+    def _save_graph_document(
+        self, session_id, collection_name, document_id, entities, mentions, edges
+    ) -> None:
+        from lasagna.core.database import _delete_orphan_entities, _touched_names
 
         key = (session_id, collection_name)
         with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM graph_mentions WHERE session_id = %s AND collection_name = %s "
-                    "AND document_id = %s",
-                    (*key, document_id),
-                )
-                cur.execute(
-                    "DELETE FROM graph_edges WHERE session_id = %s AND collection_name = %s "
-                    "AND document_id = %s",
-                    (*key, document_id),
-                )
-                if entities:
-                    cur.executemany(
-                        "INSERT INTO graph_entities (session_id, collection_name, name, "
-                        "entity_type, embedding) VALUES (%s, %s, %s, %s, %s) ON CONFLICT "
-                        "(session_id, collection_name, name) DO UPDATE SET entity_type = "
-                        "EXCLUDED.entity_type, embedding = COALESCE(EXCLUDED.embedding, "
-                        "graph_entities.embedding)",
-                        [
-                            (*key, name, entity_type, embedding)
-                            for name, entity_type, embedding in entities
-                        ],
+            try:
+                touched = _touched_names(conn, "%s", session_id, document_id, collection_name)
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM graph_mentions WHERE session_id = %s AND collection_name = %s "
+                        "AND document_id = %s",
+                        (*key, document_id),
                     )
-                if mentions:
-                    cur.executemany(
-                        "INSERT INTO graph_mentions (session_id, collection_name, name, chunk_id, "
-                        "document_id) VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
-                        [(*key, name, chunk_id, document_id) for name, chunk_id in mentions],
+                    cur.execute(
+                        "DELETE FROM graph_edges WHERE session_id = %s AND collection_name = %s "
+                        "AND document_id = %s",
+                        (*key, document_id),
                     )
-                if edges:
-                    cur.executemany(
-                        "INSERT INTO graph_edges (session_id, collection_name, source, target, "
-                        "rel_type, document_id) VALUES (%s, %s, %s, %s, %s, %s) "
-                        "ON CONFLICT DO NOTHING",
-                        [(*key, src, tgt, rel, document_id) for src, tgt, rel in edges],
-                    )
-            _delete_orphan_entities(conn, "%s", session_id)
-            conn.commit()
+                    if entities:
+                        cur.executemany(
+                            "INSERT INTO graph_entities (session_id, collection_name, name, "
+                            "entity_type, embedding) VALUES (%s, %s, %s, %s, %s) ON CONFLICT "
+                            "(session_id, collection_name, name) DO UPDATE SET entity_type = "
+                            "EXCLUDED.entity_type, embedding = COALESCE(EXCLUDED.embedding, "
+                            "graph_entities.embedding)",
+                            [(*key, n, t, e) for n, t, e in sorted(entities, key=lambda r: r[0])],
+                        )
+                    if mentions:
+                        cur.executemany(
+                            "INSERT INTO graph_mentions (session_id, collection_name, name, "
+                            "chunk_id, document_id) VALUES (%s, %s, %s, %s, %s) "
+                            "ON CONFLICT DO NOTHING",
+                            [(*key, n, c, document_id) for n, c in sorted(mentions)],
+                        )
+                    if edges:
+                        cur.executemany(
+                            "INSERT INTO graph_edges (session_id, collection_name, source, target, "
+                            "rel_type, document_id) VALUES (%s, %s, %s, %s, %s, %s) "
+                            "ON CONFLICT DO NOTHING",
+                            [(*key, a, b, r, document_id) for a, b, r in sorted(edges)],
+                        )
+                _delete_orphan_entities(conn, "%s", session_id, touched)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     def load_graph(self, session_id: str, collection_name: str) -> tuple:
         """The graph's ``(entities, mentions, edges)`` rows (see RAGDatabase)."""
@@ -1993,7 +2014,7 @@ class PostgresRAGDatabase:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT name, entity_type, embedding FROM graph_entities "
-                    "WHERE session_id = %s AND collection_name = %s",
+                    "WHERE session_id = %s AND collection_name = %s ORDER BY name",
                     key,
                 )
                 entities = [
@@ -2001,13 +2022,14 @@ class PostgresRAGDatabase:
                 ]
                 cur.execute(
                     "SELECT name, chunk_id, document_id FROM graph_mentions "
-                    "WHERE session_id = %s AND collection_name = %s",
+                    "WHERE session_id = %s AND collection_name = %s ORDER BY name, chunk_id",
                     key,
                 )
                 mentions = [tuple(r) for r in cur.fetchall()]
                 cur.execute(
                     "SELECT source, target, rel_type, document_id FROM graph_edges "
-                    "WHERE session_id = %s AND collection_name = %s",
+                    "WHERE session_id = %s AND collection_name = %s "
+                    "ORDER BY source, target, document_id",
                     key,
                 )
                 edges = [tuple(r) for r in cur.fetchall()]
@@ -2016,16 +2038,17 @@ class PostgresRAGDatabase:
 
     def delete_graph_document(self, session_id: str, document_id: str) -> None:
         """Remove the document's part of every graph of the session (see RAGDatabase)."""
-        from lasagna.core.database import _delete_orphan_entities
+        from lasagna.core.database import _delete_orphan_entities, _touched_names
 
         with self._conn() as conn:
+            touched = _touched_names(conn, "%s", session_id, document_id)
             with conn.cursor() as cur:
                 for table in ("graph_mentions", "graph_edges"):
                     cur.execute(
                         f"DELETE FROM {table} WHERE session_id = %s AND document_id = %s",
                         (session_id, document_id),
                     )
-            _delete_orphan_entities(conn, "%s", session_id)
+            _delete_orphan_entities(conn, "%s", session_id, touched)
             conn.commit()
 
     def drop_graphs(self, session_id: str) -> None:

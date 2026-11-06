@@ -18,6 +18,8 @@ session's content generation moves, which every upload and delete bumps.
 from __future__ import annotations
 
 import threading
+import warnings
+from collections import OrderedDict
 from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Sequence, Set, Tuple
 
 import numpy as np
@@ -102,6 +104,8 @@ class InMemoryGraphStore:
         self._mention_documents: Dict[Tuple[str, str], str] = {}
         #: (source, target) -> the documents that stated the edge
         self._edge_documents: Dict[Tuple[str, str], Set[str]] = {}
+        #: (entity ids, normalized embeddings), built on the first search
+        self._matrix: Optional[Tuple[List[str], np.ndarray]] = None
         self._lock = threading.Lock()
 
     def add_entity(
@@ -122,6 +126,7 @@ class InMemoryGraphStore:
             )
             if embedding is not None:
                 self._entity_embeddings[entity_id] = embedding
+                self._matrix = None
             if chunk_id:
                 self._entity_chunks.setdefault(entity_id, set()).add(chunk_id)
                 self._mention_documents[(entity_id, chunk_id)] = document_id
@@ -191,7 +196,8 @@ class InMemoryGraphStore:
             for node in list(self._graph.nodes()):
                 if node not in self._entity_chunks and self._graph.degree(node) == 0:
                     self._graph.remove_node(node)
-                    self._entity_embeddings.pop(node, None)
+                    if self._entity_embeddings.pop(node, None) is not None:
+                        self._matrix = None
 
     def get_neighbors(self, entity_id: str, hops: int = 1) -> Set[str]:
         """Get entities reachable within N hops (undirected traversal)."""
@@ -219,12 +225,18 @@ class InMemoryGraphStore:
         if not self._entity_embeddings:
             return []
 
-        entity_ids = list(self._entity_embeddings.keys())
-        embeddings = np.array([self._entity_embeddings[eid] for eid in entity_ids])
+        matrix = self._matrix
+        if matrix is None:
+            # Built once: a loaded graph does not change, and stacking every
+            # embedding again on each search cost 90 ms at 50k entities.
+            entity_ids = list(self._entity_embeddings.keys())
+            embeddings = np.array([self._entity_embeddings[eid] for eid in entity_ids])
+            norms = embeddings / (np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8)
+            matrix = self._matrix = (entity_ids, norms)
+        entity_ids, emb_norms = matrix
 
         # Cosine similarity
         query_norm = query_embedding / (np.linalg.norm(query_embedding) + 1e-8)
-        emb_norms = embeddings / (np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8)
         similarities = emb_norms @ query_norm
 
         top_indices = np.argsort(similarities)[::-1][:top_k]
@@ -271,9 +283,13 @@ def _embedding_from(raw: Optional[bytes]) -> Optional[np.ndarray]:
     return np.frombuffer(bytes(raw), dtype=np.float32)
 
 
-#: (session_id, collection_name) -> (content generation, the loaded graph)
-_loaded: Dict[Tuple[str, str], Tuple[Optional[int], InMemoryGraphStore]] = {}
+#: (session_id, collection_name) -> (content generation, the loaded graph), the
+#: most recently used last. Bounded: an API worker searches many sessions.
+_loaded: "OrderedDict[Tuple[str, str], Tuple[Optional[int], InMemoryGraphStore]]" = OrderedDict()
 _loaded_lock = threading.Lock()
+_MAX_LOADED = 64
+#: One load at a time per graph: searches arriving after a change wait for it.
+_load_locks: Dict[Tuple[str, str], threading.Lock] = {}
 
 
 class DatabaseGraphStore:
@@ -306,14 +322,43 @@ class DatabaseGraphStore:
         with _loaded_lock:
             _loaded.pop(self._key, None)
 
-    def _graph(self) -> InMemoryGraphStore:
-        from lasagna.core.database import content_generation
+    def _generation(self) -> Optional[int]:
+        """The session's content generation in this store's database; None if unreadable."""
+        read = getattr(self.db, "get_content_generation", None)
+        if read is None:
+            return None
+        try:
+            return int(read(self.session_id))
+        except Exception as e:
+            logger.debug(f"Could not read the content generation of {self.session_id[:8]}: {e}")
+            return None
 
-        generation = content_generation(self.session_id)
+    def _cached(self, generation: Optional[int]) -> Optional[InMemoryGraphStore]:
         with _loaded_lock:
             cached = _loaded.get(self._key)
-        if cached is not None and (generation is None or cached[0] == generation):
-            return cached[1]
+            if cached is not None and (generation is None or cached[0] == generation):
+                _loaded.move_to_end(self._key)
+                return cached[1]
+        return None
+
+    def snapshot(self) -> InMemoryGraphStore:
+        """The graph as this process has it loaded: one read for a whole search."""
+        return self._graph()
+
+    def _graph(self) -> InMemoryGraphStore:
+        generation = self._generation()
+        graph = self._cached(generation)
+        if graph is not None:
+            return graph
+        with _loaded_lock:
+            load_lock = _load_locks.setdefault(self._key, threading.Lock())
+        with load_lock:
+            graph = self._cached(generation)
+            if graph is not None:
+                return graph
+            return self._load(generation)
+
+    def _load(self, generation: Optional[int]) -> InMemoryGraphStore:
         entities, mentions, edges = self.db.load_graph(self.session_id, self.collection_name)
         graph = InMemoryGraphStore()
         for name, entity_type, embedding in entities:
@@ -324,6 +369,9 @@ class DatabaseGraphStore:
             graph.add_relationship(source, target, rel_type or "RELATED", document_id=document_id)
         with _loaded_lock:
             _loaded[self._key] = (generation, graph)
+            _loaded.move_to_end(self._key)
+            while len(_loaded) > _MAX_LOADED:
+                _loaded.popitem(last=False)
         return graph
 
     def add_document(
@@ -341,11 +389,15 @@ class DatabaseGraphStore:
                 e.entity_type or "UNKNOWN",
                 embedding if embedding is not None else (known[1] if known else None),
             )
+        # Sorted: two writers then lock the rows they share in the same order.
         self.db.save_graph_document(
             self.session_id,
             self.collection_name,
             document_id,
-            [(name, entity_type, embedding) for name, (entity_type, embedding) in rows.items()],
+            [
+                (name, entity_type, embedding)
+                for name, (entity_type, embedding) in sorted(rows.items())
+            ],
             sorted({(e.name, e.chunk_id) for e in entities if e.chunk_id}),
             sorted({(r.source, r.target, r.rel_type or "RELATED") for r in relationships}),
         )
@@ -389,6 +441,20 @@ def drop_loaded_graphs(session_id: str) -> None:
             del _loaded[key]
 
 
+def drop_all_loaded_graphs() -> None:
+    """Forget every graph this process has loaded (the database was reset)."""
+    with _loaded_lock:
+        _loaded.clear()
+
+
+def _name(value: Any) -> Optional[str]:
+    """An entity name from the extractor, or None for one that cannot be stored."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value or None
+
+
 def index_document_graph(
     session_id: str,
     collection_name: str,
@@ -407,16 +473,23 @@ def index_document_graph(
     relationships: List[GraphRelationship] = []
     embedded: Dict[str, np.ndarray] = {}
     for extraction, chunk_id in zip(extractions, chunk_ids):
-        for entity in extraction.get("entities", []):
-            name = entity["name"]
+        # An LLM can return a null or empty name: dropped here, it cannot
+        # fail the whole document's write (PostgreSQL refuses NULL keys).
+        for entity in extraction.get("entities", []) or []:
+            name = _name((entity or {}).get("name"))
+            if name is None:
+                continue
             if name not in embedded:
                 embedded[name] = encode(name)
             entities.append(
-                GraphEntity(name, entity.get("type", "UNKNOWN"), embedded[name], chunk_id)
+                GraphEntity(name, str(entity.get("type") or "UNKNOWN"), embedded[name], chunk_id)
             )
-        for rel in extraction.get("relationships", []):
+        for rel in extraction.get("relationships", []) or []:
+            source, target = _name((rel or {}).get("source")), _name((rel or {}).get("target"))
+            if source is None or target is None:
+                continue
             relationships.append(
-                GraphRelationship(rel["source"], rel["target"], rel.get("type", "RELATED"))
+                GraphRelationship(source, target, str(rel.get("type") or "RELATED"))
             )
     store = graph_for(session_id, collection_name)
     store.add_document(document_id, entities, relationships)
@@ -436,9 +509,16 @@ _session_graphs_lock = threading.Lock()
 def get_or_create_session_graph(session_id: str) -> InMemoryGraphStore:
     """An in-memory graph for the session, in this process only.
 
-    Deprecated: a graph built here is invisible to every other process. Use
-    `graph_for` (or `index_document_graph`), which every process shares.
+    Deprecated: a graph built here is invisible to every other process, and
+    graph retrieval no longer reads it. Use `graph_for` (or
+    `index_document_graph`), which every process shares.
     """
+    warnings.warn(
+        "get_or_create_session_graph builds a graph only this process sees, and graph "
+        "retrieval no longer reads it; use lasagna.retrieval.graph.graph_for",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if session_id not in _session_graphs:
         with _session_graphs_lock:
             if session_id not in _session_graphs:

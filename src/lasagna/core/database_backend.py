@@ -168,6 +168,35 @@ class DatabaseBackend(Protocol):
         ...
 
     # ------------------------------------------------------------------
+    # Knowledge graph (retrieval/graph/graph_store.py), shared by every process
+    # ------------------------------------------------------------------
+
+    def save_graph_document(
+        self,
+        session_id: str,
+        collection_name: str,
+        document_id: str,
+        entities: List[tuple],
+        mentions: List[tuple],
+        edges: List[tuple],
+    ) -> None:
+        """Replace the document's part of a graph: ``(name, type, embedding)``,
+        ``(name, chunk_id)`` and ``(source, target, rel_type)`` rows."""
+        ...
+
+    def load_graph(self, session_id: str, collection_name: str) -> tuple:
+        """The graph's ``(entities, mentions, edges)``, each mention and edge with its document."""
+        ...
+
+    def delete_graph_document(self, session_id: str, document_id: str) -> None:
+        """Remove the document's part of every graph of the session."""
+        ...
+
+    def drop_graphs(self, session_id: str) -> None:
+        """Remove every graph of the session."""
+        ...
+
+    # ------------------------------------------------------------------
     # Profile operations (session config)
     # ------------------------------------------------------------------
 

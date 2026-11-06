@@ -136,11 +136,11 @@ For people running Lasagna as a service. Labeled
 - **An OpenAI-compatible answer endpoint, with streaming.** The REST API
   searches, but has no route that retrieves and then answers, and nothing
   streams.
-- **A knowledge graph every process shares.** The graph `enable_graph_retrieval`
-  builds lives in the memory of the process that ingested, so search served by
-  another process finds no graph. This is reproduced in the default Compose
-  stack with the graph turned on: the Celery worker builds the graph, and each
-  API worker makes its own empty one
+- **A knowledge graph every process shares: in progress.** The graph
+  `enable_graph_retrieval` builds is now kept in the metadata database, so a
+  search served by another process, or after a restart, finds it. What is left:
+  removing a deleted document's part and a reset session's graph, and saying in
+  a benchmark's run record whether a reused corpus found its graph
   ([#55](https://github.com/dolev31/lasagna/issues/55)).
 - **Weights & Biases and MLflow.** A run writes a results bundle; nothing sends
   it to a tracker yet.

@@ -1256,11 +1256,13 @@ class DocumentPipeline:
             except Exception as e:
                 logger.warning(f"Contextual enrichment failed, using original chunks: {e}")
 
-        # GraphRAG entity extraction (synchronous, ThreadPoolExecutor for parallelism)
+        # GraphRAG entity extraction (synchronous, ThreadPoolExecutor for parallelism).
+        # Extracted here, from the chunk texts; stored once the chunks are in
+        # the vector store, below, so a failed upload leaves no graph behind.
+        pending_graph = None
         if getattr(config, "enable_graph_retrieval", False):
             try:
                 from ..retrieval.graph import EntityExtractor
-                from ..retrieval.graph.graph_store import index_document_graph
                 from ..providers.llm_provider import SimpleLLMProvider
 
                 extractor = EntityExtractor(
@@ -1277,13 +1279,7 @@ class DocumentPipeline:
                 extractions = extractor.extract_batch_sync(
                     chunk_texts_for_graph, llm, max_workers=4
                 )
-                # Stored where every process reads it: in the stack the Celery
-                # worker builds the graph and the API workers search it (#55).
-                # A reindex's new chunk ids replace the document's old ones.
-                index_document_graph(
-                    document.session_id,
-                    config.collection_name,
-                    document.document_id,
+                pending_graph = (
                     extractions,
                     [f"{chunk_prefix}_chunk_{idx}" for idx in range(len(extractions))],
                     embedder.encode_document,
@@ -1452,6 +1448,8 @@ class DocumentPipeline:
                     document, old_copy, config, backend, new_ids, partition_key
                 )
             self._wait_until_searchable(document, config, backend, partition_key)
+            if pending_graph is not None:
+                self._store_graph(document, config, pending_graph)
             if replacing:
                 # From here the old copy's chunks are gone: the row is pointed at
                 # the new ones in one write, and what follows it cannot undo it.
@@ -1645,6 +1643,32 @@ class DocumentPipeline:
                 f"{config.collection_name!r} could not be removed ({type(exc).__name__}: "
                 f"{exc}), so it was not indexed again."
             ) from exc
+
+    def _store_graph(self, document, config, pending_graph) -> None:
+        """Store the document's part of the session's knowledge graph.
+
+        Where every process reads it: in the stack the Celery worker builds the
+        graph and the API workers search it (#55). After the chunks are
+        inserted, so a refused or failed upload stores none, and before the
+        content change is recorded, which tells other processes to load it
+        again. Storing replaces the document's earlier part: a reindex's new
+        chunk ids replace the old ones. A failure is logged and the document
+        stays searchable, as an extraction failure always left it.
+        """
+        from ..retrieval.graph.graph_store import index_document_graph
+
+        extractions, chunk_ids, encode = pending_graph
+        try:
+            index_document_graph(
+                document.session_id,
+                config.collection_name,
+                document.document_id,
+                extractions,
+                chunk_ids,
+                encode,
+            )
+        except Exception as e:
+            logger.warning(f"GraphRAG: the graph of {document.document_id} was not stored: {e}")
 
     def _finish_new_document(
         self,

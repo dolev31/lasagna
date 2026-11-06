@@ -60,7 +60,10 @@ quota, rate limiter and tenant managers, `ComponentTestHarness`) is imported fro
 `tests/test_backend_parity.py` runs the same tests on both (PostgreSQL only when
 `DATABASE_DSN` is set). Both create their tables on first access: `rag_documents`, `citations`,
 `parent_chunks`, `rag_profiles`, `rag_sessions`, `schema_meta`, `collection_meta`, `gc_lock`,
-`gc_audit_log`; PostgreSQL adds `rag_quotas`. When you change a table, change both DDLs.
+`gc_audit_log`; PostgreSQL adds `rag_quotas`. The knowledge graph's `graph_entities`,
+`graph_mentions` and `graph_edges` (`CREATE_GRAPH_TABLES`, one DDL for both, BYTEA for the
+embedding on PostgreSQL) are created with the schema on PostgreSQL and on first use on
+SQLite. When you change a table, change both DDLs.
 
 **The session-config persistence mixin is chosen at import.** `session_config/__init__.py`
 reads `RAG_DATABASE_BACKEND` from the environment when it is imported and mixes in

@@ -14,9 +14,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in the Compose stack the Celery worker built it and every API worker searched
   an empty one, silently, and a restart lost it. It is now stored per session
   and collection (SQLite, or PostgreSQL in the stack), each mention and edge
-  with its document, and loaded into each process again when the session's
-  documents change. Storing a document again replaces its part, so a reindex
-  leaves no old chunk ids behind. A search no longer creates an empty graph.
+  with its document, after the document's chunks are stored, and each process
+  loads it again once the session's documents change (an upload, a delete, a
+  benchmark's ingest). Storing a document again replaces its part, so a
+  reindex leaves no old chunk ids behind, and an upload that fails stores none.
+  A search no longer creates an empty graph. Concurrent writers lock entities
+  in one order, so PostgreSQL does not deadlock them. In
+  `lasagna.retrieval.graph`, `get_or_create_session_graph` is deprecated (it
+  builds a graph no other process sees, and retrieval no longer reads it); use
+  `graph_for` and `index_document_graph`. `GraphRetriever.expand` takes
+  `collection_name`, defaulting to the session's.
 - A stage that falls back while a benchmark's queries run is named in the
   results and the bundle (Part of #50). Hybrid search, the graph expansion
   and other stages catch their own failure, carry on with less and record it;

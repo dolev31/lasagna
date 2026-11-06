@@ -2096,6 +2096,7 @@ class RAGDatabase:
             conn = self._graph_conn()
             try:
                 key = (session_id, collection_name)
+                touched = _touched_names(conn, "?", session_id, document_id, collection_name)
                 conn.execute(
                     "DELETE FROM graph_mentions WHERE session_id = ? AND collection_name = ? "
                     "AND document_id = ?",
@@ -2126,7 +2127,7 @@ class RAGDatabase:
                     "target, rel_type, document_id) VALUES (?, ?, ?, ?, ?, ?)",
                     [(*key, src, tgt, rel, document_id) for src, tgt, rel in edges],
                 )
-                _delete_orphan_entities(conn, "?", session_id)
+                _delete_orphan_entities(conn, "?", session_id, touched)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -2143,17 +2144,18 @@ class RAGDatabase:
                 key = (session_id, collection_name)
                 entities = conn.execute(
                     "SELECT name, entity_type, embedding FROM graph_entities "
-                    "WHERE session_id = ? AND collection_name = ?",
+                    "WHERE session_id = ? AND collection_name = ? ORDER BY name",
                     key,
                 ).fetchall()
                 mentions = conn.execute(
                     "SELECT name, chunk_id, document_id FROM graph_mentions "
-                    "WHERE session_id = ? AND collection_name = ?",
+                    "WHERE session_id = ? AND collection_name = ? ORDER BY name, chunk_id",
                     key,
                 ).fetchall()
                 edges = conn.execute(
                     "SELECT source, target, rel_type, document_id FROM graph_edges "
-                    "WHERE session_id = ? AND collection_name = ?",
+                    "WHERE session_id = ? AND collection_name = ? "
+                    "ORDER BY source, target, document_id",
                     key,
                 ).fetchall()
                 return (
@@ -2170,12 +2172,13 @@ class RAGDatabase:
         with self._lock:
             conn = self._graph_conn()
             try:
+                touched = _touched_names(conn, "?", session_id, document_id)
                 for table in ("graph_mentions", "graph_edges"):
                     conn.execute(
                         f"DELETE FROM {table} WHERE session_id = ? AND document_id = ?",
                         (session_id, document_id),
                     )
-                _delete_orphan_entities(conn, "?", session_id)
+                _delete_orphan_entities(conn, "?", session_id, touched)
                 conn.commit()
             finally:
                 conn.close()
@@ -2246,8 +2249,6 @@ CREATE TABLE IF NOT EXISTS profile_switches (
 );
 """
 
-#: One row per session: a counter bumped on every upload and delete, which tells
-#: each process whether its in-memory BM25 index of the session is current.
 #: The knowledge graph's rows (see RAGDatabase.save_graph_document). The same
 #: DDL runs on PostgreSQL (database_pg.py), with BYTEA for the embedding.
 CREATE_GRAPH_TABLES = """
@@ -2281,27 +2282,59 @@ CREATE INDEX IF NOT EXISTS idx_graph_edges_document ON graph_edges(session_id, d
 """
 
 
-def _delete_orphan_entities(conn, placeholder: str, session_id: str) -> None:
-    """Delete the session's entities no mention and no edge names any more.
+def _touched_names(conn, placeholder: str, session_id: str, document_id: str, collection=None):
+    """The entity names the document's mentions and edges name, before they are deleted."""
+    where = f"session_id = {placeholder} AND document_id = {placeholder}"
+    params: tuple = (session_id, document_id)
+    if collection is not None:
+        where += f" AND collection_name = {placeholder}"
+        params = params + (collection,)
+    names = set()
+    for sql in (
+        f"SELECT DISTINCT name FROM graph_mentions WHERE {where}",
+        f"SELECT DISTINCT source FROM graph_edges WHERE {where}",
+        f"SELECT DISTINCT target FROM graph_edges WHERE {where}",
+    ):
+        names.update(row[0] for row in _run(conn, sql, params, fetch=True))
+    return names
 
+
+def _run(conn, sql: str, params: tuple, fetch: bool = False):
+    """Run ``sql`` on a sqlite3 or psycopg 3 connection (both have ``execute``),
+    or on a psycopg2 one (through a cursor)."""
+    if hasattr(conn, "execute"):
+        cur = conn.execute(sql, params)
+        return cur.fetchall() if fetch else None
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        return cur.fetchall() if fetch else None
+
+
+def _delete_orphan_entities(conn, placeholder: str, session_id: str, names) -> None:
+    """Delete those of ``names`` no mention and no edge of the session names any more.
+
+    Only the names a write or a delete touched: checking every entity of the
+    session on every document made ingest quadratic in the graph's size.
     ``placeholder`` is the driver's parameter marker (``?`` or ``%s``), so the
     two databases run the same statement.
     """
-    sql = (
-        "DELETE FROM graph_entities WHERE session_id = {p} "
-        "AND NOT EXISTS (SELECT 1 FROM graph_mentions m WHERE m.session_id = graph_entities.session_id "
-        "AND m.collection_name = graph_entities.collection_name AND m.name = graph_entities.name) "
-        "AND NOT EXISTS (SELECT 1 FROM graph_edges e WHERE e.session_id = graph_entities.session_id "
-        "AND e.collection_name = graph_entities.collection_name "
-        "AND (e.source = graph_entities.name OR e.target = graph_entities.name))"
-    ).format(p=placeholder)
-    if hasattr(conn, "execute"):
-        conn.execute(sql, (session_id,))
-    else:  # a psycopg cursor's connection: run it on a cursor
-        with conn.cursor() as cur:
-            cur.execute(sql, (session_id,))
+    names = sorted(names)
+    for start in range(0, len(names), 500):
+        batch = names[start : start + 500]
+        marks = ", ".join([placeholder] * len(batch))
+        sql = (
+            f"DELETE FROM graph_entities WHERE session_id = {placeholder} AND name IN ({marks}) "
+            "AND NOT EXISTS (SELECT 1 FROM graph_mentions m WHERE m.session_id = graph_entities.session_id "
+            "AND m.collection_name = graph_entities.collection_name AND m.name = graph_entities.name) "
+            "AND NOT EXISTS (SELECT 1 FROM graph_edges e WHERE e.session_id = graph_entities.session_id "
+            "AND e.collection_name = graph_entities.collection_name "
+            "AND (e.source = graph_entities.name OR e.target = graph_entities.name))"
+        )
+        _run(conn, sql, (session_id, *batch))
 
 
+#: One row per session: a counter bumped on every upload and delete, which tells
+#: each process whether its in-memory BM25 index of the session is current.
 CREATE_CONTENT_GENERATIONS_TABLE = """
 CREATE TABLE IF NOT EXISTS content_generations (
     session_id TEXT PRIMARY KEY,
@@ -2413,6 +2446,12 @@ def reset_rag_database():
     (if it supports it) to cleanly shut down connection pools.
     """
     global _rag_database
+    try:
+        from lasagna.retrieval.graph.graph_store import drop_all_loaded_graphs
+
+        drop_all_loaded_graphs()  # loaded from the database being reset
+    except ImportError:
+        pass
     with _rag_database_lock:
         old = _rag_database
         _rag_database = None

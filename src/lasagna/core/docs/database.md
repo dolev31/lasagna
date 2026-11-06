@@ -104,6 +104,34 @@ CREATE TABLE IF NOT EXISTS parent_chunks (
 );
 ```
 
+### `graph_entities`, `graph_mentions`, `graph_edges`
+
+The knowledge graph `enable_graph_retrieval` builds, one per session and
+collection, shared by every process (`retrieval/graph/graph_store.py`). One DDL
+for both stores, `CREATE_GRAPH_TABLES` in `database.py`, with `BYTEA` for the
+embedding on PostgreSQL. Created with the schema on PostgreSQL and on first use
+on SQLite. Every mention and edge names its document, so a document's part can
+be replaced or removed; an entity no mention and no edge names is deleted with
+it.
+
+```sql
+CREATE TABLE IF NOT EXISTS graph_entities (
+    session_id TEXT NOT NULL, collection_name TEXT NOT NULL, name TEXT NOT NULL,
+    entity_type TEXT, embedding BLOB,  -- BYTEA in PG; float32
+    PRIMARY KEY (session_id, collection_name, name)
+);
+CREATE TABLE IF NOT EXISTS graph_mentions (
+    session_id TEXT NOT NULL, collection_name TEXT NOT NULL, name TEXT NOT NULL,
+    chunk_id TEXT NOT NULL, document_id TEXT NOT NULL,
+    PRIMARY KEY (session_id, collection_name, name, chunk_id)
+);
+CREATE TABLE IF NOT EXISTS graph_edges (
+    session_id TEXT NOT NULL, collection_name TEXT NOT NULL, source TEXT NOT NULL,
+    target TEXT NOT NULL, rel_type TEXT, document_id TEXT NOT NULL,
+    PRIMARY KEY (session_id, collection_name, source, target, document_id)
+);
+```
+
 ## Indexes
 
 Both backends share these indexes:
@@ -122,6 +150,8 @@ Both backends share these indexes:
 | `idx_citations_expires` | `citations(expires_at)` | TTL-based cleanup |
 | `idx_citations_content_hash` | `citations(content_hash)` | Dedup lookup |
 | `idx_citations_document` | `citations(document_id)` | Document cascade |
+| `idx_graph_mentions_document` | `graph_mentions(session_id, document_id)` | A document's part of the graph |
+| `idx_graph_edges_document` | `graph_edges(session_id, document_id)` | A document's part of the graph |
 | `idx_citations_session_created` | `citations(session_id, created_at DESC, id DESC)` | Citation limit enforcement (composite) |
 | `idx_parent_chunks_document` | `parent_chunks(document_id)` | Document cascade |
 | `idx_parent_chunks_session` | `parent_chunks(session_id)` | Session lookup |

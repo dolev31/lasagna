@@ -35,15 +35,21 @@ class GraphRetriever:
             max_hops: Maximum traversal depth.
             max_graph_chunks: Maximum chunks to add from graph.
             collection_name: The collection the session's chunks are in: each
-                embedder has its own, and so its own graph.
+                embedder has its own, and so its own graph. Defaults to the
+                session's configured collection.
 
         Returns:
             List of new chunk_ids not in existing_chunk_ids.
         """
         # Read from the store every process shares; a read never creates a
         # graph, so a worker that built none finds the one another built.
+        if collection_name is None:
+            from lasagna.core.config import rag_config
+
+            collection_name = rag_config.with_session(session_id).collection_name
         try:
-            graph = graph_for(session_id, collection_name or "")
+            # One load for the whole expansion, not one per question asked of it.
+            graph = graph_for(session_id, collection_name).snapshot()
             if graph.num_entities == 0:
                 return []
         except ImportError:

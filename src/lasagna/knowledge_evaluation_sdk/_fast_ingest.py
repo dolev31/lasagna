@@ -874,6 +874,11 @@ async def fast_ingest_corpus(
                     )
                     registered += bool(ok)
                 logger.info(f"Registered {registered}/{len(ingested_ids)} benchmark documents")
+                if getattr(config, "enable_graph_retrieval", False):
+                    # The graph was written document by document; one change
+                    # tells every process that loaded the session's graph to
+                    # load it again, as an upload's change does.
+                    rag_db.bump_content_generation(session_id)
                 if registered != len(ingested_ids):
                     logger.error(
                         f"Only {registered} of {len(ingested_ids)} documents registered; "
