@@ -2452,7 +2452,7 @@ explains what this means when you change models.</p>
 <tr>
 <td>Native hybrid search</td>
 <td>no</td>
-<td>yes</td>
+<td>on a collection with <code>sparse_embedding</code></td>
 <td>no</td>
 <td>no</td>
 <td>yes</td>
@@ -2462,7 +2462,7 @@ explains what this means when you change models.</p>
 <tr>
 <td>Native BM25</td>
 <td>no</td>
-<td>yes</td>
+<td>on a collection with <code>sparse_embedding</code></td>
 <td>no</td>
 <td>no</td>
 <td>yes</td>
@@ -2512,7 +2512,9 @@ explains what this means when you change models.</p>
 </tbody>
 </table>
 <p>Without native hybrid search, the pipeline fuses dense results with an in-process
-BM25 index when <code>enable_hybrid_search</code> is on.</p>
+BM25 index when <code>enable_hybrid_search</code> is on. A Milvus server runs native hybrid
+search only on a collection with a <code>sparse_embedding</code> field, and the collections
+Lasagna creates have none, so there it fuses with BM25 as Milvus Lite does.</p>
 <p>Scores are normalized for most backends, and OpenSearch returns its own. Compare
 scores within one backend, not across backends.</p>
 <h2 id="filters">Filters<a class="headerlink" href="#filters" title="Permanent link">&para;</a></h2>
