@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `POST /api/v1/chat/completions` and `GET /api/v1/models`: chat with a
+  session's documents from any OpenAI client library or chat front end (#13).
+  The route searches with the session's pipeline, as `/search/citations` does,
+  under the same session header, auth, deadline and quota, and writes the
+  answer with the `cited` generator from the configured LLM. It answers in the
+  OpenAI format, at once or streamed as server-sent events ending with
+  `data: [DONE]`, with the passages as `citations` (`[n]` in the answer is
+  `citations[n-1]`) and `degraded_stages`. The answer runs under the new
+  `RAG_CHAT_TIMEOUT` (120 s); the LLM is checked before the search, and an
+  answer that fails is not retried by the client (`x-should-retry: false`), so
+  nothing is searched for an answer that cannot be written. The endpoint reference, the REST
+  guide and the README show how; every stated endpoint count is now checked
+  against the API's OpenAPI schema, and every route against the reference.
+
 ### Fixed
 
 - Hybrid search asks about the collection it searches, and a connection pool

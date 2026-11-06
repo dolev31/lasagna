@@ -6,7 +6,7 @@ Each module defines an ``APIRouter`` registered on the ``/api/v1/`` prefix.
 from fastapi import APIRouter
 
 from ..models import ErrorResponse
-from . import health, documents, search, config, citations, sessions, pipelines, gc_admin
+from . import health, documents, search, chat, config, citations, sessions, pipelines, gc_admin
 
 #: Errors any route can return, from the middleware and the shared
 #: dependencies, in the one error body every route uses: ``{"detail": "..."}``.
@@ -37,6 +37,7 @@ router = APIRouter(prefix="/api/v1", responses=COMMON_ERRORS)
 router.include_router(health.router)
 router.include_router(documents.router)
 router.include_router(search.router)
+router.include_router(chat.router)
 router.include_router(config.router)
 router.include_router(citations.router)
 router.include_router(sessions.router)

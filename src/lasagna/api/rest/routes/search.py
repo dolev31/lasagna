@@ -49,6 +49,27 @@ def _missing_llm(exc: BaseException):
 router = APIRouter(prefix="/search", tags=["search"])
 
 
+def search_http_error(exc: BaseException, session_id: str, what: str) -> HTTPException:
+    """The HTTP error a failed search answers with, the same on every route that searches.
+
+    ``what`` names the operation in the server log for an unexpected error.
+    """
+    if isinstance(exc, HTTPException):
+        return exc
+    if isinstance(exc, ModelNotDownloaded):
+        return HTTPException(
+            status_code=503, detail=f"{exc} {fix_for_session(session_id, exc.model)}"
+        )
+    if isinstance(exc, SearchScopeUnavailable):
+        return HTTPException(status_code=503, detail=str(exc))
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, QuotaExceededError):
+        return HTTPException(status_code=429, detail=str(exc))
+    logger.error(f"{what} failed: {exc}")
+    return HTTPException(status_code=500, detail="Internal server error")
+
+
 async def _within_deadline(call):
     """Await ``call`` for at most ``RAG_SEARCH_TIMEOUT`` seconds, else answer 504.
 
@@ -179,21 +200,29 @@ async def search(
             routing=routing_info,
             degraded_stages=degraded,
         )
-    except HTTPException:
-        raise
-    except ModelNotDownloaded as exc:
-        raise HTTPException(
-            status_code=503, detail=f"{exc} {fix_for_session(session_id, exc.model)}"
-        )
-    except SearchScopeUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except QuotaExceededError as exc:
-        raise HTTPException(status_code=429, detail=str(exc))
     except Exception as exc:
-        logger.error(f"Search failed: {exc}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise search_http_error(exc, session_id, "Search")
+
+
+def citation_to_response(c) -> CitationResponse:
+    """A search citation in the shape every REST response carries it."""
+    return CitationResponse(
+        citation_id=c.citation_id,
+        document_id=c.document_id,
+        document_name=c.document_name,
+        chunk_id=c.chunk_id,
+        chunk_index=c.chunk_index,
+        page_number=c.page_number,
+        score=c.score,
+        content=c.content,
+        highlight=(
+            c.highlights[0] if getattr(c, "highlights", None) else getattr(c, "highlight", None)
+        ),
+        highlights=getattr(c, "highlights", None),
+        highlight_ranges=(
+            [list(r) for r in c.highlight_ranges] if getattr(c, "highlight_ranges", None) else None
+        ),
+    )
 
 
 def _remember_citations(session_id: str, user_id: str, citations, results) -> None:
@@ -254,30 +283,7 @@ async def search_with_citations(
                 )
             )
         routing_info = _get_routing_info(backend)
-        cited = [
-            CitationResponse(
-                citation_id=c.citation_id,
-                document_id=c.document_id,
-                document_name=c.document_name,
-                chunk_id=c.chunk_id,
-                chunk_index=c.chunk_index,
-                page_number=c.page_number,
-                score=c.score,
-                content=c.content,
-                highlight=(
-                    c.highlights[0]
-                    if getattr(c, "highlights", None)
-                    else getattr(c, "highlight", None)
-                ),
-                highlights=getattr(c, "highlights", None),
-                highlight_ranges=(
-                    [list(r) for r in c.highlight_ranges]
-                    if getattr(c, "highlight_ranges", None)
-                    else None
-                ),
-            )
-            for c in citations
-        ]
+        cited = [citation_to_response(c) for c in citations]
         _remember_citations(session_id, user_id, cited, results)
         return SearchWithCitationsResponse(
             results=[_result_to_response(r, i) for i, r in enumerate(results, 1)],
@@ -288,21 +294,8 @@ async def search_with_citations(
             routing=routing_info,
             degraded_stages=degraded,
         )
-    except HTTPException:
-        raise
-    except ModelNotDownloaded as exc:
-        raise HTTPException(
-            status_code=503, detail=f"{exc} {fix_for_session(session_id, exc.model)}"
-        )
-    except SearchScopeUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except QuotaExceededError as exc:
-        raise HTTPException(status_code=429, detail=str(exc))
     except Exception as exc:
-        logger.error(f"Search with citations failed: {exc}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise search_http_error(exc, session_id, "Search with citations")
 
 
 @router.post("/multi-query", response_model=SearchResponse, responses=_SEARCH_ERRORS)
@@ -344,21 +337,8 @@ async def multi_query_search(
             total_results=len(results),
             degraded_stages=degraded,
         )
-    except HTTPException:
-        raise
-    except ModelNotDownloaded as exc:
-        raise HTTPException(
-            status_code=503, detail=f"{exc} {fix_for_session(session_id, exc.model)}"
-        )
-    except SearchScopeUnavailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except QuotaExceededError as exc:
-        raise HTTPException(status_code=429, detail=str(exc))
     except Exception as exc:
-        logger.error(f"Multi-query search failed: {exc}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise search_http_error(exc, session_id, "Multi-query search")
 
 
 @router.post("/agentic", response_model=SearchWithCitationsResponse, responses=_SEARCH_ERRORS)
