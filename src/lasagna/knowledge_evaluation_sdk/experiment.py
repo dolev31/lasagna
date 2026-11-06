@@ -2408,6 +2408,7 @@ def _run_metadata(cfg: "ExperimentConfig", concurrency: Optional[int] = None) ->
     from .bundle import METRICS_VERSION
     from .run_provenance import determinism_label, package_version, rag_overrides
 
+    _generates = "generation" in _parse_tracks(cfg.tracks)
     meta: Dict[str, Any] = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "experiment_name": cfg.name,
@@ -2451,14 +2452,18 @@ def _run_metadata(cfg: "ExperimentConfig", concurrency: Optional[int] = None) ->
             "generators": list(cfg.pipeline.generators),
             "config_overrides": list(cfg.pipeline.config_overrides),
         },
-        "judge_model": _active_judge_model or cfg.judge_model or None,
+        # The judge and the embedder behind answer_similarity only score
+        # answers: a run that generates nothing names neither, so the
+        # environment's judge neither flags it UNRESOLVED_JUDGE_ALIAS nor
+        # splits it from an identical run on a leaderboard.
+        "judge_model": (_active_judge_model or cfg.judge_model or None) if _generates else None,
         # Whether temperature reached the generator and the judge. A model that
         # takes none ("provider-default") samples between runs however the
         # pipeline is configured. None for a run that generates nothing.
-        "sampling": _sampling_record() if "generation" in _parse_tracks(cfg.tracks) else None,
-        # The embedder behind answer_similarity: a different one gives
-        # different numbers, so it belongs in the comparability key.
-        "similarity_model": _similarity_model_for_record(),
+        "sampling": _sampling_record() if _generates else None,
+        # A different embedder gives different answer_similarity numbers, so
+        # it belongs in the comparability key of a run that generates.
+        "similarity_model": _similarity_model_for_record() if _generates else None,
         "max_corpus_docs": cfg.max_corpus_docs,
         "ingest_failure_tolerance": cfg.ingest_failure_tolerance,
         "tracks": list(cfg.tracks),

@@ -39,6 +39,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A run with no generation track names no judge and no answer-similarity
+  model. It recorded both from `RAG_EVAL_JUDGE_MODEL` and the defaults, though
+  only answers are judged: a retrieval sweep with the judge set to an alias
+  (`llama3.2`) failed `lasagna results validate --strict` with
+  `UNRESOLVED_JUDGE_ALIAS`, and two identical retrieval runs split on a
+  leaderboard by which judge the environment named. A bundle of a results
+  file that records its tracks is read the same way.
 - The knowledge graph `enable_graph_retrieval` builds is kept in the metadata
   database every process shares, so a search finds the graph whichever process
   built it (Part of #55). It lived in the memory of the process that ingested:
