@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Stress tests default `compose_dir` to `src/lasagna/deploy` (via `tests._paths.DEPLOY_DIR`) instead of a non-existent `<repo>/deploy` (#31).
+
 ### Added
 
 - A benchmark's run record says how each graph arm's corpus got its knowledge
