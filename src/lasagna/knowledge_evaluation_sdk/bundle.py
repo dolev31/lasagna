@@ -353,6 +353,19 @@ def varied_stages(
     return sorted({stage for stage in map(stage_of, keys) if stage is not None})
 
 
+def _may_have_judged(run_meta: Dict[str, Any], rows: List[Dict[str, Any]]) -> bool:
+    """Whether a judge could have scored anything in the run: it scores answers.
+
+    A generation track writes them, and so does a task whose mode resolved to
+    ``generation_only``, whatever the tracks. A results file written before
+    0.3.0 names the judge of a run that wrote none too.
+    """
+    tracks = run_meta.get("tracks")
+    if not isinstance(tracks, (list, tuple)) or "generation" in tracks:
+        return True
+    return any(r.get("resolved_mode") == "generation_only" for r in rows)
+
+
 def held_fixed_from(
     result: Dict[str, Any],
     run_meta: Dict[str, Any],
@@ -1110,7 +1123,7 @@ def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str
         warnings.append("SINGLE_RUN")
 
     judge = run_meta.get("judge_model")
-    if judge and _is_floating_alias(judge):
+    if judge and _is_floating_alias(judge) and _may_have_judged(run_meta, rows):
         warnings.append("UNRESOLVED_JUDGE_ALIAS")
 
     if run_meta.get("determinism") not in SEEDED_LABELS:

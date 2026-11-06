@@ -267,7 +267,11 @@ configuring one in code, is covered in
 `MODEL_NAME`, else the provider default above. The judge is separate:
 `RAG_EVAL_JUDGE_MODEL`, else `judge_model:` in the sweep file, else
 `gpt-6-luna`. The run metadata and the comparability key name the judge, so
-results judged by different models never share a leaderboard group.
+results judged by different models never share a leaderboard group. A run
+that writes no answers (a live run with no generation track) judges nothing,
+so it names no judge, and no answer-similarity model, whatever the
+environment sets. A benchmark answered offline (`generation_only`, or `auto`
+on a benchmark with no corpus) is judged whatever the tracks.
 
 ## Temperature and repeatable runs
 
