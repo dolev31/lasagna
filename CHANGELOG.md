@@ -45,12 +45,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   model from `RAG_EVAL_SIMILARITY_MODEL` or its default: with the judge set to
   an alias (`llama3.2`) it failed `lasagna results validate --strict` with
   `UNRESOLVED_JUDGE_ALIAS`, and two identical retrieval runs split on a
-  leaderboard by which judge the environment named. Such a run's
-  comparability key changes accordingly; a bundle made before keeps its key
-  and its recorded warnings until its results file is bundled again, which
-  drops the warning. A benchmark whose mode resolves to `generation_only`
-  (TriviaQA under `auto`) answers and is judged whatever the tracks, so it
-  keeps its judge, and now records the default judge when none is named.
+  leaderboard by which judge the environment named. A new run's key differs
+  from an older identical one's; an older results file keeps its key however
+  it is bundled, and bundled again it loses the warning. A benchmark whose
+  mode resolves to `generation_only` (TriviaQA under `auto`) answers and is
+  judged whatever the tracks, so it keeps its judge, and now records the
+  default judge when none is named, which changes its key too.
 - The knowledge graph `enable_graph_retrieval` builds is kept in the metadata
   database every process shares, so a search finds the graph whichever process
   built it (Part of #55). It lived in the memory of the process that ingested:

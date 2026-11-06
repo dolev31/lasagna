@@ -2183,9 +2183,19 @@ class Experiment:
             f"{cfg.n_runs} {'run' if cfg.n_runs == 1 else 'runs'}, mode={cfg.mode})"
         )
 
+        # Checkpoint manager
+        cp_dir = cfg.checkpoint_dir or output_dir
+        checkpoint = CheckpointManager(cp_dir)
+
+        # Generate tasks
+        tasks = self.generate_tasks()
+        logger.info(f"Generated {len(tasks)} tasks")
+
         # Set judge model for offline eval (module-level so _eval_offline can read it)
         # RAG_EVAL_JUDGE_MODEL env var takes precedence over YAML judge_model so
         # operators can override the model without editing YAML files (e.g. for OpenRouter).
+        # After the tasks: a local benchmark file is named only then, and
+        # whether the run writes answers depends on its mode.
         global _active_judge_model
         _active_judge_model = _resolve_judge_model(cfg)
         if _active_judge_model:
@@ -2195,14 +2205,6 @@ class Experiment:
         if _writes_answers(cfg):
             for note in _sampling_notes():
                 logger.warning(note)
-
-        # Checkpoint manager
-        cp_dir = cfg.checkpoint_dir or output_dir
-        checkpoint = CheckpointManager(cp_dir)
-
-        # Generate tasks
-        tasks = self.generate_tasks()
-        logger.info(f"Generated {len(tasks)} tasks")
 
         # Offline, a benchmark whose data is not cached fails here, once, rather
         # than in every task with the same "dataset_info.json not found".
@@ -2761,13 +2763,9 @@ def _writes_answers(cfg: "ExperimentConfig") -> bool:
     """
     if "generation" in _parse_tracks(cfg.tracks):
         return True
-    for spec in cfg.benchmarks:
-        try:
-            if resolve_mode(cfg.mode, spec.name)[0] == "generation_only":
-                return True
-        except Exception:  # noqa: BLE001 - an unknown benchmark fails later; assume it judges
-            return True
-    return False
+    # resolve_mode never raises: a benchmark it cannot inspect resolves to
+    # generation_only, so it counts as judged.
+    return any(resolve_mode(cfg.mode, spec.name)[0] == "generation_only" for spec in cfg.benchmarks)
 
 
 def _resolve_judge_model(cfg: "ExperimentConfig") -> Optional[str]:
