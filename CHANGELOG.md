@@ -11,9 +11,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Chat with a corpus from any OpenAI client, a knowledge graph every process
 shares, and benchmarks that say when a stage fell back. Thank you to
 [@segevshlomovIBM](https://github.com/segevshlomovIBM), for the stage isolation
-check that now excuses only the settings an arm names (#25), and for the
-evidence runs that found the hybrid arms running dense-only in the Compose
-stack (#50, #52), fixed here.
+check's move to judging each setting an arm names, on each track that ran
+(#25), and for the evidence runs in the Compose stack that found hybrid search
+failing over with no trace in the bundle (#50) and, under `speed`, running
+dense-only (#52), both fixed here.
+
+Upgrading:
+
+- New runs get new stage digests, so their comparability keys differ from
+  0.2.x results; and seven settings under `system.stages.<stage>.settings` are
+  recorded per track.
+- A benchmark graph arm's corpus is ingested once more: its key now holds the
+  extraction model.
+- Documents uploaded with `enable_graph_retrieval` before 0.3.0 have no stored
+  graph (0.2.x kept it in one process's memory), so graph expansion finds
+  nothing for them until they are reindexed (`POST /api/v1/reindex`).
+- The new graph tables are created on their own, on SQLite and PostgreSQL;
+  there is nothing to migrate.
+
+### Deprecated
+
+- The old names renamed in 0.1.0 (`lasagna benchmark compare`, `lasagna
+  benchmark leaderboard`, `results interaction --bootstrap`, and the names
+  dropped from `lasagna.__all__`) and the unversioned `/api/config/knowledge`
+  routes stay for one more release, with their warnings, and are removed in
+  0.4.0. 0.2.0 said 0.3.0; the configurator still calls those routes by these
+  paths, so they move once it calls `/api/v1`.
+- `lasagna.retrieval.graph.get_or_create_session_graph`: it builds a graph no
+  other process sees, and retrieval no longer reads it. Use `graph_for` and
+  `index_document_graph`.
 
 ### Added
 
@@ -775,6 +801,8 @@ The first standalone release of Lasagna; this is everything it brings.
 - Lasagna vendors no third-party source, bundles no model weights, and
   redistributes no benchmark corpora.
 
-[Unreleased]: https://github.com/dolev31/lasagna/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/dolev31/lasagna/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dolev31/lasagna/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/dolev31/lasagna/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dolev31/lasagna/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dolev31/lasagna/releases/tag/v0.1.0
