@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-06
+
+Chat with a corpus from any OpenAI client, a knowledge graph every process
+shares, and benchmarks that say when a stage fell back. Thank you to
+[@segevshlomovIBM](https://github.com/segevshlomovIBM), for the stage isolation
+check that now excuses only the settings an arm names (#25), and for the
+evidence runs that found the hybrid arms running dense-only in the Compose
+stack (#50, #52), fixed here.
+
 ### Added
 
 - A benchmark's run record says how each graph arm's corpus got its knowledge

@@ -48,7 +48,7 @@ Readiness: can this instance serve? Checks that the embedding model of the sessi
   "failing": [],
   "degraded": [],
   "require_auth": false,
-  "version": "0.2.1"
+  "version": "0.3.0"
 }
 ```
 
