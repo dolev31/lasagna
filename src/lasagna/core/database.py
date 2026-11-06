@@ -2460,6 +2460,7 @@ def reset_rag_database():
 
         drop_all_loaded_graphs()  # loaded from the database being reset
     except ImportError:
+        # Safe to ignore: without the graph module there are no loaded graphs.
         pass
     with _rag_database_lock:
         old = _rag_database
