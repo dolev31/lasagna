@@ -2487,12 +2487,6 @@ Either answer is worth publishing. Labeled
 <li><strong>Vector backends: Chroma, LanceDB, Elasticsearch.</strong> Six run today. Each new
   one is an adapter class and the shared conformance test, which says where an
   adapter differs. See <a href="../../guides/vector-backends/">vector backends</a>.</li>
-<li><strong>A knowledge graph every process shares: in progress.</strong> The graph
-  <code>enable_graph_retrieval</code> builds is now kept in the metadata database, so a
-  search served by another process, or after a restart, finds it. What is left:
-  removing a deleted document's part and a reset session's graph, and saying in
-  a benchmark's run record whether a reused corpus found its graph
-  (<a href="https://github.com/dolev31/lasagna/issues/55">#55</a>).</li>
 <li><strong>Weights &amp; Biases and MLflow.</strong> A run writes a results bundle; nothing sends
   it to a tracker yet.</li>
 </ul>

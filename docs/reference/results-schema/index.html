@@ -2429,6 +2429,23 @@ stages fell back while the task's queries ran, per track:
 counts queries that also fell back for a reason past those three.
 Reasons are redacted like the rest of the bundle.
 It is outside the comparability key; the bundle's <code>ACTIVE_FALLBACKS</code> reports it.</p>
+<p><code>system.graph</code>, present when the arm turns on <code>enable_graph_retrieval</code>, says how
+the corpus got its knowledge graph: <code>{"state": "built" | "reused" | "rebuilt" |
+"incomplete", "documents": n, "missing": n, "entities": n, "rebuilt": n,
+"extraction_model": "...", "unparsed_chunks": n}</code>. <code>reused</code> is a corpus an earlier run
+ingested, with its graph; <code>rebuilt</code> is one reused without a graph (ingested before the
+graph was stored in the metadata database, or after it was reset), or whose documents
+another extraction model did, extracted again from the stored chunks. A document counts
+once every chunk of it was answered, even if it names no entity; <code>unparsed_chunks</code>
+counts the chunks whose reply held no readable JSON, and <code>no_chunks</code>, when present, the
+documents with nothing stored to extract. <code>incomplete</code> means <code>missing</code> documents still
+have no graph: no LLM could be built (<code>error</code> says why), or a call failed. Every query
+of such an arm then counts as a <code>graphrag</code> stage in <code>degraded_stages</code>, the name the
+search's own graph expansion records, so the bundle raises <code>ACTIVE_FALLBACKS</code>.
+<code>unknown</code>, with an <code>error</code>, is a check that itself failed, and is reported the same way,
+as is a graph left with no entity because the model's replies held no readable JSON.
+A graph arm's corpus is keyed by its extraction model, the default model when the arm
+names none, so two runs with different default models never share one graph.</p>
 <h2 id="integrity-messages">Integrity messages<a class="headerlink" href="#integrity-messages" title="Permanent link">&para;</a></h2>
 <p><code>blocking</code> problems make <code>lasagna results validate</code> fail. <code>warnings</code> do not, unless
 you pass <code>--strict</code>. The codes you will meet include <code>SINGLE_RUN</code>,
