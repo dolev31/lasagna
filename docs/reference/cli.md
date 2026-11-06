@@ -356,7 +356,7 @@ Estimates `(AB - neither) - (A - neither) - (B - neither)` from a 2x2 run. The p
 | `--both` | text |  | Config with both on |
 | `--alpha` | float | `0.05` | Significance level of the test. |
 | `--resamples` | int | `10000` | Random sign patterns for the sign-flip permutation test when more than 30 queries differ; with 30 or fewer it is exact. The interval is a t interval. |
-| `--bootstrap` | int |  | Old name of --resamples, removed in 0.3.0. |
+| `--bootstrap` | int |  | Old name of --resamples, removed in 0.4.0. |
 
 ### `lasagna results leaderboard`
 
