@@ -2677,7 +2677,11 @@ configuring one in code, is covered in
 <code>MODEL_NAME</code>, else the provider default above. The judge is separate:
 <code>RAG_EVAL_JUDGE_MODEL</code>, else <code>judge_model:</code> in the sweep file, else
 <code>gpt-6-luna</code>. The run metadata and the comparability key name the judge, so
-results judged by different models never share a leaderboard group.</p>
+results judged by different models never share a leaderboard group. A run
+that writes no answers (a live run with no generation track) judges nothing,
+so it names no judge, and no answer-similarity model, whatever the
+environment sets. A benchmark answered offline (<code>generation_only</code>, or <code>auto</code>
+on a benchmark with no corpus) is judged whatever the tracks.</p>
 <h2 id="temperature-and-repeatable-runs">Temperature and repeatable runs<a class="headerlink" href="#temperature-and-repeatable-runs" title="Permanent link">&para;</a></h2>
 <p>Lasagna asks for temperature 0 wherever it wants a repeatable answer, and
 builds each request for the model it goes to, because current models do not

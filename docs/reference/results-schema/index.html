@@ -2412,7 +2412,9 @@ lasagna<span class="w"> </span>results<span class="w"> </span>schema<span class=
 <code>sample_id_digest</code>, <code>corpus_fingerprint</code>, <code>corpus_provenance</code>, <code>resolved_mode</code>,
 <code>embedder_model</code>, <code>embedder_dim</code>, <code>chunker</code>, <code>retriever_top_k</code>, <code>vector_backend</code>,
 <code>judge_model</code>, <code>bm25_stemming</code>, <code>fixed_stages</code>, <code>similarity_model</code> and
-<code>corpus_ingest_gap</code>.</p>
+<code>corpus_ingest_gap</code>. <code>judge_model</code> and <code>similarity_model</code> are null for a run
+that wrote no answers (live, with no generation track): only answers are
+judged.</p>
 <p><code>corpus_provenance</code> defaults to <code>native</code>. A field a metrics version did not have
 yet is not required from older bundles. See
 <a href="../../concepts/comparability/">comparability and provenance</a>.</p>
