@@ -77,7 +77,7 @@ from openai import OpenAI
 
 client = OpenAI(
     base_url="http://127.0.0.1:8000/api/v1",
-    api_key="unused",  # required by the client; Lasagna reads the session header
+    api_key="...",  # the client requires one; Lasagna ignores it
     default_headers={"X-Session-ID": "my-corpus"},  # X-Session-Token in the stack
 )
 reply = client.chat.completions.create(

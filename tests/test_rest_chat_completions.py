@@ -106,7 +106,7 @@ def served(monkeypatch):
         http = TestClient(app)
         client = openai.OpenAI(
             base_url="http://testserver/api/v1",
-            api_key="unused",
+            api_key="...",
             http_client=http,
             default_headers={"X-Session-ID": SESSION},
             max_retries=0,
@@ -458,7 +458,7 @@ def test_through_the_whole_app_a_stream_works_and_no_answer_is_counted_as_load(s
     app.dependency_overrides[get_backend] = lambda: s.backend
     client = openai.OpenAI(
         base_url="http://testserver/api/v1",
-        api_key="unused",
+        api_key="...",
         http_client=TestClient(app),
         default_headers={"X-Session-ID": SESSION},
         max_retries=0,

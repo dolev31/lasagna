@@ -323,7 +323,7 @@ passages as `citations`.
 ```python
 from openai import OpenAI
 
-client = OpenAI(base_url="http://127.0.0.1:8000/api/v1", api_key="unused",
+client = OpenAI(base_url="http://127.0.0.1:8000/api/v1", api_key="...",
                 default_headers={"X-Session-ID": "my-corpus"})
 reply = client.chat.completions.create(
     model="lasagna", messages=[{"role": "user", "content": "what did the ablation show?"}])
