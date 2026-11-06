@@ -18,14 +18,18 @@ dense-only (#52), both fixed here.
 
 Upgrading:
 
-- New runs get new stage digests, so their comparability keys differ from
-  0.2.x results; and seven settings under `system.stages.<stage>.settings` are
-  recorded per track.
+- New runs get new stage digests, and a run that writes no answers no longer
+  records a judge, so their comparability keys differ from 0.2.x results; and
+  seven settings under `system.stages.<stage>.settings` are recorded per
+  track.
 - A benchmark graph arm's corpus is ingested once more: its key now holds the
   extraction model.
 - Documents uploaded with `enable_graph_retrieval` before 0.3.0 have no stored
   graph (0.2.x kept it in one process's memory), so graph expansion finds
-  nothing for them until they are reindexed (`POST /api/v1/reindex`).
+  nothing for them until they are reindexed:
+  `POST /api/v1/documents/{document_id}/reindex` for one, or
+  `POST /api/knowledge/reindex` for every document of a session. The reindex
+  reads the stored file, and needs an LLM to extract with.
 - The new graph tables are created on their own, on SQLite and PostgreSQL;
   there is nothing to migrate.
 
@@ -34,9 +38,9 @@ Upgrading:
 - The old names renamed in 0.1.0 (`lasagna benchmark compare`, `lasagna
   benchmark leaderboard`, `results interaction --bootstrap`, and the names
   dropped from `lasagna.__all__`) and the unversioned `/api/config/knowledge`
-  routes stay for one more release, with their warnings, and are removed in
-  0.4.0. 0.2.0 said 0.3.0; the configurator still calls those routes by these
-  paths, so they move once it calls `/api/v1`.
+  routes stay for one more release, with their warnings: the old names are
+  removed in 0.4.0, and the routes move under `/api/v1` then, once the
+  configurator calls them there. 0.2.0 said 0.3.0.
 - `lasagna.retrieval.graph.get_or_create_session_graph`: it builds a graph no
   other process sees, and retrieval no longer reads it. Use `graph_for` and
   `index_document_graph`.
