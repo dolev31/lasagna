@@ -58,7 +58,8 @@ These fields feed the comparability key:
 `embedder_model`, `embedder_dim`, `chunker`, `retriever_top_k`, `vector_backend`,
 `judge_model`, `bm25_stemming`, `fixed_stages`, `similarity_model` and
 `corpus_ingest_gap`. `judge_model` and `similarity_model` are null for a run
-whose recorded `tracks` have no generation: only answers are judged.
+that wrote no answers (live, with no generation track): only answers are
+judged.
 
 `corpus_provenance` defaults to `native`. A field a metrics version did not have
 yet is not required from older bundles. See

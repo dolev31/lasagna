@@ -39,13 +39,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- A run with no generation track names no judge and no answer-similarity
-  model. It recorded both from `RAG_EVAL_JUDGE_MODEL` and the defaults, though
-  only answers are judged: a retrieval sweep with the judge set to an alias
-  (`llama3.2`) failed `lasagna results validate --strict` with
+- A run that writes no answers names no judge and no answer-similarity
+  model, since only answers are judged. A live retrieval sweep recorded the
+  judge from `RAG_EVAL_JUDGE_MODEL` or `judge_model:`, and the similarity
+  model from `RAG_EVAL_SIMILARITY_MODEL` or its default: with the judge set to
+  an alias (`llama3.2`) it failed `lasagna results validate --strict` with
   `UNRESOLVED_JUDGE_ALIAS`, and two identical retrieval runs split on a
-  leaderboard by which judge the environment named. A bundle of a results
-  file that records its tracks is read the same way.
+  leaderboard by which judge the environment named. Such a run's
+  comparability key changes accordingly; a bundle made before keeps its key
+  and its recorded warnings until its results file is bundled again, which
+  drops the warning. A benchmark whose mode resolves to `generation_only`
+  (TriviaQA under `auto`) answers and is judged whatever the tracks, so it
+  keeps its judge, and now records the default judge when none is named.
 - The knowledge graph `enable_graph_retrieval` builds is kept in the metadata
   database every process shares, so a search finds the graph whichever process
   built it (Part of #55). It lived in the memory of the process that ingested:

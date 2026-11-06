@@ -353,15 +353,17 @@ def varied_stages(
     return sorted({stage for stage in map(stage_of, keys) if stage is not None})
 
 
-def _may_have_judged(run_meta: Dict[str, Any]) -> bool:
+def _may_have_judged(run_meta: Dict[str, Any], rows: List[Dict[str, Any]]) -> bool:
     """Whether a judge could have scored anything in the run: it scores answers.
 
-    A results file written before 0.3.0 names the judge of a retrieval-only
-    run too; one that records its tracks and ran no generation judged
-    nothing. With no tracks recorded, the run may have.
+    A generation track writes them, and so does a task whose mode resolved to
+    ``generation_only``, whatever the tracks. A results file written before
+    0.3.0 names the judge of a run that wrote none too.
     """
     tracks = run_meta.get("tracks")
-    return not isinstance(tracks, (list, tuple)) or "generation" in tracks
+    if not isinstance(tracks, (list, tuple)) or "generation" in tracks:
+        return True
+    return any(r.get("resolved_mode") == "generation_only" for r in rows)
 
 
 def held_fixed_from(
@@ -402,10 +404,8 @@ def held_fixed_from(
         "chunker": _field("chunker"),
         "retriever_top_k": _field("retriever_top_k"),
         "vector_backend": _field("vector_backend"),
-        "judge_model": run_meta.get("judge_model") if _may_have_judged(run_meta) else None,
-        "similarity_model": (
-            run_meta.get("similarity_model") if _may_have_judged(run_meta) else None
-        ),
+        "judge_model": run_meta.get("judge_model"),
+        "similarity_model": run_meta.get("similarity_model"),
         "bm25_stemming": _field("bm25_stemming"),
         "corpus_ingest_gap": _ingest_gap_key(result.get("corpus_ingest_gap")),
         "fixed_stages": (
@@ -1123,7 +1123,7 @@ def _integrity(rows: List[Dict[str, Any]], run_meta: Dict[str, Any]) -> Dict[str
         warnings.append("SINGLE_RUN")
 
     judge = run_meta.get("judge_model")
-    if judge and _is_floating_alias(judge) and _may_have_judged(run_meta):
+    if judge and _is_floating_alias(judge) and _may_have_judged(run_meta, rows):
         warnings.append("UNRESOLVED_JUDGE_ALIAS")
 
     if run_meta.get("determinism") not in SEEDED_LABELS:
