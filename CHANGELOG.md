@@ -17,7 +17,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with its document, after the document's chunks are stored, and each process
   loads it again once the session's documents change (an upload, a delete, a
   benchmark's ingest). Storing a document again replaces its part, so a
-  reindex leaves no old chunk ids behind, and an upload that fails stores none.
+  reindex leaves no old chunk ids behind, and an upload that fails keeps none.
   A search no longer creates an empty graph. Concurrent writers lock entities
   in one order, so PostgreSQL does not deadlock them. In
   `lasagna.retrieval.graph`, `get_or_create_session_graph` is deprecated (it

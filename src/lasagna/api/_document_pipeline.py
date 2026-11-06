@@ -1438,6 +1438,7 @@ class DocumentPipeline:
             return len(batch_data), chunks_for_bm25
 
         inserted = False
+        graph_stored = False
         try:
             chunk_count, chunks_for_bm25 = self._insert_or_rebuild(
                 _insert_all_chunks, document, config, backend
@@ -1449,7 +1450,7 @@ class DocumentPipeline:
                 )
             self._wait_until_searchable(document, config, backend, partition_key)
             if pending_graph is not None:
-                self._store_graph(document, config, pending_graph)
+                graph_stored = self._store_graph(document, config, pending_graph)
             if replacing:
                 # From here the old copy's chunks are gone: the row is pointed at
                 # the new ones in one write, and what follows it cannot undo it.
@@ -1476,6 +1477,12 @@ class DocumentPipeline:
                     preview_text=self._generate_preview_text(text),
                 )
         except Exception as exc:
+            if graph_stored:
+                # Its chunks go: so does what the graph says about them. A
+                # reindex that fails here loses the old copy's part of the
+                # graph until the next reindex, rather than point at chunks
+                # that no longer exist.
+                self._unstore_graph(document)
             self._discard_new_chunks(
                 document,
                 backend,
@@ -1644,7 +1651,7 @@ class DocumentPipeline:
                 f"{exc}), so it was not indexed again."
             ) from exc
 
-    def _store_graph(self, document, config, pending_graph) -> None:
+    def _store_graph(self, document, config, pending_graph) -> bool:
         """Store the document's part of the session's knowledge graph.
 
         Where every process reads it: in the stack the Celery worker builds the
@@ -1667,8 +1674,21 @@ class DocumentPipeline:
                 chunk_ids,
                 encode,
             )
+            return True
         except Exception as e:
             logger.warning(f"GraphRAG: the graph of {document.document_id} was not stored: {e}")
+            return False
+
+    def _unstore_graph(self, document) -> None:
+        """Remove the document's part of the session's graphs; logged, never raised."""
+        try:
+            from ..retrieval.graph.graph_store import graph_for
+
+            graph_for(document.session_id, "").remove_document(document.document_id)
+        except Exception as e:
+            logger.warning(
+                f"GraphRAG: the graph part of {document.document_id} could not be removed: {e}"
+            )
 
     def _finish_new_document(
         self,

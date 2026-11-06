@@ -217,6 +217,38 @@ CREATE TABLE IF NOT EXISTS collection_meta (
 """
 
 
+def _retry_deadlock(write, what: str):
+    """Run ``write``; once more, twice at most, when the server reports a deadlock."""
+    for attempt in range(3):
+        try:
+            return write()
+        except Exception as exc:
+            code = getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)
+            if code != "40P01" or attempt == 2:
+                raise
+            logger.debug(f"{what} deadlocked; retrying")
+
+
+def _lock_entities(cur, session_id: str, names, collection: str = None) -> None:
+    """Lock the session's entity rows of ``names``, in one order, until the transaction ends."""
+    if not names:
+        return
+    scope = " AND collection_name = %s" if collection is not None else ""
+    params = (
+        (session_id, collection, sorted(names))
+        if collection is not None
+        else (
+            session_id,
+            sorted(names),
+        )
+    )
+    cur.execute(
+        f"SELECT 1 FROM graph_entities WHERE session_id = %s{scope} AND name = ANY(%s) "
+        "ORDER BY collection_name, name FOR UPDATE",
+        params,
+    )
+
+
 def _graph_tables_sql():
     """The knowledge graph's tables, as SQLite has them, with BYTEA for the embedding."""
     from lasagna.core.database import CREATE_GRAPH_TABLES
@@ -1947,16 +1979,12 @@ class PostgresRAGDatabase:
         Rows arrive sorted, so two writers lock shared entities in the same
         order; a deadlock the server still reports is retried.
         """
-        for attempt in range(3):
-            try:
-                return self._save_graph_document(
-                    session_id, collection_name, document_id, entities, mentions, edges
-                )
-            except Exception as exc:
-                code = getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)
-                if code != "40P01" or attempt == 2:
-                    raise
-                logger.debug(f"Graph write for {document_id} deadlocked; retrying")
+        return _retry_deadlock(
+            lambda: self._save_graph_document(
+                session_id, collection_name, document_id, entities, mentions, edges
+            ),
+            f"Graph write for {document_id}",
+        )
 
     def _save_graph_document(
         self, session_id, collection_name, document_id, entities, mentions, edges
@@ -1967,7 +1995,13 @@ class PostgresRAGDatabase:
         with self._conn() as conn:
             try:
                 touched = _touched_names(conn, "%s", session_id, document_id, collection_name)
+                touched |= {row[0] for row in entities}
                 with conn.cursor() as cur:
+                    # Locked first, in order: under READ COMMITTED an orphan
+                    # check that waited on another writer's lock re-read the
+                    # row with its old snapshot and deleted an entity the other
+                    # writer had just mentioned.
+                    _lock_entities(cur, session_id, touched, collection_name)
                     cur.execute(
                         "DELETE FROM graph_mentions WHERE session_id = %s AND collection_name = %s "
                         "AND document_id = %s",
@@ -2001,7 +2035,7 @@ class PostgresRAGDatabase:
                             "ON CONFLICT DO NOTHING",
                             [(*key, a, b, r, document_id) for a, b, r in sorted(edges)],
                         )
-                _delete_orphan_entities(conn, "%s", session_id, touched)
+                _delete_orphan_entities(conn, "%s", session_id, touched, collection_name)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -2038,11 +2072,18 @@ class PostgresRAGDatabase:
 
     def delete_graph_document(self, session_id: str, document_id: str) -> None:
         """Remove the document's part of every graph of the session (see RAGDatabase)."""
+        _retry_deadlock(
+            lambda: self._delete_graph_document(session_id, document_id),
+            f"Graph delete for {document_id}",
+        )
+
+    def _delete_graph_document(self, session_id: str, document_id: str) -> None:
         from lasagna.core.database import _delete_orphan_entities, _touched_names
 
         with self._conn() as conn:
             touched = _touched_names(conn, "%s", session_id, document_id)
             with conn.cursor() as cur:
+                _lock_entities(cur, session_id, touched)
                 for table in ("graph_mentions", "graph_edges"):
                     cur.execute(
                         f"DELETE FROM {table} WHERE session_id = %s AND document_id = %s",

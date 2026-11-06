@@ -354,3 +354,37 @@ def test_two_postgres_writers_sharing_entities_do_not_deadlock():
     entities, mentions, _ = db.load_graph(session, "c")
     assert len(entities) == 200 and len(mentions) == 200 * 18
     db.drop_graphs(session)
+
+
+def test_a_graph_stored_for_an_upload_that_then_fails_is_removed(tmp_path, monkeypatch):
+    """The graph is stored after the chunks; a failure after that takes it back."""
+    from lasagna.api._document_pipeline import DocumentPipeline
+    from lasagna.providers.llm_provider import SimpleLLMProvider
+    from lasagna.retrieval.graph.entity_extractor import EntityExtractor
+
+    monkeypatch.setattr(SimpleLLMProvider, "get_llm", lambda self, **kw: object())
+    monkeypatch.setattr(
+        EntityExtractor,
+        "extract_batch_sync",
+        lambda self, texts, llm, max_workers=4: [EXTRACTION for _ in texts],
+    )
+
+    def fails(self, *a, **k):
+        raise RuntimeError("the status write failed")
+
+    monkeypatch.setattr(DocumentPipeline, "_finish_new_document", fails)
+    h = Harness(tmp_path, monkeypatch)
+    h.settings["enable_graph_retrieval"] = True
+    with pytest.raises(Exception):
+        h.upload(h.write(tmp_path, "curie.txt", TEXT))
+    assert h.db.load_graph(SESSION, h.config().collection_name) == ([], [], [])
+
+
+def test_an_entity_stored_with_no_mention_does_not_linger(tmp_path, monkeypatch):
+    import lasagna.core.database as database
+    from lasagna.retrieval.graph.graph_store import GraphEntity
+
+    store = _store(tmp_path)
+    monkeypatch.setattr(database, "get_rag_database", lambda: store.db)
+    store.add_document("d1", [GraphEntity("Warsaw", "LOCATION", None, "")], [])
+    assert store.db.load_graph(SESSION, "coll_a") == ([], [], [])

@@ -878,7 +878,13 @@ async def fast_ingest_corpus(
                     # The graph was written document by document; one change
                     # tells every process that loaded the session's graph to
                     # load it again, as an upload's change does.
-                    rag_db.bump_content_generation(session_id)
+                    try:
+                        rag_db.bump_content_generation(session_id)
+                    except Exception as bump_error:
+                        logger.warning(
+                            f"Other processes may keep an older graph of {session_id}: "
+                            f"the session's content generation was not bumped ({bump_error})"
+                        )
                 if registered != len(ingested_ids):
                     logger.error(
                         f"Only {registered} of {len(ingested_ids)} documents registered; "

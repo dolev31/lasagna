@@ -2097,6 +2097,8 @@ class RAGDatabase:
             try:
                 key = (session_id, collection_name)
                 touched = _touched_names(conn, "?", session_id, document_id, collection_name)
+                # The new names too: an entity stored with no mention is an orphan.
+                touched |= {row[0] for row in entities}
                 conn.execute(
                     "DELETE FROM graph_mentions WHERE session_id = ? AND collection_name = ? "
                     "AND document_id = ?",
@@ -2127,7 +2129,7 @@ class RAGDatabase:
                     "target, rel_type, document_id) VALUES (?, ?, ?, ?, ?, ?)",
                     [(*key, src, tgt, rel, document_id) for src, tgt, rel in edges],
                 )
-                _delete_orphan_entities(conn, "?", session_id, touched)
+                _delete_orphan_entities(conn, "?", session_id, touched, collection_name)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -2310,7 +2312,9 @@ def _run(conn, sql: str, params: tuple, fetch: bool = False):
         return cur.fetchall() if fetch else None
 
 
-def _delete_orphan_entities(conn, placeholder: str, session_id: str, names) -> None:
+def _delete_orphan_entities(
+    conn, placeholder: str, session_id: str, names, collection: str = None
+) -> None:
     """Delete those of ``names`` no mention and no edge of the session names any more.
 
     Only the names a write or a delete touched: checking every entity of the
@@ -2319,18 +2323,23 @@ def _delete_orphan_entities(conn, placeholder: str, session_id: str, names) -> N
     two databases run the same statement.
     """
     names = sorted(names)
+    scope = f" AND collection_name = {placeholder}" if collection is not None else ""
     for start in range(0, len(names), 500):
         batch = names[start : start + 500]
         marks = ", ".join([placeholder] * len(batch))
         sql = (
-            f"DELETE FROM graph_entities WHERE session_id = {placeholder} AND name IN ({marks}) "
+            f"DELETE FROM graph_entities WHERE session_id = {placeholder}{scope} "
+            f"AND name IN ({marks}) "
             "AND NOT EXISTS (SELECT 1 FROM graph_mentions m WHERE m.session_id = graph_entities.session_id "
             "AND m.collection_name = graph_entities.collection_name AND m.name = graph_entities.name) "
             "AND NOT EXISTS (SELECT 1 FROM graph_edges e WHERE e.session_id = graph_entities.session_id "
             "AND e.collection_name = graph_entities.collection_name "
             "AND (e.source = graph_entities.name OR e.target = graph_entities.name))"
         )
-        _run(conn, sql, (session_id, *batch))
+        params = (
+            (session_id, collection, *batch) if collection is not None else (session_id, *batch)
+        )
+        _run(conn, sql, params)
 
 
 #: One row per session: a counter bumped on every upload and delete, which tells
