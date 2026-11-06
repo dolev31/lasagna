@@ -24,6 +24,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The knowledge graph `enable_graph_retrieval` builds is kept in the metadata
+  database every process shares, so a search finds the graph whichever process
+  built it (Part of #55). It lived in the memory of the process that ingested:
+  in the Compose stack the Celery worker built it and every API worker searched
+  an empty one, silently, and a restart lost it. It is now stored per session
+  and collection (SQLite, or PostgreSQL in the stack), each mention and edge
+  with its document, after the document's chunks are stored, and each process
+  loads it again once the session's documents change (an upload, a delete, a
+  benchmark's ingest). Storing a document again replaces its part, so a
+  reindex leaves no old chunk ids behind, and an upload that fails keeps none.
+  A search no longer creates an empty graph. Concurrent writers lock entities
+  in one order, so PostgreSQL does not deadlock them. In
+  `lasagna.retrieval.graph`, `get_or_create_session_graph` is deprecated (it
+  builds a graph no other process sees, and retrieval no longer reads it); use
+  `graph_for` and `index_document_graph`. `GraphRetriever.expand` takes
+  `collection_name`, defaulting to the session's.
 - Hybrid search asks about the collection it searches, and a connection pool
   passes the question on (#50, #52). The Compose stack wraps its Milvus server
   in a pool (`RAG_CONNECTION_POOL_SIZE=10`) that did not pass on
