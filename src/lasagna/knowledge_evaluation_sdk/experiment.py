@@ -89,6 +89,10 @@ _INGESTION_TIME_KEYS = frozenset(
         "raptor_max_cluster_size",
         "raptor_max_levels",
         "enable_graph_retrieval",
+        # Two graph arms that differ in the extraction model or the entity
+        # types build different graphs, so each gets a corpus of its own.
+        "graph_extraction_model",
+        "graph_entity_types",
         "collection_name",
     }
 )
@@ -753,6 +757,18 @@ def _reranker_that_ran(component: Optional[str], task_config: Dict[str, Any]) ->
     key = _RERANKER_MODEL_KEYS.get(component)
     model = task_config.get(key) if key else None
     return f"{component}:{model}" if model else component
+
+
+def _drop_corpus_graph(session_id: str, collection_name: str) -> None:
+    """Drop a stale corpus's graph with its vectors: its parts name deleted chunks."""
+    try:
+        from lasagna.core.database import get_rag_database
+        from lasagna.retrieval.graph.graph_store import drop_loaded_graphs
+
+        get_rag_database().drop_graphs(session_id, collection_name)
+        drop_loaded_graphs(session_id)
+    except Exception as exc:  # noqa: BLE001 - a re-ingest replaces each document's part
+        logger.warning(f"Could not drop the stale corpus graph of {session_id}: {exc}")
 
 
 class _DegradedTally:
@@ -3604,6 +3620,16 @@ def _corpus_cache_key(task: "BenchmarkTask") -> Optional[str]:
         k: v for k, v in (task.config_overrides or {}).items() if k in _ingestion_time_keys()
     }
     merged = {**_profile_ingestion, **_explicit_ingestion}
+    from lasagna.core.config import rag_config as _graph_cfg
+
+    # On for this arm, or for every arm (RAG_ENABLE_GRAPH_RETRIEVAL, as in the
+    # Compose stack) unless the arm turns it off.
+    _graph_on = merged.get("enable_graph_retrieval", _graph_cfg.enable_graph_retrieval)
+    if _graph_on and not merged.get("graph_extraction_model"):
+        # The graph is part of a graph arm's corpus: keyed by the model that
+        # extracts it, the default model when the arm names none, so two runs
+        # with different MODEL_NAMEs never share, or swap, one graph (#55).
+        merged["graph_extraction_model"] = _graph_cfg.graph_extraction_model
     # A chunker or embedder component makes its own corpus: keyed by what the
     # component is, so a changed function is never served an old corpus.
     for _slot in _INGEST_COMPONENTS:
@@ -4076,6 +4102,7 @@ async def _ensure_corpus_ingested(
                             f"or collection and rerun."
                         ) from _del_exc
                     _ingest_backend.hybrid_searcher.clear_session(shared_session_id)
+                    _drop_corpus_graph(shared_session_id, _coll_name)
                     ready_ids = set()
         except _StaleCorpusCleanupError:
             raise
@@ -4098,6 +4125,7 @@ async def _ensure_corpus_ingested(
                     f"that session or collection and rerun."
                 ) from _del_exc
             _ingest_backend.hybrid_searcher.clear_session(shared_session_id)
+            _drop_corpus_graph(shared_session_id, _coll_name)
             ready_ids = set()
 
         if not _skip_ingest:
@@ -4144,6 +4172,29 @@ async def _ensure_corpus_ingested(
             pass  # a store without filtered queries: nothing to compare
         except Exception as exc:  # noqa: BLE001 - the census only guards the result
             logger.warning(f"Could not count the published corpus: {exc}")
+        graph_info = None
+        if getattr(_rag_cfg.with_session(shared_session_id), "enable_graph_retrieval", False):
+            # Under the corpus lock: a task waiting for this corpus waits for
+            # its graph too (#55).
+            try:
+                from ..retrieval.graph.graph_store import ensure_corpus_graph
+
+                _graph_cfg = _rag_cfg.with_session(shared_session_id)
+                graph_info = await asyncio.to_thread(
+                    ensure_corpus_graph,
+                    shared_session_id,
+                    _coll_name,
+                    _resolved,
+                    {corpus_to_valid[cid] for cid in corpus} - failed_valid_ids,
+                    set(ingested_ids) if not _skip_ingest else set(),
+                    _graph_cfg,
+                    _ingest_backend._collection_manager.embedder_for(_graph_cfg).encode_document,
+                )
+            except Exception as exc:  # noqa: BLE001 - the record says what is known
+                from lasagna.core.provenance import redact
+
+                logger.warning(f"Could not check the corpus graph: {exc}")
+                graph_info = {"state": "unknown", "error": str(redact(str(exc)))[:200]}
         corpus_lock.release()
         logger.info(f"Corpus ingestion complete for '{benchmark_name}' (cache_key='{cache_key}')")
         ingest_gap = _ingest_gap(corpus, valid_to_corpus, failed_valid_ids)
@@ -4172,6 +4223,7 @@ async def _ensure_corpus_ingested(
             # could never fire and truncated bundles validated clean.
             slot["corpus_truncated"] = bool(getattr(adapter, "corpus_truncated", False))
             slot["corpus_ingest_gap"] = ingest_gap
+            slot["graph"] = graph_info
             slot["corpus_census"] = census
             slot["_census_store"] = (
                 lambda: _get_ingest_backend()._collection_manager.resolve_backend(shared_session_id)
@@ -5534,6 +5586,44 @@ async def _eval_live(
     }
     if _fell_back:
         _system["degraded_stages"] = _fell_back
+    if corpus_info.get("graph"):
+        # Whether this corpus's knowledge graph was built by this run, reused
+        # from an earlier one, or rebuilt because a reused corpus had none (#55).
+        # Outside the comparability key, which reads named fields only.
+        _system["graph"] = corpus_info["graph"]
+        _graph = corpus_info["graph"]
+        # Every query of the arm ran on a graph missing documents, or on none
+        # at all: a fallback, reported as the bundle reports the others (#84),
+        # under the stage name the search's own graph expansion records.
+        _cause = f" ({_graph['error']})" if _graph.get("error") else ""
+        _why = None
+        if _graph.get("state") == "incomplete":
+            _of = _graph.get("documents", 0) + _graph.get("missing", 0)
+            _why = f"the corpus graph is missing {_graph.get('missing')} of {_of} documents"
+            _why += _cause
+        elif _graph.get("state") == "unknown":
+            _why = "the corpus graph could not be checked" + _cause
+        elif _graph.get("entities") == 0 and _graph.get("unparsed_chunks"):
+            # An endpoint that answers 200 with no JSON (a reasoning model's
+            # empty content, a proxy's HTML page) leaves every document done
+            # and the graph empty.
+            _why = (
+                "the corpus graph is empty: "
+                f"{_graph['unparsed_chunks']} replies of the extraction model held no readable JSON"
+            )
+        if _why:
+            for _track, _tally in (("retrieval", _ir_degraded), ("generation", _gen_degraded)):
+                if not _tally.queries:
+                    continue
+                _stages = _system.setdefault("degraded_stages", {}).setdefault(_track, {})
+                _before = _stages.get("graphrag") or {}
+                _stages["graphrag"] = {
+                    **_before,
+                    "queries": _tally.queries,
+                    "of": _tally.queries,
+                    "reasons": [{"reason": _why, "queries": _tally.queries}]
+                    + list(_before.get("reasons") or []),
+                }
 
     result = TaskResult(
         task_key=task.task_key,

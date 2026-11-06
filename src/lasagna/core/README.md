@@ -61,7 +61,7 @@ quota, rate limiter and tenant managers, `ComponentTestHarness`) is imported fro
 `DATABASE_DSN` is set). Both create their tables on first access: `rag_documents`, `citations`,
 `parent_chunks`, `rag_profiles`, `rag_sessions`, `schema_meta`, `collection_meta`, `gc_lock`,
 `gc_audit_log`; PostgreSQL adds `rag_quotas`. The knowledge graph's `graph_entities`,
-`graph_mentions` and `graph_edges` (`CREATE_GRAPH_TABLES`, one DDL for both, BYTEA for the
+`graph_mentions`, `graph_edges` and `graph_documents` (`CREATE_GRAPH_TABLES`, one DDL for both, BYTEA for the
 embedding on PostgreSQL) are created with the schema on PostgreSQL and on first use on
 SQLite. When you change a table, change both DDLs.
 

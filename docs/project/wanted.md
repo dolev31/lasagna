@@ -133,12 +133,6 @@ For people running Lasagna as a service. Labeled
 - **Vector backends: Chroma, LanceDB, Elasticsearch.** Six run today. Each new
   one is an adapter class and the shared conformance test, which says where an
   adapter differs. See [vector backends](../guides/vector-backends.md).
-- **A knowledge graph every process shares: in progress.** The graph
-  `enable_graph_retrieval` builds is now kept in the metadata database, so a
-  search served by another process, or after a restart, finds it. What is left:
-  removing a deleted document's part and a reset session's graph, and saying in
-  a benchmark's run record whether a reused corpus found its graph
-  ([#55](https://github.com/dolev31/lasagna/issues/55)).
 - **Weights & Biases and MLflow.** A run writes a results bundle; nothing sends
   it to a tracker yet.
 

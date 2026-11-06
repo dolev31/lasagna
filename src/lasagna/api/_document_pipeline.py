@@ -1262,26 +1262,17 @@ class DocumentPipeline:
         pending_graph = None
         if getattr(config, "enable_graph_retrieval", False):
             try:
-                from ..retrieval.graph import EntityExtractor
-                from ..providers.llm_provider import SimpleLLMProvider
+                from ..retrieval.graph.entity_extractor import extract_graph
 
-                extractor = EntityExtractor(
-                    entity_types=getattr(config, "graph_entity_types", None),
-                    model_name=getattr(config, "graph_extraction_model", None),
-                )
-                from ..utils.model_utils import get_default_model_name
-
-                extraction_model = (
-                    getattr(config, "graph_extraction_model", "") or get_default_model_name()
-                )
-                llm = SimpleLLMProvider().get_llm(model_name=extraction_model, temperature=0)
-                chunk_texts_for_graph = [ct for ct, _ in chunks_with_metadata]
-                extractions = extractor.extract_batch_sync(
-                    chunk_texts_for_graph, llm, max_workers=4
-                )
+                found = extract_graph([ct for ct, _ in chunks_with_metadata], config)
+                if found.failed:
+                    logger.warning(
+                        f"GraphRAG: {found.failed} chunks of {document.document_id} could not "
+                        f"be extracted; its graph keeps what the others named"
+                    )
                 pending_graph = (
-                    extractions,
-                    [f"{chunk_prefix}_chunk_{idx}" for idx in range(len(extractions))],
+                    found,
+                    [f"{chunk_prefix}_chunk_{idx}" for idx in range(len(found.extractions))],
                     embedder.encode_document,
                 )
             except Exception as e:
@@ -1664,15 +1655,18 @@ class DocumentPipeline:
         """
         from ..retrieval.graph.graph_store import index_document_graph
 
-        extractions, chunk_ids, encode = pending_graph
+        found, chunk_ids, encode = pending_graph
         try:
             index_document_graph(
                 document.session_id,
                 config.collection_name,
                 document.document_id,
-                extractions,
+                found.extractions,
                 chunk_ids,
                 encode,
+                extraction_model=found.model,
+                complete=found.complete,
+                unparsed_chunks=found.unparsed,
             )
             return True
         except Exception as e:
@@ -2132,6 +2126,15 @@ class DocumentPipeline:
         # Remove from BM25 fallback index
         if rag_config.enable_hybrid_search:
             self.hybrid_searcher.remove_document(document_id, session_id)
+        # Its part of the session's knowledge graphs, before the change is
+        # recorded, so another process that loads the graph again finds it
+        # gone (#55). Every delete path comes through here.
+        try:
+            from ..retrieval.graph.graph_store import graph_for
+
+            graph_for(session_id, "").remove_document(document_id)
+        except Exception as e:
+            logger.warning(f"GraphRAG: the graph part of {document_id} was not removed: {e}")
         self._record_content_change(session_id, indexed_here=rag_config.enable_hybrid_search)
 
         # Clean up parent chunks from SQLite
