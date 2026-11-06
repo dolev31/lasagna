@@ -1975,6 +1975,7 @@ class PostgresRAGDatabase:
         edges: List[tuple],
         extraction_model: Optional[str] = None,
         complete: bool = True,
+        unparsed_chunks: int = 0,
     ) -> None:
         """Replace the document's part of a graph, in one transaction (see RAGDatabase).
 
@@ -1991,6 +1992,7 @@ class PostgresRAGDatabase:
                 edges,
                 extraction_model,
                 complete,
+                unparsed_chunks,
             ),
             f"Graph write for {document_id}",
         )
@@ -2005,6 +2007,7 @@ class PostgresRAGDatabase:
         edges,
         extraction_model=None,
         complete=True,
+        unparsed_chunks=0,
     ) -> None:
         from lasagna.core.database import _delete_orphan_entities, _touched_names
 
@@ -2062,8 +2065,9 @@ class PostgresRAGDatabase:
                     if complete:
                         cur.execute(
                             "INSERT INTO graph_documents (session_id, collection_name, document_id, "
-                            "extraction_model) VALUES (%s, %s, %s, %s)",
-                            (*key, document_id, extraction_model),
+                            "extraction_model, unparsed_chunks) "
+                            "VALUES (%s, %s, %s, %s, %s)",
+                            (*key, document_id, extraction_model, int(unparsed_chunks)),
                         )
                 conn.commit()
             except Exception:
@@ -2099,18 +2103,20 @@ class PostgresRAGDatabase:
             conn.commit()
         return entities, mentions, edges
 
-    def extracted_graph_documents(self, session_id: str, collection_name: str) -> Dict[str, Any]:
-        """The documents whose every chunk was extracted (see RAGDatabase)."""
+    def extracted_graph_documents(
+        self, session_id: str, collection_name: str
+    ) -> Dict[str, Dict[str, Any]]:
+        """The documents whose every chunk was answered (see RAGDatabase)."""
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT document_id, extraction_model FROM graph_documents "
+                    "SELECT document_id, extraction_model, unparsed_chunks FROM graph_documents "
                     "WHERE session_id = %s AND collection_name = %s",
                     (session_id, collection_name),
                 )
                 rows = cur.fetchall()
             conn.commit()
-        return {r[0]: r[1] for r in rows}
+        return {r[0]: {"model": r[1], "unparsed_chunks": int(r[2] or 0)} for r in rows}
 
     def delete_graph_document(self, session_id: str, document_id: str) -> None:
         """Remove the document's part of every graph of the session (see RAGDatabase)."""

@@ -382,11 +382,13 @@ class DatabaseGraphStore:
         *,
         extraction_model: Optional[str] = None,
         complete: bool = True,
+        unparsed_chunks: int = 0,
     ) -> None:
         """Store what one document's chunks mention, replacing what it stored before.
 
-        ``complete``: every chunk was extracted, so the document counts as done
-        even when it names no entity.
+        ``complete`` (the default): every chunk was answered, so the document
+        counts as done even when it names no entity. Pass False when a chunk's
+        call failed, so it is extracted again later.
         """
         rows: Dict[str, Tuple[str, Optional[bytes]]] = {}
         for e in entities:
@@ -409,6 +411,7 @@ class DatabaseGraphStore:
             sorted({(r.source, r.target, r.rel_type or "RELATED") for r in relationships}),
             extraction_model=extraction_model,
             complete=complete,
+            unparsed_chunks=unparsed_chunks,
         )
         self._forget()
 
@@ -474,6 +477,7 @@ def index_document_graph(
     *,
     extraction_model: Optional[str] = None,
     complete: bool = True,
+    unparsed_chunks: int = 0,
 ) -> DatabaseGraphStore:
     """Store the entities and relationships extracted from a document's chunks.
 
@@ -510,6 +514,7 @@ def index_document_graph(
         relationships,
         extraction_model=extraction_model,
         complete=complete,
+        unparsed_chunks=unparsed_chunks,
     )
     logger.info(
         f"GraphRAG: stored {len(embedded)} entities and {len(relationships)} relationships "
@@ -565,23 +570,31 @@ def ensure_corpus_graph(
     metadata database. A corpus ingested before the graph was stored there, or
     whose database was reset, has chunks and no graph: its documents are
     extracted again from the stored chunks, so a graph arm never runs on an
-    empty graph unnoticed. A document counts as done once every chunk of it was
-    extracted (``graph_documents``), even when it names no entity.
+    empty graph unnoticed. So are documents another extraction model did: the
+    corpus key holds the model only when an arm names one. A document counts
+    as done once every chunk of it was answered (``graph_documents``), even
+    when it names no entity.
 
     The answer goes in the run record: ``state`` is ``built``, ``reused``,
     ``rebuilt``, or ``incomplete`` when some documents still have no graph (no
-    LLM, failed calls), with ``missing`` saying how many.
+    LLM, failed calls), with ``missing`` saying how many. ``no_chunks`` counts
+    documents with nothing stored to extract, ``unparsed_chunks`` the chunks
+    whose reply the extractor could not read.
     """
     from lasagna.core.database import get_rag_database
     from lasagna.core.provenance import redact
+    from lasagna.utils.model_utils import get_default_model_name
 
     db = get_rag_database()
     wanted = set(document_ids)
+    model_now = getattr(config, "graph_extraction_model", "") or get_default_model_name()
     done = db.extracted_graph_documents(session_id, collection_name)
-    to_rebuild = sorted((wanted - set(built_now)) - set(done))
-    rebuilt = 0
+    # A document recorded with no model (a caller that did not say) is kept.
+    current = {d for d, r in done.items() if r.get("model") in (None, model_now)}
+    to_rebuild = sorted((wanted - set(built_now)) - current)
+    rebuilt = written = 0
+    no_chunks: Set[str] = set()
     error = None
-    model = None
     if to_rebuild:
         from lasagna.vector_backends.filters import FilterExpression
 
@@ -608,6 +621,7 @@ def ensure_corpus_graph(
         for doc in to_rebuild:
             stored = sorted(chunks.get(doc, []))
             if not stored:
+                no_chunks.add(doc)
                 continue
             try:
                 found = extract_graph([text for _, _, text in stored], config)
@@ -616,7 +630,6 @@ def ensure_corpus_graph(
                 error = str(redact(str(e)))[:200]
                 logger.warning(f"GraphRAG: the reused corpus's graph cannot be rebuilt: {error}")
                 break
-            model = found.model
             index_document_graph(
                 session_id,
                 collection_name,
@@ -626,13 +639,17 @@ def ensure_corpus_graph(
                 encode,
                 extraction_model=found.model,
                 complete=found.complete,
+                unparsed_chunks=found.unparsed,
             )
-            rebuilt += 1
-        if rebuilt:
+            written += 1
+            # Done now; a document with a failed call kept what was found.
+            rebuilt += int(found.complete)
+        if written:
             db.bump_content_generation(session_id)
     done = db.extracted_graph_documents(session_id, collection_name)
     entities, _, _ = db.load_graph(session_id, collection_name)
-    missing = len(wanted - set(done))
+    have = wanted & set(done)
+    missing = len(wanted - have - no_chunks)
     if missing:
         state = "incomplete"
     elif rebuilt:
@@ -641,16 +658,19 @@ def ensure_corpus_graph(
         state = "built"
     else:
         state = "reused"
-    models = sorted({m for m in done.values() if m} | ({model} if model else set()))
+    models = sorted({done[d]["model"] for d in have if done[d].get("model")})
     info = {
         "state": state,
-        "documents": len(wanted & set(done)),
+        "documents": len(have),
         "missing": missing,
         "entities": len(entities),
         "rebuilt": rebuilt,
         # One model, as a rule; a list when documents were extracted with several.
         "extraction_model": models[0] if len(models) == 1 else (models or None),
+        "unparsed_chunks": sum(done[d]["unparsed_chunks"] for d in have),
     }
+    if no_chunks:
+        info["no_chunks"] = len(no_chunks)
     if error:
         info["error"] = error
     log = logger.warning if missing else logger.info

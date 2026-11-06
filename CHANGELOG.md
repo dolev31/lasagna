@@ -12,10 +12,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   graph: `system.graph.state` is `built`, `reused`, or `rebuilt` when a reused
   corpus had none (ingested before the graph was stored in the metadata
   database), whose documents are then extracted again from the chunks
-  already stored (#55). `incomplete`, with how many documents are `missing`,
-  when some could not be extracted (no LLM, a failed call); every query of
-  that arm counts as a `graph` fallback, so the bundle says so. A document
-  that names no entity counts as extracted. The benchmark ingest stores a
+  already stored (#55), as are documents another extraction model did.
+  `incomplete`, with how many documents are `missing`, when some could not be
+  extracted (no LLM, a failed call); every query of that arm counts as a
+  `graphrag` fallback, so the bundle says so. A document that names no entity,
+  or whose replies held no readable JSON (`unparsed_chunks`), counts as
+  extracted. The benchmark ingest stores a
   document's graph only once the document is in, so a corpus whose ingest
   failed leaves none. Two graph arms that differ in `graph_extraction_model`
   or `graph_entity_types` get a corpus each.

@@ -74,6 +74,58 @@ def test_deleting_a_document_removes_its_part_of_the_graph(tmp_path, monkeypatch
     assert h.db.load_graph(SESSION, collection) == ([], [], [])
 
 
+def _lifecycle(h):
+    from lasagna.lifecycle.manager import DocumentLifecycleManager
+    from lasagna.lifecycle.policy import LifecyclePolicy
+
+    return DocumentLifecycleManager(
+        db=h.db,
+        pipeline=h.pipeline,
+        backend=h.backend,
+        policy=LifecyclePolicy(),
+        collection_name=h.config().collection_name,
+    )
+
+
+def test_deleting_a_session_drops_its_graph(tmp_path, monkeypatch, stub_extraction):
+    h = _graph_harness(tmp_path, monkeypatch)
+    h.upload(h.write(tmp_path, "warsaw.txt", "Warsaw lies on the Vistula."))
+    h.upload(h.write(tmp_path, "vistula.txt", "The Vistula flows through Warsaw."))
+    collection = h.config().collection_name
+    # A part left by a document whose own removal failed earlier.
+    h.db.save_graph_document(
+        SESSION,
+        collection,
+        "gone",
+        [("Kraków", "LOCATION", None)],
+        [("Kraków", "gone_chunk_0")],
+        [],
+    )
+    assert h.db.load_graph(SESSION, collection)[1]
+    result = _lifecycle(h).bulk_delete_session(SESSION, confirm=True)
+    assert result.deleted == 2 and result.errors == 0
+    assert h.db.load_graph(SESSION, collection) == ([], [], [])
+    assert h.db.extracted_graph_documents(SESSION, collection) == {}
+
+
+def test_deleting_a_session_with_no_documents_drops_what_is_left_of_its_graph(
+    tmp_path, monkeypatch
+):
+    h = _graph_harness(tmp_path, monkeypatch)
+    collection = h.config().collection_name
+    h.db.save_graph_document(
+        SESSION,
+        collection,
+        "gone",
+        [("Kraków", "LOCATION", None)],
+        [("Kraków", "gone_chunk_0")],
+        [],
+    )
+    result = _lifecycle(h).bulk_delete_session(SESSION, confirm=True)
+    assert result.requested == 0
+    assert h.db.load_graph(SESSION, collection) == ([], [], [])
+
+
 def test_a_reset_session_forgets_the_graphs_this_process_loaded(
     tmp_path, monkeypatch, stub_extraction
 ):
@@ -187,10 +239,10 @@ def test_the_benchmark_ingest_stores_graphs_only_for_documents_that_made_it(tmp_
     assert stored == 1
     _, mentions, _ = db.load_graph("s", "c")
     assert {doc for _, _, doc in mentions} == {"d1"}
-    assert db.extracted_graph_documents("s", "c") == {"d1": "m"}
+    assert db.extracted_graph_documents("s", "c") == {"d1": {"model": "m", "unparsed_chunks": 0}}
 
 
-def _run_with_graph(monkeypatch, graph):
+def _run_with_graph(monkeypatch, graph, expansion_fails=False):
     """One live retrieval task, over a corpus whose graph check said ``graph``."""
     from lasagna.api import rag_backend
     from lasagna.core import pipeline as pipeline_mod
@@ -218,6 +270,10 @@ def _run_with_graph(monkeypatch, graph):
             self._config = {"enable_hybrid_search": False}
 
         def query(self, *a, **k):
+            if expansion_fails:
+                from lasagna.utils import degraded
+
+                degraded.record("graphrag", "the graph expansion failed")
             return [
                 SimpleNamespace(chunk=SimpleNamespace(document_id="v1", content="x"), score=1.0)
             ]
@@ -255,27 +311,59 @@ def test_the_run_record_says_how_the_corpus_got_its_graph(monkeypatch):
 def test_an_incomplete_graph_is_reported_as_a_fallback(monkeypatch):
     from lasagna.knowledge_evaluation_sdk import bundle as bundle_mod
 
-    graph = {"state": "incomplete", "documents": 1, "missing": 1, "entities": 2, "rebuilt": 0}
+    graph = {
+        "state": "incomplete",
+        "documents": 1,
+        "missing": 1,
+        "entities": 2,
+        "rebuilt": 0,
+        "error": "no LLM configured",
+    }
     result = _run_with_graph(monkeypatch, graph)
-    stage = result.system["degraded_stages"]["retrieval"]["graph"]
+    # The stage name the search's own graph expansion records.
+    stage = result.system["degraded_stages"]["retrieval"]["graphrag"]
     assert stage["queries"] == stage["of"] == 1
     row = result.to_dict()
     assert "ACTIVE_FALLBACKS" in bundle_mod._integrity([row], {})["warnings"]
     (line,) = bundle_mod.degraded_findings([row])
-    assert "graph fell back" in line and "documents with no graph: 1" in line
+    assert "graphrag fell back" in line
+    assert "the corpus graph is missing 1 of 2 documents (no LLM configured)" in line
+
+
+def test_an_incomplete_graph_keeps_what_the_expansion_recorded(monkeypatch):
+    graph = {"state": "incomplete", "documents": 1, "missing": 1, "entities": 2, "rebuilt": 0}
+    result = _run_with_graph(monkeypatch, graph, expansion_fails=True)
+    stage = result.system["degraded_stages"]["retrieval"]["graphrag"]
+    assert stage["queries"] == stage["of"] == 1
+    assert [r["reason"] for r in stage["reasons"]] == [
+        "the corpus graph is missing 1 of 2 documents",
+        "the graph expansion failed",
+    ]
+
+
+def test_a_graph_that_could_not_be_checked_says_why(monkeypatch):
+    graph = {"state": "unknown", "error": "the metadata database is locked"}
+    result = _run_with_graph(monkeypatch, graph)
+    (reason,) = result.system["degraded_stages"]["retrieval"]["graphrag"]["reasons"]
+    assert reason["reason"] == (
+        "the corpus graph could not be checked (the metadata database is locked)"
+    )
 
 
 class _LLM:
-    """An extraction model that answers, or fails on chunks naming a word."""
+    """An extraction model that answers, fails, or answers in prose on chunks naming a word."""
 
-    def __init__(self, fail_on=()):
+    def __init__(self, fail_on=(), prose_on=()):
         self.fail_on = fail_on
+        self.prose_on = prose_on
         self.calls = 0
 
     def invoke(self, prompt):
         self.calls += 1
         if any(word in prompt for word in self.fail_on):
             raise RuntimeError("the endpoint refused the call")
+        if any(word in prompt for word in self.prose_on):
+            return SimpleNamespace(content="There are no named entities in this passage.")
         return SimpleNamespace(content=json.dumps(EXTRACTION))
 
 
@@ -371,7 +459,11 @@ def test_a_failed_chunk_leaves_its_document_to_be_extracted_again(tmp_path, monk
         "s", "c", _StoredChunks(LONG_ROWS), {"d1", "d2"}, set(), config, _ones
     )
     assert info["state"] == "incomplete" and info["missing"] == 1 and info["documents"] == 1
-    assert db.extracted_graph_documents("s", "c") == {"d1": "graph-model"}
+    # d2 kept what its other chunks named, and is not counted as rebuilt.
+    assert info["rebuilt"] == 1
+    assert db.extracted_graph_documents("s", "c") == {
+        "d1": {"model": "graph-model", "unparsed_chunks": 0}
+    }
     assert info["extraction_model"] == "graph-model"
 
     healed = _LLM()
@@ -381,6 +473,64 @@ def test_a_failed_chunk_leaves_its_document_to_be_extracted_again(tmp_path, monk
     )
     assert again["state"] == "rebuilt" and again["rebuilt"] == 1 and again["missing"] == 0
     assert healed.calls == 1  # d2's chunk only
+
+
+def test_a_reply_in_prose_is_the_models_answer_not_a_failure(tmp_path, monkeypatch):
+    from lasagna.retrieval.graph.graph_store import ensure_corpus_graph
+
+    db = _corpus_db(tmp_path, monkeypatch)
+    llm = _LLM(prose_on=("Krakow",))
+    _use_llm(monkeypatch, llm)
+    first = ensure_corpus_graph(
+        "s", "c", _StoredChunks(LONG_ROWS), {"d1", "d2"}, set(), _graph_config(), _ones
+    )
+    # At temperature 0 the model answers the same way next time: done.
+    assert first["state"] == "rebuilt" and first["missing"] == 0
+    assert first["unparsed_chunks"] == 1
+    assert db.extracted_graph_documents("s", "c")["d2"]["unparsed_chunks"] == 1
+    again = ensure_corpus_graph(
+        "s", "c", _StoredChunks(LONG_ROWS), {"d1", "d2"}, set(), _graph_config(), _ones
+    )
+    assert again["state"] == "reused" and again["unparsed_chunks"] == 1
+    assert llm.calls == 2
+
+
+def test_a_document_another_model_extracted_is_extracted_again(tmp_path, monkeypatch):
+    from lasagna.retrieval.graph.graph_store import ensure_corpus_graph
+
+    _corpus_db(tmp_path, monkeypatch)
+    llm = _LLM()
+    _use_llm(monkeypatch, llm)
+
+    def check(model):
+        return ensure_corpus_graph(
+            "s",
+            "c",
+            _StoredChunks(LONG_ROWS),
+            {"d1", "d2"},
+            set(),
+            _graph_config(graph_extraction_model=model),
+            _ones,
+        )
+
+    assert check("model-a")["extraction_model"] == "model-a"
+    assert check("model-a")["state"] == "reused" and llm.calls == 2
+    # The default model changed (an arm that names none keys no model).
+    switched = check("model-b")
+    assert switched["state"] == "rebuilt" and switched["rebuilt"] == 2
+    assert switched["extraction_model"] == "model-b" and llm.calls == 4
+
+
+def test_a_document_with_no_stored_chunks_is_not_missing(tmp_path, monkeypatch):
+    from lasagna.retrieval.graph.graph_store import ensure_corpus_graph
+
+    _corpus_db(tmp_path, monkeypatch)
+    _use_llm(monkeypatch, _LLM())
+    # d3 chunked to nothing: there is nothing to extract.
+    info = ensure_corpus_graph(
+        "s", "c", _StoredChunks(LONG_ROWS), {"d1", "d2", "d3"}, set(), _graph_config(), _ones
+    )
+    assert info["state"] == "rebuilt" and info["missing"] == 0 and info["no_chunks"] == 1
 
 
 def test_a_rebuild_reads_only_the_documents_it_needs(tmp_path, monkeypatch, stub_extraction):
@@ -417,7 +567,9 @@ def test_a_stale_corpus_drops_its_graph_with_its_vectors(tmp_path, monkeypatch):
     assert db.load_graph("s", "c") == ([], [], [])
     assert db.extracted_graph_documents("s", "c") == {}
     # Another collection's graph is not this corpus's.
-    assert db.extracted_graph_documents("s", "other") == {"d1": None}
+    assert db.extracted_graph_documents("s", "other") == {
+        "d1": {"model": None, "unparsed_chunks": 0}
+    }
     # Both stale-corpus paths, where the vectors are deleted, drop it.
     assert inspect.getsource(exp._ensure_corpus_ingested).count("_drop_corpus_graph(") == 2
 

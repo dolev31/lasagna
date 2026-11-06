@@ -2091,13 +2091,15 @@ class RAGDatabase:
         edges: List[tuple],
         extraction_model: Optional[str] = None,
         complete: bool = True,
+        unparsed_chunks: int = 0,
     ) -> None:
         """Replace the document's part of a graph: ``(name, type, embedding)``,
         ``(name, chunk_id)``, ``(source, target, rel_type)``, in one transaction.
 
-        ``complete``: every chunk was extracted, so the document is recorded as
-        done (``graph_documents``), entities or none. A document with a failed
-        chunk keeps what was found and stays to be extracted again.
+        ``complete`` (the default): every chunk was answered, so the document is
+        recorded as done (``graph_documents``), entities or none. Pass False
+        when a chunk's call failed: the document keeps what was found and stays
+        to be extracted again.
         """
         with self._lock:
             conn = self._graph_conn()
@@ -2145,8 +2147,9 @@ class RAGDatabase:
                 if complete:
                     conn.execute(
                         "INSERT INTO graph_documents (session_id, collection_name, document_id, "
-                        "extraction_model) VALUES (?, ?, ?, ?)",
-                        (*key, document_id, extraction_model),
+                        "extraction_model, unparsed_chunks) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (*key, document_id, extraction_model, int(unparsed_chunks)),
                     )
                 conn.commit()
             except Exception:
@@ -2186,17 +2189,20 @@ class RAGDatabase:
             finally:
                 conn.close()
 
-    def extracted_graph_documents(self, session_id: str, collection_name: str) -> Dict[str, Any]:
-        """The documents whose every chunk was extracted: ``{document_id: extraction_model}``."""
+    def extracted_graph_documents(
+        self, session_id: str, collection_name: str
+    ) -> Dict[str, Dict[str, Any]]:
+        """The documents whose every chunk was answered:
+        ``{document_id: {"model": extraction_model, "unparsed_chunks": n}}``."""
         with self._lock:
             conn = self._graph_conn()
             try:
                 rows = conn.execute(
-                    "SELECT document_id, extraction_model FROM graph_documents "
+                    "SELECT document_id, extraction_model, unparsed_chunks FROM graph_documents "
                     "WHERE session_id = ? AND collection_name = ?",
                     (session_id, collection_name),
                 ).fetchall()
-                return {r[0]: r[1] for r in rows}
+                return {r[0]: {"model": r[1], "unparsed_chunks": int(r[2] or 0)} for r in rows}
             finally:
                 conn.close()
 
@@ -2320,6 +2326,7 @@ CREATE TABLE IF NOT EXISTS graph_documents (
     collection_name TEXT NOT NULL,
     document_id TEXT NOT NULL,
     extraction_model TEXT,
+    unparsed_chunks INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (session_id, collection_name, document_id)
 );
 """

@@ -268,6 +268,8 @@ class DocumentLifecycleManager:
         )
 
         if total == 0:
+            # No documents, and maybe a graph part whose removal failed earlier.
+            self._drop_session_graphs(session_id)
             return result
 
         # Delegate each deletion to pipeline.delete_document() so that vectors,
@@ -300,17 +302,21 @@ class DocumentLifecycleManager:
         if result.errors == 0:
             # Each document took its part of the graph with it; what remains
             # (a part whose removal failed) goes with the session (#55).
-            try:
-                from lasagna.retrieval.graph.graph_store import drop_loaded_graphs
-
-                self._db.drop_graphs(session_id)
-                drop_loaded_graphs(session_id)
-            except Exception as exc:
-                logger.warning(f"bulk_delete_session: graph of {session_id} not dropped: {exc}")
+            self._drop_session_graphs(session_id)
         logger.info(
             f"bulk_delete_session: deleted {result.deleted}/{total} docs from session {session_id}"
         )
         return result
+
+    def _drop_session_graphs(self, session_id: str) -> None:
+        """Drop the session's knowledge graphs, stored and loaded; logged, never raised."""
+        try:
+            from lasagna.retrieval.graph.graph_store import drop_loaded_graphs
+
+            self._db.drop_graphs(session_id)
+            drop_loaded_graphs(session_id)
+        except Exception as exc:
+            logger.warning(f"bulk_delete_session: graph of {session_id} not dropped: {exc}")
 
     def bulk_delete(self, document_ids: List[str], session_id: str) -> BulkDeleteResult:
         """Delete a specific list of documents.

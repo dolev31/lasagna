@@ -1666,6 +1666,7 @@ class DocumentPipeline:
                 encode,
                 extraction_model=found.model,
                 complete=found.complete,
+                unparsed_chunks=found.unparsed,
             )
             return True
         except Exception as e:

@@ -181,14 +181,18 @@ class DatabaseBackend(Protocol):
         edges: List[tuple],
         extraction_model: Optional[str] = None,
         complete: bool = True,
+        unparsed_chunks: int = 0,
     ) -> None:
         """Replace the document's part of a graph: ``(name, type, embedding)``,
         ``(name, chunk_id)`` and ``(source, target, rel_type)`` rows; ``complete``
         records the document as extracted."""
         ...
 
-    def extracted_graph_documents(self, session_id: str, collection_name: str) -> Dict[str, Any]:
-        """The documents whose every chunk was extracted: ``{document_id: extraction_model}``."""
+    def extracted_graph_documents(
+        self, session_id: str, collection_name: str
+    ) -> Dict[str, Dict[str, Any]]:
+        """The documents whose every chunk was answered:
+        ``{document_id: {"model": extraction_model, "unparsed_chunks": n}}``."""
         ...
 
     def load_graph(self, session_id: str, collection_name: str) -> tuple:

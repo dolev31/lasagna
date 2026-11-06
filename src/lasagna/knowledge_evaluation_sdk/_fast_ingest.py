@@ -205,6 +205,7 @@ def _chunk_one_doc(
                     embedding_manager.encode_document,
                     extraction_model=found.model,
                     complete=found.complete,
+                    unparsed_chunks=found.unparsed,
                 )
         except Exception as e:
             logger.warning(f"GraphRAG extraction failed for {valid_id}: {e}")
@@ -600,6 +601,7 @@ def _store_pending_graphs(pending, ingested_ids, session_id, config, embedding_m
                 embedding_manager.encode_document,
                 extraction_model=extraction.model,
                 complete=extraction.complete,
+                unparsed_chunks=extraction.unparsed,
             )
             stored += 1
         except Exception as e:

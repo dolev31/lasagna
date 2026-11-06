@@ -82,13 +82,16 @@ It is outside the comparability key; the bundle's `ACTIVE_FALLBACKS` reports it.
 `system.graph`, present when the arm turns on `enable_graph_retrieval`, says how
 the corpus got its knowledge graph: `{"state": "built" | "reused" | "rebuilt" |
 "incomplete", "documents": n, "missing": n, "entities": n, "rebuilt": n,
-"extraction_model": "..."}`. `reused` is a corpus an earlier run ingested, with its
-graph; `rebuilt` is one reused without a graph (ingested before the graph was stored in
-the metadata database, or after it was reset), whose documents were extracted again
-from the stored chunks. A document counts once every chunk of it was extracted, even if
-it names no entity. `incomplete` means `missing` documents still have no graph: no LLM
-could be built (`error` says why), or a call failed. Every query of such an arm then
-counts as a `graph` stage in `degraded_stages`, so the bundle raises `ACTIVE_FALLBACKS`.
+"extraction_model": "...", "unparsed_chunks": n}`. `reused` is a corpus an earlier run
+ingested, with its graph; `rebuilt` is one reused without a graph (ingested before the
+graph was stored in the metadata database, or after it was reset), or whose documents
+another extraction model did, extracted again from the stored chunks. A document counts
+once every chunk of it was answered, even if it names no entity; `unparsed_chunks`
+counts the chunks whose reply held no readable JSON, and `no_chunks`, when present, the
+documents with nothing stored to extract. `incomplete` means `missing` documents still
+have no graph: no LLM could be built (`error` says why), or a call failed. Every query
+of such an arm then counts as a `graphrag` stage in `degraded_stages`, the name the
+search's own graph expansion records, so the bundle raises `ACTIVE_FALLBACKS`.
 `unknown`, with an `error`, is a check that itself failed, and is reported the same way.
 
 ## Integrity messages

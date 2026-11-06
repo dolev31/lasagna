@@ -5581,23 +5581,30 @@ async def _eval_live(
         # from an earlier one, or rebuilt because a reused corpus had none (#55).
         # Outside the comparability key, which reads named fields only.
         _system["graph"] = corpus_info["graph"]
-        _graph_state = corpus_info["graph"].get("state")
-        if _graph_state in ("incomplete", "unknown"):
+        _graph = corpus_info["graph"]
+        if _graph.get("state") in ("incomplete", "unknown"):
             # Every query of the arm ran on a graph missing documents: a
-            # fallback, reported as the bundle reports the others (#84).
-            _why = (
-                "the corpus graph is incomplete; documents with no graph: "
-                f"{corpus_info['graph'].get('missing')}"
-                if _graph_state == "incomplete"
-                else "the corpus graph could not be checked"
-            )
+            # fallback, reported as the bundle reports the others (#84), under
+            # the stage name the search's own graph expansion records.
+            _cause = f" ({_graph['error']})" if _graph.get("error") else ""
+            if _graph["state"] == "incomplete":
+                _of = _graph.get("documents", 0) + _graph.get("missing", 0)
+                _why = f"the corpus graph is missing {_graph.get('missing')} of {_of} documents"
+            else:
+                _why = "the corpus graph could not be checked"
+            _why += _cause
             for _track, _tally in (("retrieval", _ir_degraded), ("generation", _gen_degraded)):
-                if _tally.queries:
-                    _system.setdefault("degraded_stages", {}).setdefault(_track, {})["graph"] = {
-                        "queries": _tally.queries,
-                        "of": _tally.queries,
-                        "reasons": [{"reason": _why, "queries": _tally.queries}],
-                    }
+                if not _tally.queries:
+                    continue
+                _stages = _system.setdefault("degraded_stages", {}).setdefault(_track, {})
+                _before = _stages.get("graphrag") or {}
+                _stages["graphrag"] = {
+                    **_before,
+                    "queries": _tally.queries,
+                    "of": _tally.queries,
+                    "reasons": [{"reason": _why, "queries": _tally.queries}]
+                    + list(_before.get("reasons") or []),
+                }
 
     result = TaskResult(
         task_key=task.task_key,

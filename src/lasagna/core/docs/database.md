@@ -112,9 +112,9 @@ for both stores, `CREATE_GRAPH_TABLES` in `database.py`, with `BYTEA` for the
 embedding on PostgreSQL. Created with the schema on PostgreSQL and on first use
 on SQLite. Every mention and edge names its document, so a document's part can
 be replaced or removed; an entity no mention and no edge names is deleted with
-it. `graph_documents` lists the documents whose every chunk was extracted, and
-with which model, so a document that names no entity still counts as done, and
-one with a failed call does not.
+it. `graph_documents` lists the documents whose every chunk was answered, with
+the model and how many replies held no readable JSON, so a document that names
+no entity still counts as done, and one with a failed call does not.
 
 ```sql
 CREATE TABLE IF NOT EXISTS graph_entities (
@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS graph_edges (
 );
 CREATE TABLE IF NOT EXISTS graph_documents (
     session_id TEXT NOT NULL, collection_name TEXT NOT NULL, document_id TEXT NOT NULL,
-    extraction_model TEXT,
+    extraction_model TEXT, unparsed_chunks INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (session_id, collection_name, document_id)
 );
 ```
