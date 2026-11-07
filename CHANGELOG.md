@@ -6,7 +6,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-11-06
+## [0.3.0] - 2026-11-07
 
 Chat with a corpus from any OpenAI client, a knowledge graph every process
 shares, and benchmarks that say when a stage fell back. Thank you to

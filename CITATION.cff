@@ -26,7 +26,7 @@ version: "0.3.0"
 # MUST match the date of the release tag. Set it on release day, together with
 # the CHANGELOG date; the release workflow refuses a tag where
 # the two differ.
-date-released: "2026-11-06"
+date-released: "2026-11-07"
 # The concept DOI, which names every version and resolves to the latest one.
 # It stays: Zenodo mints a version's own DOI only after the release, so the
 # tagged tree can never carry it, and the concept DOI's record lists every
