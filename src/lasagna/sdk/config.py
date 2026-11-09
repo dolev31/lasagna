@@ -371,8 +371,8 @@ class KnowledgeConfig:
     refinement_model: str = field(default_factory=lambda: _get_default_model())
     """Model for chunk refinement. Uses MODEL_NAME env var or gpt-4o-mini."""
 
-    agent_temperature: float = 0.1
-    """Temperature for agent model. Default: 0.1"""
+    agent_temperature: float = 0.0
+    """Temperature for agent model. Default: 0.0"""
 
     use_structured_graph: bool = False
     """Use structured StateGraph instead of flat ReAct agent. Default: False"""

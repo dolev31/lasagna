@@ -113,4 +113,5 @@ class AdaptiveRAGPipeline(LoopPipeline):
             return run.llm
         from lasagna.providers import get_llm_provider
 
-        return get_llm_provider().get_llm(model_name=model)
+        # The classifier is a routing decision, not a reasoning step.
+        return get_llm_provider().get_llm(model_name=model, temperature=0.0)

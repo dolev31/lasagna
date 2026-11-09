@@ -288,12 +288,16 @@ class BuiltinStructuredPipeline(BaseAgenticPipeline):
         )
 
         max_iters = getattr(config, "max_agent_iterations", 3)
+        llm = input.llm
+        temperature = getattr(config, "agent_temperature", 0.0)
+        if llm is not None and temperature != 0.0:
+            llm = llm.bind(temperature=temperature)
         initial_state = build_initial_state(
             question=input.question,
             session_id=input.session_id,
             top_k=input.top_k,
             session_config=config,
-            llm=input.llm,
+            llm=llm,
             document_filter=input.document_filter,
             trace_id=input.trace_id,
             routing_decision=input.routing_decision,

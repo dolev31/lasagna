@@ -8,6 +8,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Agentic reasoning and chunk-refinement LLM calls now honor the session's
+  `agent_temperature`, including shared and pinned loop models. The runtime
+  default remains `0.0`; adaptive classification and CRAG grading remain
+  deterministic at `0.0` (#82).
 - A benchmark's run record says how each graph arm's corpus got its knowledge
   graph: `system.graph.state` is `built`, `reused`, or `rebuilt` when a reused
   corpus had none (ingested before the graph was stored in the metadata

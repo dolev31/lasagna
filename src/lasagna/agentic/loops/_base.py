@@ -43,17 +43,20 @@ from lasagna.core.base_components import AgenticPipelineInput, BaseAgenticPipeli
 def loop_llm(method: str, pipeline_input: AgenticPipelineInput, config: Any) -> Any:
     """The chat model a loop reasons with, or RuntimeError when there is none."""
     pinned = resolve_node_model(method, config)
+    temperature = setting(config, "agent_temperature")
     llm = None if pinned else pipeline_input.llm
     if llm is None:
         try:
             from lasagna.providers import get_llm_provider
 
-            llm = get_llm_provider().get_llm(model_name=pinned)
+            llm = get_llm_provider().get_llm(model_name=pinned, temperature=temperature)
         except Exception as exc:
             raise RuntimeError(f"{method} needs an LLM, and none is configured") from exc
     if llm is None:
         raise RuntimeError(f"{method} needs an LLM, and none is configured")
-    return llm
+    # Provider-created shared models already use temperature=0.0 by default.
+    # Avoid rebinding that model so loop-specific bind options remain intact.
+    return llm if temperature == 0.0 else llm.bind(temperature=temperature)
 
 
 def message_text(response: Any) -> str:

@@ -1146,7 +1146,7 @@ PARAMETERS: list[ParameterDef] = [
         help_text="Technical: agent_temperature. LLM temperature for reasoning steps. Lower = more deterministic.",
         tab="advanced",
         group="agentic_rag",
-        default=0.1,
+        default=0.0,
         min_value=0.0,
         max_value=1.0,
         step=0.05,

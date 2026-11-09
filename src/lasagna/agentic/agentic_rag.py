@@ -833,6 +833,7 @@ async def _grade_retrieval_quality(
         max_tokens=max_tokens,
         context="crag_grading_model",
     )
+    # CRAG grades are deterministic by design; agent_temperature is for reasoning.
     grading_llm = get_llm_provider().get_chat_model(model_settings, temperature=0.0)
 
     # Grade chunks in parallel, but bounded.
@@ -1443,7 +1444,9 @@ async def search_knowledge_base(query: str, config: RunnableConfig) -> str:
                 max_tokens=max_tokens,
                 context="refinement_model",
             )
-            refinement_llm = get_llm_provider().get_chat_model(model_settings)
+            refinement_llm = get_llm_provider().get_chat_model(
+                model_settings, temperature=session_config.agent_temperature
+            )
 
             # Calculate tokens before refinement
             tokens_before = sum(estimate_tokens(c.content) for c in retrieved_chunks)
@@ -2895,7 +2898,8 @@ The agent searched the knowledge base but did not find specific relevant informa
             Configured AgenticRAG instance
         """
         default_model = get_default_model_settings()
-        llm = get_llm_provider().get_chat_model(default_model)
+        config = session_config or rag_config
+        llm = get_llm_provider().get_chat_model(default_model, temperature=config.agent_temperature)
 
         langfuse_handler = None
         if is_langfuse_tracing_enabled():
@@ -2948,10 +2952,13 @@ class LegacyReActPipeline(BaseAgenticPipeline):
         """Execute the legacy ReAct agent pipeline."""
         config = input.session_config or self._session_config or rag_config
         llm = input.llm
+        temperature = getattr(config, "agent_temperature", 0.0)
         if llm is None:
             from lasagna.providers import get_llm_provider
 
-            llm = get_llm_provider().get_llm()
+            llm = get_llm_provider().get_llm(temperature=temperature)
+        elif temperature != 0.0:
+            llm = llm.bind(temperature=temperature)
 
         max_iterations = getattr(config, "max_agent_iterations", 3)
 
