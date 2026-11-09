@@ -19,19 +19,19 @@ import pytest
 
 pytest.importorskip("langchain_core")
 
-from langchain_core.language_models.chat_models import BaseChatModel  # noqa: E402
-from langchain_core.language_models.fake_chat_models import FakeListChatModel  # noqa: E402
+from langchain_core.language_models.chat_models import BaseChatModel  # noqa: E402 - after importorskip
+from langchain_core.language_models.fake_chat_models import FakeListChatModel  # noqa: E402 - after importorskip
 
-from lasagna import providers  # noqa: E402
-from lasagna.core.strict import strict  # noqa: E402
-from lasagna.knowledge_evaluation_sdk import bundle as bundle_mod  # noqa: E402
-from lasagna.knowledge_evaluation_sdk import experiment as exp  # noqa: E402
-from lasagna.knowledge_evaluation_sdk.benchmarks._base import BenchmarkSample  # noqa: E402
-from lasagna.knowledge_evaluation_sdk.runner import BenchmarkTask  # noqa: E402
-from lasagna.processing.contextual import ContextualEnricher  # noqa: E402
-from lasagna.providers.llm_provider import LLMProvider  # noqa: E402
-from tests.test_event_loop_safety import executable_source  # noqa: E402
-from tests.test_fast_ingest import MockConfig  # noqa: E402
+from lasagna import providers  # noqa: E402 - after importorskip
+from lasagna.core.strict import strict  # noqa: E402 - after importorskip
+from lasagna.knowledge_evaluation_sdk import bundle as bundle_mod  # noqa: E402 - after importorskip
+from lasagna.knowledge_evaluation_sdk import experiment as exp  # noqa: E402 - after importorskip
+from lasagna.knowledge_evaluation_sdk.benchmarks._base import BenchmarkSample  # noqa: E402 - after importorskip
+from lasagna.knowledge_evaluation_sdk.runner import BenchmarkTask  # noqa: E402 - after importorskip
+from lasagna.processing.contextual import ContextualEnricher  # noqa: E402 - after importorskip
+from lasagna.providers.llm_provider import LLMProvider  # noqa: E402 - after importorskip
+from tests.test_event_loop_safety import executable_source  # noqa: E402 - after importorskip
+from tests.test_fast_ingest import MockConfig  # noqa: E402 - after importorskip
 
 _DOCUMENT = "Tardigrades survive extreme cold, heat and radiation. " * 12
 
