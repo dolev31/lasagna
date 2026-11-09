@@ -4150,8 +4150,10 @@ async def _ensure_corpus_ingested(
             _drop_corpus_graph(shared_session_id, _coll_name)
             ready_ids = set()
 
+        contextual_info = None
         if not _skip_ingest:
             _session_cfg = _rag_cfg.with_session(shared_session_id)
+            _enrichment: Dict[str, Any] = {}
             total_chunks, ingested_ids, error_ids = await _fast_ingest(
                 corpus=corpus,
                 corpus_to_valid=corpus_to_valid,
@@ -4161,7 +4163,17 @@ async def _ensure_corpus_ingested(
                 backend=_ingest_backend,
                 chunker=(components or {}).get("chunker"),
                 embedder=(components or {}).get("embedder"),
+                enrichment=_enrichment,
             )
+            if getattr(_session_cfg, "enable_contextual_retrieval", False):
+                from lasagna.core.provenance import redact
+
+                # What enrichment did to the chunks this run stored (#49).
+                contextual_info = {
+                    "chunks": _enrichment.get("chunks", 0),
+                    "failed": _enrichment.get("failed", 0),
+                    "error": str(redact(_enrichment.get("error", "")))[:200],
+                }
             logger.info(
                 f"Fast ingestion complete: {total_chunks} chunks from "
                 f"{len(ingested_ids)} docs, {len(error_ids)} errors"
@@ -4246,6 +4258,7 @@ async def _ensure_corpus_ingested(
             slot["corpus_truncated"] = bool(getattr(adapter, "corpus_truncated", False))
             slot["corpus_ingest_gap"] = ingest_gap
             slot["graph"] = graph_info
+            slot["contextual"] = contextual_info
             slot["corpus_census"] = census
             slot["_census_store"] = (
                 lambda: _get_ingest_backend()._collection_manager.resolve_backend(shared_session_id)
@@ -4295,6 +4308,28 @@ async def _release_corpus(benchmark_name: str, corpus_key: Optional[str] = None)
         logger.debug(
             f"Released in-memory corpus entry '{cache_key}' (Milvus data retained for reuse)"
         )
+
+
+def _record_corpus_fallback(system: Dict[str, Any], stage: str, why: str, tallies) -> None:
+    """Name ``stage`` as fallen back for every query of each track that ran.
+
+    For what went wrong once for the whole corpus, at ingest: every query of the
+    arm ran on it. Reported as the bundle reports a stage that fell back during
+    a query (#84), ahead of any reason recorded then. ``tallies`` are
+    ``(track, tally)`` pairs.
+    """
+    for track, tally in tallies:
+        if not tally.queries:
+            continue
+        stages = system.setdefault("degraded_stages", {}).setdefault(track, {})
+        before = stages.get(stage) or {}
+        stages[stage] = {
+            **before,
+            "queries": tally.queries,
+            "of": tally.queries,
+            "reasons": [{"reason": why, "queries": tally.queries}]
+            + list(before.get("reasons") or []),
+        }
 
 
 async def _eval_live(
@@ -5634,18 +5669,27 @@ async def _eval_live(
                 f"{_graph['unparsed_chunks']} replies of the extraction model held no readable JSON"
             )
         if _why:
-            for _track, _tally in (("retrieval", _ir_degraded), ("generation", _gen_degraded)):
-                if not _tally.queries:
-                    continue
-                _stages = _system.setdefault("degraded_stages", {}).setdefault(_track, {})
-                _before = _stages.get("graphrag") or {}
-                _stages["graphrag"] = {
-                    **_before,
-                    "queries": _tally.queries,
-                    "of": _tally.queries,
-                    "reasons": [{"reason": _why, "queries": _tally.queries}]
-                    + list(_before.get("reasons") or []),
-                }
+            _record_corpus_fallback(
+                _system,
+                "graphrag",
+                _why,
+                (("retrieval", _ir_degraded), ("generation", _gen_degraded)),
+            )
+    _contextual = corpus_info.get("contextual") or {}
+    if _contextual.get("failed"):
+        # Chunks this run stored without the context the arm is named for (#49).
+        _why = (
+            f"contextual enrichment failed for {_contextual['failed']} of "
+            f"{_contextual.get('chunks', 0)} chunks at ingest; they were stored without context"
+        )
+        if _contextual.get("error"):
+            _why += f" ({_contextual['error']})"
+        _record_corpus_fallback(
+            _system,
+            "contextual_retrieval",
+            _why,
+            (("retrieval", _ir_degraded), ("generation", _gen_degraded)),
+        )
 
     result = TaskResult(
         task_key=task.task_key,

@@ -90,11 +90,14 @@ def _chunk_one_doc(
     embedding_manager=None,
     chunker=None,
     pending_graphs: Optional[Dict[str, Any]] = None,
+    enrichment: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, List[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
     """Chunk one document from in-memory text.
 
     ``chunker`` is the arm's chunker component, when it named one; otherwise
     the built-in dispatch on the config's chunking settings runs.
+    ``enrichment``, when given, adds up what contextual enrichment did across
+    the corpus: ``chunks`` it was asked to enrich, ``failed`` and the first ``error``.
 
     Returns:
         (valid_id, child_chunks, parent_chunks_or_None)
@@ -160,10 +163,9 @@ def _chunk_one_doc(
     if getattr(config, "enable_contextual_retrieval", False) and text:
         try:
             from ..processing.contextual import ContextualEnricher
-            from ..providers.llm_provider import SimpleLLMProvider
+            from ..providers import get_ingest_llm
 
-            llm = SimpleLLMProvider().get_llm()
-            enricher = ContextualEnricher(llm_provider=llm)
+            enricher = ContextualEnricher(llm_provider=get_ingest_llm())
             # The same document budget as the contextual chunker component, so
             # the flag and the component measure the same method.
             limit = getattr(config, "contextual_max_document_chars", 10000)
@@ -172,6 +174,18 @@ def _chunk_one_doc(
             enriched_texts = enricher.enrich_batch(doc_context, chunk_texts)
             for chunk, enriched in zip(chunk_dicts, enriched_texts):
                 chunk["content"] = enriched
+            # A chunk whose call failed was kept as it was. Counted for the
+            # corpus, so the run record names it instead of a log line alone.
+            if enrichment is not None:
+                enrichment["chunks"] = enrichment.get("chunks", 0) + len(chunk_texts)
+                enrichment["failed"] = enrichment.get("failed", 0) + enricher.failed
+                if enricher.failed and not enrichment.get("error"):
+                    enrichment["error"] = enricher.first_error
+            if enricher.failed:
+                logger.warning(
+                    f"Contextual enrichment failed for {enricher.failed} of {len(chunk_texts)} "
+                    f"chunks of {valid_id}, stored without context: {enricher.first_error}"
+                )
         except Exception as e:
             from ..core.strict import strict_stages
 
@@ -214,12 +228,11 @@ def _chunk_one_doc(
     if getattr(config, "enable_raptor", False):
         try:
             from ..retrieval.raptor import RaptorTreeBuilder
-            from ..providers.llm_provider import SimpleLLMProvider
+            from ..providers import get_ingest_llm
 
-            llm = SimpleLLMProvider().get_llm(temperature=0)
             builder = RaptorTreeBuilder(
                 embedding_manager=embedding_manager,
-                llm_provider=llm,
+                llm_provider=get_ingest_llm(temperature=0),
                 max_cluster_size=getattr(config, "raptor_max_cluster_size", 10),
                 max_levels=getattr(config, "raptor_max_levels", 5),
             )
@@ -640,6 +653,7 @@ async def fast_ingest_corpus(
     backend,
     chunker=None,
     embedder=None,
+    enrichment: Optional[Dict[str, Any]] = None,
 ) -> Tuple[int, Set[str], Set[str]]:
     """3-stage fast corpus ingestion pipeline.
 
@@ -652,6 +666,8 @@ async def fast_ingest_corpus(
         backend: RAGBackend instance
         chunker: The arm's chunker component, or None for the built-in.
         embedder: The arm's embedder component, or None for the built-in.
+        enrichment: Filled with what contextual enrichment did, when it is on
+            (see `_chunk_one_doc`).
 
     Returns:
         (total_chunks_inserted, ingested_doc_ids, error_doc_ids)
@@ -805,6 +821,7 @@ async def fast_ingest_corpus(
                     embedding_manager if (_uses_semantic or _uses_llm_features) else None,
                     chunker,
                     pending_graphs,
+                    enrichment,
                 )
                 futures.append((valid_id, text, fut))
 
