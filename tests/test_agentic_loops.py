@@ -612,9 +612,11 @@ class _Server:
     def __init__(self, replies):
         self.replies = list(replies)
         self.requests = []
+        self.headers = []
 
-    def __call__(self, url, payload, timeout):
+    def __call__(self, url, payload, timeout, headers=None):
         self.requests.append((url, payload))
+        self.headers.append(headers)
         if not self.replies:
             raise AssertionError(f"unscripted request to {url}")
         return self.replies.pop(0)
@@ -744,6 +746,40 @@ async def test_search_o1_continues_the_assistant_message_on_vllm(monkeypatch):
     assert "continue_final_message" not in reader
     assert result.agent_summary == "Steven Spielberg"
     assert result.metrics.loop_trace["continuation"] == "vllm"
+
+
+async def test_search_o1_sends_the_vllm_api_key_as_a_bearer_token(monkeypatch):
+    from pydantic import SecretStr
+
+    from lasagna.agentic.loops import search_o1
+
+    class ChatOpenAI:
+        openai_api_base = "http://localhost:8000/v1"
+        model_name = "Qwen/Qwen3-8B"
+        temperature = 0.0
+        openai_api_key = SecretStr("vllm-test-key")
+
+    monkeypatch.setenv("VLLM_BASE_URL", "http://localhost:8000/v1")
+    install_backend(monkeypatch, {})
+    answer = "<think>\nParis.\n</think>\n\n\\boxed{Paris}"
+    server = _Server([{"choices": [{"message": {"content": answer}}]}])
+    monkeypatch.setattr(search_o1, "_post_json", server)
+    result = await _loop("search_o1").run(pipeline_input("Capital of France?", ChatOpenAI()))
+
+    assert server.headers == [{"Authorization": "Bearer vllm-test-key"}]
+    assert result.agent_summary == "Paris"
+    # The key never reaches what the run records.
+    assert "vllm-test-key" not in repr(result.metrics.loop_trace)
+
+
+async def test_search_o1_sends_no_authorization_without_a_key(monkeypatch):
+    from lasagna.agentic.loops import search_o1
+
+    install_backend(monkeypatch, {})
+    server = _Server([_generated("<think>\nParis.\n</think>\n\n\\boxed{Paris}")])
+    monkeypatch.setattr(search_o1, "_post_json", server)
+    await _loop("search_o1").run(pipeline_input("Capital of France?", ChatOllama()))
+    assert server.headers == [None]
 
 
 def test_search_o1_continuation_needs_the_server_it_names():

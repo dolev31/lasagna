@@ -269,19 +269,40 @@ def _usage(
 CHATML_TURN = "<|im_start|>user\n{content}<|im_end|>\n<|im_start|>assistant\n"
 
 
-def _post_json(url: str, payload: Dict[str, Any], timeout: float) -> Dict[str, Any]:
-    """POST ``payload`` and return the JSON reply (one place, so tests replace it)."""
+def _post_json(
+    url: str,
+    payload: Dict[str, Any],
+    timeout: float,
+    headers: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """POST ``payload`` and return the JSON reply (one place, so tests replace it).
+
+    ``headers`` may carry an API key, so neither they nor the request are logged.
+    """
     import httpx
 
-    response = httpx.post(url, json=payload, timeout=timeout)
+    response = httpx.post(url, json=payload, timeout=timeout, headers=headers)
     response.raise_for_status()
     return response.json()
 
 
-async def _post(url: str, payload: Dict[str, Any], timeout: float = 3600.0) -> Dict[str, Any]:
+async def _post(
+    url: str,
+    payload: Dict[str, Any],
+    timeout: float = 3600.0,
+    headers: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     import asyncio
 
-    return await asyncio.to_thread(_post_json, url, payload, timeout)
+    return await asyncio.to_thread(_post_json, url, payload, timeout, headers)
+
+
+def _api_key(llm: Any) -> str:
+    """The key the chat model would send, or "" when it holds none."""
+    key = getattr(llm, "openai_api_key", None)
+    if key is not None and hasattr(key, "get_secret_value"):
+        key = key.get_secret_value()
+    return str(key or "")
 
 
 def _server_of(llm: Any) -> Optional[Tuple[str, str, str]]:
@@ -413,7 +434,8 @@ class _VLLMContinueGenerator:
     and vLLM renders it without closing the turn (``add_generation_prompt``
     off), so the model continues it. The server must run without
     ``--reasoning-parser``, which would move the thinking out of the text.
-    The context window is the server's ``--max-model-len``.
+    The context window is the server's ``--max-model-len``. A server started
+    with ``--api-key`` gets the chat model's key as a bearer token.
     """
 
     kind = "vllm"
@@ -425,6 +447,8 @@ class _VLLMContinueGenerator:
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = getattr(run.llm, "temperature", None)
+        key = _api_key(run.llm)
+        self.headers = {"Authorization": f"Bearer {key}"} if key else None
 
     async def _chat(
         self, messages: List[Dict[str, str]], extra: Dict[str, Any]
@@ -438,7 +462,7 @@ class _VLLMContinueGenerator:
         if self.temperature is not None:
             payload["temperature"] = self.temperature
         started = time.time()
-        reply = await _post(self.url, payload)
+        reply = await _post(self.url, payload, headers=self.headers)
         self.run.llm_calls += 1
         self.run.llm_ms += (time.time() - started) * 1000
         choice = (reply.get("choices") or [{}])[0]
