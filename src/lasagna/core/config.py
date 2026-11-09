@@ -304,6 +304,13 @@ SERVER_ENV: Dict[str, Tuple[str, str, str, Tuple[str, ...]]] = {
         "Seconds a REST search may run before it answers 504.",
         (),
     ),
+    "RAG_CHAT_TIMEOUT": (
+        "REST API and authentication",
+        "120",
+        "Seconds the answer of POST /api/v1/chat/completions may take once its search is "
+        "done, before it answers 504 (or ends a streamed answer with an error event).",
+        (),
+    ),
     "RAG_MAX_SESSIONS_PER_KEY": (
         "REST API and authentication",
         "100",

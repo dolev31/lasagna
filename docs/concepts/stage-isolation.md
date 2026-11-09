@@ -26,15 +26,47 @@ manifests of all arms against what each arm said it would change.
 
 Two things count as a failure:
 
-- **Undeclared change.** A stage differs between two arms, but neither arm named
-  it. A setting leaked across a stage boundary, for example through a profile
-  default.
+- **Undeclared change.** A setting differs between two arms, but neither arm
+  named it, and it is not one the harness sets because of what an arm named
+  (naming a reranker turns reranking on, for example). The stage it sits in may
+  be one an arm changes for another reason: a `rerank_top_k` that leaked into a
+  reranker sweep is caught, although every arm there names a reranker.
 - **Inert change.** An arm names a change that its manifest does not show. The
   setting or component never reached the pipeline, so the arm's number is the
   baseline's under another name.
 
-The run prints both. `lasagna results validate` refuses a bundle with an
-undeclared change, and `lasagna results view` shows the check on its page.
+Both are judged setting by setting, and per track. The retrieval track searches
+every arm the same way in a few settings (it turns the agentic loop off and asks
+for a fixed depth), and the generation track searches with the arm's own; the
+manifest records those settings for each track, and which tracks ran. An arm
+that names one of them is inert on the retrieval track, where its retrieval
+numbers are the control's, and live on the generation track, and the run says
+so. The same holds for a setting only the agentic loop acts on, such as
+`max_agent_iterations` or `self_ask_max_follow_ups`: the retrieval track runs no
+loop. It holds too for speculative RAG's settings (`enable_speculative_rag`,
+`speculative_*`), which only the generation track's answer step reads: the
+retrieval track makes no answers. Context compression is an agentic setting
+the standard search applies too, so it counts on both tracks.
+
+Two arms are compared only on a track both ran. A pair that shares no track, or
+one arm from a results file written before the tracks were recorded beside a
+newer one, is not compared, and the run lists it as unverified.
+
+The run prints both, and names the track where a leaked setting acts. `lasagna
+results validate` refuses a bundle with an undeclared change, and `lasagna
+results view` shows the check on its page. An inert change is a warning
+(`INERT_ARM`), also when the arm is inert on one track only: its numbers on that
+track are the control's, and a leaderboard of that track would rank it as an arm
+of its own. So `lasagna results validate --strict`, which fails on any warning,
+fails a full-run sweep of an agentic or speculative setting; that is intended,
+and plain `validate` passes it.
+
+The check works setting by setting and per track since
+[#25](https://github.com/dolev31/lasagna/pull/25), by
+[@segevshlomovIBM](https://github.com/segevshlomovIBM). Before it, a stage that
+either arm named was skipped whole, so a setting that leaked inside it went
+unreported, and an arm that named two settings passed as live when only one
+arrived.
 
 ## What the check does not see
 

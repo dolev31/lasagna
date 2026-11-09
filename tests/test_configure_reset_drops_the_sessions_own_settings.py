@@ -104,7 +104,9 @@ def test_a_reset_that_would_leave_the_documents_is_refused_with_the_reindex(monk
     assert _searches(sid) == SMALL  # nothing changed
 
 
-def test_a_forced_refusal_says_what_is_true_of_the_documents(monkeypatch):
+def test_a_forced_refusal_says_what_is_true_of_the_documents(monkeypatch, only_cached):
+    only_cached(MINILM)
+
     def refusal(model, kind="embedding model", *args, **kwargs):
         if model == SMALL:
             return model_downloads.ModelNotDownloaded(model, offline=True, kind=kind)

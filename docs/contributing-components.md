@@ -153,8 +153,9 @@ Every listed built-in implements its stage's interface, so `cross_encoder` is a
 like-for-like control. Naming a reranker turns reranking on for that arm, even
 on `speed`. Before ingesting anything the run checks that each named component
 passes its stage's contract, and when it finishes it confirms that the
-configuration reaching each stage differed only at the reranker (or says which
-other stage moved), and flags your arm as inert if its ranked lists never moved.
+configuration reaching each stage differed only in the settings the arms name
+(or says which other setting moved), and flags your arm as inert if its ranked
+lists never moved.
 The second command prints each pair with the difference, the effect size and
 both the raw and the Holm-adjusted p. For `keyword_overlap` (query words found
 in the passage) against the cross-encoder on 100 SciFact queries, a real run
@@ -325,10 +326,11 @@ Methods the project would like to have are listed on [Wanted](project/wanted.md)
 
 Stated rather than hidden, because you will hit these.
 
-- **Not every benchmark has a corpus of its own.** BEIR benchmarks run live
-  against their own corpus. SQuAD v2, HotpotQA, MuSiQue and RAGBench also run
-  live, against a corpus pooled from the samples' gold passages: an easier task
-  than the original, stamped `pooled_gold` (see
+- **Not every benchmark has a corpus of its own.** BEIR benchmarks and
+  `2wikimultihopqa` (distractors included) run live against a corpus of their
+  own. SQuAD v2, HotpotQA, MuSiQue and RAGBench also run live, against a corpus
+  pooled from the samples' gold passages: an easier task than the original,
+  stamped `pooled_gold` (see
   [the guide, section 8](guide.md#8-measure-it-on-a-benchmark)). The rest score
   generation against gold context only.
 - **`lasagna component validate` checks input mutation for rerankers (the

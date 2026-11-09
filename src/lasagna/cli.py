@@ -1934,7 +1934,7 @@ def benchmark_list(
 
 
 def _benchmark_count_line(registry, benchmarks) -> str:
-    """``31 benchmarks, plus smoke (a wiring check) and 1 from plugins``.
+    """``N benchmarks, plus smoke (a wiring check) and 1 from plugins``.
 
     The README counts the benchmarks that measure something: built in, not
     ``smoke``. This printed every registered name (32, or 33 with a plugin)
@@ -2124,6 +2124,7 @@ def benchmark_run(
         _error(f"Benchmark failed: {exc}", exc=exc)
 
     _print_leaderboard(results)
+    _print_fallbacks(results)
 
     if results.failed_tasks:
         n_failed = len(results.failed_tasks)
@@ -2298,6 +2299,7 @@ def benchmark_experiment(
         # Before the summary: printed after "Output" and "Next", a failed check
         # read as an afterthought to a run that had looked complete.
         _print_isolation(results)
+        _print_fallbacks(results)
     console.print(
         Panel.fit(
             (
@@ -2361,31 +2363,43 @@ def _next_steps(results, results_file: str, *, factorial: bool) -> List[str]:
 
 
 def _print_isolation(results) -> None:
-    """Say whether the arms differed only in the stages they named."""
-    from .knowledge_evaluation_sdk.stages import compared_pairs, isolation_report
+    """Say whether the arms differed only in the settings they named."""
+    from .knowledge_evaluation_sdk.stages import (
+        compared_pairs,
+        isolation_report,
+        uncompared_pairs,
+    )
 
     rows = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results._results]
     report = isolation_report(rows)
     pairs = compared_pairs(rows)
     if report["undeclared"]:
         console.print(
-            "[red]Stage isolation FAILED: the arms differ outside the stages they "
-            "name, so the comparison is not attributable.[/red]"
+            "[red]Stage isolation FAILED: the arms differ in settings neither names, "
+            "so the comparison is not attributable.[/red]"
         )
         for line in report["undeclared"]:
             console.print(f"  - {escape(line)}")
     elif pairs and report["inert"]:
         # Said, not left out: an inert arm printed only its own line, with no
         # verdict on the rest of the comparison.
+        # Findings, not arms: an arm can have one per track, and a per-track
+        # line is about an arm that changed something on the other track.
         console.print(
             f"[yellow]Stage isolation: the configuration that reached each stage differs "
-            f"only in the stages the arms name ({_count(pairs, 'pair')} compared), but "
-            f"{_count(len(report['inert']), 'arm')} changed nothing there:[/yellow]"
+            f"only in the settings the arms name ({_count(pairs, 'pair')} compared), but "
+            f"some of what they name changed nothing, on one track or on all "
+            f"({_count(len(report['inert']), 'finding')} below):[/yellow]"
         )
     elif pairs:
         console.print(
             f"[green]Stage isolation: the configuration that reached each stage differs "
-            f"only in the stages the arms name ({_count(pairs, 'pair')} compared).[/green]"
+            f"only in the settings the arms name ({_count(pairs, 'pair')} compared).[/green]"
+        )
+    elif not pairs and uncompared_pairs(rows):
+        console.print(
+            "[yellow]Stage isolation not checked: no two arms could be compared, for "
+            "the reasons below.[/yellow]"
         )
     elif not pairs and len(rows) > 1:
         console.print(
@@ -2396,6 +2410,24 @@ def _print_isolation(results) -> None:
         console.print(f"[yellow]Stage isolation unverified: {escape(line)}[/yellow]")
     for line in report["inert"]:
         console.print(f"[yellow]Inert arm: {escape(line)}[/yellow]")
+
+
+def _print_fallbacks(results) -> None:
+    """Name each stage that fell back while the run's queries ran (#50).
+
+    The same lines `lasagna results validate` prints under ACTIVE_FALLBACKS.
+    """
+    from .knowledge_evaluation_sdk.bundle import degraded_findings
+
+    rows = [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results._results]
+    lines = degraded_findings(rows)
+    if lines:
+        console.print(
+            "[yellow]Some stages fell back while the queries ran, so the bundle will "
+            "carry ACTIVE_FALLBACKS:[/yellow]"
+        )
+    for line in lines:
+        console.print(f"[yellow]  - {escape(line)}[/yellow]")
 
 
 def _release_backend() -> None:
@@ -2485,7 +2517,7 @@ def _sweep_example(stage: Optional[str], name: str) -> str:
 
 def _deprecated_spelling(old: str, new: str) -> None:
     console.print(
-        f"[yellow]`lasagna {old}` is deprecated and will be removed in 0.3.0; "
+        f"[yellow]`lasagna {old}` is deprecated and will be removed in 0.4.0; "
         f"use `lasagna {new}`.[/yellow]"
     )
 
@@ -3789,7 +3821,7 @@ def results_interaction(
         "30 queries differ; with 30 or fewer it is exact. The interval is a t interval.",
     ),
     bootstrap: Optional[int] = typer.Option(
-        None, "--bootstrap", hidden=True, help="Old name of --resamples, removed in 0.3.0."
+        None, "--bootstrap", hidden=True, help="Old name of --resamples, removed in 0.4.0."
     ),
 ):
     """Do two techniques compose, or do they overlap?

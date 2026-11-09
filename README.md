@@ -90,8 +90,9 @@ What it adds is the measurement apparatus: a paired sign-flip test with t
 intervals, Holm-Bonferroni correction across a sweep (with adjusted p-values),
 a 2x2 interaction test with a t interval, per-sample scores joined by sample
 identity, comparability keys that record what was held fixed, a check from
-what actually ran that two arms differ only in the stages they name, and
-integrity-checked result bundles. Significance testing itself is not new
+what actually ran that two arms differ only in the settings they name, and
+integrity-checked result bundles that flag the stages that reported a
+fallback while the queries ran. Significance testing itself is not new
 (PyTerrier and ranx have it for IR runs, UltraRAG has a paired permutation
 test); what we did not find elsewhere is the combination inside a RAG pipeline
 framework, from one sweep file. Typed swap points are not new either (LlamaIndex has
@@ -107,7 +108,7 @@ in neither the docs nor a code search, not that it is proven absent.
 |---|---|---|---|---|---|---|
 | Significance tests | Paired sign-flip test, Holm, power | Not found | Not found | Paired permutation, no correction | Not found | Yes, IR runs only |
 | Interaction between components | 2×2 test with CI | Not found | Not found | Not found | Greedy search assumes none | Not found |
-| Result provenance | Bundles with a validator | Saved configs and scores | Experiment folders | Not found | Trial folders | Not found |
+| Result provenance | Bundles with a validator, which flags the stages that reported a fallback | Saved configs and scores | Experiment folders | Not found | Trial folders | Not found |
 | Published methods | 31 of 56 components cite the paper they implement | 23 methods | 20+ retrievers, 4 rerankers | Several baselines | Many modules | IR pipelines |
 | Ready corpora and indexes | Benchmark loaders, no prebuilt index | Wikipedia + prebuilt index | KILT + prebuilt index | Not found | Not found | Via ir_datasets |
 | License | Apache-2.0 | MIT | CC BY-NC-SA 4.0 | Apache-2.0 | MIT (badge) | MPL-2.0 / MIT |
@@ -312,6 +313,29 @@ lasagna serve --mcp -s my-corpus   # REST API, and MCP over SSE at /mcp/sse
 `-s` names the session that MCP tool calls and REST requests use when they
 name none; without it, MCP tools must pass `session_id`.
 
+### Any OpenAI client
+
+`POST /api/v1/chat/completions` answers from a session's documents in the
+OpenAI format, plain or streamed, so an OpenAI client library or chat front end
+needs no glue code. It searches with the session's pipeline, writes the answer
+with the `cited` generator from the LLM you configured, and returns the
+passages as `citations`.
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://127.0.0.1:8000/api/v1", api_key="...",
+                default_headers={"X-Session-ID": "my-corpus"})
+reply = client.chat.completions.create(
+    model="lasagna", messages=[{"role": "user", "content": "what did the ablation show?"}])
+print(reply.choices[0].message.content)
+```
+
+In the Compose stack, with auth on, send the session token instead
+(`X-Session-Token`); a front end that can only set an API key cannot, yet. The
+[REST guide](https://dolev31.github.io/lasagna/docs/serving/rest-api/#chat-with-an-openai-client)
+covers streaming, citations and what is not served.
+
 ```json
 { "mcpServers": { "lasagna": { "type": "sse", "url": "http://127.0.0.1:8000/mcp/sse" } } }
 ```
@@ -469,11 +493,14 @@ nowhere else. Lasagna checks that rather than assuming it.
 - **A stage manifest per task.** Each run records what reached each of the eight
   stages: every setting, from the configuration the search actually resolved,
   and the component in the slot.
-- **A check across arms.** If two arms differ at a stage neither of them names,
-  the run says so, the bundle is marked `UNDECLARED_STAGE_CHANGE`, and
+- **A check across arms.** If two arms differ in a setting neither of them
+  names, even inside a stage one of them changes for another reason, the run
+  says so, the bundle is marked `UNDECLARED_STAGE_CHANGE`, and
   `lasagna results validate` refuses it, naming the stage and the settings that
   moved. An arm whose named change never reached its stage is flagged as inert,
-  since its number is the control's under another name.
+  since its number is the control's under another name; a change the retrieval
+  track forces off for every arm is inert there and live on generation, and
+  the run says which.
 
 ### Do two techniques compose, or do they overlap?
 
@@ -580,20 +607,25 @@ Bamboogle, MultiHop-RAG, RAGBench, KILT, 2WikiMultihop. Your own JSONL, CSV or
 BEIR folder runs with no adapter
 ([own data](https://github.com/dolev31/lasagna/blob/main/docs/own-data.md)).
 
-`2wikimultihopqa` adds retrieval over the validation split's full contexts,
-including distractors, alongside the existing generation-only `wiki_multihop`
-entry. It reads the Apache-2.0
+For multi-hop retrieval against hard negatives, use `2wikimultihopqa`. Its
+corpus is every distinct context paragraph of the validation split, 55,020 of
+them, distractors included. The dataset's authors picked the distractors to
+resemble each question, so a question's supporting paragraphs have to be found
+among near misses, and `complete_recall@10` says whether every one of them was.
+The corpus is built from the questions' own contexts, not from open Wikipedia.
+IRCoT, Search-o1 and Search-R1 also evaluate on these questions, each with its
+own corpus and answer metrics, so their numbers do not carry over to this
+benchmark. It reads the Apache-2.0
 [official mirror](https://huggingface.co/datasets/xanhho/2WikiMultihopQA) at a
-fixed revision. Paragraph identity collapses whitespace and removes spacing
-around punctuation/symbols, preserving case and all non-whitespace characters.
-The exact rule first applies `" ".join(text.split())`, then
-`re.sub(r"\s*([^\w\s])\s*", r"\1", text)` before hashing.
-The first version of a title uses the title as its document ID; other versions
-add a stable hash of that normalized text. Formatting copies share one ID and
-the first original text is stored unchanged, giving 55,020 validation documents.
-`validation` is the default.
-`train` can be loaded as samples, but `load_corpus()` always supplies validation's
-corpus, so use `--split validation` for retrieval evaluation.
+fixed revision. Two paragraphs with the same title count as one document when
+they differ only in whitespace or in spacing around punctuation and symbols;
+case and every other character still matter. The first version of a title uses
+the title as its document ID, a different version adds a stable hash of its
+text, and the first original text is stored unchanged. The exact rule is in the
+adapter's docstring. `validation` is the default split. `train` can be loaded as
+samples, but `load_corpus()` always supplies validation's corpus, so use
+`--split validation` for retrieval evaluation. The generation-only
+`wiki_multihop` entry is a separate benchmark.
 
 | Family | Metrics |
 |---|---|
@@ -631,7 +663,7 @@ Python 3.12 and needs 3.12 or later (its numpy does not install on 3.10 or
 3.11):
 
 ```bash
-pip install "lasagna-rag[eval]==0.2.0" -c https://raw.githubusercontent.com/dolev31/lasagna/v0.2.0/constraints/0.2.0.txt
+pip install "lasagna-rag[eval]==0.3.0" -c https://raw.githubusercontent.com/dolev31/lasagna/v0.3.0/constraints/0.3.0.txt
 ```
 
 `eval` adds the RAGAS metrics, benchmark loaders and statistics; the other
@@ -789,15 +821,26 @@ everyone whose work is merged:
 - [@juliasadler](https://github.com/juliasadler): the fix for two services
   racing to create a collection, measured against the stack's own Qdrant
   ([#23](https://github.com/dolev31/lasagna/pull/23)).
+- [@segevshlomovIBM](https://github.com/segevshlomovIBM): the stage isolation
+  check's move to judging each setting an arm names, on each track that ran
+  ([#25](https://github.com/dolev31/lasagna/pull/25)), and the evidence runs on
+  Milvus Lite and in the Compose stack that found seven harness bugs, filed as
+  [#46](https://github.com/dolev31/lasagna/issues/46) to
+  [#52](https://github.com/dolev31/lasagna/issues/52).
+- [@tnalbant](https://github.com/tnalbant): a CLI reference that no longer
+  changes with the installed Typer version
+  ([#37](https://github.com/dolev31/lasagna/pull/37)).
 
-To join them, pick a
-[good first issue](https://github.com/dolev31/lasagna/labels/good%20first%20issue)
-or read [Start here](https://github.com/dolev31/lasagna/discussions/33). Every
-issue is written as numbered steps with a "Done when" list, and every pull
-request gets a line-by-line review. AI coding agents are welcome, under the
-same bar.
+To join the contributors, pick a
+[size: feature](https://github.com/dolev31/lasagna/labels/size%3A%20feature)
+issue (a [good first issue](https://github.com/dolev31/lasagna/labels/good%20first%20issue)
+if it is your first) or read
+[Start here](https://github.com/dolev31/lasagna/discussions/33). Lasagna does
+not take tiny pull requests: every issue is written as numbered steps with a
+"Done when" list, a pull request delivers all of it, and every pull request gets
+a line-by-line review. AI coding agents are welcome, under the same bar.
 
-If Lasagna is useful to you, a star helps others find it.
+If Lasagna is useful to you, star it: stars help other researchers find it.
 
 ---
 

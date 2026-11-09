@@ -72,7 +72,8 @@ def test_a_profile_whose_own_reranker_is_missing_is_switched_to_with_the_downloa
     assert warning in _profile_switch.summary(report)
 
 
-def test_a_profile_whose_embedder_is_missing_is_still_refused(monkeypatch):
+def test_a_profile_whose_embedder_is_missing_is_still_refused(monkeypatch, only_cached):
+    only_cached()
     missing = "BAAI/bge-m3"
     monkeypatch.setattr(
         model_downloads,
@@ -88,6 +89,25 @@ def test_a_profile_whose_embedder_is_missing_is_still_refused(monkeypatch):
     with pytest.raises(_profile_switch.ProfileCannotLoad, match=missing):
         _profile_switch.switch_profile(mgr, "standard", session_id=sid, force=True)
     assert mgr.get_active_profile(sid) == "default"
+
+
+def test_offline_a_cached_fallback_lets_the_switch_through(monkeypatch, only_cached):
+    """Offline, the embedder loads the fallback when the model is missing, so the switch goes on."""
+    missing = "BAAI/bge-m3"
+    only_cached(get_rag_config().embedding_model_fallback)
+    monkeypatch.setattr(
+        model_downloads,
+        "refusal",
+        lambda model, kind="embedding model", filename="config.json": (
+            model_downloads.ModelNotDownloaded(model, offline=True, kind=kind)
+            if model == missing
+            else None
+        ),
+    )
+    sid = f"forced-{uuid.uuid4().hex[:8]}"
+    mgr = get_knowledge_config_manager(session_id=sid)
+    _profile_switch.switch_profile(mgr, "standard", session_id=sid, force=True)
+    assert mgr.get_active_profile(sid) == "standard"
 
 
 def test_doctor_says_the_same_of_a_reranker_that_is_not_downloaded(monkeypatch):

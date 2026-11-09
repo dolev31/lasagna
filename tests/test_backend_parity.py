@@ -122,6 +122,8 @@ def backend(request, tmp_path):
                     cur.execute("DELETE FROM citations")
                     cur.execute("DELETE FROM parent_chunks")
                     cur.execute("DELETE FROM rag_documents")
+                    for table in ("graph_mentions", "graph_edges", "graph_entities"):
+                        cur.execute(f"DELETE FROM {table}")
                 conn.commit()
         except Exception:
             pass
@@ -484,6 +486,97 @@ class TestParentChunks:
 
         remaining = backend.get_parent_chunks(["pc_del_0", "pc_del_1", "pc_del_2"])
         assert len(remaining) == 0
+
+
+# =========================================================================
+# PARITY TEST: Knowledge graph (#55)
+# =========================================================================
+
+
+class TestKnowledgeGraph:
+    """The graph graph retrieval reads: stored, replaced and removed alike on both."""
+
+    def test_a_graph_round_trips_and_a_document_part_is_removed(self, backend):
+        import numpy as np
+
+        session = f"graph_{uuid.uuid4().hex[:8]}"
+        embedding = np.array([0.5, 0.25], dtype=np.float32).tobytes()
+        backend.save_graph_document(
+            session,
+            "coll",
+            "d1",
+            [("Warsaw", "LOCATION", embedding), ("Vistula", "LOCATION", None)],
+            [("Warsaw", "d1_c0"), ("Vistula", "d1_c0")],
+            [("Warsaw", "Vistula", "LIES_ON")],
+        )
+        backend.save_graph_document(
+            session, "coll", "d2", [("Warsaw", "CITY", None)], [("Warsaw", "d2_c0")], []
+        )
+        entities, mentions, edges = backend.load_graph(session, "coll")
+        assert sorted((n, t) for n, t, _ in entities) == [
+            ("Vistula", "LOCATION"),
+            ("Warsaw", "CITY"),
+        ]
+        # A later document without an embedding keeps the stored one.
+        assert {n: e for n, _, e in entities}["Warsaw"] == embedding
+        assert sorted(mentions) == [
+            ("Vistula", "d1_c0", "d1"),
+            ("Warsaw", "d1_c0", "d1"),
+            ("Warsaw", "d2_c0", "d2"),
+        ]
+        assert edges == [("Warsaw", "Vistula", "LIES_ON", "d1")]
+        assert backend.load_graph(session, "other") == ([], [], [])
+
+        backend.delete_graph_document(session, "d1")
+        entities, mentions, edges = backend.load_graph(session, "coll")
+        assert [n for n, _, _ in entities] == ["Warsaw"]
+        assert mentions == [("Warsaw", "d2_c0", "d2")]
+        assert edges == []
+
+        backend.drop_graphs(session)
+        assert backend.load_graph(session, "coll") == ([], [], [])
+
+    def test_extracted_documents_are_recorded_and_dropped_by_collection(self, backend):
+        session = f"graph_{uuid.uuid4().hex[:8]}"
+
+        def models(collection):
+            got = backend.extracted_graph_documents(session, collection)
+            return {doc: record["model"] for doc, record in got.items()}
+
+        # A document whose chunks named nothing is still extracted.
+        backend.save_graph_document(session, "coll", "d1", [], [], [], extraction_model="m1")
+        backend.save_graph_document(
+            session, "coll", "d2", [("A", "T", None)], [("A", "d2_c0")], [], complete=False
+        )
+        backend.save_graph_document(
+            session, "other", "d1", [("A", "T", None)], [("A", "d1_c0")], [], extraction_model="m1"
+        )
+        assert models("coll") == {"d1": "m1"}
+        backend.save_graph_document(
+            session,
+            "coll",
+            "d2",
+            [("A", "T", None)],
+            [("A", "d2_c0")],
+            [],
+            extraction_model="m2",
+            unparsed_chunks=2,
+        )
+        assert models("coll") == {"d1": "m1", "d2": "m2"}
+        assert backend.extracted_graph_documents(session, "coll")["d2"]["unparsed_chunks"] == 2
+        # A later extraction that failed part-way is not done any more.
+        backend.save_graph_document(session, "coll", "d2", [], [], [], complete=False)
+        assert models("coll") == {"d1": "m1"}
+
+        backend.drop_graphs(session, "coll")
+        assert models("coll") == {}
+        assert backend.load_graph(session, "coll") == ([], [], [])
+        assert models("other") == {"d1": "m1"}
+        assert backend.load_graph(session, "other")[1] == [("A", "d1_c0", "d1")]
+
+        backend.delete_graph_document(session, "d1")
+        assert models("other") == {}
+        backend.drop_graphs(session)
 
 
 # =========================================================================

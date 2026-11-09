@@ -765,6 +765,16 @@ class RAGBackend:
             except Exception as e:
                 logger.warning(f"BM25 clear failed for session {session_id}: {e}")
 
+        # The knowledge graphs this process loaded for the session: their rows
+        # went with the session's documents, each removed with its document.
+        try:
+            from ..retrieval.graph.graph_store import drop_loaded_graphs
+
+            drop_loaded_graphs(session_id)
+        except ImportError:
+            # Safe to ignore: without the graph module nothing was loaded.
+            pass
+
         # 2. Invalidate search cache
         if rag_config.enable_search_cache:
             try:

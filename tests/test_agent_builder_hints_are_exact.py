@@ -49,13 +49,24 @@ def _snapshot(model: str):
 
 
 @pytest.mark.parametrize("model", sorted(m for m in MODEL_FILES if "/" in m))
-def test_a_cached_copy_holds_exactly_the_listed_files(model):
-    """A first load writes these files and no others (checked where a copy is cached)."""
+def test_a_cached_copy_holds_every_listed_file(model):
+    """Every file the hint downloads exists in a cached copy (checked where a copy is cached).
+
+    This catches a listed file the repository does not have. It does not check
+    that the list is complete: a copy may hold more, because an older loader or a
+    whole-repository download writes files the current sentence-transformers does
+    not read (mxbai-rerank-large-v1's README.md, written in March 2026). It was
+    an equality, and failed on any machine holding such a copy. Completeness was
+    checked by hand on 2026-11-02: a load of mxbai-rerank-large-v1 from a cache
+    holding only its listed files succeeded and wrote nothing more
+    (sentence-transformers 6.1.0).
+    """
     folder = _snapshot(model)
     if folder is None:
         pytest.skip(f"{model} is not cached")
     cached = {p.relative_to(folder).as_posix() for p in folder.rglob("*") if not p.is_dir()}
-    assert set(MODEL_FILES[model]) == cached
+    missing = sorted(set(MODEL_FILES[model]) - cached)
+    assert not missing, f"{model}: the hint lists files not in the cached copy: {missing}"
 
 
 def test_the_hints_name_the_exact_command(monkeypatch):

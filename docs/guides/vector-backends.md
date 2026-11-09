@@ -85,15 +85,17 @@ explains what this means when you change models.
 
 | | Milvus Lite | Milvus server | Qdrant | Pinecone | Weaviate | PgVector | OpenSearch |
 |---|---|---|---|---|---|---|---|
-| Native hybrid search | no | yes | no | no | yes | yes | yes |
-| Native BM25 | no | yes | no | no | yes | no | yes |
+| Native hybrid search | no | on a collection with `sparse_embedding` | no | no | yes | yes | yes |
+| Native BM25 | no | on a collection with `sparse_embedding` | no | no | yes | no | yes |
 | Partitions or namespaces | yes | yes | no | yes | no | no | no |
 | Dynamic schema | yes | yes | yes | yes | yes | no | yes |
 | Max batch size | 1000 | 1000 | 1000 | 100 | 1000 | 5000 | 10000 |
 | Max vector dimension | 32768 | 32768 | 65536 | 20000 | 65536 | 16000 | 16000 |
 
 Without native hybrid search, the pipeline fuses dense results with an in-process
-BM25 index when `enable_hybrid_search` is on.
+BM25 index when `enable_hybrid_search` is on. A Milvus server runs native hybrid
+search only on a collection with a `sparse_embedding` field, and the collections
+Lasagna creates have none, so there it fuses with BM25 as Milvus Lite does.
 
 Scores are normalized for most backends, and OpenSearch returns its own. Compare
 scores within one backend, not across backends.

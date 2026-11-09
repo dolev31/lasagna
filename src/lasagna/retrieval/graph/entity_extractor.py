@@ -6,8 +6,9 @@ Uses ThreadPoolExecutor for batch parallelism.
 
 import json
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 from loguru import logger
 
@@ -46,6 +47,20 @@ class EntityExtractor:
             "EVENT",
         ]
         self._model_name = model_name
+        #: Chunks whose call raised: extracted again later.
+        self.failures = 0
+        #: Chunks whose reply held no readable JSON object. Done: at
+        #: temperature 0 the model answers the same way next time.
+        self.unparsed = 0
+        self._count_lock = threading.Lock()
+
+    def _failed(self) -> None:
+        with self._count_lock:
+            self.failures += 1
+
+    def _unreadable(self) -> None:
+        with self._count_lock:
+            self.unparsed += 1
 
     def extract_from_chunk(self, chunk_text: str, llm: Any) -> Dict[str, List[Dict[str, str]]]:
         """Extract entities and relationships from a single chunk.
@@ -67,6 +82,11 @@ class EntityExtractor:
 
         try:
             response = llm.invoke(prompt)
+        except Exception as e:
+            logger.debug(f"Entity extraction failed: {e}")
+            self._failed()
+            return {"entities": [], "relationships": []}
+        try:
             text = response.content if hasattr(response, "content") else str(response)
             # Extract JSON from response (handle markdown code blocks)
             json_match = re.search(r"\{[\s\S]*\}", text)
@@ -84,9 +104,10 @@ class EntityExtractor:
                     if isinstance(r, dict) and "source" in r and "target" in r and "type" in r
                 ]
                 return {"entities": valid_entities, "relationships": valid_rels}
-        except (json.JSONDecodeError, Exception) as e:
-            logger.debug(f"Entity extraction failed: {e}")
-
+            logger.debug("Entity extraction: the reply holds no JSON object")
+        except Exception as e:  # noqa: BLE001 - a reply of any shape is the model's answer
+            logger.debug(f"Entity extraction: the reply could not be read: {e}")
+        self._unreadable()
         return {"entities": [], "relationships": []}
 
     def extract_batch_sync(
@@ -116,3 +137,41 @@ class EntityExtractor:
                 )
             )
         return results
+
+
+class GraphExtraction(NamedTuple):
+    """What `extract_graph` found: one extraction per chunk, and how many chunks failed."""
+
+    extractions: list
+    #: Chunks whose call raised (no LLM reachable, a timeout): extracted again later.
+    failed: int
+    model: str
+    #: Chunks whose reply held no readable JSON object: done, with no entity.
+    unparsed: int = 0
+
+    @property
+    def complete(self) -> bool:
+        """Every chunk got an answer (a chunk too short to extract counts as done)."""
+        return self.failed == 0
+
+
+def extract_graph(chunk_texts, config) -> GraphExtraction:
+    """Entities and relationships of each chunk, with the extraction model ``config`` names.
+
+    The one place the upload pipeline, the benchmark ingest and a rebuild of a
+    reused corpus's graph extract: ``graph_extraction_model``, or the default
+    model, at temperature 0. Raises when no LLM can be built; a chunk whose
+    call fails is counted in ``failed``, so the document is not recorded as
+    extracted and is extracted again later. A reply with no readable JSON is
+    the model's answer, and counts in ``unparsed``.
+    """
+    from ...providers.llm_provider import SimpleLLMProvider
+    from ...utils.model_utils import get_default_model_name
+
+    model = getattr(config, "graph_extraction_model", "") or get_default_model_name()
+    extractor = EntityExtractor(
+        entity_types=getattr(config, "graph_entity_types", None), model_name=model
+    )
+    llm = SimpleLLMProvider().get_llm(model_name=model, temperature=0)
+    extractions = extractor.extract_batch_sync(list(chunk_texts), llm, max_workers=4)
+    return GraphExtraction(extractions, extractor.failures, model, extractor.unparsed)

@@ -209,7 +209,7 @@ def test_every_lasagna_command_and_option_it_runs_exists(notebook):
         path = words[1:3] if hasattr(group, "commands") else words[1:2]
         command = _cli_command(path)
         # A hidden command is a deprecated spelling: it prints a notice in
-        # the middle of the notebook's output and goes away in 0.3.0.
+        # the middle of the notebook's output and goes away in 0.4.0.
         assert not command.hidden, f"`{line}`: `lasagna {' '.join(path)}` is deprecated"
         known = {opt for p in command.params for opt in getattr(p, "opts", [])}
         options = [w for w in words if w.startswith("-")]
