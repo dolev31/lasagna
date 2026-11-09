@@ -375,6 +375,7 @@ LOOP_ONLY_PREFIXES: Tuple[str, ...] = (
     "flare_",
     "adaptive_rag_",
     "self_rag_",
+    "search_o1_",
 )
 
 
