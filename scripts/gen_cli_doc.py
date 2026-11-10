@@ -173,33 +173,48 @@ def _label(type_) -> str:
     return type_.name.lower()
 
 
-def _annotation_label(annotation) -> str:
+def _annotation_label(annotation, info=None) -> str:
     """The label of a Typer 0.29 parameter, read from its annotation.
 
     The same labels the click types give on an older Typer (see ``_label``).
+    ``info`` is the parameter's ``ParameterInfo``, which says whether a path
+    must be a file or a directory.
     """
     import enum
     import types
     from typing import Literal, Union, get_args, get_origin
 
     origin, args = get_origin(annotation), get_args(annotation)
-    if origin in (Union, getattr(types, "UnionType", Union)):  # Optional[X]
+    if origin in (Union, types.UnionType):  # Optional[X]
         kept = [a for a in args if a is not type(None)]
         if len(kept) == 1:
-            return _annotation_label(kept[0])
+            return _annotation_label(kept[0], info)
     if origin is tuple:
-        return "<" + " ".join(_annotation_label(a) for a in args) + ">"
+        return "<" + " ".join(_annotation_label(a, info) for a in args) + ">"
     if origin in (list, set, frozenset) and args:  # a repeated option
-        return _annotation_label(args[0])
+        return _annotation_label(args[0], info)
     if origin is Literal:
         return " | ".join(str(a) for a in args)
     if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
         return " | ".join(str(m.value) for m in annotation)
-    for cls in getattr(annotation, "__mro__", ()):
-        label = {str: "text", bool: "bool", int: "int", float: "float", Path: "path"}.get(cls)
+    mro = getattr(annotation, "__mro__", ())
+    if any(cls.__name__ in _TYPER_FILES for cls in mro):
+        return "filename"  # click's File type
+    if Path in mro:
+        if getattr(info, "dir_okay", True) is False:
+            return "file"
+        if getattr(info, "file_okay", True) is False:
+            return "directory"
+        return "path"
+    for cls in mro:
+        label = {str: "text", bool: "bool", int: "int", float: "float"}.get(cls)
         if label:
             return label
     return getattr(annotation, "__name__", str(annotation)).lower()
+
+
+#: Typer's file annotations, which click labels "filename".
+_TYPER_FILES = {"FileText", "FileTextWrite", "FileBinaryRead", "FileBinaryWrite"}
 
 
 def _type(param) -> str:
@@ -207,7 +222,8 @@ def _type(param) -> str:
         return ""
     if not hasattr(param, "type"):
         # Typer 0.29 keeps the annotation and builds no click type.
-        return _annotation_label(param.type_descriptor.annotation)
+        desc = param.type_descriptor
+        return _annotation_label(desc.annotation, getattr(desc, "parameter_info", None))
     if hasattr(param.type, "choices"):
         return " | ".join(str(c) for c in param.type.choices)
     if getattr(param.type, "types", None):

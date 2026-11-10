@@ -99,11 +99,11 @@ def test_option_types_read_without_click_types(monkeypatch):
         FAST = "fast"
         FULL = "full"
 
-    def typer_029_option(annotation, is_flag=False):
+    def typer_029_option(annotation, is_flag=False, **info):
         # The shape of a Typer 0.29 option: no `type` attribute.
-        return SimpleNamespace(
-            is_flag=is_flag, type_descriptor=SimpleNamespace(annotation=annotation)
-        )
+        info = SimpleNamespace(**{"file_okay": True, "dir_okay": True, **info})
+        desc = SimpleNamespace(annotation=annotation, parameter_info=info)
+        return SimpleNamespace(is_flag=is_flag, type_descriptor=desc)
 
     cases = {
         str: "text",
@@ -120,3 +120,13 @@ def test_option_types_read_without_click_types(monkeypatch):
     for annotation, label in cases.items():
         assert gen_cli_doc._type(typer_029_option(annotation)) == label, annotation
     assert gen_cli_doc._type(typer_029_option(bool, is_flag=True)) == ""
+    # What click labels a path that must be a file or a directory, and a file.
+    import typer
+
+    assert gen_cli_doc._type(typer_029_option(Path, dir_okay=False)) == "file"
+    assert gen_cli_doc._type(typer_029_option(List[Path], file_okay=False)) == "directory"
+    assert gen_cli_doc._type(typer_029_option(typer.FileText)) == "filename"
+    # An argument's name: the metavar, else the name, under either attribute.
+    assert gen_cli_doc._argument_name(SimpleNamespace(display_name_raw="query")) == "query"
+    old_typer = SimpleNamespace(human_readable_name="QUERY", display_name_raw="unused")
+    assert gen_cli_doc._argument_name(old_typer) == "QUERY"
