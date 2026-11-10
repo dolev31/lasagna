@@ -21,6 +21,8 @@ pytest.importorskip("langchain_core")
 
 from langchain_core.language_models.chat_models import BaseChatModel  # noqa: E402 - after importorskip
 from langchain_core.language_models.fake_chat_models import FakeListChatModel  # noqa: E402 - after importorskip
+from langchain_core.messages import AIMessage  # noqa: E402 - after importorskip
+from langchain_core.outputs import ChatGeneration, ChatResult  # noqa: E402 - after importorskip
 
 from lasagna import providers  # noqa: E402 - after importorskip
 from lasagna.core.strict import strict  # noqa: E402 - after importorskip
@@ -31,7 +33,7 @@ from lasagna.knowledge_evaluation_sdk.runner import BenchmarkTask  # noqa: E402 
 from lasagna.processing.contextual import ContextualEnricher  # noqa: E402 - after importorskip
 from lasagna.providers.llm_provider import LLMProvider  # noqa: E402 - after importorskip
 from tests.test_event_loop_safety import executable_source  # noqa: E402 - after importorskip
-from tests.test_fast_ingest import MockConfig  # noqa: E402 - after importorskip
+from tests.test_fast_ingest import MockBackend, MockConfig  # noqa: E402 - after importorskip
 
 _DOCUMENT = "Tardigrades survive extreme cold, heat and radiation. " * 12
 
@@ -253,3 +255,203 @@ def test_a_corpus_whose_enrichment_failed_is_named_on_the_tasks_row(run_on_corpu
 def test_a_corpus_enriched_in_full_records_nothing(run_on_corpus):
     result = run_on_corpus({"chunks": 12, "failed": 0, "error": ""})
     assert "degraded_stages" not in result.system
+
+
+# --- The corpus's tally is the sum of its documents' ------------------------
+
+
+class _FailsOnMarkedChunks(BaseChatModel):
+    """Situates every chunk except those that say FAIL: that call fails."""
+
+    @property
+    def _llm_type(self) -> str:
+        return "fails-on-marked"
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        chunk = messages[-1].content.split("<chunk>\n", 1)[1].split("\n</chunk>", 1)[0]
+        if "FAIL" in chunk:
+            raise RuntimeError("model is down")
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content="About it."))])
+
+
+def test_the_corpus_tally_is_the_sum_of_every_documents_chunks(configured):
+    """Through the real pool, documents failing none, some or all of their chunks.
+
+    With contextual retrieval on, the pool has one worker today, so this does
+    not reproduce a lost update; it pins the totals to the chunks stored.
+    """
+    from lasagna.knowledge_evaluation_sdk._fast_ingest import fast_ingest_corpus
+
+    configured(_FailsOnMarkedChunks())
+    failing, passing = "FAIL a tardigrade dries out. ", "Moss and lichen hold water. "
+    corpus = {"all": failing * 20, "none": passing * 20, "mixed": failing * 10 + passing * 10}
+    backend = MockBackend()
+    tally: dict = {}
+    asyncio.run(
+        fast_ingest_corpus(
+            corpus=corpus,
+            corpus_to_valid={name: f"v_{name}" for name in corpus},
+            ready_ids=set(),
+            session_id="s",
+            config=MockConfig(enable_contextual_retrieval=True),
+            backend=backend,
+            enrichment=tally,
+        )
+    )
+    stored = backend._vector_backend.inserted
+    without_context = [r for r in stored if not r["metadata"]["contextual_enriched"]]
+    assert tally["chunks"] == len(stored)
+    assert tally["failed"] == len(without_context) == sum("FAIL" in r["content"] for r in stored)
+    assert 0 < tally["failed"] < tally["chunks"]
+    assert tally["error"] == "model is down"
+    assert all(
+        r["content"].startswith("About it.\n\n")
+        for r in stored
+        if r["metadata"]["contextual_enriched"]
+    )
+
+
+# --- A corpus stored without its context is not reused ----------------------
+
+
+@pytest.fixture
+def corpus_runs(monkeypatch, tmp_path):
+    """`_ensure_corpus_ingested` on the smoke corpus with contextual retrieval on.
+
+    The stored chunks live in ``rows``; ingest marks them enriched unless
+    ``model_down``. ``ingests`` counts the ingests and ``deleted`` the deletes.
+    ``rows_as_stored`` is what the store's ``query`` returns for a row.
+    """
+    import lasagna.api.rag_backend as rag_backend_mod
+    from lasagna.core.config import rag_config
+    from lasagna.knowledge_evaluation_sdk import _fast_ingest as fast_ingest_mod
+
+    h = SimpleNamespace(
+        rows=[],
+        model_down=False,
+        ingests=0,
+        deleted=0,
+        graphs_dropped=0,
+        rows_as_stored=lambda row: {"metadata": row["metadata"]},
+    )
+
+    def delete(**kw):
+        h.deleted += 1
+        h.rows.clear()
+
+    store = SimpleNamespace(
+        session_filter=lambda c, s: None,
+        delete=delete,
+        query=lambda **kw: [h.rows_as_stored(r) for r in h.rows],
+    )
+    backend = SimpleNamespace(
+        _collection_manager=SimpleNamespace(resolve_backend=lambda s: store),
+        hybrid_searcher=SimpleNamespace(clear_session=lambda s: None),
+    )
+    monkeypatch.setattr(rag_backend_mod, "get_rag_backend", lambda *a, **k: backend)
+    monkeypatch.setattr(exp, "_present_document_ids", lambda *a: {r["document_id"] for r in h.rows})
+
+    def drop_graph(session_id, collection_name):
+        h.graphs_dropped += 1
+
+    monkeypatch.setattr(exp, "_drop_corpus_graph", drop_graph)
+    monkeypatch.setattr(exp, "_results_root", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        rag_config,
+        "_env_overrides",
+        {**(rag_config._env_overrides or {}), "enable_contextual_retrieval": True},
+    )
+
+    async def fast_ingest(corpus, corpus_to_valid, ready_ids, enrichment=None, **kw):
+        h.ingests += 1
+        for cid in corpus:
+            mark = {"contextual_enriched": not h.model_down}
+            h.rows.append({"document_id": corpus_to_valid[cid], "metadata": mark})
+        enrichment.update(
+            chunks=len(corpus),
+            failed=len(corpus) if h.model_down else 0,
+            error="model is down" if h.model_down else "",
+        )
+        return len(corpus), set(corpus_to_valid.values()), set()
+
+    monkeypatch.setattr(fast_ingest_mod, "fast_ingest_corpus", fast_ingest)
+
+    def run():
+        exp._corpus_sessions.clear()
+        return asyncio.run(exp._ensure_corpus_ingested("smoke", []))
+
+    h.run = run
+    yield h
+    exp._corpus_sessions.clear()
+
+
+def test_a_reused_corpus_stored_without_context_says_so(corpus_runs):
+    """Reused, it recorded nothing; deleted, it could vanish under another run."""
+    corpus_runs.model_down = True
+    first = corpus_runs.run()
+    assert first["contextual"]["failed"] == first["contextual"]["chunks"] == 24
+
+    corpus_runs.model_down = False  # back, but the corpus is what it is
+    second = corpus_runs.run()
+    assert (corpus_runs.ingests, corpus_runs.deleted) == (1, 0)
+    assert second["contextual"]["failed"] == second["contextual"]["chunks"] == 24
+    assert "reused" in second["contextual"]["error"]
+
+
+def test_a_reused_corpus_enriched_in_full_reports_no_failure(corpus_runs):
+    corpus_runs.run()
+    reused = corpus_runs.run()
+    assert (corpus_runs.ingests, corpus_runs.deleted) == (1, 0)
+    assert reused["contextual"]["failed"] == 0
+
+
+def test_a_mark_stored_as_a_property_of_the_row_is_read(corpus_runs):
+    """Weaviate keeps metadata keys as the row's own properties."""
+    corpus_runs.model_down = True
+    corpus_runs.run()
+    corpus_runs.rows_as_stored = lambda row: dict(row["metadata"])
+    assert corpus_runs.run()["contextual"]["failed"] == 24
+    assert corpus_runs.ingests == 1
+
+
+def test_a_contextual_corpus_from_before_the_mark_is_ingested_again(corpus_runs):
+    """Stored before #49 marked its chunks, it was ingested when enrichment failed."""
+    corpus_runs.run()
+    for row in corpus_runs.rows:
+        row["metadata"] = {}
+    corpus_runs.run()
+    assert (corpus_runs.ingests, corpus_runs.deleted, corpus_runs.graphs_dropped) == (2, 1, 1)
+
+
+def test_a_corpus_whose_marks_cannot_be_read_is_ingested_again(corpus_runs):
+    corpus_runs.run()
+
+    def unreadable(row):
+        raise RuntimeError("store is busy")
+
+    corpus_runs.rows_as_stored = unreadable
+    again = corpus_runs.run()
+    assert (corpus_runs.ingests, corpus_runs.deleted) == (2, 1)
+    assert again["contextual"]["failed"] == 0
+
+
+def test_with_no_llm_every_chunk_is_marked_and_counted(configured, monkeypatch):
+    """Not strict, and no LLM could be built: no chunk is taken for enriched."""
+    from lasagna.knowledge_evaluation_sdk._fast_ingest import _chunk_one_doc
+
+    def no_llm(**kw):
+        raise RuntimeError("no LLM is configured")
+
+    monkeypatch.setattr(providers, "get_ingest_llm", no_llm)
+    tally: dict = {}
+    _, chunks, _ = _chunk_one_doc(
+        corpus_id="d1",
+        text=_DOCUMENT,
+        valid_id="v1",
+        session_id="s",
+        filename="v1.txt",
+        config=MockConfig(enable_contextual_retrieval=True),
+        enrichment=tally,
+    )
+    assert chunks and all(c["metadata"]["contextual_enriched"] is False for c in chunks)
+    assert tally == {"chunks": len(chunks), "failed": len(chunks), "error": "no LLM is configured"}

@@ -939,6 +939,73 @@ def _present_document_ids(
         )
 
 
+def _stored_enrichment(
+    backend: Any, collection_name: str, session_id: str, document_ids: Any
+) -> Optional[Dict[str, int]]:
+    """What contextual enrichment did to a stored corpus, from its chunks (#49).
+
+    Benchmark ingest marks each chunk it enriched with ``contextual_enriched``
+    in its metadata, False when the chunk was stored without its context.
+    Returns ``chunks`` marked and ``failed``, or None when no chunk is marked:
+    a corpus ingested before the mark existed, when the enrichment call failed
+    on every provider but OpenAI. Asked in the same bounded batches as
+    `_present_document_ids`.
+    """
+    from lasagna.vector_backends.filters import FilterExpression as _FE
+
+    ids = sorted(document_ids)
+    marked = without_context = 0
+    pending = [ids[i : i + 400] for i in range(0, len(ids), 400)]
+    with _fresh_reads(backend):
+        while pending:
+            batch = pending.pop()
+            rows = backend.query(
+                collection_name=collection_name,
+                filter_expr=_FE.and_(
+                    _FE.eq("session_id", session_id), _FE.in_list("document_id", batch)
+                ),
+                output_fields=["metadata"],
+                limit=_PRESENCE_QUERY_ROWS,
+            )
+            if len(rows) >= _PRESENCE_QUERY_ROWS and len(batch) > 1:
+                half = len(batch) // 2
+                pending.extend([batch[:half], batch[half:]])
+                continue
+            for row in rows:
+                metadata = row.get("metadata") or {}
+                if isinstance(metadata, str):
+                    metadata = json.loads(metadata)
+                if "contextual_enriched" not in metadata:
+                    # Weaviate stores metadata keys as the row's own properties.
+                    metadata = row
+                if "contextual_enriched" in metadata:
+                    marked += 1
+                    without_context += not metadata["contextual_enriched"]
+    if not marked:
+        return None
+    return {"chunks": marked, "failed": without_context}
+
+
+def _delete_stored_corpus(
+    store: Any, ingest_backend: Any, collection_name: str, session_id: str
+) -> None:
+    """Delete a corpus's vectors, keyword index and graph, so it is ingested again."""
+    try:
+        store.delete(
+            collection_name=collection_name,
+            filter_expr=store.session_filter(collection_name, session_id),
+        )
+    except Exception as exc:
+        # Ingesting again on top of vectors that could not be deleted
+        # duplicates chunks and changes rankings.
+        raise _StaleCorpusCleanupError(
+            f"Could not delete the vectors of session {session_id}: {exc}. Delete that "
+            f"session or collection and rerun."
+        ) from exc
+    ingest_backend.hybrid_searcher.clear_session(session_id)
+    _drop_corpus_graph(session_id, collection_name)
+
+
 #: Seconds before a census count that failed is asked once more.
 _RECOUNT_PAUSE = 2.0
 
@@ -4065,6 +4132,8 @@ async def _ensure_corpus_ingested(
         expected_valid_ids = {corpus_to_valid[cid] for cid in corpus}
         ready_ids: set = set()
         _skip_ingest = False
+        #: What enrichment did to a contextual corpus this run reuses (#49).
+        _reused_enrichment: Optional[Dict[str, int]] = None
         # Documents that could not be ingested, in this run or (allowlisted)
         # in the run that built the corpus being reused.
         failed_valid_ids: set = set()
@@ -4126,6 +4195,42 @@ async def _ensure_corpus_ingested(
                     _ingest_backend.hybrid_searcher.clear_session(shared_session_id)
                     _drop_corpus_graph(shared_session_id, _coll_name)
                     ready_ids = set()
+
+            # A reused contextual corpus reports what enrichment did to it, from
+            # the mark on each chunk. Reused with chunks stored without their
+            # context, a run recorded nothing and the arm scored plain chunks
+            # as contextual (#49). It is not deleted for that: another run may
+            # be searching it. Only a corpus with no marks, ingested before
+            # they existed, is ingested again.
+            if _skip_ingest and getattr(
+                _rag_cfg.with_session(shared_session_id), "enable_contextual_retrieval", False
+            ):
+                try:
+                    _reused_enrichment = _stored_enrichment(
+                        _resolved, _coll_name, shared_session_id, ready_ids
+                    )
+                    _why = "its chunks carry no record of enrichment (ingested before #49)"
+                except Exception as _check_exc:
+                    # Caught here: the handler below deletes the vectors but
+                    # would leave this run skipping the ingest.
+                    _why = f"its enrichment could not be checked ({_check_exc})"
+                if _reused_enrichment is None:
+                    logger.warning(
+                        f"Not reusing contextual corpus {shared_session_id}: {_why}. "
+                        f"Deleting it and ingesting it again."
+                    )
+                    # First: if the delete raises, the handler below still
+                    # leaves this run to ingest.
+                    _skip_ingest = False
+                    ready_ids = set()
+                    failed_valid_ids = set()
+                    _delete_stored_corpus(_resolved, _ingest_backend, _coll_name, shared_session_id)
+                elif _reused_enrichment["failed"]:
+                    logger.warning(
+                        f"Reusing contextual corpus {shared_session_id}: "
+                        f"{_reused_enrichment['failed']} of its {_reused_enrichment['chunks']} "
+                        f"chunks were stored without context, and this run records it."
+                    )
         except _StaleCorpusCleanupError:
             raise
         except Exception as exc:
@@ -4151,6 +4256,11 @@ async def _ensure_corpus_ingested(
             ready_ids = set()
 
         contextual_info = None
+        if _skip_ingest and _reused_enrichment is not None:
+            contextual_info = {
+                **_reused_enrichment,
+                "error": "corpus reused; the run that ingested it logged why",
+            }
         if not _skip_ingest:
             _session_cfg = _rag_cfg.with_session(shared_session_id)
             _enrichment: Dict[str, Any] = {}
