@@ -36,10 +36,10 @@ EXTRACTION = {
 
 def _graph_upload(tmp_path, monkeypatch):
     """An upload through the real pipeline, graph on, with a stub extractor and LLM."""
-    from lasagna.providers.llm_provider import SimpleLLMProvider
+    from lasagna import providers
     from lasagna.retrieval.graph.entity_extractor import EntityExtractor
 
-    monkeypatch.setattr(SimpleLLMProvider, "get_llm", lambda self, **kw: object())
+    monkeypatch.setattr(providers, "get_ingest_llm", lambda **kw: object())
     monkeypatch.setattr(
         EntityExtractor,
         "extract_batch_sync",
@@ -227,10 +227,10 @@ def test_a_reindex_points_the_graph_at_the_new_chunks(tmp_path, monkeypatch):
 
 
 def test_an_upload_that_fails_stores_no_graph(tmp_path, monkeypatch):
-    from lasagna.providers.llm_provider import SimpleLLMProvider
+    from lasagna import providers
     from lasagna.retrieval.graph.entity_extractor import EntityExtractor
 
-    monkeypatch.setattr(SimpleLLMProvider, "get_llm", lambda self, **kw: object())
+    monkeypatch.setattr(providers, "get_ingest_llm", lambda **kw: object())
     monkeypatch.setattr(
         EntityExtractor,
         "extract_batch_sync",
@@ -359,10 +359,10 @@ def test_two_postgres_writers_sharing_entities_do_not_deadlock():
 def test_a_graph_stored_for_an_upload_that_then_fails_is_removed(tmp_path, monkeypatch):
     """The graph is stored after the chunks; a failure after that takes it back."""
     from lasagna.api._document_pipeline import DocumentPipeline
-    from lasagna.providers.llm_provider import SimpleLLMProvider
+    from lasagna import providers
     from lasagna.retrieval.graph.entity_extractor import EntityExtractor
 
-    monkeypatch.setattr(SimpleLLMProvider, "get_llm", lambda self, **kw: object())
+    monkeypatch.setattr(providers, "get_ingest_llm", lambda **kw: object())
     monkeypatch.setattr(
         EntityExtractor,
         "extract_batch_sync",

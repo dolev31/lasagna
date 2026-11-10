@@ -165,13 +165,13 @@ def extract_graph(chunk_texts, config) -> GraphExtraction:
     extracted and is extracted again later. A reply with no readable JSON is
     the model's answer, and counts in ``unparsed``.
     """
-    from ...providers.llm_provider import SimpleLLMProvider
+    from ...providers import get_ingest_llm
     from ...utils.model_utils import get_default_model_name
 
     model = getattr(config, "graph_extraction_model", "") or get_default_model_name()
     extractor = EntityExtractor(
         entity_types=getattr(config, "graph_entity_types", None), model_name=model
     )
-    llm = SimpleLLMProvider().get_llm(model_name=model, temperature=0)
+    llm = get_ingest_llm(model_name=model, temperature=0)
     extractions = extractor.extract_batch_sync(list(chunk_texts), llm, max_workers=4)
     return GraphExtraction(extractions, extractor.failures, model, extractor.unparsed)
