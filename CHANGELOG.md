@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **An agentic arm under `speed` runs its loop.** `pipeline.query` forces the
+  agentic tier for an arm that names an agentic pipeline, and the router
+  dropped that tier whenever a profile turned query routing off. Under `speed`
+  (routing off, default tier `fast`), every agentic arm (the five published
+  loops, the structured graph and legacy ReAct) searched the fast tier, never
+  ran its loop, and was scored on the harness's own answer, with no warning. A
+  tier the caller forces now holds when routing is off, unless
+  `routing_allow_tier_override` is false; that includes `routing_tier` on
+  `POST /api/v1/search`. An agentic sample answered by any other tier now
+  counts in `agentic_fallback`, not only one whose agentic run failed. Numbers
+  move for agentic arms under a profile with routing off and a default tier
+  other than `comprehensive`: of the built-in profiles, `speed`.
+
 ## [0.3.0] - 2026-11-07
 
 Chat with a corpus from any OpenAI client, a knowledge graph every process

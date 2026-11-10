@@ -263,7 +263,8 @@ crag_web_search_fallback = false
 # trains a classifier; "rule_based" here uses rules instead, and its effect on a
 # corpus is measured with a sweep, not assumed.
 
-# Enable/disable query routing (when disabled, uses routing_default_tier for all queries)
+# Enable/disable query routing (when disabled, uses routing_default_tier for every query
+# whose caller forces no tier; an agentic arm forces the comprehensive tier)
 enable_query_routing = true
 
 # Strategy: "rule_based" (deterministic, no LLM call) or "adaptive" (escalates tier on low confidence)
