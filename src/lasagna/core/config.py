@@ -1174,7 +1174,7 @@ class RAGConfig:
             # =================================================================
             "enable_query_routing": True,  # Route queries to FAST/STANDARD/COMPREHENSIVE tiers
             "routing_strategy": "rule_based",  # 'rule_based' (deterministic) or 'adaptive' (confidence-aware)
-            "routing_default_tier": "standard",  # Default tier when routing is disabled: fast, standard, comprehensive
+            "routing_default_tier": "standard",  # Tier when routing is disabled and the caller forces none: fast, standard, comprehensive
             "routing_confidence_threshold": 0.5,  # Adaptive strategy escalates tier below this confidence
             "routing_allow_tier_override": True,  # Allow API callers to force a routing tier
             "routing_log_decisions": True,  # Log routing decisions for observability
@@ -2421,7 +2421,7 @@ class RAGConfig:
 
     @property
     def routing_default_tier(self) -> str:
-        """Default routing tier when routing is disabled."""
+        """Routing tier when routing is disabled, unless the caller forces one."""
         return self._get_knowledge_setting(
             "rag", "routing_default_tier", default=self._config["routing_default_tier"]
         )

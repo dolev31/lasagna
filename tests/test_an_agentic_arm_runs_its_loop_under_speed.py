@@ -73,3 +73,26 @@ def test_an_agentic_request_answered_by_another_tier_is_a_fallback():
     assert _agentic_fell_back(True, [result({})]) is True
     assert _agentic_fell_back(True, [result({"_routing_tier_used": "comprehensive"})]) is False
     assert _agentic_fell_back(False, [result({})]) is False
+
+
+def test_the_speed_arm_the_harness_builds_reaches_its_loop():
+    """The real config: the `speed` profile with an agentic arm's overrides.
+
+    As the harness passes them to `pipeline.query`: the arm names a loop, which
+    turns `use_agentic_rag` on, so the forced tier is not downgraded either.
+    """
+    from lasagna.core.config import rag_config
+
+    speed = resolve_ingestion_defaults("speed")
+    arm = rag_config.with_query_overrides(
+        {**speed, "agentic_pipeline": "self_ask", "use_agentic_rag": True}
+    )
+    assert arm.enable_query_routing is False and arm.routing_default_tier == "fast"
+    decision = QueryRouter().route("Who directed Jaws?", None, None, arm, "comprehensive")
+    assert decision.tier == RoutingTier.COMPREHENSIVE
+
+    # CRAG forces the comprehensive tier too; without the agentic flag it is
+    # downgraded to standard, no longer dropped for the profile's fast tier.
+    crag = rag_config.with_query_overrides({**speed, "enable_crag": True})
+    decision = QueryRouter().route("Who directed Jaws?", None, None, crag, "comprehensive")
+    assert decision.tier == RoutingTier.STANDARD
