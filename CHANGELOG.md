@@ -249,6 +249,23 @@ Milvus Lite and in the Compose stack found seven harness bugs, filed as #46 to
   benchmarks, components or published loops there are is now checked against
   the code, so a pull request that adds one updates each page that counts it.
 
+- The Compose stack's Qdrant service now raises its `nofile` ulimit to 524288.
+  A burst of concurrent clients creating collections and payload indexes
+  exhausted the container's default 1024 file descriptors ("Too many open
+  files"), which could take the vector store down in production.
+- The Compose stack's OpenSearch service now sets the limits its own Docker
+  documentation requires on every node: `memlock` unlimited and `nofile`
+  65536. A stress burst for Milvus, the default backend, is added beside the
+  Qdrant-only race test (`tests/stress/test_milvus_fd_burst.py`): eight
+  processes on one barrier build a `MilvusBackend` from `MILVUS_URI` and
+  create collections and indexes, reporting the container's `nofile` budget
+  and whether it holds.
+- The nofile policy for every store service in the Compose stack is now
+  pinned by `tests/test_compose_qdrant_sets_nofile_ulimit.py`: each service
+  with its own image is listed as pinned, pending measurement, or safe with
+  a one-line reason, so a new backend file without an explicit decision
+  fails the test.
+
 ## [0.2.0] - 2026-11-01
 
 The first release with outside contributors. Thank you to

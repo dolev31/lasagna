@@ -15,11 +15,13 @@ regenerating the page fails the suite.
 from __future__ import annotations
 
 import argparse
+import enum
 import inspect
 import re
 import sys
 from pathlib import Path
-from typing import List, Optional
+from types import UnionType
+from typing import List, Optional, Union
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "reference" / "cli.md"
@@ -125,6 +127,16 @@ def _first_sentence(text: str) -> str:
     return " ".join(first.split())
 
 
+def _readable_name(param) -> str:
+    """The name click prints for an argument (``QUERY``, ``A B``)."""
+    name = getattr(param, "human_readable_name", None)
+    if name:
+        return name
+    # Typer 0.29 dropped human_readable_name: click's Argument used the
+    # metavar, else the uppercased parameter name.
+    return param.metavar or param.name.upper()
+
+
 def _is_argument(param) -> bool:
     # Typer 0.27 vendors click, so isinstance against the installed click fails.
     return "Argument" in type(param).__name__
@@ -152,6 +164,16 @@ _TYPE_LABELS = {
     "Path": "path",
 }
 
+# Labels for Typer 0.29+ options, keyed by the annotation's class name: the
+# page calls a string "text" (not "str"), matching _TYPE_LABELS above.
+_SCALAR_LABELS = {
+    "str": "text",
+    "int": "int",
+    "float": "float",
+    "bool": "bool",
+    "Path": "path",
+}
+
 
 def _label(type_) -> str:
     # Decide by the type's class, not its `name`: Typer 0.27 names its string
@@ -169,14 +191,39 @@ def _label(type_) -> str:
 def _type(param) -> str:
     if param.is_flag:
         return ""
-    if hasattr(param.type, "choices"):
-        return " | ".join(str(c) for c in param.type.choices)
-    if getattr(param.type, "types", None):
-        # A tuple option (``--diff A B``) names itself "<text text>", and each
-        # element carries the same per-Typer label, so resolve them one by one
-        # and keep the shape the page already uses.
-        return "<" + " ".join(_label(t) for t in param.type.types) + ">"
-    return _label(param.type)
+    type_ = getattr(param, "type", None)
+    if type_ is not None:
+        if hasattr(type_, "choices"):
+            return " | ".join(str(c) for c in type_.choices)
+        if getattr(type_, "types", None):
+            # A tuple option (``--diff A B``) names itself "<text text>", and each
+            # element carries the same per-Typer label, so resolve them one by one
+            # and keep the shape the page already uses.
+            return "<" + " ".join(_label(t) for t in type_.types) + ">"
+        return _label(type_)
+    # Typer 0.29 dropped ``.type`` from its options: the type now lives in the
+    # annotation Typer resolved (``Optional`` already unwrapped, so
+    # ``Optional[str]`` arrives as ``str`` and ``Optional[tuple[str, str]]``
+    # as ``tuple[str, str]``).
+    return _type_from_annotation(param.type_descriptor.annotation)
+
+
+def _type_from_annotation(annotation) -> str:
+    """The page's type label for a Typer 0.29+ option, from its annotation."""
+    from typing import get_args, get_origin
+
+    if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+        return " | ".join(str(m.value) for m in annotation)
+    origin = get_origin(annotation)
+    if origin is tuple:
+        return "<" + " ".join(_type_from_annotation(a) for a in get_args(annotation)) + ">"
+    if origin is Union or origin is UnionType:
+        # ``X | None`` written out: drop the None and label what is left.
+        rest = [a for a in get_args(annotation) if a is not type(None)]
+        if len(rest) == 1:
+            return _type_from_annotation(rest[0])
+    name = getattr(annotation, "__name__", None) or str(annotation)
+    return _SCALAR_LABELS.get(name, name.lower())
 
 
 def _options_table(cmd) -> List[str]:
@@ -186,7 +233,7 @@ def _options_table(cmd) -> List[str]:
     if args:
         lines += ["**Arguments**", "", "| Argument | Required | Description |", "|---|:--:|---|"]
         for p in args:
-            label = p.human_readable_name.upper() + ("..." if p.nargs == -1 else "")
+            label = _readable_name(p).upper() + ("..." if p.nargs == -1 else "")
             lines.append(
                 f"| `{label}` | {'yes' if p.required else 'no'} | {_cell(getattr(p, 'help', '') or '')} |"
             )
@@ -215,7 +262,7 @@ def _usage(cmd, path: str) -> str:
         pieces.append("[OPTIONS]")
     for p in cmd.params:
         if _is_argument(p):
-            name = p.human_readable_name.upper() + ("..." if p.nargs == -1 else "")
+            name = _readable_name(p).upper() + ("..." if p.nargs == -1 else "")
             pieces.append(name if p.required else f"[{name}]")
     return " ".join([path, *pieces])
 
