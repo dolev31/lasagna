@@ -245,8 +245,8 @@ class MilvusBackend(VectorStoreAdapter):
         self._loaded_collections: set = set()
         # Whether each collection has a scalar session_id field (see session_filter).
         self._session_column: Dict[str, bool] = {}
-        # Whether each collection has the sparse field native hybrid search reads.
-        self._native_hybrid: Dict[str, bool] = {}
+        #: The field names of each collection asked about, for native hybrid search.
+        self._native_hybrid: Dict[str, frozenset] = {}
 
     # =========================================================================
     # Capability Detection
@@ -305,16 +305,20 @@ class MilvusBackend(VectorStoreAdapter):
         """
         if not self.capabilities.supports_hybrid_search:
             return False
-        found = self._native_hybrid.get(collection_name)
-        if found is None:
+        return bool(self._has_field(collection_name, "sparse_embedding"))
+
+    def _has_field(self, collection_name: str, field: str) -> Optional[bool]:
+        """Whether ``collection_name`` has ``field``; None when its fields cannot be read."""
+        names = self._native_hybrid.get(collection_name)
+        if names is None:
             try:
                 fields = self.describe_fields(collection_name)
             except Exception as e:
                 logger.debug(f"Could not read the fields of {collection_name}: {e}")
-                return False
-            found = any(f.get("name") == "sparse_embedding" for f in fields)
-            self._native_hybrid[collection_name] = found
-        return found
+                return None
+            names = frozenset(str(f.get("name")) for f in fields)
+            self._native_hybrid[collection_name] = names
+        return field in names
 
     @property
     def backend_name(self) -> str:
@@ -425,6 +429,37 @@ class MilvusBackend(VectorStoreAdapter):
             return {}
         return {"consistency_level": "Strong"}
 
+    def wait_until_searchable(
+        self,
+        collection_name: str,
+        filter_expr: FilterExpression,
+        partition_key: Optional[str] = None,
+    ) -> None:
+        """One Strong ``count(*)`` of the rows ``filter_expr`` names, on a server.
+
+        Searches read at the collection's level, Bounded by default, and stay
+        so (Strong costs about 200 ms per query on the stack's Milvus 2.4).
+        Read that way, a search sent right after an insert missed the new rows:
+        in the default Compose stack, a search sent as a document turned
+        ``ready`` missed it in 27 of 30 tries, and every one found it a second
+        later. A Strong read waits until the server has applied every earlier
+        write, and, with one replica (the default), the searches after it see
+        them, as the scans after ``_catch_up`` do. The ingest pipeline pays it
+        once per document, never per search. Milvus Lite has no staleness
+        window and gets nothing extra.
+        """
+        if self.is_lite:
+            return
+        client = self._ensure_connected()
+        self._ensure_loaded(client, collection_name)
+        probe: Dict[str, Any] = {
+            "collection_name": collection_name,
+            "filter": filter_expr.to_milvus(),
+        }
+        if partition_key is not None:
+            probe["partition_names"] = [partition_key]
+        self._catch_up(client, probe)
+
     def _catch_up(self, client: MilvusClient, query_kwargs: Dict[str, Any]) -> None:
         """Make a server's next reads of this collection see every earlier write.
 
@@ -499,6 +534,9 @@ class MilvusBackend(VectorStoreAdapter):
         client = self._ensure_connected()
         self._session_column.pop(collection_name, None)
         self._native_hybrid.pop(collection_name, None)
+        # A new collection starts unloaded: forget an earlier "loaded" answer for
+        # the name, or the next delete or read skips the load and is refused.
+        self._loaded_collections.discard(collection_name)
 
         # Convert our schema to Milvus schema
         milvus_schema = self._to_milvus_schema(schema)
@@ -696,12 +734,17 @@ class MilvusBackend(VectorStoreAdapter):
                     metric_type=getattr(index_config, "metric_type", MetricType.COSINE),
                     params={},
                 )
+            index_type = index_type_map.get(index_config.index_type, "AUTOINDEX")
+            # A Milvus server takes only the metric for AUTOINDEX ("only metric
+            # type can be passed when use AutoIndex"), and IndexConfig's default
+            # params are HNSW's, so an AUTOINDEX config was refused on a server.
+            params = {} if index_type == "AUTOINDEX" else index_config.params
             index_params = client.prepare_index_params()
             index_params.add_index(
                 field_name=field_name,
-                index_type=index_type_map.get(index_config.index_type, "AUTOINDEX"),
+                index_type=index_type,
                 metric_type=metric_type_map.get(index_config.metric_type, "COSINE"),
-                params=index_config.params,
+                params=params,
             )
             client.create_index(collection_name, index_params)
             logger.debug(f"Created index on {collection_name}.{field_name}")
@@ -793,6 +836,11 @@ class MilvusBackend(VectorStoreAdapter):
     ) -> int:
         """Delete documents matching filter."""
         client = self._ensure_connected()
+        # A Milvus server refuses a filtered delete on a collection that is not
+        # loaded ("collection not loaded"). Before any search had loaded it, the
+        # Celery worker's clean-up of an earlier attempt failed that way, and
+        # every upload to the default Compose stack ended in error.
+        self._ensure_loaded(client, collection_name)
 
         # Convert filter to Milvus syntax
         milvus_filter = filter_expr.to_milvus() if filter_expr else ""
@@ -1023,10 +1071,28 @@ class MilvusBackend(VectorStoreAdapter):
     ) -> List[VectorSearchResult]:
         """Perform hybrid dense + sparse search.
 
-        Only works on Milvus Standalone/Distributed with sparse vectors.
-        Falls back to dense-only search on Milvus Lite.
+        Only works on Milvus Standalone/Distributed, on a collection with a
+        sparse vector field. Falls back to dense-only search on Milvus Lite,
+        and on a server collection without the field, where the native call
+        failed with "fieldName(sparse_embedding) not found" (#50). The second
+        is reported as a degraded stage: a caller that asked a server for
+        hybrid search gets dense results only. `HybridSearcher` asks
+        `collection_supports_native_hybrid` first and uses BM25 fusion there.
         """
-        if not self.capabilities.supports_hybrid_search:
+        supported = self.capabilities.supports_hybrid_search
+        present = self._has_field(collection_name, sparse_field) if supported else None
+        if supported and not present:
+            from lasagna.utils import degraded
+
+            degraded.record(
+                "hybrid",
+                f"collection {collection_name} has no {sparse_field} field; dense results only"
+                if present is False
+                else f"could not read the fields of collection {collection_name}; "
+                "dense results only",
+            )
+            supported = False
+        if not supported:
             # Fallback to dense search
             return self.search(
                 collection_name=collection_name,
@@ -1255,6 +1321,7 @@ class MilvusBackend(VectorStoreAdapter):
         DEPRECATED: Use delete() with FilterExpression instead.
         """
         client = self._ensure_connected()
+        self._ensure_loaded(client, collection_name)  # as delete() does
         return client.delete(collection_name=collection_name, filter=filter)
 
     def query_raw(

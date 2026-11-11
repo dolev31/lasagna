@@ -17,7 +17,7 @@ response cache from a user's side:
 | ---- | -------------- |
 | `monitoring.py` | `METRICS` (`MetricsClient` facade: no-op, or Prometheus after `configure_metrics(enable_prometheus=True)`), `StageTimer`, `log_json`, `log_json_debug`, `hash_text`, `trunc_text`, `summarize_document_ids` |
 | `tracing.py` | `TRACER` (`Tracer` facade over OpenTelemetry), `configure_tracing`; exporters `otlp`, `console`, `zipkin`, and `jaeger` (deprecated, warns) |
-| `degraded.py` | `record(stage, reason)` and `collecting()`: counts a stage that fell back (`lasagna_degraded_fallbacks_total{stage=...}`) and collects it for the response's `degraded_stages` |
+| `degraded.py` | `record(stage, reason)`, `collecting()` and `all_reasons()`: counts a stage that fell back (`lasagna_degraded_fallbacks_total{stage=...}`) and collects it for the response's `degraded_stages` |
 | `token_usage.py` | `UsageMeter`, `attach_usage_meter`, `instrument_openai_client` (the RAGAS judge client): tokens and LLM calls; tokens only, never prices |
 | `llm_cache.py` | The experiment's LLM response cache: `LLMCacheSettings`, `llm_cache_scope`, `attach_llm_cache`, one SQLite file (`default_cache_path()`: `<data dir>/cache/llm.sqlite`, `~/.lasagna` unless `LASAGNA_DATA_DIR` is set) |
 | `normalization.py` | `normalize_score_sigmoid`, `normalize_scores_minmax`, `normalize_scores_for_mmr`, `normalize_score_for_display`, `normalize_score_relative`, `adaptive_k_selection` |

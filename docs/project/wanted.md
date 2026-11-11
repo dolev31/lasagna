@@ -1,7 +1,8 @@
 # Wanted
 
-What Lasagna would like to have next, and what "done" means for each. Every item
-has an open issue; comment there to claim it.
+What Lasagna would like to have next, and what "done" means for each. Almost
+every item has an open issue; comment there to claim it. The few that do not say
+so.
 
 A method in Lasagna is measured against every other component of its stage, in a
 complete pipeline, on the same benchmarks, with everything else held fixed. If
@@ -11,7 +12,7 @@ and the catalog lists it beside its paper.
 | If you want to | Start with |
 |---|---|
 | Add your paper's method | [Components](#components) |
-| Make a first pull request | [Good first issues](#good-first-issues) |
+| Make a first pull request | [A first contribution](#a-first-contribution) |
 | Add a dataset | [Benchmarks](#benchmarks) |
 | Run a study | [Research questions](#research-questions) |
 | Run Lasagna in production | [Deployment](#deployment) |
@@ -32,7 +33,7 @@ queries: `cross_encoder` wins by +0.0913 ndcg@10 (d_z +0.38, p (Holm) 1.0e-04).
 | document_processor | Unstructured | [repository](https://github.com/Unstructured-IO/unstructured) | No paper. Layout-aware parsing for mixed files. |
 | embedder | jina-embeddings-v2, with late chunking | [2409.04701](https://arxiv.org/abs/2409.04701) | Late chunking exists as a setting; this is the Jina embedder behind it. |
 | retriever | RAPTOR | [2401.18059](https://arxiv.org/abs/2401.18059) | The tree code exists behind `enable_raptor`; it needs registering as a retriever. |
-| retriever | GraphRAG, LightRAG, HippoRAG, G-Retriever | [2404.16130](https://arxiv.org/abs/2404.16130), [2410.05779](https://arxiv.org/abs/2410.05779), [2405.14831](https://arxiv.org/abs/2405.14831), [2402.07630](https://arxiv.org/abs/2402.07630) | A small graph retriever exists behind `enable_graph_retrieval`; register it first. |
+| retriever | GraphRAG, LightRAG, HippoRAG 2, G-Retriever | [2404.16130](https://arxiv.org/abs/2404.16130), [2410.05779](https://arxiv.org/abs/2410.05779), [2502.14802](https://arxiv.org/abs/2502.14802), [2402.07630](https://arxiv.org/abs/2402.07630) | The knowledge-graph track, planned in [#61](https://github.com/dolev31/lasagna/issues/61): register the existing graph retriever first ([#8](https://github.com/dolev31/lasagna/issues/8)), then LightRAG ([#57](https://github.com/dolev31/lasagna/issues/57)), HippoRAG 2 ([#58](https://github.com/dolev31/lasagna/issues/58)) and GraphRAG global search ([#59](https://github.com/dolev31/lasagna/issues/59)). G-Retriever has no issue yet: open one before you start. |
 | retriever | ColBERTv2 with PLAID | [2112.01488](https://arxiv.org/abs/2112.01488) | Late interaction as a retriever, with its own index. |
 | retriever | ColPali | [2407.01449](https://arxiv.org/abs/2407.01449) | Page images as the documents. |
 | reranker | RankZephyr, RankVicuna | [2312.02724](https://arxiv.org/abs/2312.02724), [2309.15088](https://arxiv.org/abs/2309.15088) | Open-weight listwise rerankers, beside the built-in `llm_listwise`. |
@@ -68,14 +69,17 @@ Open items are labeled
 
 ---
 
-## Good first issues
+## A first contribution
 
-Small, with the files named and a test to write. Labeled
-[good first issue](https://github.com/dolev31/lasagna/issues?q=is%3Aopen+label%3A%22good+first+issue%22).
+Feature-sized, with the files named, the steps listed and a definition of done.
+Labeled [good first issue](https://github.com/dolev31/lasagna/issues?q=is%3Aopen+label%3A%22good+first+issue%22).
+Lasagna does not take tiny pull requests (a typo, a link, a one-line pin): even
+a first one delivers a whole issue.
 
 - **Claims for the built-in components.** A component can declare the number its
-  paper reports; no built-in declares one yet. Each one filled in puts a
-  published number beside a reproduced one.
+  paper reports; no built-in declares one yet. One pull request fills them in
+  for every built-in of one stage, each with its quote from the paper, and puts
+  published numbers beside reproduced ones.
 - **A benchmark adapter.** MIRACL and BRIGHT, below.
 
 ---
@@ -92,6 +96,7 @@ open items are labeled
 |---|---|---|
 | MIRACL | [2210.09984](https://arxiv.org/abs/2210.09984) | Lasagna's benchmarks are English. MIRACL has human-judged relevance in 18 languages; start with one. |
 | BRIGHT | [2407.12883](https://arxiv.org/abs/2407.12883) | Relevance that needs reasoning, not word overlap. Shows whether a reranker or query enhancer helps when matching is not enough. |
+| GraphRAG-Bench | [2506.05690](https://arxiv.org/abs/2506.05690) | Built to say when a graph helps: questions at four levels, on novels and on medical text. Scores each graph method by the kind of question ([#60](https://github.com/dolev31/lasagna/issues/60)). |
 
 To evaluate on data of your own, no adapter is needed: see
 [your own data](../own-data.md).
@@ -128,9 +133,6 @@ For people running Lasagna as a service. Labeled
 - **Vector backends: Chroma, LanceDB, Elasticsearch.** Six run today. Each new
   one is an adapter class and the shared conformance test, which says where an
   adapter differs. See [vector backends](../guides/vector-backends.md).
-- **An OpenAI-compatible answer endpoint, with streaming.** The REST API
-  searches, but has no route that retrieves and then answers, and nothing
-  streams.
 - **Weights & Biases and MLflow.** A run writes a results bundle; nothing sends
   it to a tracker yet.
 
@@ -142,10 +144,15 @@ vLLM. Open an issue before you start one.
 
 ## How to claim an item
 
-1. Comment on its issue: "I'm taking this."
-2. Open a draft pull request within two weeks, or the claim lapses and someone
+1. Read the issue's comments. If someone has already claimed it with a plan, it
+   is taken: pick another.
+2. Comment "I'm taking this" with your plan: the files you will change, the test
+   that will fail on `main`, and the `docker compose` commands you will run (for
+   a study: the question, the arms, what is held fixed, and what would prove it
+   wrong).
+3. Open a draft pull request within two weeks, or the claim lapses and someone
    else can take it.
-3. Before you ask for review, meet [the bar](contributing.md#the-bar-for-a-pull-request).
+4. Before you ask for review, meet [the bar](contributing.md#the-bar-for-a-pull-request).
 
 Questions go to
 [Discussions](https://github.com/dolev31/lasagna/discussions/categories/q-a).

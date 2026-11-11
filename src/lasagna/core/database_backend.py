@@ -168,6 +168,46 @@ class DatabaseBackend(Protocol):
         ...
 
     # ------------------------------------------------------------------
+    # Knowledge graph (retrieval/graph/graph_store.py), shared by every process
+    # ------------------------------------------------------------------
+
+    def save_graph_document(
+        self,
+        session_id: str,
+        collection_name: str,
+        document_id: str,
+        entities: List[tuple],
+        mentions: List[tuple],
+        edges: List[tuple],
+        extraction_model: Optional[str] = None,
+        complete: bool = True,
+        unparsed_chunks: int = 0,
+    ) -> None:
+        """Replace the document's part of a graph: ``(name, type, embedding)``,
+        ``(name, chunk_id)`` and ``(source, target, rel_type)`` rows; ``complete``
+        records the document as extracted."""
+        ...
+
+    def extracted_graph_documents(
+        self, session_id: str, collection_name: str
+    ) -> Dict[str, Dict[str, Any]]:
+        """The documents whose every chunk was answered:
+        ``{document_id: {"model": extraction_model, "unparsed_chunks": n}}``."""
+        ...
+
+    def load_graph(self, session_id: str, collection_name: str) -> tuple:
+        """The graph's ``(entities, mentions, edges)``, each mention and edge with its document."""
+        ...
+
+    def delete_graph_document(self, session_id: str, document_id: str) -> None:
+        """Remove the document's part of every graph of the session."""
+        ...
+
+    def drop_graphs(self, session_id: str, collection_name: Optional[str] = None) -> None:
+        """Remove every graph of the session, or only its graph over ``collection_name``."""
+        ...
+
+    # ------------------------------------------------------------------
     # Profile operations (session config)
     # ------------------------------------------------------------------
 

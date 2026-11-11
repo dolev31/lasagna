@@ -193,7 +193,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 |---|---|---|---|---|
 | `enable_query_routing` | bool | `true` | `LASAGNA_ENABLE_QUERY_ROUTING`, `RAG_ENABLE_QUERY_ROUTING` | Route each query to the fast, standard or comprehensive tier by its estimated complexity. |
 | `routing_strategy` | str: `rule_based`, `adaptive` | `"rule_based"` | `LASAGNA_ROUTING_STRATEGY`, `RAG_ROUTING_STRATEGY` | Routing strategy: 'rule_based' (deterministic) or 'adaptive' (confidence-aware). |
-| `routing_default_tier` | str: `fast`, `standard`, `comprehensive` | `"standard"` | `LASAGNA_ROUTING_DEFAULT_TIER`, `RAG_ROUTING_DEFAULT_TIER` | Default routing tier when routing is disabled. |
+| `routing_default_tier` | str: `fast`, `standard`, `comprehensive` | `"standard"` | `LASAGNA_ROUTING_DEFAULT_TIER`, `RAG_ROUTING_DEFAULT_TIER` | Routing tier when routing is disabled, unless the caller forces one. |
 | `routing_confidence_threshold` | float, 0.0 to 1.0 | `0.5` | `LASAGNA_ROUTING_CONFIDENCE_THRESHOLD`, `RAG_ROUTING_CONFIDENCE_THRESHOLD` | Confidence threshold below which the adaptive strategy escalates the tier. |
 | `routing_allow_tier_override` | bool | `true` | `LASAGNA_ROUTING_ALLOW_TIER_OVERRIDE`, `RAG_ROUTING_ALLOW_TIER_OVERRIDE` | Allow API callers to force a specific routing tier. |
 | `routing_log_decisions` | bool | `true` | `LASAGNA_ROUTING_LOG_DECISIONS`, `RAG_ROUTING_LOG_DECISIONS` | Log routing decisions for observability. |
@@ -403,6 +403,7 @@ environment only: not from the settings file, and not per session.
 | `RAG_MAX_BATCH_FILES` | `20` | Files in one POST /api/v1/documents/batch; more is refused with 400. |
 | `RAG_MAX_BATCH_BYTES` | `209715200` | Total body of one batch upload (200 MiB); more is refused with 413 before the body is read. |
 | `RAG_SEARCH_TIMEOUT` | `120` | Seconds a REST search may run before it answers 504. |
+| `RAG_CHAT_TIMEOUT` | `120` | Seconds the answer of POST /api/v1/chat/completions may take once its search is done, before it answers 504 (or ends a streamed answer with an error event). |
 | `RAG_MAX_SESSIONS_PER_KEY` | `100` | With RAG_REQUIRE_AUTH on, how many sessions one API key may mint per token lifetime (RAG_SESSION_TOKEN_TTL_SECONDS); one more answers 429. Raise it for an application that makes a session per end user. |
 | `RAG_EMBED_MCP` | `false` | Mount the MCP server at /mcp inside the REST process, for single-process deployments such as Milvus Lite. |
 | `RAG_CONFIGURATOR` | `false` | Mount the configurator UI at /configurator, with its API routes. |

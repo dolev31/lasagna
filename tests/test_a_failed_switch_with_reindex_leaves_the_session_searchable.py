@@ -102,7 +102,9 @@ def _configure(*argv):
     return result, " ".join(result.output.split())
 
 
-def test_a_model_that_cannot_load_changes_nothing(monkeypatch, backend):
+def test_a_model_that_cannot_load_changes_nothing(monkeypatch, backend, only_cached):
+    only_cached(MINILM)
+
     def refusal(model, kind="embedding model", filename="config.json"):
         if model == MINILM:
             return None
@@ -185,7 +187,8 @@ def test_mcp_switches_only_after_the_reindex(models_load, backend):
     assert _active(sid) == "standard"
 
 
-def test_a_forced_switch_to_a_model_that_cannot_load_is_refused(monkeypatch):
+def test_a_forced_switch_to_a_model_that_cannot_load_is_refused(monkeypatch, only_cached):
+    only_cached(MINILM)
     monkeypatch.setattr(
         model_downloads,
         "refusal",

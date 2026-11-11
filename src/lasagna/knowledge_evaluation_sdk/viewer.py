@@ -347,7 +347,7 @@ def _anchor(bench: str) -> str:
 
 def _isolation(run: _Run) -> str:
     """The isolation check, in the words `lasagna benchmark experiment` prints."""
-    from .stages import compared_pairs, isolation_report
+    from .stages import compared_pairs, isolation_report, uncompared_pairs
 
     rows = run.rows
     report = isolation_report(rows)
@@ -356,15 +356,20 @@ def _isolation(run: _Run) -> str:
     if report["undeclared"]:
         items = "".join(f"<li>{_e(line)}</li>" for line in report["undeclared"])
         parts.append(
-            '<div class="note bad"><p>Stage isolation FAILED: the arms differ outside the '
-            "stages they name, so the comparison is not attributable.</p>"
+            '<div class="note bad"><p>Stage isolation FAILED: the arms differ in settings '
+            "neither names, so the comparison is not attributable.</p>"
             f"<ul>{items}</ul></div>"
         )
     elif pairs and not report["inert"]:
         noun = "pair" if pairs == 1 else "pairs"
         parts.append(
             '<div class="note good"><p>Stage isolation: the configuration that reached each '
-            f"stage differs only in the stages the arms name ({pairs} {noun} compared).</p></div>"
+            f"stage differs only in the settings the arms name ({pairs} {noun} compared).</p></div>"
+        )
+    elif not pairs and uncompared_pairs(rows):
+        parts.append(
+            '<div class="note warn"><p>Stage isolation not checked: no two arms could be '
+            "compared, for the reasons below.</p></div>"
         )
     elif not pairs and len(rows) > 1:
         parts.append(
@@ -377,7 +382,24 @@ def _isolation(run: _Run) -> str:
         parts.append(f'<div class="note warn"><p>Inert arm: {_e(line)}</p></div>')
     if not parts:
         parts.append('<p class="muted">One arm only, so there was nothing to compare.</p>')
+    parts.append(_fallbacks(rows))
     return f'<section id="isolation"><h2>Stage isolation</h2>{"".join(parts)}</section>'
+
+
+def _fallbacks(rows: List[Dict[str, Any]]) -> str:
+    """Each stage that fell back while the queries ran, as `validate` names it (#50)."""
+    from .bundle import degraded_findings
+
+    lines = degraded_findings(rows)
+    if not lines:
+        return ""
+    items = "".join(f"<li>{_e(line)}</li>" for line in lines)
+    return (
+        '<div class="note warn"><p>Some stages fell back while the queries ran '
+        "(ACTIVE_FALLBACKS). Each line names the arm, the track and on how many queries; "
+        "a fallback that changed what was retrieved changed the arm's numbers:</p>"
+        f"<ul>{items}</ul></div>"
+    )
 
 
 def _leaderboard(ranking: List[Dict[str, Any]], metric: str) -> str:

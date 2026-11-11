@@ -4,9 +4,16 @@ Thanks for your interest. Lasagna is a research framework, so the most valuable
 contributions are usually new components to compare (a reranker, chunker, query
 enhancer or agentic pipeline) rather than changes to the core.
 
-Enjoying Lasagna? A star helps other researchers find it, and watching it for
-releases (Watch > Custom > Releases) keeps you up to date on changes that
-affect your pull request.
+## Before you start
+
+1. **Star the repository and watch its releases** (Watch > Custom > Releases).
+   Stars help other researchers find Lasagna, and a release can change what your
+   pull request depends on. Click both yourself: an AI agent working for you
+   must not star or watch through `gh` or the API.
+2. **Pick a feature-sized issue.** Read [What we merge](#what-we-merge) first:
+   Lasagna takes components, benchmarks, backends, surfaces, guides and studies,
+   not one-line fixes.
+3. **Claim it with a plan**, as [Claiming an issue](#claiming-an-issue) says.
 
 ## Setup
 
@@ -117,14 +124,66 @@ python scripts/check_pr_body.py --file body.md --diff origin/main
 ```
 
 Looking for something to work on? [Wanted](docs/project/wanted.md) lists what
-Lasagna needs, with a definition of done for each.
+Lasagna needs, with a definition of done for each. Every issue ends with "After
+this", the natural next issues in the same area, so once a pull request of
+yours is merged, the next one is a click away.
+
+### What we merge
+
+A contribution to Lasagna changes what its users can do or trust: a component
+they can compare, a benchmark they can run, a backend or surface they can deploy
+on, a guide whose every command was run, a bug class that can no longer happen,
+or a study with its results. Every issue open for contribution carries one of
+two sizes:
+
+| Label | What it is |
+|---|---|
+| `size: feature` | A component, a benchmark, a backend, a surface, a guide, or a fix for a whole class of bug, with its tests, docs and a run in the stack. |
+| `size: research` | A study with its design fixed before the runs, and a results bundle at the end. |
+
+We do not take tiny pull requests. A typo, a broken link, a one-line version
+pin or a rename, on its own, is closed with thanks: open an issue instead, and a
+maintainer folds it into the next change. Expect review to ask for more than the
+first draft: evidence on the real system, the rest of the class, a measured
+result. "Why" says how you looked for other instances of the problem (the search
+you ran) and lists what you found. A pull request that does not grow to meet
+the issue within two weeks of a review is closed, and the issue goes back to
+the next person.
+
+### Claiming an issue
+
+- **Read the comments first.** The first claim with a plan wins, and the issue
+  stays taken until that claim lapses: no draft pull request with its failing
+  test within two weeks, or a review left unanswered for two weeks. A pull
+  request for an issue someone else has claimed is closed. Claims made before
+  2026-11-04 stand.
+- **Claim with a plan.** The claiming comment says "I'm taking this" and names
+  the files you will change, the test that will fail on `main`, and the
+  `docker compose` commands you will run. For a study, the plan is the research
+  form's fields instead: the question, the arms, what is held fixed, and what
+  result would prove it wrong. A claim without a plan is a question, not a
+  claim.
+- **One claim at a time.** Claim the next once your pull request is merged or
+  closed; the "After this" section of the issue you finished names the ones
+  that build on it.
+- **A pull request delivers its whole issue:** every "Done when" item and the
+  whole class of the problem, not only the line the issue pointed at. Work goes
+  in parts ("Part of #N") only where the issue splits it into steps.
 
 ### Every pull request
 
 - One logical change, with tests. A refactor and a feature are two pull
-  requests. For a new stage, a change to the core, or anything over about 500
-  lines, open an issue first, so the design is agreed before the code is
-  written.
+  requests. Every pull request starts from an issue, except a fix for a whole
+  class of bug; for a new stage, a change to the core, or anything over about
+  500 lines, agree the design in the issue before writing code.
+- It makes Lasagna better for the people who use it, and "Why" says how. A pull
+  request closes a filed issue or a [Wanted](docs/project/wanted.md) item and
+  delivers all of its "Done when". A bug fix with no issue is welcome when it
+  fixes the whole class of the bug, with a test that reproduces it. A typo, a
+  broken link or a pin on its own is an issue, not a pull request
+  ([What we merge](#what-we-merge)). A pull request that only reformats,
+  renames or moves code, with nothing a user gains and no issue that asked for
+  it, is closed.
 - The [template](.github/PULL_REQUEST_TEMPLATE.md) is filled in: why, what
   changed, how it was tested, evidence, agent use, and the checklist. Explain
   *why*; the diff already shows what.

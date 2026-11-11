@@ -8,7 +8,239 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Stress tests default `compose_dir` to `src/lasagna/deploy` (via `tests._paths.DEPLOY_DIR`) instead of a non-existent `<repo>/deploy` (#31).
+- Stress tests now find Docker Compose files in `src/lasagna/deploy` by
+  default (#31).
+
+- **An agentic arm under `speed` runs its loop.** `pipeline.query` forces the
+  agentic tier for an arm that names an agentic pipeline, and the router
+  dropped any forced tier whenever a profile turned query routing off. Under
+  `speed` (routing off, default tier `fast`), every agentic arm (the five
+  published loops, the structured graph and legacy ReAct) searched the fast
+  tier, never ran its loop, and was scored on the harness's own answer, with
+  no warning. A tier the caller forces now holds when routing is off, unless
+  `routing_allow_tier_override` is false. That also covers `routing_tier` on
+  `POST /api/v1/search`, the citations route and the SDK's `search`, and CRAG,
+  which forces the agentic tier and, with `use_agentic_rag` off, now runs the
+  standard tier under `speed` instead of the fast one. An agentic sample
+  answered by any other tier now counts in `agentic_fallback`, not only one
+  whose agentic run failed. Numbers move under a profile with routing off and
+  a default tier other than `comprehensive` (of the built-in profiles,
+  `speed`): for agentic arms, and for a CRAG arm that turned on a stage the
+  fast tier turns off, such as a reranker.
+
+## [0.3.0] - 2026-11-07
+
+Chat with a corpus from any OpenAI client, a knowledge graph every process
+shares, and benchmarks that say when a stage fell back. Thank you to
+[@segevshlomovIBM](https://github.com/segevshlomovIBM), for the stage isolation
+check's move to judging each setting an arm names, on each track that ran
+(#25), and for the evidence runs in the Compose stack that found hybrid search
+failing over with no trace in the bundle (#50) and, under `speed`, running
+dense-only (#52), both fixed here.
+
+Upgrading:
+
+- New runs get new stage digests, and a run that writes no answers no longer
+  records a judge, so their comparability keys differ from 0.2.x results; and
+  seven settings under `system.stages.<stage>.settings` are recorded per
+  track.
+- A benchmark graph arm's corpus is ingested once more: its key now holds the
+  extraction model.
+- Documents uploaded with `enable_graph_retrieval` before 0.3.0 have no stored
+  graph (0.2.x kept it in one process's memory), so graph expansion finds
+  nothing for them until they are reindexed:
+  `POST /api/v1/documents/{document_id}/reindex` for one, or
+  `POST /api/knowledge/reindex` for every document of a session. The reindex
+  reads the stored file, and needs an LLM to extract with.
+- The new graph tables are created on their own, on SQLite and PostgreSQL;
+  there is nothing to migrate.
+
+### Deprecated
+
+- The old names renamed in 0.1.0 (`lasagna benchmark compare`, `lasagna
+  benchmark leaderboard`, `results interaction --bootstrap`, and the names
+  dropped from `lasagna.__all__`) and the unversioned `/api/config/knowledge`
+  routes stay for one more release, with their warnings: the old names are
+  removed in 0.4.0, and the routes move under `/api/v1` then, once the
+  configurator calls them there. 0.2.0 said 0.3.0.
+- `lasagna.retrieval.graph.get_or_create_session_graph`: it builds a graph no
+  other process sees, and retrieval no longer reads it. Use `graph_for` and
+  `index_document_graph`.
+
+### Added
+
+- A benchmark's run record says how each graph arm's corpus got its knowledge
+  graph: `system.graph.state` is `built`, `reused`, or `rebuilt` when a reused
+  corpus had none (ingested before the graph was stored in the metadata
+  database), whose documents are then extracted again from the chunks
+  already stored (#55), as are documents another extraction model did.
+  `incomplete`, with how many documents are `missing`, when some could not be
+  extracted (no LLM, a failed call); every query of that arm counts as a
+  `graphrag` fallback, so the bundle says so. A document that names no entity,
+  or whose replies held no readable JSON (`unparsed_chunks`), counts as
+  extracted. The benchmark ingest stores a
+  document's graph only once the document is in, so a corpus whose ingest
+  failed leaves none. Two graph arms that differ in `graph_extraction_model`
+  or `graph_entity_types` get a corpus each, and an arm that names no model is
+  keyed by the default model. That key is new: a graph arm's corpus ingested
+  before it is ingested once more.
+- `POST /api/v1/chat/completions` and `GET /api/v1/models`: chat with a
+  session's documents from any OpenAI client library or chat front end (#13).
+  The route searches with the session's pipeline, as `/search/citations` does,
+  under the same session header, auth, deadline and quota, and writes the
+  answer with the `cited` generator from the configured LLM. It answers in the
+  OpenAI format, at once or streamed as server-sent events ending with
+  `data: [DONE]`, with the passages as `citations` (`[n]` in the answer is
+  `citations[n-1]`) and `degraded_stages`. The answer runs under the new
+  `RAG_CHAT_TIMEOUT` (120 s); the LLM is checked before the search, and an
+  answer that fails is not retried by the client (`x-should-retry: false`), so
+  nothing is searched for an answer that cannot be written. The endpoint reference, the REST
+  guide and the README show how; every stated endpoint count is now checked
+  against the API's OpenAPI schema, and every route against the reference.
+
+### Fixed
+
+- A run that writes no answers names no judge and no answer-similarity
+  model, since only answers are judged. A live retrieval sweep recorded the
+  judge from `RAG_EVAL_JUDGE_MODEL` or `judge_model:`, and the similarity
+  model from `RAG_EVAL_SIMILARITY_MODEL` or its default: with the judge set to
+  an alias (`llama3.2`) it failed `lasagna results validate --strict` with
+  `UNRESOLVED_JUDGE_ALIAS`, and two identical retrieval runs split on a
+  leaderboard by which judge the environment named. A new run's key differs
+  from an older identical one's; an older results file keeps its key however
+  it is bundled, and bundled again it loses the warning. A benchmark whose
+  mode resolves to `generation_only` (TriviaQA under `auto`) answers and is
+  judged whatever the tracks, so it keeps its judge, and now records the
+  default judge when none is named, which changes its key too.
+- The knowledge graph `enable_graph_retrieval` builds is kept in the metadata
+  database every process shares, so a search finds the graph whichever process
+  built it (Part of #55). It lived in the memory of the process that ingested:
+  in the Compose stack the Celery worker built it and every API worker searched
+  an empty one, silently, and a restart lost it. It is now stored per session
+  and collection (SQLite, or PostgreSQL in the stack), each mention and edge
+  with its document, after the document's chunks are stored, and each process
+  loads it again once the session's documents change (an upload, a delete, a
+  benchmark's ingest). Storing a document again replaces its part, so a
+  reindex leaves no old chunk ids behind, and an upload that fails keeps none.
+  A search no longer creates an empty graph. Concurrent writers lock entities
+  in one order, so PostgreSQL does not deadlock them. In
+  `lasagna.retrieval.graph`, `get_or_create_session_graph` is deprecated (it
+  builds a graph no other process sees, and retrieval no longer reads it); use
+  `graph_for` and `index_document_graph`. `GraphRetriever.expand` takes
+  `collection_name`, defaulting to the session's.
+- Deleting a document removes its part of the session's knowledge graphs, on
+  every delete path, and deleting a session drops what is left; a reset
+  forgets the graphs a process had loaded, and a stale benchmark corpus drops
+  its graph with its vectors (#55).
+- Hybrid search asks about the collection it searches, and a connection pool
+  passes the question on (#50, #52). The Compose stack wraps its Milvus server
+  in a pool (`RAG_CONNECTION_POOL_SIZE=10`) that did not pass on
+  `collection_supports_native_hybrid`, so every collection counted as able to
+  run native hybrid search. The collections Lasagna creates have no
+  `sparse_embedding` field, so every hybrid search tried the native call,
+  failed and fell back (all 12 queries of a `standard` run on `smoke`). The
+  same answer skipped filling the BM25 index from the store, so wherever a
+  process had not indexed the chunks itself, the fallback found it empty and
+  returned dense results only. In the stack, the Celery worker ingests
+  uploads, so this was every REST and MCP hybrid search an API worker ran: in
+  a test of 22 searches on one upload, all 4 that ran (one per worker) fell
+  back to dense-only, and the search cache served the other 18 from them. In a
+  benchmark, it was a hybrid arm on a corpus ingested with hybrid off: under `speed`
+  it scored exactly the control, ndcg@10 0.9464 on `smoke`, where Milvus Lite
+  gives 0.9505. In the stack it now gives 0.9505, with map@10 and R-precision
+  as on Milvus Lite. The base adapter answers per collection from its
+  capabilities (pgvector, OpenSearch and Weaviate as before), Milvus reads the
+  collection's fields, and the pool asks one of its instances. The searcher
+  never answers yes without asking, and asks about the collection a session
+  searches, which the benchmark names before its first search. The legacy
+  Milvus searcher serves only the collection it was built for. On a collection
+  without the field, `MilvusBackend.hybrid_search` returns dense results and
+  reports a degraded `hybrid` stage instead of failing. Numbers move only for
+  hybrid search on a Milvus server where it had run dense-only.
+- A stage that falls back while a benchmark's queries run is named in the
+  results and the bundle (Part of #50). Hybrid search, the graph expansion
+  and other stages catch their own failure, carry on with less and record it;
+  REST, MCP and the SDK reported those stages, and the benchmark harness
+  never collected them. In the Compose stack, every query of a hybrid arm
+  under `speed` failed the native call and then ran dense-only, scoring
+  exactly the control (#52), and its bundle carried no fallback. Each task now
+  records `system.degraded_stages`: per track, the stage, on how many of its
+  queries, and up to three reasons with the queries each covered, so a
+  dense-only fallback is told apart from one that changed nothing. The bundle
+  raises `ACTIVE_FALLBACKS` with one line per arm, track and stage
+  (`hybrid fell back during the run: smoke, arm 'hybrid', retrieval track,
+  12 of 12 queries (12 queries: ...; 12 queries: BM25 index empty; dense
+  results only)`), which `lasagna results validate` prints and `--strict`
+  refuses; `lasagna benchmark run`, `benchmark experiment` and
+  `lasagna results view` show the same lines. A task where nothing fell back
+  records nothing new, so its bundle is what it was. Reasons are redacted
+  like the rest of a bundle. A `degraded.collecting()` block opened inside
+  another now hands its stages to the outer one.
+- A document turns `ready` only once a search finds it. On a Milvus server,
+  where searches read at the Bounded level, a search sent the moment a
+  document turned ready missed it: in the default Compose stack 27 of 30 such
+  searches came back without it, and each found it a second later. Before it
+  marks a document ready, an upload or a reindex now waits until the server
+  has applied its chunks (one Strong count per document, about 200 ms; a
+  benchmark's ingest waits once per corpus);
+  searches keep the fast default. Milvus Lite, Qdrant, OpenSearch, pgvector
+  and Weaviate searches already saw a write when it returned, so nothing
+  changes there. Pinecone is eventually consistent and is not covered: there a
+  search sent right after ready can still miss the document.
+- The stage isolation check excuses only the settings an arm declares, and
+  what the harness sets on their account, rather than every setting in a
+  stage an arm names, and judges an inert arm setting by setting. An arm that
+  named `hybrid_alpha` hid a `default_top_k` that leaked into the retriever
+  stage; a reranker sweep, where every arm names a reranker, hid a leaked
+  `rerank_top_k`; an arm that named `hybrid_alpha` and `rrf_k` passed as live
+  when only `rrf_k` arrived. The first two now mark the bundle
+  `UNDECLARED_STAGE_CHANGE`, naming the settings and the track each leaked on
+  that acts on it (`default_top_k on the generation track`); the third is
+  flagged inert for the setting that never arrived. The run's isolation line
+  and `results view` say the arms differ only in the *settings* they name,
+  which is what is checked.
+- The stage manifest records the routing and retrieval-depth settings
+  (`use_agentic_rag`, `agentic_pipeline`, `routing_default_tier`,
+  `similarity_threshold`, `chunk_cite_retrieval`, `default_top_k`,
+  `enable_context_reordering`) per track, as `{"retrieval": ...,
+  "generation": ...}`, the way `context_order` already was, and
+  `system.tracks` records which tracks ran. It digested the values the
+  retrieval track forces on every arm, so on a generation track an arm that
+  set `use_agentic_rag: true` ran the loop, digested like its control, and
+  was called inert; two arms that differed only in `routing_default_tier`
+  could not be told apart. The check now judges such an arm per track: inert
+  on retrieval, where the setting is forced, and live on generation. For
+  anyone parsing `results.json`: each of these settings, under
+  `system.stages.<stage>.settings`, is now that dict where it was a single
+  value. Stage digests, and so comparability keys, change for every run from
+  this change on: a bundle written before `system.tracks` was recorded keeps
+  its verdict under `results validate`, which reads the integrity block the
+  bundle records, and groups on a leaderboard only with bundles written
+  before it; `results bundle` on a results.json written before it runs the
+  new check, so it can refuse what passed then.
+- The isolation check calls a setting only the agentic loop acts on
+  (`max_agent_iterations`, `enable_crag`, `self_ask_*`, `ircot_*`, `flare_*`
+  and the rest) inert on the retrieval track, which runs no loop, and so
+  speculative RAG's (`enable_speculative_rag`, `speculative_*`), which only the
+  answer step reads, since that track makes no answers; it called such an arm
+  live there. An arm inert on one track only marks the bundle `INERT_ARM`, a
+  warning, so `results validate --strict` fails a full-run sweep of such a
+  setting. What the harness sets on one track only (the depth `metric_k` asks
+  retrieval for) is excused on that track only, so a `default_top_k` leaked
+  into a `metric_k` arm's generation config is caught.
+  A pair of arms that shares no track is not compared, and neither is a row
+  written before `system.tracks` was recorded paired with a newer one (a
+  sweep resumed across the upgrade); each is listed as unverified, and with
+  no pair compared the run says why.
+
+## [0.2.1] - 2026-11-04
+
+A patch release: uploads to the default Docker Compose stack are indexed again.
+Thank you to [@tnalbant](https://github.com/tnalbant), for the CLI reference
+that no longer changes with the installed Typer version, and to
+[@segevshlomovIBM](https://github.com/segevshlomovIBM), whose evidence runs on
+Milvus Lite and in the Compose stack found seven harness bugs, filed as #46 to
+#52 (still open).
 
 ### Added
 
@@ -17,6 +249,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   install (with CPU-only torch, under the release's constraints) and Docker on
   first start, so the Compose stack a pull request is tested in runs inside
   it.
+
+### Fixed
+
+- Uploads to the default Docker Compose stack (Milvus server, Celery worker)
+  are indexed again. Before indexing, the worker clears what an earlier attempt
+  at the document left, and a Milvus server refuses a filtered delete on a
+  collection that is not loaded, so before any search had loaded it every upload
+  ended in `error`. `MilvusBackend.delete` and `delete_raw` now load the
+  collection first, as its reads already did.
+- An AUTOINDEX index is accepted by a Milvus server, whether it comes from an
+  `IndexConfig` (which carried its default HNSW params) or from the collection
+  manager with `index_params` set. A server refuses any param but the metric
+  with AUTOINDEX; only Milvus Lite, which builds a FLAT index instead, took it.
+- The generated CLI reference labels an option's type the same way whichever
+  Typer version is installed, so a checkout installed under the release's
+  constraints file (Typer 0.26.8) no longer reports the page as out of date and
+  rewrites it.
+- The evaluation SDK's benchmark catalog lists `2wikimultihopqa` and says 32
+  public benchmarks; it had kept 31 since 0.2.0. Every page that states how many
+  benchmarks, components or published loops there are is now checked against
+  the code, so a pull request that adds one updates each page that counts it.
 
 ## [0.2.0] - 2026-11-01
 
@@ -586,6 +839,8 @@ The first standalone release of Lasagna; this is everything it brings.
 - Lasagna vendors no third-party source, bundles no model weights, and
   redistributes no benchmark corpora.
 
-[Unreleased]: https://github.com/dolev31/lasagna/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/dolev31/lasagna/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dolev31/lasagna/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/dolev31/lasagna/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dolev31/lasagna/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dolev31/lasagna/releases/tag/v0.1.0

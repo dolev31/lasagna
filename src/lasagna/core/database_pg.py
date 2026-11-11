@@ -216,6 +216,50 @@ CREATE TABLE IF NOT EXISTS collection_meta (
 );
 """
 
+
+def _retry_deadlock(write, what: str):
+    """Run ``write``; once more, twice at most, when the server reports a deadlock."""
+    for attempt in range(3):
+        try:
+            return write()
+        except Exception as exc:
+            code = getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)
+            if code != "40P01" or attempt == 2:
+                raise
+            logger.debug(f"{what} deadlocked; retrying")
+
+
+def _lock_entities(cur, session_id: str, names, collection: str = None) -> None:
+    """Lock the session's entity rows of ``names``, in one order, until the transaction ends."""
+    if not names:
+        return
+    scope = " AND collection_name = %s" if collection is not None else ""
+    params = (
+        (session_id, collection, sorted(names))
+        if collection is not None
+        else (
+            session_id,
+            sorted(names),
+        )
+    )
+    cur.execute(
+        f"SELECT 1 FROM graph_entities WHERE session_id = %s{scope} AND name = ANY(%s) "
+        "ORDER BY collection_name, name FOR UPDATE",
+        params,
+    )
+
+
+def _graph_tables_sql():
+    """The knowledge graph's tables, as SQLite has them, with BYTEA for the embedding."""
+    from lasagna.core.database import CREATE_GRAPH_TABLES
+
+    return [
+        statement.strip().replace("embedding BLOB", "embedding BYTEA")
+        for statement in CREATE_GRAPH_TABLES.split(";")
+        if statement.strip()
+    ]
+
+
 # A counter per session, bumped on every upload and delete (see database.py).
 _CREATE_CONTENT_GENERATIONS = """
 CREATE TABLE IF NOT EXISTS content_generations (
@@ -541,6 +585,8 @@ class PostgresRAGDatabase:
                 cur.execute(_CREATE_GC_AUDIT_LOG)
                 cur.execute(_CREATE_GC_LOCK)
                 cur.execute(_CREATE_CONTENT_GENERATIONS)
+                for statement in _graph_tables_sql():
+                    cur.execute(statement)
                 cur.execute(_CREATE_PROFILE_SWITCHES)
                 cur.execute(_CREATE_SESSION_PRINCIPALS)
                 cur.execute(_SESSION_PRINCIPALS_INDEX)
@@ -1914,6 +1960,197 @@ class PostgresRAGDatabase:
                 row = cur.fetchone()
             conn.commit()
         return int(row[0])
+
+    # ------------------------------------------------------------------
+    # Knowledge graph (mirrors RAGDatabase; see retrieval/graph/graph_store.py)
+    # ------------------------------------------------------------------
+
+    def save_graph_document(
+        self,
+        session_id: str,
+        collection_name: str,
+        document_id: str,
+        entities: List[tuple],
+        mentions: List[tuple],
+        edges: List[tuple],
+        extraction_model: Optional[str] = None,
+        complete: bool = True,
+        unparsed_chunks: int = 0,
+    ) -> None:
+        """Replace the document's part of a graph, in one transaction (see RAGDatabase).
+
+        Rows arrive sorted, so two writers lock shared entities in the same
+        order; a deadlock the server still reports is retried.
+        """
+        return _retry_deadlock(
+            lambda: self._save_graph_document(
+                session_id,
+                collection_name,
+                document_id,
+                entities,
+                mentions,
+                edges,
+                extraction_model,
+                complete,
+                unparsed_chunks,
+            ),
+            f"Graph write for {document_id}",
+        )
+
+    def _save_graph_document(
+        self,
+        session_id,
+        collection_name,
+        document_id,
+        entities,
+        mentions,
+        edges,
+        extraction_model=None,
+        complete=True,
+        unparsed_chunks=0,
+    ) -> None:
+        from lasagna.core.database import _delete_orphan_entities, _touched_names
+
+        key = (session_id, collection_name)
+        with self._conn() as conn:
+            try:
+                touched = _touched_names(conn, "%s", session_id, document_id, collection_name)
+                touched |= {row[0] for row in entities}
+                with conn.cursor() as cur:
+                    # Locked first, in order: under READ COMMITTED an orphan
+                    # check that waited on another writer's lock re-read the
+                    # row with its old snapshot and deleted an entity the other
+                    # writer had just mentioned.
+                    _lock_entities(cur, session_id, touched, collection_name)
+                    cur.execute(
+                        "DELETE FROM graph_mentions WHERE session_id = %s AND collection_name = %s "
+                        "AND document_id = %s",
+                        (*key, document_id),
+                    )
+                    cur.execute(
+                        "DELETE FROM graph_edges WHERE session_id = %s AND collection_name = %s "
+                        "AND document_id = %s",
+                        (*key, document_id),
+                    )
+                    if entities:
+                        cur.executemany(
+                            "INSERT INTO graph_entities (session_id, collection_name, name, "
+                            "entity_type, embedding) VALUES (%s, %s, %s, %s, %s) ON CONFLICT "
+                            "(session_id, collection_name, name) DO UPDATE SET entity_type = "
+                            "EXCLUDED.entity_type, embedding = COALESCE(EXCLUDED.embedding, "
+                            "graph_entities.embedding)",
+                            [(*key, n, t, e) for n, t, e in sorted(entities, key=lambda r: r[0])],
+                        )
+                    if mentions:
+                        cur.executemany(
+                            "INSERT INTO graph_mentions (session_id, collection_name, name, "
+                            "chunk_id, document_id) VALUES (%s, %s, %s, %s, %s) "
+                            "ON CONFLICT DO NOTHING",
+                            [(*key, n, c, document_id) for n, c in sorted(mentions)],
+                        )
+                    if edges:
+                        cur.executemany(
+                            "INSERT INTO graph_edges (session_id, collection_name, source, target, "
+                            "rel_type, document_id) VALUES (%s, %s, %s, %s, %s, %s) "
+                            "ON CONFLICT DO NOTHING",
+                            [(*key, a, b, r, document_id) for a, b, r in sorted(edges)],
+                        )
+                _delete_orphan_entities(conn, "%s", session_id, touched, collection_name)
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM graph_documents WHERE session_id = %s AND collection_name = %s "
+                        "AND document_id = %s",
+                        (*key, document_id),
+                    )
+                    if complete:
+                        cur.execute(
+                            "INSERT INTO graph_documents (session_id, collection_name, document_id, "
+                            "extraction_model, unparsed_chunks) "
+                            "VALUES (%s, %s, %s, %s, %s)",
+                            (*key, document_id, extraction_model, int(unparsed_chunks)),
+                        )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+    def load_graph(self, session_id: str, collection_name: str) -> tuple:
+        """The graph's ``(entities, mentions, edges)`` rows (see RAGDatabase)."""
+        key = (session_id, collection_name)
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT name, entity_type, embedding FROM graph_entities "
+                    "WHERE session_id = %s AND collection_name = %s ORDER BY name",
+                    key,
+                )
+                entities = [
+                    (n, t, bytes(e) if e is not None else None) for n, t, e in cur.fetchall()
+                ]
+                cur.execute(
+                    "SELECT name, chunk_id, document_id FROM graph_mentions "
+                    "WHERE session_id = %s AND collection_name = %s ORDER BY name, chunk_id",
+                    key,
+                )
+                mentions = [tuple(r) for r in cur.fetchall()]
+                cur.execute(
+                    "SELECT source, target, rel_type, document_id FROM graph_edges "
+                    "WHERE session_id = %s AND collection_name = %s "
+                    "ORDER BY source, target, document_id",
+                    key,
+                )
+                edges = [tuple(r) for r in cur.fetchall()]
+            conn.commit()
+        return entities, mentions, edges
+
+    def extracted_graph_documents(
+        self, session_id: str, collection_name: str
+    ) -> Dict[str, Dict[str, Any]]:
+        """The documents whose every chunk was answered (see RAGDatabase)."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT document_id, extraction_model, unparsed_chunks FROM graph_documents "
+                    "WHERE session_id = %s AND collection_name = %s",
+                    (session_id, collection_name),
+                )
+                rows = cur.fetchall()
+            conn.commit()
+        return {r[0]: {"model": r[1], "unparsed_chunks": int(r[2] or 0)} for r in rows}
+
+    def delete_graph_document(self, session_id: str, document_id: str) -> None:
+        """Remove the document's part of every graph of the session (see RAGDatabase)."""
+        _retry_deadlock(
+            lambda: self._delete_graph_document(session_id, document_id),
+            f"Graph delete for {document_id}",
+        )
+
+    def _delete_graph_document(self, session_id: str, document_id: str) -> None:
+        from lasagna.core.database import _delete_orphan_entities, _touched_names
+
+        with self._conn() as conn:
+            touched = _touched_names(conn, "%s", session_id, document_id)
+            with conn.cursor() as cur:
+                _lock_entities(cur, session_id, touched)
+                for table in ("graph_mentions", "graph_edges", "graph_documents"):
+                    cur.execute(
+                        f"DELETE FROM {table} WHERE session_id = %s AND document_id = %s",
+                        (session_id, document_id),
+                    )
+            _delete_orphan_entities(conn, "%s", session_id, touched)
+            conn.commit()
+
+    def drop_graphs(self, session_id: str, collection_name: Optional[str] = None) -> None:
+        """Remove every graph of the session, or only its graph over ``collection_name``."""
+        from lasagna.core.database import _GRAPH_TABLES
+
+        where = "session_id = %s" + (" AND collection_name = %s" if collection_name else "")
+        params = (session_id, collection_name) if collection_name else (session_id,)
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                for table in _GRAPH_TABLES:
+                    cur.execute(f"DELETE FROM {table} WHERE {where}", params)
+            conn.commit()
 
     # ------------------------------------------------------------------
     # Collection identity (mirrors RAGDatabase; created on first use)

@@ -82,6 +82,24 @@ def test_changelog_and_citation_dates_must_agree(tmp_path):
     assert check_release.problems(TAG, root=root) == []
 
 
+def test_the_citation_names_the_concept_doi(tmp_path):
+    """A version's own DOI exists only after its release. Set on main between
+    releases, it would reach the next release's archive naming the version before."""
+    root = _copy_tree(tmp_path)
+    cff = root / "CITATION.cff"
+    cff.write_text(
+        cff.read_text(encoding="utf-8").replace(
+            f'doi: "{check_release.CONCEPT_DOI}"', 'doi: "10.5281/zenodo.23941810"'
+        ),
+        encoding="utf-8",
+    )
+    assert 'doi: "10.5281/zenodo.23941810"' in cff.read_text(encoding="utf-8")
+    found = check_release.problems(TAG, root=root, allow_placeholder=True)
+    assert len(found) == 1 and found[0].startswith(
+        "CITATION.cff doi is '10.5281/zenodo.23941810'; it must be the concept DOI"
+    ), found
+
+
 def test_the_notebook_installs_the_release_it_documents(tmp_path):
     """The notebook installed whatever PyPI had newest, so its pinned output
     ("check bundle": "VALID") would have stopped matching with the next release."""

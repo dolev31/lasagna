@@ -13,7 +13,6 @@ from __future__ import annotations
 import os
 import platform
 from dataclasses import dataclass, field, replace
-from pathlib import Path
 from typing import List
 
 from tests._paths import DEPLOY_DIR

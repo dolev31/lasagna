@@ -55,8 +55,13 @@ def test_online_nothing_is_checked(monkeypatch):
 def test_a_datasets_cache_folder_with_a_complete_build_counts_as_cached(monkeypatch, tmp_path):
     """An empty folder no longer does: see test_a_partial_dataset_cache_reads_as_missing.py."""
     import datasets.config as datasets_config
+    from huggingface_hub import constants
 
     monkeypatch.setattr(datasets_config, "HF_DATASETS_CACHE", str(tmp_path))
+    # dataset_cached also accepts a hub snapshot, and HF_HOME is the developer's
+    # real cache: with mteb/scifact downloaded there, the empty folder above
+    # read as cached.
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path / "hub"))
     assert not datasets.dataset_cached("mteb/scifact")
     build = tmp_path / "mteb___scifact" / "corpus" / "0.0.0" / "abc"
     build.mkdir(parents=True)
