@@ -13,8 +13,9 @@ from __future__ import annotations
 import os
 import platform
 from dataclasses import dataclass, field, replace
-from pathlib import Path
 from typing import List
+
+from tests._paths import DEPLOY_DIR
 
 
 @dataclass(frozen=True)
@@ -64,7 +65,7 @@ class StressConfig:
         This creates a base config without backend-specific overrides.
         Call ``for_backend(name)`` to get a backend-specific copy.
         """
-        default_compose = str(Path(__file__).resolve().parents[2] / "deploy")
+        default_compose = str(DEPLOY_DIR)
 
         return cls(
             api_base_url=os.environ.get("STRESS_API_URL", "http://localhost:8000"),

@@ -8,6 +8,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Stress tests now find Docker Compose files in `src/lasagna/deploy` by
+  default (#31).
+
 - **An agentic arm under `speed` runs its loop.** `pipeline.query` forces the
   agentic tier for an arm that names an agentic pipeline, and the router
   dropped any forced tier whenever a profile turned query routing off. Under
