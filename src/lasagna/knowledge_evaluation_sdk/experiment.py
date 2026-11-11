@@ -1524,9 +1524,11 @@ class _StaleCorpusCleanupError(RuntimeError):
 def _agentic_fell_back(agentic_requested: bool, search_results: List[Any]) -> bool:
     """Whether an agentic request was served by standard retrieval instead.
 
-    The orchestrator stamps the tier that ran on the first result. A failed
-    agentic run falls back to standard search and still returns results, so an
-    empty list is not the only sign of a fallback.
+    The agentic tier stamps "comprehensive" on the first result it returns. A
+    failed agentic run falls back to standard search and stamps
+    "standard_fallback", and a query the router sent to another tier carries no
+    stamp at all; both still return results, so an empty list is not the only
+    sign of a fallback.
     """
     if not agentic_requested:
         return False
@@ -1534,7 +1536,7 @@ def _agentic_fell_back(agentic_requested: bool, search_results: List[Any]) -> bo
         return True
     first_chunk = getattr(search_results[0], "chunk", None)
     tier_used = (getattr(first_chunk, "metadata", None) or {}).get("_routing_tier_used")
-    return tier_used == "standard_fallback"
+    return tier_used != "comprehensive"
 
 
 _TOP_LEVEL_KEYS = frozenset(
