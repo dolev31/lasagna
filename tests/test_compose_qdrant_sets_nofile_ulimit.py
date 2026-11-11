@@ -53,23 +53,17 @@ PINNED = {
 }
 
 # (compose file, service) -> (burst/measure test relative to tests/, what the run decides)
-# Measured pairs keep their entry (and note) so the evidence stays visible;
-# move a pair to PINNED or SAFE_UNSET when a new run changes the decision.
-PENDING_MEASUREMENT = {
-    ("backends/milvus.yml", "milvus"): (
-        "stress/test_milvus_fd_burst.py",
-        # Measured 2026-11-03 in a GitHub Codespace against the milvus compose
-        # stack: container `ulimit -n` = 1024 (soft), `ulimit -Hn` = 1048576
-        # (hard), with no ulimits in backends/milvus.yml. The 8-client burst
-        # ran 50/50 clean (zero failures), so the default holds and milvus.yml
-        # stays unpinned; the measured numbers are recorded here.
-        "measured: default soft nofile 1024 / hard 1048576, 8-client burst "
-        "50/50 clean (zero failures) -- default holds, no pin needed",
-    ),
-}
+# Pairs stay here only while unmeasured; once a run reports, move the pair to
+# PINNED or SAFE_UNSET and record the measured numbers in the reason.
+PENDING_MEASUREMENT = {}
 
 # (compose file, service) -> one-line reason for leaving the default unset
 SAFE_UNSET = {
+    ("backends/milvus.yml", "milvus"): (
+        "safe, because the 8-client burst measured 2026-11-03 ran 50/50 clean "
+        "(zero failures) at the default soft nofile 1024 / hard 1048576, so the "
+        "default holds and no pin is needed"
+    ),
     ("backends/weaviate.yml", "weaviate"): (
         "safe, because the Weaviate container runs one server process and never "
         "fans out concurrent collection creators itself -- collections are "
