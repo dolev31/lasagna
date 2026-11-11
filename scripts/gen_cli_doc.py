@@ -130,6 +130,13 @@ def _is_argument(param) -> bool:
     return "Argument" in type(param).__name__
 
 
+def _argument_name(param) -> str:
+    # The metavar, else the name: `human_readable_name` up to Typer 0.28,
+    # `display_name_raw` from Typer 0.29, which builds no click parameters.
+    name = getattr(param, "human_readable_name", None)
+    return name if name is not None else param.display_name_raw
+
+
 def _is_group(cmd) -> bool:
     return hasattr(cmd, "commands")
 
@@ -166,9 +173,57 @@ def _label(type_) -> str:
     return type_.name.lower()
 
 
+def _annotation_label(annotation, info=None) -> str:
+    """The label of a Typer 0.29 parameter, read from its annotation.
+
+    The same labels the click types give on an older Typer (see ``_label``).
+    ``info`` is the parameter's ``ParameterInfo``, which says whether a path
+    must be a file or a directory.
+    """
+    import enum
+    import types
+    from typing import Literal, Union, get_args, get_origin
+
+    origin, args = get_origin(annotation), get_args(annotation)
+    if origin in (Union, types.UnionType):  # Optional[X]
+        kept = [a for a in args if a is not type(None)]
+        if len(kept) == 1:
+            return _annotation_label(kept[0], info)
+    if origin is tuple:
+        return "<" + " ".join(_annotation_label(a, info) for a in args) + ">"
+    if origin in (list, set, frozenset) and args:  # a repeated option
+        return _annotation_label(args[0], info)
+    if origin is Literal:
+        return " | ".join(str(a) for a in args)
+    if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+        return " | ".join(str(m.value) for m in annotation)
+    mro = getattr(annotation, "__mro__", ())
+    if any(cls.__name__ in _TYPER_FILES for cls in mro):
+        return "filename"  # click's File type
+    if Path in mro:
+        if getattr(info, "dir_okay", True) is False:
+            return "file"
+        if getattr(info, "file_okay", True) is False:
+            return "directory"
+        return "path"
+    for cls in mro:
+        label = {str: "text", bool: "bool", int: "int", float: "float"}.get(cls)
+        if label:
+            return label
+    return getattr(annotation, "__name__", str(annotation)).lower()
+
+
+#: Typer's file annotations, which click labels "filename".
+_TYPER_FILES = {"FileText", "FileTextWrite", "FileBinaryRead", "FileBinaryWrite"}
+
+
 def _type(param) -> str:
     if param.is_flag:
         return ""
+    if not hasattr(param, "type"):
+        # Typer 0.29 keeps the annotation and builds no click type.
+        desc = param.type_descriptor
+        return _annotation_label(desc.annotation, getattr(desc, "parameter_info", None))
     if hasattr(param.type, "choices"):
         return " | ".join(str(c) for c in param.type.choices)
     if getattr(param.type, "types", None):
@@ -186,7 +241,7 @@ def _options_table(cmd) -> List[str]:
     if args:
         lines += ["**Arguments**", "", "| Argument | Required | Description |", "|---|:--:|---|"]
         for p in args:
-            label = p.human_readable_name.upper() + ("..." if p.nargs == -1 else "")
+            label = _argument_name(p).upper() + ("..." if p.nargs == -1 else "")
             lines.append(
                 f"| `{label}` | {'yes' if p.required else 'no'} | {_cell(getattr(p, 'help', '') or '')} |"
             )
@@ -215,7 +270,7 @@ def _usage(cmd, path: str) -> str:
         pieces.append("[OPTIONS]")
     for p in cmd.params:
         if _is_argument(p):
-            name = p.human_readable_name.upper() + ("..." if p.nargs == -1 else "")
+            name = _argument_name(p).upper() + ("..." if p.nargs == -1 else "")
             pieces.append(name if p.required else f"[{name}]")
     return " ".join([path, *pieces])
 
