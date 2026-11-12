@@ -15,6 +15,7 @@ from loguru import logger
 from lasagna.agentic.agentic_rag import AgenticRAGResult
 from lasagna.agentic.loops._base import LoopPipeline, LoopRun, interleave, message_text, setting
 from lasagna.agentic.loops.ircot import ircot_read, ircot_retrieve
+from lasagna.agentic.prompts import resolve_node_model
 
 #: The classifier, prompted with the paper's own definitions of its three
 #: classes (Section 3.2, verbatim). The paper trains a T5 classifier on these
@@ -63,11 +64,13 @@ class AdaptiveRAGPipeline(LoopPipeline):
     The paper's classifier is a trained T5-large; neither the paper nor its
     code has a prompted one. Here an LLM is prompted with the paper's own
     definitions of the three classes (``CLASSIFIER_PROMPT``), on
-    ``adaptive_rag_classifier_model`` when set, else the loop's model. A
-    reply naming no class is an error, never a default route. The label and
-    route are recorded in ``loop_trace``. A class-A answer retrieved nothing
-    and returns no passages: judged for faithfulness to its context, it is the
-    ungrounded answer it is.
+    ``adaptive_rag_classifier_model`` when set, else the loop's model, always
+    at ``temperature=0.0`` (classification is a deterministic routing decision,
+    while the reader and IRCoT steps use ``agent_temperature``). A reply
+    naming no class is an error, never a default route. The label and route are
+    recorded in ``loop_trace``. A class-A answer retrieved nothing and returns
+    no passages: judged for faithfulness to its context, it is the ungrounded
+    answer it is.
 
     The single-step depth is 5, the authors' base configuration (their run
     script sets 15). Settings: ``adaptive_rag_classifier_model``,
@@ -109,9 +112,13 @@ class AdaptiveRAGPipeline(LoopPipeline):
 
     def _classifier(self, run: LoopRun) -> Any:
         model = str(setting(run.config, "adaptive_rag_classifier_model") or "")
-        if not model:
+        temperature = float(setting(run.config, "agent_temperature") or 0.0)
+        built_temp = getattr(run.llm, "temperature", None) if run.llm is not None else None
+        if not model and temperature == 0.0 and (built_temp is None or built_temp == 0.0):
             return run.llm
         from lasagna.providers import get_llm_provider
 
-        # The classifier is a routing decision, not a reasoning step.
-        return get_llm_provider().get_llm(model_name=model, temperature=0.0)
+        # The classifier is a routing decision, not a reasoning step; keep it
+        # deterministic at temperature=0.0 whether its model is pinned or shared.
+        target_model = model or resolve_node_model(self.method, run.config)
+        return get_llm_provider().get_llm(model_name=target_model, temperature=0.0)

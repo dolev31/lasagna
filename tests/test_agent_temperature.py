@@ -4,12 +4,16 @@ from types import SimpleNamespace
 
 import pytest
 from lasagna.agentic.agentic_rag import (
+    AgenticRAG,
+    LegacyReActPipeline,
     RetrievedChunkData,
     _grade_retrieval_quality,
     search_knowledge_base,
 )
+from lasagna.agentic.graph_builder import BuiltinStructuredPipeline
 from lasagna.agentic.loops._base import loop_llm
 from lasagna.agentic.nodes.refine_chunks import refine_chunks_node
+from lasagna.providers.llm_provider import SimpleLLMProvider
 from tests._loop_stubs import ScriptedLLM, hit, install_backend, pipeline_input
 
 
@@ -17,17 +21,25 @@ class RecordingProvider:
     def __init__(self, replies=None):
         self.llm_calls = []
         self.chat_calls = []
-        self.replies = replies
+        self.shared_llm = ScriptedLLM(replies or ["No.\nSo the final answer is: done"])
 
     def get_llm(self, model_name=None, temperature=0.0, **kwargs):
         self.llm_calls.append({"model_name": model_name, "temperature": temperature, **kwargs})
-        return ScriptedLLM(self.replies or ["No.\nSo the final answer is: done"])
+        llm = ScriptedLLM([])
+        llm.replies = self.shared_llm.replies
+        llm.prompts = self.shared_llm.prompts
+        llm.stops = self.shared_llm.stops
+        llm.bound = self.shared_llm.bound
+        llm.temperature = temperature
+        return llm
 
     def get_chat_model(self, model_settings, temperature=0.0, **kwargs):
         self.chat_calls.append(
             {"model_settings": model_settings, "temperature": temperature, **kwargs}
         )
-        return ScriptedLLM(self.replies or ["refined"])
+        llm = ScriptedLLM(self.shared_llm.replies or ["refined"])
+        llm.temperature = temperature
+        return llm
 
 
 def _config(**overrides):
@@ -50,27 +62,54 @@ def _config(**overrides):
 
 
 @pytest.mark.asyncio
-async def test_shared_loop_model_is_bound_to_agent_temperature(monkeypatch):
-    llm = ScriptedLLM(["No.\nSo the final answer is: done"])
-    config = _config()
-
+async def test_shared_loop_model_is_constructed_with_agent_temperature(monkeypatch):
+    import lasagna.providers
     from lasagna.agentic.loops.self_ask import SelfAskPipeline
 
-    result = await SelfAskPipeline().run(pipeline_input("q", llm, config))
+    provider = RecordingProvider(["No.\nSo the final answer is: done"])
+    monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: provider)
+    config = _config(agent_temperature=0.9)
+
+    result = await SelfAskPipeline().run(pipeline_input("q", None, config))
 
     assert result.agent_summary == "done"
-    assert llm.bound == [{"temperature": 0.9}]
+    assert provider.llm_calls == [{"model_name": None, "temperature": 0.9}]
+
+
+@pytest.mark.asyncio
+async def test_shared_loop_model_rebuilds_when_handed_mismatched_temperature(monkeypatch):
+    import lasagna.providers
+    from lasagna.agentic.loops.self_ask import SelfAskPipeline
+
+    provider = RecordingProvider(["No.\nSo the final answer is: done"])
+    monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: provider)
+    wrong_temp_llm = ScriptedLLM(["unused"])
+    wrong_temp_llm.temperature = 0.0
+    config = _config(agent_temperature=0.9)
+
+    result = await SelfAskPipeline().run(pipeline_input("q", wrong_temp_llm, config))
+
+    assert result.agent_summary == "done"
+    assert provider.llm_calls == [{"model_name": None, "temperature": 0.9}]
+    assert wrong_temp_llm.bound == []
 
 
 def test_loop_default_temperature_is_zero(monkeypatch):
+    import lasagna.providers
     from lasagna.core import config as config_module
 
-    monkeypatch.setattr(config_module, "rag_config", SimpleNamespace(agent_temperature=0.0))
-    llm = ScriptedLLM([])
+    provider = RecordingProvider(["No.\nSo the final answer is: done"])
+    monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: provider)
+    monkeypatch.setattr(
+        config_module,
+        "rag_config",
+        SimpleNamespace(agent_temperature=0.0, agentic_models={}),
+    )
 
-    resolved = loop_llm("self_ask", pipeline_input("q", llm), SimpleNamespace())
+    resolved = loop_llm("self_ask", pipeline_input("q", None), SimpleNamespace())
 
-    assert resolved is llm
+    assert resolved.temperature == 0.0
+    assert provider.llm_calls == [{"model_name": None, "temperature": 0.0}]
 
 
 def test_pinned_loop_model_is_constructed_with_agent_temperature(monkeypatch):
@@ -83,6 +122,75 @@ def test_pinned_loop_model_is_constructed_with_agent_temperature(monkeypatch):
     loop_llm("self_ask", SimpleNamespace(llm=ScriptedLLM([])), config)
 
     assert provider.llm_calls == [{"model_name": "pinned-model", "temperature": 0.9}]
+
+
+def test_agentic_rag_create_uses_session_agent_temperature(monkeypatch):
+    from lasagna.agentic import agentic_rag
+
+    provider = RecordingProvider(["answer"])
+    monkeypatch.setattr(agentic_rag, "get_llm_provider", lambda: provider)
+    monkeypatch.setattr(agentic_rag, "is_langfuse_tracing_enabled", lambda: False)
+    monkeypatch.setattr(agentic_rag, "create_agent", lambda llm, tools, system_prompt: "graph")
+    config = _config(agent_temperature=0.9, use_structured_graph=False)
+
+    agent = AgenticRAG.create(session_config=config)
+
+    assert len(provider.chat_calls) == 1
+    assert provider.chat_calls[0]["temperature"] == 0.9
+    assert agent.llm.temperature == 0.9
+
+
+@pytest.mark.asyncio
+async def test_legacy_react_pipeline_constructs_llm_with_agent_temperature(monkeypatch):
+    from lasagna.agentic import agentic_rag
+    import lasagna.providers
+
+    provider = RecordingProvider(["answer"])
+    monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: provider)
+    monkeypatch.setattr(agentic_rag, "create_agent", lambda llm, tools, system_prompt: "graph")
+    captured = {}
+
+    async def _fake_retrieve(self, **kwargs):
+        captured["llm_temp"] = getattr(self.llm, "temperature", None)
+        return "ok"
+
+    monkeypatch.setattr(AgenticRAG, "retrieve", _fake_retrieve)
+    wrong_temp_llm = ScriptedLLM(["unused"])
+    wrong_temp_llm.temperature = 0.0
+    config = _config(agent_temperature=0.9, max_agent_iterations=2)
+
+    await LegacyReActPipeline().run(pipeline_input("q", wrong_temp_llm, config))
+
+    assert provider.llm_calls == [{"model_name": None, "temperature": 0.9}]
+    assert captured["llm_temp"] == 0.9
+    assert wrong_temp_llm.bound == []
+
+
+@pytest.mark.asyncio
+async def test_structured_graph_pipeline_constructs_llm_with_agent_temperature(monkeypatch):
+    from lasagna.agentic import graph_builder
+    import lasagna.providers
+
+    provider = RecordingProvider(["answer"])
+    monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: provider)
+    captured = {}
+
+    class _FakeGraph:
+        async def ainvoke(self, state):
+            captured["llm_temp"] = getattr(state["llm"], "temperature", None)
+            return {"agent_summary": "done"}
+
+    monkeypatch.setattr(graph_builder, "build_rag_graph", lambda **kwargs: _FakeGraph())
+    wrong_temp_llm = ScriptedLLM(["unused"])
+    wrong_temp_llm.temperature = 0.0
+    config = _config(agent_temperature=0.9, max_agent_iterations=2)
+
+    result = await BuiltinStructuredPipeline().run(pipeline_input("q", wrong_temp_llm, config))
+
+    assert result.agent_summary == "done"
+    assert provider.llm_calls == [{"model_name": None, "temperature": 0.9}]
+    assert captured["llm_temp"] == 0.9
+    assert wrong_temp_llm.bound == []
 
 
 @pytest.mark.asyncio
@@ -169,17 +277,41 @@ async def _refined_chunk(index, content):
 
 
 @pytest.mark.asyncio
-async def test_adaptive_classifier_stays_deterministic(monkeypatch):
+async def test_pinned_adaptive_classifier_stays_deterministic(monkeypatch):
     from lasagna.agentic.loops.adaptive import AdaptiveRAGPipeline
     import lasagna.providers
 
-    provider = RecordingProvider(["A", "answer"])
+    provider = RecordingProvider(["A", "So the answer is: done."])
     monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: provider)
-    config = _config(adaptive_rag_classifier_model="classifier")
+    config = _config(agent_temperature=0.9, adaptive_rag_classifier_model="classifier")
 
-    await AdaptiveRAGPipeline().run(pipeline_input("q", ScriptedLLM(["A", "answer"]), config))
+    result = await AdaptiveRAGPipeline().run(pipeline_input("q", None, config))
 
-    assert provider.llm_calls == [{"model_name": "classifier", "temperature": 0.0}]
+    assert result.agent_summary == "done"
+    assert provider.llm_calls == [
+        {"model_name": None, "temperature": 0.9},
+        {"model_name": "classifier", "temperature": 0.0},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unpinned_adaptive_classifier_stays_deterministic_while_reasoning_uses_agent_temperature(
+    monkeypatch,
+):
+    from lasagna.agentic.loops.adaptive import AdaptiveRAGPipeline
+    import lasagna.providers
+
+    provider = RecordingProvider(["A", "So the answer is: done."])
+    monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: provider)
+    config = _config(agent_temperature=0.9, adaptive_rag_classifier_model="")
+
+    result = await AdaptiveRAGPipeline().run(pipeline_input("q", None, config))
+
+    assert result.agent_summary == "done"
+    assert provider.llm_calls == [
+        {"model_name": None, "temperature": 0.9},
+        {"model_name": None, "temperature": 0.0},
+    ]
 
 
 @pytest.mark.asyncio
@@ -203,3 +335,11 @@ async def test_crag_grading_stays_deterministic(monkeypatch):
     await _grade_retrieval_quality("q", [chunk], config)
 
     assert provider.chat_calls[-1]["temperature"] == 0.0
+
+
+def test_ollama_model_constructed_with_temperature_without_binding():
+    provider = SimpleLLMProvider(default_provider="ollama")
+    llm = provider.get_llm(model_name="llama3.2", temperature=0.9)
+
+    assert getattr(llm, "temperature", None) == 0.9
+    assert not hasattr(llm, "kwargs") or "temperature" not in getattr(llm, "kwargs", {})

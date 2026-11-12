@@ -408,6 +408,10 @@ class SimpleLLMProvider(LLMProvider):
         from .model_capabilities import sampling_kwargs
 
         platform, model_name = self._resolve_model(model_settings)
+        logger.debug(
+            f"[LLMProvider] Building chat model: platform={platform}, "
+            f"model={model_name}, temperature={temperature}"
+        )
         model = attach_usage_meter(
             self._build_chat_model(model_settings, temperature=temperature, max_tokens=max_tokens)
         )
