@@ -17,7 +17,7 @@ from langchain_core.messages import AIMessage
 
 from lasagna.core.registry import registry
 
-from tests._loop_stubs import ScriptedLLM, install_backend, pipeline_input
+from tests._loop_stubs import ScriptedLLM, hit, install_backend, pipeline_input
 
 
 class Reasons(ScriptedLLM):
@@ -68,3 +68,33 @@ async def test_an_empty_reply_is_asked_again_once_not_more(monkeypatch):
     result = await _self_ask("What is the capital of France?", llm, monkeypatch)
     assert result.agent_summary == ""
     assert [bool(s) for s in llm.stops] == [True, False, True, False]
+
+
+async def test_a_reply_that_opens_with_a_stop_is_still_cut_there(monkeypatch):
+    """A model that honors stops and opens with one gets "" from the server; the
+    retry must not hand the loop the made-up intermediate answer after it."""
+    from lasagna.agentic.loops._base import LoopRun
+
+    llm = Reasons(["\nIntermediate answer: made up\nFollow up: Q2?"])
+    run = LoopRun("self_ask", pipeline_input("Q?", llm), None, llm)
+    assert await run.complete("prompt", stop=["\nIntermediate answer:"]) == ""
+    assert run.llm_calls == 2
+
+
+async def test_a_follow_up_hop_with_a_reasoning_model(monkeypatch):
+    backend = install_backend(monkeypatch, {"Who founded craigslist?": [hit("c1", "Craig.")]})
+    llm = Reasons(
+        [
+            "\n\nYes.\nFollow up: Who founded craigslist?\nIntermediate answer: Bob.",
+            "\n\nCraig Newmark.",  # read off the passages; asked without stops
+            "\n\nSo the final answer is: Craig Newmark",
+        ]
+    )
+    result = await registry.get("agentic_pipeline", "self_ask").run(
+        pipeline_input("Who founded craigslist?", llm)
+    )
+    assert [c["query"] for c in backend.calls] == ["Who founded craigslist?"]
+    assert "Intermediate answer: Craig Newmark." in llm.prompts[-1]
+    assert "Bob" not in llm.prompts[-1]
+    assert result.agent_summary == "Craig Newmark"
+    assert result.metrics.loop_trace["llm_calls"] == 5

@@ -223,6 +223,15 @@ class LoopRun:
             return text
         if not text.strip():
             text = message_text(await self.ask(prompt)).lstrip()
+            # A reply that opens with a stop is empty, as the server returned
+            # it; the newline the strip removed may have been the stop's own.
+            if any(s.strip() and text.startswith(s.lstrip()) for s in stop):
+                return ""
+            if not text.strip():
+                logger.warning(
+                    f"[{self.method}] the model answered nothing, with its stop sequences "
+                    f"and without: a reasoning model may have spent its max_tokens reasoning"
+                )
         return cut_at(text, stop)
 
     def result(

@@ -26,13 +26,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fast tier turns off, such as a reranker.
 - **Self-Ask answers with a reasoning model.** A reasoning model served with
   its thinking split off (Ollama's `think`, on by default for Qwen3; vLLM's
-  reasoning parser) applies a stop sequence to its reasoning too. Qwen3's
-  reasoning opens with `<think>` and a newline, so the newline stop on
-  Self-Ask's final-answer call ended the reply after two tokens, and every
-  question came back with an empty answer. A loop step whose stops leave the
-  reply empty is now asked once more without them and cut by the loop, after
-  any blank lines the reply opens with. A model that honors stops makes the
-  same calls as before.
+  reasoning parser) applies a stop sequence to its reasoning too, and any of
+  Self-Ask's stops can end a reply there. Qwen3's reasoning opens with
+  `<think>` and a newline, so the newline stop on the final-answer call (made
+  when the chain ends without a final answer, as every question did once it
+  used its five follow-ups) ended the reply after two tokens, and the loop
+  answered nothing. A loop step whose stops leave the reply empty is now asked
+  once more without them and cut by the loop, after any blank lines it opens
+  with; a reply that opens with a stop is still empty. A model whose replies
+  the stops do not empty makes the same calls as before.
 
 ## [0.3.0] - 2026-11-07
 
