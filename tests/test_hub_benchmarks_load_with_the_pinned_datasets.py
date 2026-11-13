@@ -54,7 +54,7 @@ def test_fever_loads_its_parquet_conversion_online_and_from_the_cache(monkeypatc
             "fever/fever",
             {
                 "repo_type": "dataset",
-                "revision": "5f577157472532aa1d9924d2df63aac44f70cf2b",
+                "revision": "5f577157472532aa1d9924d2df63aac44f70cf2b",  # pragma: allowlist secret
                 # Every split, as load_dataset fetches them: the offline check
                 # that the dataset is cached then holds for any split.
                 "allow_patterns": [
