@@ -2,7 +2,7 @@
 
 This page lists the metrics a run reports and what each one costs. The
 [full definitions](https://github.com/dolev31/lasagna/blob/main/src/lasagna/knowledge_evaluation_sdk/docs/metrics.md)
-give formulas and edge cases. The metrics version is 1.7. It is part of the
+give formulas and edge cases. The metrics version is 1.8. It is part of the
 [comparability key](../concepts/comparability.md), so numbers from a different
 version never share a leaderboard group.
 

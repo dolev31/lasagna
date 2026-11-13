@@ -90,7 +90,12 @@ from typing import Any, Dict, List, Optional
 #: 1.7 when the presence check failed), and only for arms whose candidates are
 #: the store's dense hits: every fusion (hybrid RRF, query fusion, BM25 and
 #: SPLADE top-k) already merged by chunk id.
-METRICS_VERSION = "1.7"
+#: 1.8: an agentic arm's exact_match, token_f1, rouge_l, contains_answer,
+#: abstention_rate and answer_similarity score the answer its loop wrote, as
+#: its judged metrics already did; they scored the answer the harness's
+#: generator wrote from the loop's passages, now kept as ``<metric>_regen``.
+#: Numbers move for agentic arms only.
+METRICS_VERSION = "1.8"
 
 #: Bundle schema version. Consumers accept >=1.0,<2.0.
 SCHEMA_VERSION = "1.0"

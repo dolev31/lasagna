@@ -273,10 +273,48 @@ def _answer_scores(answer: str, sample: Any) -> Dict[str, float]:
     return out
 
 
+def _reference_scores(answer: str, sample: Any) -> Dict[str, float]:
+    """Exact match, token F1 and :func:`_answer_scores` for one answer.
+
+    Scored without citation markers, as ALCE does.
+    """
+    from .answer_metrics import exact_match, strip_citations, token_f1
+
+    answer = strip_citations(answer)
+    gt = getattr(sample, "ground_truth", "") or ""
+    aliases = getattr(sample, "ground_truth_answers", None) or []
+    if _is_unanswerable(sample):
+        em = f1 = _no_answer_em(answer)
+    elif gt.strip() and answer.strip():
+        em = exact_match(answer, gt, aliases=aliases)
+        f1 = token_f1(answer, gt, aliases=aliases)
+    else:
+        em = f1 = 0.0
+    return {"exact_match": em, "token_f1": f1, **_answer_scores(answer, sample)}
+
+
+#: The answer metrics an agentic arm gets on both answers: its loop's own
+#: (``_agentic``) and the harness's, written from the loop's passages
+#: (``_regen``). The unsuffixed key is the loop's where it answered, as for the
+#: judged metrics. Citation quality is left out: ``[n]`` numbers the passages
+#: the harness's generator was shown.
+_SCORED_ON_EITHER_ANSWER = (
+    "exact_match",
+    "token_f1",
+    "rouge_l",
+    "contains_answer",
+    "abstention_rate",
+    "answer_similarity",
+)
+
+
 def _add_answer_similarity(
-    rows: List[Dict[str, Any]], answers: List[str], samples: List[Any]
+    rows: List[Dict[str, Any]],
+    answers: List[str],
+    samples: List[Any],
+    key: str = "answer_similarity",
 ) -> None:
-    """``answer_similarity`` on each row that has a reference, in one batch.
+    """``answer_similarity`` (or ``key``) on each row that has a reference, in one batch.
 
     Left out, with a warning, when the embedder cannot be loaded (offline with
     no cached copy) or ``RAG_EVAL_SIMILARITY_MODEL=none``: the rest of the
@@ -306,7 +344,7 @@ def _add_answer_similarity(
         return
     for row, score in zip(rows, scores):
         if score is not None:
-            row["answer_similarity"] = score
+            row[key] = score
 
 
 def _add_citation_scores(
@@ -3402,8 +3440,6 @@ async def _eval_offline(
                 per_sample_scores[i].update(per_sample_usage[i].to_dict())
 
         # EM/F1 + trajectory for offline path (mirrors live path)
-        from .answer_metrics import exact_match as _em_fn, strip_citations, token_f1 as _tf1_fn
-
         _save_traj = (task.config_overrides or {}).get("save_trajectories", "minimal")
         for i, sample in enumerate(eval_samples):
             if i >= len(per_sample_scores):
@@ -3415,20 +3451,9 @@ async def _eval_offline(
             _meta = getattr(sample, "metadata", {}) or {}
             ps["_source_benchmark"] = _meta.get("source_benchmark", "")
 
-            # EM/F1, on the answer without citation markers
             _gt = ground_truths[i] if i < len(ground_truths) else ""
             _ans = answers[i] if i < len(answers) else ""
-            _scored = strip_citations(_ans)
-            _aliases = getattr(sample, "ground_truth_answers", None) or []
-            if _is_unanswerable(sample):
-                ps["exact_match"] = ps["token_f1"] = _no_answer_em(_scored)
-            elif _gt.strip() and _scored.strip():
-                ps["exact_match"] = _em_fn(_scored, _gt, aliases=_aliases)
-                ps["token_f1"] = _tf1_fn(_scored, _gt, aliases=_aliases)
-            else:
-                ps["exact_match"] = 0.0
-                ps["token_f1"] = 0.0
-            ps.update(_answer_scores(_scored, sample))
+            ps.update(_reference_scores(_ans, sample))
             if _has_unanswerable:
                 ps["_answerable"] = 0.0 if _is_unanswerable(sample) else 1.0
 
@@ -3446,6 +3471,8 @@ async def _eval_offline(
 
         # Semantic similarity (local embedder) and, for answers that cite,
         # citation quality (the judge, counted as eval spend).
+        from .answer_metrics import strip_citations
+
         await asyncio.to_thread(
             _add_answer_similarity,
             per_sample_scores,
@@ -4677,6 +4704,7 @@ async def _eval_live(
     _eval_failures: List[str] = []
     _n_generations = 0
     _failed_generations = 0
+    _failed_regen = 0  # the harness's answer alone, for an agentic arm's _regen keys
     total_dropped = 0
     #: The judge's spend, accumulated across every RAGAS pass in this task.
     eval_meter = UsageMeter()
@@ -5054,7 +5082,9 @@ async def _eval_live(
                     first_meta = (
                         getattr(getattr(search_results[0], "chunk", None), "metadata", {}) or {}
                     )
-                    _agentic_answer = first_meta.get("_agentic_answer", "")
+                    _agentic_answer = first_meta.get("_agentic_answer", "") or ""
+                    if not _agentic_answer.strip():
+                        _agentic_answer = ""  # blank: the loop did not answer
 
                 # Agentic pipeline makes many parallel LLM calls which can
                 # saturate a hosted endpoint's rate limit. An optional pause
@@ -5196,9 +5226,12 @@ async def _eval_live(
 
                 _n_generations += 1
                 if not (answer or "").strip():
-                    # No answer: no context, no generator, or every attempt
-                    # failed. Scored, it would read as an unfaithful answer.
-                    _failed_generations += 1
+                    _failed_regen += 1
+                    if not _agentic_answer:
+                        # No answer: no context, no generator, or every attempt
+                        # failed. Scored, it would read as an unfaithful answer.
+                        # A loop's own answer is the one its row is scored on.
+                        _failed_generations += 1
                 gen_questions.append(gen_sample.question)
                 gen_answers.append(answer)
                 # Pass the SAME contexts used for generation to RAGAS.
@@ -5218,23 +5251,8 @@ async def _eval_live(
                     if hasattr(gen_sample, "metadata")
                     else ""
                 )
-                # ── EM / Token-F1 (free, no LLM calls) ──────────────
-                # Scored on the answer without citation markers, as ALCE does.
-                from .answer_metrics import strip_citations
-
-                _scored_answer = strip_citations(answer)
-                _em_score = 0.0
-                _f1_score_val = 0.0
+                # ── EM / Token-F1 and the other free answer metrics ──
                 _gt = gen_sample.ground_truth or ""
-                _gt_aliases = getattr(gen_sample, "ground_truth_answers", None) or []
-                if _is_unanswerable(gen_sample):
-                    _em_score = _f1_score_val = _no_answer_em(_scored_answer)
-                elif _gt.strip() and _scored_answer.strip():
-                    from .answer_metrics import exact_match as _em_fn, token_f1 as _tf1_fn
-
-                    _em_score = _em_fn(_scored_answer, _gt, aliases=_gt_aliases)
-                    _f1_score_val = _tf1_fn(_scored_answer, _gt, aliases=_gt_aliases)
-
                 _gen_sample_metrics: Dict[str, Any] = {
                     "_sample_id": gen_sample.query_id,
                     "_source_benchmark": _src,
@@ -5245,10 +5263,15 @@ async def _eval_live(
                     "generation_ms": _generation_ms,
                     "n_contexts": float(len(contexts)),
                     "agentic_fallback": 1.0 if fallback else 0.0,
-                    "exact_match": _em_score,
-                    "token_f1": _f1_score_val,
+                    **_reference_scores(answer, gen_sample),
                 }
-                _gen_sample_metrics.update(_answer_scores(_scored_answer, gen_sample))
+                if _agentic_answer:
+                    _gen_sample_metrics.update(
+                        {
+                            f"{k}_agentic": v
+                            for k, v in _reference_scores(_agentic_answer, gen_sample).items()
+                        }
+                    )
                 if _has_unanswerable:
                     _gen_sample_metrics["_answerable"] = (
                         0.0 if _is_unanswerable(gen_sample) else 1.0
@@ -5283,6 +5306,9 @@ async def _eval_live(
                 elif _save_traj == "minimal":
                     _gen_sample_metrics["_generated_answer"] = answer[:500]
                     _gen_sample_metrics["_question"] = gen_sample.question[:200]
+                if _agentic_answer and _save_traj in ("full", "minimal"):
+                    _cut = 2000 if _save_traj == "full" else 500
+                    _gen_sample_metrics["_agentic_answer"] = _agentic_answer[:_cut]
 
                 per_sample_scores.append(_gen_sample_metrics)
 
@@ -5297,6 +5323,25 @@ async def _eval_live(
                 [strip_citations(a) for a in gen_answers],
                 gen_samples,
             )
+
+            # An agentic arm is scored on its loop's answer, as the judged
+            # metrics below are: the harness's answer keeps the _regen keys,
+            # and a question the loop did not answer keeps the harness's.
+            _looped = filter_nonempty_agentic_indices(gen_agentic_answers)
+            if _looped:
+                await asyncio.to_thread(
+                    _add_answer_similarity,
+                    [_gen_rows[i] for i in _looped],
+                    [strip_citations(gen_agentic_answers[i]) for i in _looped],
+                    [gen_samples[i] for i in _looped],
+                    "answer_similarity_agentic",
+                )
+                for row in _gen_rows:
+                    for k in _SCORED_ON_EITHER_ANSWER:
+                        if k in row:
+                            row[f"{k}_regen"] = row[k]
+                        if f"{k}_agentic" in row:
+                            row[k] = row[f"{k}_agentic"]
 
             # Run RAGAS on all collected generation samples that have a
             # reference answer (an unanswerable question has none).
@@ -5498,6 +5543,16 @@ async def _eval_live(
                 metrics["token_f1"] = sum(s["token_f1"] for s in _gen_ps) / len(_gen_ps)
                 metrics.update(_answerability_split(_gen_ps))
                 metrics.update(_mean_present(_gen_ps, _ANSWER_METRICS))
+                metrics.update(
+                    _mean_present(
+                        _gen_ps,
+                        [
+                            f"{k}{s}"
+                            for s in ("_regen", "_agentic")
+                            for k in _SCORED_ON_EITHER_ANSWER
+                        ],
+                    )
+                )
 
         # Tokens and LLM calls per query, over both tracks' rows.
         metrics.update(_per_query_costs(per_sample_scores))
@@ -5520,6 +5575,9 @@ async def _eval_live(
 
     if _n_generations:
         metrics["generations_failed"] = float(_failed_generations)
+        if any(gen_agentic_answers):
+            # The _regen keys average these empty answers in as misses.
+            metrics["generations_failed_regen"] = float(_failed_regen)
         # A few failures (a content filter, one timeout) are reported; more than
         # a tenth means the generation metrics describe the outage, not the system.
         if _failed_generations / _n_generations > _MAX_FAILED_GENERATION_RATE:
