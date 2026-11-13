@@ -70,15 +70,18 @@ async def test_an_empty_reply_is_asked_again_once_not_more(monkeypatch):
     assert [bool(s) for s in llm.stops] == [True, False, True, False]
 
 
-async def test_a_reply_that_opens_with_a_stop_is_still_cut_there(monkeypatch):
-    """A model that honors stops and opens with one gets "" from the server; the
-    retry must not hand the loop the made-up intermediate answer after it."""
-    from lasagna.agentic.loops._base import LoopRun
-
-    llm = Reasons(["\nIntermediate answer: made up\nFollow up: Q2?"])
-    run = LoopRun("self_ask", pipeline_input("Q?", llm), None, llm)
-    assert await run.complete("prompt", stop=["\nIntermediate answer:"]) == ""
-    assert run.llm_calls == 2
+async def test_a_reply_that_opens_with_a_marker_stays_out_of_the_chain(monkeypatch):
+    """A model that honors stops and opens with "Intermediate answer:" gets "" from
+    the server. The retry must not hand the loop the made-up answer after it, or
+    the follow-up below it: Self-Ask puts the search's answer there, not the model's."""
+    backend = install_backend(monkeypatch, {})
+    llm = Reasons(["\nIntermediate answer: made up\nFollow up: Q2?", "\n\nParis"])
+    result = await registry.get("agentic_pipeline", "self_ask").run(
+        pipeline_input("What is the capital of France?", llm)
+    )
+    assert backend.calls == []
+    assert not any("made up" in p for p in llm.prompts)
+    assert result.agent_summary == "Paris"
 
 
 async def test_a_follow_up_hop_with_a_reasoning_model(monkeypatch):

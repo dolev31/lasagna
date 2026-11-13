@@ -46,9 +46,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   used its five follow-ups) ended the reply after two tokens, and the loop
   answered nothing. A loop step whose stops leave the reply empty is now asked
   once more without them and cut by the loop, after any blank lines it opens
-  with; a reply that opens with a stop is still empty. A model whose replies
-  the stops do not empty makes the same calls as before.
-
+  with; a reply that opens with one of Self-Ask's markers is still empty. A
+  model whose replies the stops do not empty makes the same calls as before.
 ## [0.3.0] - 2026-11-07
 
 Chat with a corpus from any OpenAI client, a knowledge graph every process

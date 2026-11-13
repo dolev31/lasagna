@@ -223,8 +223,10 @@ class LoopRun:
             return text
         if not text.strip():
             text = message_text(await self.ask(prompt)).lstrip()
-            # A reply that opens with a stop is empty, as the server returned
-            # it; the newline the strip removed may have been the stop's own.
+            # A reply that opens with a marker stop ("\nIntermediate answer:")
+            # is empty, as a server honoring stops returns it; after the strip
+            # the newline before the marker cannot be seen, so the marker alone
+            # decides. A blank stop ("\n") is what the strip is for.
             if any(s.strip() and text.startswith(s.lstrip()) for s in stop):
                 return ""
             if not text.strip():
