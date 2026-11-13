@@ -583,8 +583,7 @@ def load_benchmark(
             # the Hub publishes its support without the questions.
             raise ValueError(
                 f"Benchmark '{name}': split '{actual_split}' of '{hf_name}' has {len(ds)} rows, "
-                f"but none converted into a sample (the '{fmt}' converter skips a row "
-                f"without a question or an answer)"
+                f"but the '{fmt}' converter made no sample from any of them"
                 + (f" ({info['note']})" if info.get("note") else "")
                 + "."
             )
@@ -1171,8 +1170,10 @@ def _load_hub_parquet(
 ) -> Any:
     """One split of a dataset kept as parquet files in a Hub repository.
 
-    The split's files are fetched with ``snapshot_download`` (from the local
-    cache when offline) and read as plain parquet. Passing ``data_files`` to
+    Every split's files are fetched together with ``snapshot_download`` (from
+    the local cache when offline), as ``load_dataset`` fetches a Hub dataset's
+    splits together, so the offline check that the dataset is cached holds
+    for any split; the requested one is read as plain parquet. Passing ``data_files`` to
     ``load_dataset`` on the Hub repository instead hashes the config
     differently offline, so a cached split could not be found again
     (datasets 5.1.0).
@@ -1186,7 +1187,7 @@ def _load_hub_parquet(
         hf_name,
         repo_type="dataset",
         revision=revision or None,
-        allow_patterns=[data_files[split]],
+        allow_patterns=sorted(data_files.values()),
         local_files_only=_offline(),
     )
     return load_dataset(

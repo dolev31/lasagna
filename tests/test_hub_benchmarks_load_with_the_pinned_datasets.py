@@ -31,8 +31,8 @@ def test_every_hub_dataset_is_named_with_its_owner():
 
 @pytest.mark.parametrize("offline", [False, True])
 def test_fever_loads_its_parquet_conversion_online_and_from_the_cache(monkeypatch, offline):
-    # The Hub converted the FEVER script to parquet. Only the requested split's
-    # files are fetched, at the pinned commit, and read as plain parquet, so a
+    # The Hub converted the FEVER script to parquet. Its splits are fetched at
+    # the pinned commit and the requested one read as plain parquet, so a
     # cached split loads offline too.
     downloads, reads = [], []
 
@@ -55,7 +55,12 @@ def test_fever_loads_its_parquet_conversion_online_and_from_the_cache(monkeypatc
             {
                 "repo_type": "dataset",
                 "revision": "5f577157472532aa1d9924d2df63aac44f70cf2b",
-                "allow_patterns": ["v1.0/labelled_dev/*.parquet"],
+                # Every split, as load_dataset fetches them: the offline check
+                # that the dataset is cached then holds for any split.
+                "allow_patterns": [
+                    f"v1.0/{s}/*.parquet"
+                    for s in sorted(("labelled_dev", "paper_dev", "paper_test", "train"))
+                ],
                 "local_files_only": offline,
             },
         )
@@ -113,5 +118,8 @@ def test_a_benchmark_whose_rows_hold_no_question_says_so(monkeypatch, tmp_path):
 
     rows = datasets.Dataset.from_list([{"id": "q1", "input": "", "output": [{"answer": "x"}]}])
     monkeypatch.setattr("datasets.load_dataset", lambda *a, **k: rows)
-    with pytest.raises(ValueError, match="has 1 rows, but none converted.*without its questions"):
+    with pytest.raises(
+        ValueError,
+        match="has 1 rows, but the .kilt. converter made no sample.*without its questions",
+    ):
         ds.load_benchmark("kilt/triviaqa", split="validation", cache_dir=str(tmp_path))
