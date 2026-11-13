@@ -210,9 +210,20 @@ class LoopRun:
         return response
 
     async def complete(self, prompt: str, stop: Optional[Sequence[str]] = None) -> str:
-        """One LLM call; returns its text, cut at the first stop sequence."""
+        """One LLM call; returns its text, cut at the first stop sequence.
+
+        A reasoning model served with its thinking split off (Ollama's
+        ``think``, vLLM's reasoning parser) is stopped on its reasoning too:
+        Qwen3's opens with ``<think>\\n``, so a newline stop ends the reply
+        before it says anything. A reply the stops left empty is asked once
+        more without them, and cut here after the blank lines it opens with.
+        """
         text = message_text(await self.ask(prompt, stop=stop))
-        return cut_at(text, stop) if stop else text
+        if not stop:
+            return text
+        if not text.strip():
+            text = message_text(await self.ask(prompt)).lstrip()
+        return cut_at(text, stop)
 
     def result(
         self,
