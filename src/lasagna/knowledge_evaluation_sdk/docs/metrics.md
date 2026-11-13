@@ -315,11 +315,13 @@ shown.
 
 The loop answers in its own way: it does not get the harness's prompt, so it
 is not asked for one sentence, nor told to reply `unanswerable` on SQuAD v2.
-The unsuffixed scores measure the arm as it answers, a loop that writes a
+The unsuffixed scores measure the arm as it answers: a loop that writes a
 paragraph scores low on exact match, and on SQuAD v2's unanswerable questions
 they measure whether the loop abstains unprompted. `_regen` compares arms
 through the same generator and prompt. For an agentic arm,
-`generations_failed` counts a question only when neither answer was written.
+`generations_failed` counts a question only when neither answer was written,
+and `generations_failed_regen` counts the harness's empty answers, which the
+`_regen` means include as misses.
 
 ### Exact Match and Token F1
 

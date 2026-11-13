@@ -185,7 +185,8 @@ def test_the_judge_and_exact_match_read_the_same_answer(run):
 def test_a_question_the_loop_did_not_answer_keeps_the_harness_answer(run):
     """As the judged metrics do: the canonical key falls back to the regenerated
     answer, and the ``_agentic`` mean covers only the questions the loop answered."""
-    result = run({"question 0?": "tardigrade"}, n=2)
+    # A blank reply is no answer.
+    result = run({"question 0?": "tardigrade", "question 1?": "\n "}, n=2)
     answered, unanswered = _rows(result)
     assert answered["exact_match"] == 1.0
     assert "exact_match_agentic" not in unanswered
@@ -198,6 +199,7 @@ def test_a_question_the_loop_did_not_answer_keeps_the_harness_answer(run):
 def test_an_arm_without_a_loop_keeps_its_keys(run):
     result = run({}, n=2, overrides={})
     assert result.metrics["exact_match"] == 0.0
+    assert "generations_failed_regen" not in result.metrics
     assert not [k for k in result.metrics if k.endswith(("_agentic", "_regen"))]
     for row in _rows(result):
         assert not [k for k in row if k.endswith(("_agentic", "_regen"))]
@@ -212,6 +214,8 @@ def test_a_question_the_loop_answered_is_not_a_failed_generation(run):
     result = run(loop, harness="")
     assert result.metrics["generations_failed"] == 0.0
     assert result.metrics["exact_match"] == 1.0
+    # The harness's misses stay visible: they are averaged into _regen.
+    assert result.metrics["generations_failed_regen"] == 3.0
 
 
 def test_with_no_answer_from_either_the_question_failed(run):

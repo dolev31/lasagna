@@ -50,9 +50,9 @@ Arms with no published target, from the same sweep:
 query count and where the numbers come from: the run date, the package and
 metrics versions, and the commit they were produced at. These numbers were
 produced on 2026-11-13 at commit 87bb414, from that commit's source tree, under
-`METRICS_VERSION` 1.8 (87bb414 is the branch of the pull request that moved the
-version to 1.8, before its squash merge; GitHub keeps it with the pull
-request). Earlier runs gave the same numbers to four decimals: at 6ec26ff and
+`METRICS_VERSION` 1.8 (87bb414 is a commit on the branch of #103, the pull
+request that moved the version to 1.8, before its squash merge: fetch it with
+`git fetch origin pull/103/head`). Earlier runs gave the same numbers to four decimals: at 6ec26ff and
 5b5d779 on 2026-10-17, under 1.7, and the first run, on 2026-10-10.
 
 ## Rerun it

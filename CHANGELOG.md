@@ -50,10 +50,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `_agentic` is the loop's alone, and the loop's answer is saved with the
   trajectory and shown in `lasagna results view` beside the harness's. A
   question the loop answered no longer counts in `generations_failed` when
-  the harness's generator wrote nothing. Numbers move for agentic arms only,
-  and the metrics version
-  is now 1.8, so results from earlier builds do not share a comparability key
-  with new ones.
+  the harness's generator wrote nothing; `generations_failed_regen` counts
+  those. Numbers move for agentic arms only, and the metrics version is now
+  1.8, so results from earlier builds do not share a comparability key with
+  new ones.
 
 ## [0.3.0] - 2026-11-07
 

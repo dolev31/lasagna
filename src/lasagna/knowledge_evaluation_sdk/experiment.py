@@ -4704,6 +4704,7 @@ async def _eval_live(
     _eval_failures: List[str] = []
     _n_generations = 0
     _failed_generations = 0
+    _failed_regen = 0  # the harness's answer alone, for an agentic arm's _regen keys
     total_dropped = 0
     #: The judge's spend, accumulated across every RAGAS pass in this task.
     eval_meter = UsageMeter()
@@ -5081,7 +5082,9 @@ async def _eval_live(
                     first_meta = (
                         getattr(getattr(search_results[0], "chunk", None), "metadata", {}) or {}
                     )
-                    _agentic_answer = first_meta.get("_agentic_answer", "")
+                    _agentic_answer = first_meta.get("_agentic_answer", "") or ""
+                    if not _agentic_answer.strip():
+                        _agentic_answer = ""  # blank: the loop did not answer
 
                 # Agentic pipeline makes many parallel LLM calls which can
                 # saturate a hosted endpoint's rate limit. An optional pause
@@ -5222,11 +5225,13 @@ async def _eval_live(
                                 )
 
                 _n_generations += 1
-                if not (answer or "").strip() and not (_agentic_answer or "").strip():
-                    # No answer: no context, no generator, or every attempt
-                    # failed. Scored, it would read as an unfaithful answer.
-                    # A loop's own answer is the one its row is scored on.
-                    _failed_generations += 1
+                if not (answer or "").strip():
+                    _failed_regen += 1
+                    if not _agentic_answer:
+                        # No answer: no context, no generator, or every attempt
+                        # failed. Scored, it would read as an unfaithful answer.
+                        # A loop's own answer is the one its row is scored on.
+                        _failed_generations += 1
                 gen_questions.append(gen_sample.question)
                 gen_answers.append(answer)
                 # Pass the SAME contexts used for generation to RAGAS.
@@ -5570,6 +5575,9 @@ async def _eval_live(
 
     if _n_generations:
         metrics["generations_failed"] = float(_failed_generations)
+        if any(gen_agentic_answers):
+            # The _regen keys average these empty answers in as misses.
+            metrics["generations_failed_regen"] = float(_failed_regen)
         # A few failures (a content filter, one timeout) are reported; more than
         # a tenth means the generation metrics describe the outage, not the system.
         if _failed_generations / _n_generations > _MAX_FAILED_GENERATION_RATE:
