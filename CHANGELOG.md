@@ -54,6 +54,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   those. Numbers move for agentic arms only, and the metrics version is now
   1.8, so results from earlier builds do not share a comparability key with
   new ones.
+- **Self-Ask answers with a reasoning model.** A reasoning model served with
+  its thinking split off (Ollama's `think`, on by default for Qwen3; vLLM's
+  reasoning parser) applies a stop sequence to its reasoning too, and any of
+  Self-Ask's stops can end a reply there. Qwen3's reasoning opens with
+  `<think>` and a newline, so the newline stop on the final-answer call (made
+  when the chain ends without a final answer, as every question did once it
+  used its five follow-ups) ended the reply after two tokens, and the loop
+  answered nothing. A loop step whose stops leave the reply empty is now asked
+  once more without them and cut by the loop, after any blank lines it opens
+  with; a reply that opens with one of Self-Ask's markers is still empty. A
+  model whose replies the stops do not empty makes the same calls as before.
 
 ## [0.3.0] - 2026-11-07
 
