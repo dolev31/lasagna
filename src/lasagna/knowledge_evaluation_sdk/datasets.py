@@ -498,13 +498,17 @@ def load_benchmark(
         load_kwargs: Dict[str, Any] = {}
         if "config" in info:
             load_kwargs["name"] = info["config"]
-        if info.get("hf_data_files"):
-            load_kwargs["data_files"] = info["hf_data_files"]
         if revision:
             load_kwargs["revision"] = revision
+        data_files = info.get("hf_data_files")
+
+        def _load_split(which: str) -> Any:
+            if data_files:
+                return _load_hub_parquet(hf_name, data_files, which, revision)
+            return load_dataset(hf_name, split=which, **load_kwargs)
 
         try:
-            ds = load_dataset(hf_name, split=split, **load_kwargs)
+            ds = _load_split(split)
             actual_split = split
         except (ValueError, KeyError) as exc:
             # Substituting a split changes what the number means -- `train`
@@ -514,8 +518,10 @@ def load_benchmark(
             #
             # Opt in explicitly, and the substitution is recorded rather than
             # merely logged.
-            available = _available_splits(
-                hf_name, load_kwargs.get("name"), revision, load_kwargs.get("data_files")
+            available = (
+                list(data_files)
+                if data_files
+                else _available_splits(hf_name, load_kwargs.get("name"), revision)
             )
             if split in available or (not available and not allow_split_fallback):
                 # Not a missing split: the dataset itself did not load (a bad
@@ -538,21 +544,23 @@ def load_benchmark(
             fallbacks = [s for s in ["test", "validation", "train"] if s != split]
             ds = None
             actual_split = ""
+            last_exc: BaseException = exc
             for fallback in fallbacks:
                 try:
                     logger.warning(
                         f"Split '{split}' not found for '{name}', substituting '{fallback}'. "
                         f"These numbers are NOT comparable to '{split}' results."
                     )
-                    ds = load_dataset(hf_name, split=fallback, **load_kwargs)
+                    ds = _load_split(fallback)
                     actual_split = fallback
                     break
-                except (ValueError, KeyError):
-                    continue
+                except (ValueError, KeyError) as fallback_exc:
+                    last_exc = fallback_exc
             if ds is None:
                 raise ValueError(
-                    f"No usable split found for '{name}'. Tried: {split}, {', '.join(fallbacks)}"
-                )
+                    f"No usable split found for '{name}'. Tried: {split}, "
+                    f"{', '.join(fallbacks)} (last error: {last_exc})"
+                ) from last_exc
 
         # Convert to our evaluation format
         converter = _FORMAT_CONVERTERS.get(fmt)
@@ -575,7 +583,8 @@ def load_benchmark(
             # the Hub publishes its support without the questions.
             raise ValueError(
                 f"Benchmark '{name}': split '{actual_split}' of '{hf_name}' has {len(ds)} rows, "
-                f"but none holds a question in the form the '{fmt}' converter reads"
+                f"but none converted into a sample (the '{fmt}' converter skips a row "
+                f"without a question or an answer)"
                 + (f" ({info['note']})" if info.get("note") else "")
                 + "."
             )
@@ -1157,11 +1166,36 @@ _FORMAT_CONVERTERS = {
 # ---------------------------------------------------------------------------
 
 
+def _load_hub_parquet(
+    hf_name: str, data_files: Dict[str, str], split: str, revision: Optional[str]
+) -> Any:
+    """One split of a dataset kept as parquet files in a Hub repository.
+
+    The split's files are fetched with ``snapshot_download`` (from the local
+    cache when offline) and read as plain parquet. Passing ``data_files`` to
+    ``load_dataset`` on the Hub repository instead hashes the config
+    differently offline, so a cached split could not be found again
+    (datasets 5.1.0).
+    """
+    from datasets import load_dataset
+    from huggingface_hub import snapshot_download
+
+    if split not in data_files:
+        raise ValueError(f'Unknown split "{split}". Should be one of {sorted(data_files)}.')
+    root = snapshot_download(
+        hf_name,
+        repo_type="dataset",
+        revision=revision or None,
+        allow_patterns=[data_files[split]],
+        local_files_only=_offline(),
+    )
+    return load_dataset(
+        "parquet", data_files={split: str(Path(root) / data_files[split])}, split=split
+    )
+
+
 def _available_splits(
-    hf_name: str,
-    config: Optional[str] = None,
-    revision: Optional[str] = None,
-    data_files: Optional[Dict[str, str]] = None,
+    hf_name: str, config: Optional[str] = None, revision: Optional[str] = None
 ) -> List[str]:
     """Split names HuggingFace reports for a dataset, best effort.
 
@@ -1173,8 +1207,6 @@ def _available_splits(
         from datasets import get_dataset_split_names
 
         kwargs: Dict[str, Any] = {"revision": revision} if revision else {}
-        if data_files:
-            kwargs["data_files"] = data_files
         return list(get_dataset_split_names(hf_name, config_name=config, **kwargs))
     except Exception:
         return []

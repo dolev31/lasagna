@@ -8,19 +8,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **Five benchmarks load again.** `datasets` 5, the version the release pins,
-  refuses a Hub repository named without its owner, and since 4.0 it no longer
-  runs loading scripts. `triviaqa`, `hotpotqa`, `kilt/nq` and `kilt/triviaqa`
-  named `trivia_qa`, `hotpot_qa` and `kilt_tasks`, and `fever` was a script,
-  so none of them loaded, and the loader reported each failure as a missing
-  split ("Split 'validation' is not available"). They now name their
-  repositories in full, at the same commits, so their comparability keys do
-  not change. FEVER loads the Hub's parquet conversion of its script, pinned
-  to the commit that was checked, each split by its own name. A dataset that
-  does not load now says why, instead of naming a split. The Hub's KILT has no
-  `triviaqa` config, and the `triviaqa_support_only` it has carries no
-  questions, so `kilt/triviaqa` now says that instead of returning an empty
-  benchmark; the `triviaqa` benchmark has the questions.
+- **Four benchmarks load again, and a fifth says why it cannot.** `datasets`
+  5, the version the release pins, refuses a Hub repository named without its
+  owner, and since 4.0 it no longer runs loading scripts. `triviaqa`,
+  `hotpotqa` and `kilt/nq` named `trivia_qa`, `hotpot_qa` and `kilt_tasks`,
+  and `fever` was a script, so none of them loaded, and the loader reported
+  each failure as a missing split ("Split 'validation' is not available").
+  They now name their repositories in full, at the same commits, so their
+  comparability keys do not change. FEVER loads the Hub's parquet conversion
+  of its script, pinned to the commit that was checked, one split at a time,
+  online or from the local cache. A dataset that does not load now says why,
+  instead of naming a split. `kilt/triviaqa` has never loaded: the Hub's KILT
+  has no `triviaqa` config, and the `triviaqa_support_only` it has carries no
+  questions. It now says so; the `triviaqa` benchmark has the questions.
 - **An agentic arm under `speed` runs its loop.** `pipeline.query` forces the
   agentic tier for an arm that names an agentic pipeline, and the router
   dropped any forced tier whenever a profile turned query routing off. Under
