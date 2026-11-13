@@ -32,7 +32,7 @@ a field that was captured. An unknown embedder cannot match a known one.
 
 The metrics version is part of the key. If the definition of NDCG@10 changes, old
 numbers fall out of comparison instead of being mixed with new ones. This release
-is metrics version 1.7. Results from earlier builds never share a leaderboard group
+is metrics version 1.8. Results from earlier builds never share a leaderboard group
 with it.
 
 ## Provenance in a bundle

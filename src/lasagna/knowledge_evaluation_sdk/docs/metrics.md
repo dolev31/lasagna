@@ -275,7 +275,8 @@ A judged metric scores only answerable questions (it needs a reference). A
 metric whose every judgment failed is reported in `failed_metrics`, fails the
 task, and is never recorded as 0.0. For agentic configurations the per-query
 keys are suffixed `_regen` and `_agentic`, and an unsuffixed canonical key
-(agentic score where present) is emitted for every requested metric.
+(agentic score where present) is emitted for every requested metric. The
+answer metrics without a judge (section 4) follow the same rule.
 
 ### Evaluation Modes
 
@@ -301,6 +302,15 @@ unanswerable (SQuAD v2), a value is 1.0 if the system abstained and 0.0
 otherwise; an answerable question answered with an abstention scores 0.0; an
 empty answer (generation failed) scores 0.0 and is also counted in
 `generations_failed`.
+
+An agentic arm has two answers: the one its loop wrote, and the one the
+harness's generator writes from the passages the loop returned. Exact match,
+token F1, ROUGE-L, containment, abstention and answer similarity score both,
+as the judged metrics do: `<metric>_agentic` is the loop's answer (averaged
+over the questions it answered), `<metric>_regen` the harness's, and the
+unsuffixed `<metric>` the loop's where it answered and the harness's
+otherwise. Citation quality scores only the harness's answer, since `[n]`
+numbers the passages its generator was shown.
 
 ### Exact Match and Token F1
 

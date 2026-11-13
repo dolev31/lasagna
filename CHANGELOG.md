@@ -24,6 +24,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a default tier other than `comprehensive` (of the built-in profiles,
   `speed`): for agentic arms, and for a CRAG arm that turned on a stage the
   fast tier turns off, such as a reranker.
+- **An agentic arm's exact match and F1 score its own answer.** The
+  generation track has the harness's generator answer from the passages each
+  search returned, so arms are compared on the same generator. For an agentic
+  arm the loop writes an answer too, and the judged metrics already scored it
+  (`faithfulness` was the loop's answer, `faithfulness_regen` the harness's).
+  Exact match, token F1, ROUGE-L, containment, abstention and answer
+  similarity scored only the harness's answer, so one row judged two answers,
+  and `lasagna results significance -m exact_match` compared the harness's
+  answers, not the loops. They now follow the judged metrics: the unsuffixed
+  key is the loop's answer where it gave one, `_regen` keeps the harness's,
+  `_agentic` is the loop's alone, and the loop's answer is saved with the
+  trajectory. Numbers move for agentic arms only, and the metrics version
+  is now 1.8, so results from earlier builds do not share a comparability key
+  with new ones.
 
 ## [0.3.0] - 2026-11-07
 
