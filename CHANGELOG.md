@@ -35,7 +35,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   answers, not the loops. They now follow the judged metrics: the unsuffixed
   key is the loop's answer where it gave one, `_regen` keeps the harness's,
   `_agentic` is the loop's alone, and the loop's answer is saved with the
-  trajectory. Numbers move for agentic arms only, and the metrics version
+  trajectory and shown in `lasagna results view` beside the harness's. A
+  question the loop answered no longer counts in `generations_failed` when
+  the harness's generator wrote nothing. Numbers move for agentic arms only,
+  and the metrics version
   is now 1.8, so results from earlier builds do not share a comparability key
   with new ones.
 

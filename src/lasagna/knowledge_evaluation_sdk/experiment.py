@@ -3440,8 +3440,6 @@ async def _eval_offline(
                 per_sample_scores[i].update(per_sample_usage[i].to_dict())
 
         # EM/F1 + trajectory for offline path (mirrors live path)
-        from .answer_metrics import exact_match as _em_fn, strip_citations, token_f1 as _tf1_fn
-
         _save_traj = (task.config_overrides or {}).get("save_trajectories", "minimal")
         for i, sample in enumerate(eval_samples):
             if i >= len(per_sample_scores):
@@ -3453,20 +3451,9 @@ async def _eval_offline(
             _meta = getattr(sample, "metadata", {}) or {}
             ps["_source_benchmark"] = _meta.get("source_benchmark", "")
 
-            # EM/F1, on the answer without citation markers
             _gt = ground_truths[i] if i < len(ground_truths) else ""
             _ans = answers[i] if i < len(answers) else ""
-            _scored = strip_citations(_ans)
-            _aliases = getattr(sample, "ground_truth_answers", None) or []
-            if _is_unanswerable(sample):
-                ps["exact_match"] = ps["token_f1"] = _no_answer_em(_scored)
-            elif _gt.strip() and _scored.strip():
-                ps["exact_match"] = _em_fn(_scored, _gt, aliases=_aliases)
-                ps["token_f1"] = _tf1_fn(_scored, _gt, aliases=_aliases)
-            else:
-                ps["exact_match"] = 0.0
-                ps["token_f1"] = 0.0
-            ps.update(_answer_scores(_scored, sample))
+            ps.update(_reference_scores(_ans, sample))
             if _has_unanswerable:
                 ps["_answerable"] = 0.0 if _is_unanswerable(sample) else 1.0
 
@@ -3484,6 +3471,8 @@ async def _eval_offline(
 
         # Semantic similarity (local embedder) and, for answers that cite,
         # citation quality (the judge, counted as eval spend).
+        from .answer_metrics import strip_citations
+
         await asyncio.to_thread(
             _add_answer_similarity,
             per_sample_scores,
@@ -5233,9 +5222,10 @@ async def _eval_live(
                                 )
 
                 _n_generations += 1
-                if not (answer or "").strip():
+                if not (answer or "").strip() and not (_agentic_answer or "").strip():
                     # No answer: no context, no generator, or every attempt
                     # failed. Scored, it would read as an unfaithful answer.
+                    # A loop's own answer is the one its row is scored on.
                     _failed_generations += 1
                 gen_questions.append(gen_sample.question)
                 gen_answers.append(answer)
@@ -5342,10 +5332,11 @@ async def _eval_live(
                     "answer_similarity_agentic",
                 )
                 for row in _gen_rows:
-                    row.update({f"{k}_regen": row[k] for k in _SCORED_ON_EITHER_ANSWER if k in row})
-                apply_canonical_metric_mapping(
-                    _gen_rows, metrics, base_keys=_SCORED_ON_EITHER_ANSWER
-                )
+                    for k in _SCORED_ON_EITHER_ANSWER:
+                        if k in row:
+                            row[f"{k}_regen"] = row[k]
+                        if f"{k}_agentic" in row:
+                            row[k] = row[f"{k}_agentic"]
 
             # Run RAGAS on all collected generation samples that have a
             # reference answer (an unanswerable question has none).

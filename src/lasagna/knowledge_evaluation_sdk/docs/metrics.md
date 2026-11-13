@@ -307,10 +307,19 @@ An agentic arm has two answers: the one its loop wrote, and the one the
 harness's generator writes from the passages the loop returned. Exact match,
 token F1, ROUGE-L, containment, abstention and answer similarity score both,
 as the judged metrics do: `<metric>_agentic` is the loop's answer (averaged
-over the questions it answered), `<metric>_regen` the harness's, and the
-unsuffixed `<metric>` the loop's where it answered and the harness's
-otherwise. Citation quality scores only the harness's answer, since `[n]`
-numbers the passages its generator was shown.
+over the questions it answered; answer similarity, over those of them with a
+reference), `<metric>_regen` the harness's, and the unsuffixed `<metric>` the
+loop's where it answered and the harness's otherwise. Citation quality scores
+only the harness's answer, since `[n]` numbers the passages its generator was
+shown.
+
+The loop answers in its own way: it does not get the harness's prompt, so it
+is not asked for one sentence, nor told to reply `unanswerable` on SQuAD v2.
+The unsuffixed scores measure the arm as it answers, a loop that writes a
+paragraph scores low on exact match, and on SQuAD v2's unanswerable questions
+they measure whether the loop abstains unprompted. `_regen` compares arms
+through the same generator and prompt. For an agentic arm,
+`generations_failed` counts a question only when neither answer was written.
 
 ### Exact Match and Token F1
 

@@ -189,6 +189,24 @@ class TestCountsThatDriftedOnce:
                 f"{rel} hard-codes a test count in a badge; nothing updates it"
             )
 
+    def test_every_page_names_the_current_metrics_version(self):
+        """`docs/reference/metrics.md` still said 1.7 after the step to 1.8
+        updated `docs/concepts/comparability.md` beside it."""
+        from lasagna.knowledge_evaluation_sdk.bundle import METRICS_VERSION
+
+        named = {}
+        for page in sorted((REPO_ROOT / "docs").rglob("*.md")):
+            text = " ".join(_read(page).split())
+            for version in re.findall(r"is metrics version (\d+\.\d+)", text) + re.findall(
+                r"The metrics version is (\d+\.\d+)", text
+            ):
+                named.setdefault(str(page.relative_to(REPO_ROOT)), set()).add(version)
+        assert len(named) >= 2, (
+            f"expected the version on the metrics and comparability pages: {named}"
+        )
+        wrong = {page: v for page, v in named.items() if v != {METRICS_VERSION}}
+        assert not wrong, f"pages name another metrics version than {METRICS_VERSION}: {wrong}"
+
     def test_the_watsonx_env_var_matches_what_reads_it(self):
         """The CLI wrote `WATSONX_API_KEY`; the gate and the infrastructure docs
         use IBM's own spelling `WATSONX_APIKEY`. The CLI was setting a variable

@@ -53,11 +53,13 @@ class _Pipeline:
 class _Generator:
     """The harness's generator: it reads the passages and gets it wrong."""
 
+    reply = "Lisbon"
+
     async def ainvoke(self, prompt):
-        return SimpleNamespace(content="Lisbon")
+        return SimpleNamespace(content=self.reply)
 
     def invoke(self, prompt):
-        return SimpleNamespace(content="Lisbon")
+        return SimpleNamespace(content=self.reply)
 
 
 class _Judge:
@@ -122,7 +124,8 @@ def run(monkeypatch):
     monkeypatch.setattr(answer_metrics, "load_similarity_encoder", lambda name=None: _encoder)
     _Judge.judged = []
 
-    def _run(answers, n=3, overrides=None):
+    def _run(answers, n=3, overrides=None, harness="Lisbon", fails=False):
+        model.reply = harness
         pipeline = _Pipeline(answers)
         monkeypatch.setattr(
             pipeline_mod.KnowledgePipeline, "from_profile", classmethod(lambda cls, p: pipeline)
@@ -147,7 +150,7 @@ def run(monkeypatch):
             for i in range(n)
         ]
         result = asyncio.run(exp._eval_live(task, samples))
-        assert result.error is None, result.error
+        assert (result.error is not None) == fails, result.error
         return result
 
     return _run
@@ -199,3 +202,27 @@ def test_an_arm_without_a_loop_keeps_its_keys(run):
     for row in _rows(result):
         assert not [k for k in row if k.endswith(("_agentic", "_regen"))]
         assert "_agentic_answer" not in row
+
+
+def test_a_question_the_loop_answered_is_not_a_failed_generation(run):
+    """The harness's generator wrote nothing (in the Search-o1 smoke run the loop
+    answered with no passage left for it to read), but the row is scored on the
+    loop's answer, so the arm keeps its generation metrics."""
+    loop = {f"question {i}?": "tardigrade" for i in range(3)}
+    result = run(loop, harness="")
+    assert result.metrics["generations_failed"] == 0.0
+    assert result.metrics["exact_match"] == 1.0
+
+
+def test_with_no_answer_from_either_the_question_failed(run):
+    result = run({}, n=2, harness="", fails=True)
+    assert "2 of 2 answers could not be generated" in result.error
+
+
+def test_the_viewer_shows_the_answer_each_score_is_for():
+    from lasagna.knowledge_evaluation_sdk.viewer import _evidence
+
+    html = _evidence({"_agentic_answer": "tardigrade", "_generated_answer": "Lisbon"})
+    assert "Loop's answer:</b> tardigrade" in html
+    assert "Harness's answer (_regen):</b> Lisbon" in html
+    assert "<b>Answer:</b> Lisbon" in _evidence({"_generated_answer": "Lisbon"})
