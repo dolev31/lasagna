@@ -2950,14 +2950,11 @@ class LegacyReActPipeline(BaseAgenticPipeline):
 
     async def run(self, input: AgenticPipelineInput) -> AgenticRAGResult:
         """Execute the legacy ReAct agent pipeline."""
-        config = input.session_config or self._session_config or rag_config
-        llm = input.llm
-        temperature = float(getattr(config, "agent_temperature", 0.0) or 0.0)
-        built_temp = getattr(llm, "temperature", None) if llm is not None else None
-        if llm is None or (built_temp is not None and built_temp != temperature):
-            from lasagna.providers import get_llm_provider
+        from lasagna.agentic.loops._base import llm_with_temperature
 
-            llm = get_llm_provider().get_llm(temperature=temperature)
+        config = input.session_config or self._session_config or rag_config
+        temperature = float(getattr(config, "agent_temperature", 0.0) or 0.0)
+        llm = llm_with_temperature(input.llm, temperature)
 
         max_iterations = getattr(config, "max_agent_iterations", 3)
 

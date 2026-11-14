@@ -287,14 +287,11 @@ class BuiltinStructuredPipeline(BaseAgenticPipeline):
             node_overrides=self._node_overrides,
         )
 
-        max_iters = getattr(config, "max_agent_iterations", 3)
-        llm = input.llm
-        temperature = float(getattr(config, "agent_temperature", 0.0) or 0.0)
-        built_temp = getattr(llm, "temperature", None) if llm is not None else None
-        if llm is None or (built_temp is not None and built_temp != temperature):
-            from lasagna.providers import get_llm_provider
+        from lasagna.agentic.loops._base import llm_with_temperature
 
-            llm = get_llm_provider().get_llm(temperature=temperature)
+        max_iters = getattr(config, "max_agent_iterations", 3)
+        temperature = float(getattr(config, "agent_temperature", 0.0) or 0.0)
+        llm = llm_with_temperature(input.llm, temperature)
         initial_state = build_initial_state(
             question=input.question,
             session_id=input.session_id,

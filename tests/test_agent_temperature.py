@@ -3,6 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
 from lasagna.agentic.agentic_rag import (
     AgenticRAG,
     LegacyReActPipeline,
@@ -11,34 +13,78 @@ from lasagna.agentic.agentic_rag import (
     search_knowledge_base,
 )
 from lasagna.agentic.graph_builder import BuiltinStructuredPipeline
-from lasagna.agentic.loops._base import loop_llm
+from lasagna.agentic.loops._base import llm_with_temperature, loop_llm
 from lasagna.agentic.nodes.refine_chunks import refine_chunks_node
 from lasagna.providers.llm_provider import SimpleLLMProvider
 from tests._loop_stubs import ScriptedLLM, hit, install_backend, pipeline_input
+
+
+class CopyableScriptedLLM(ScriptedLLM):
+    def __init__(
+        self,
+        replies=None,
+        *,
+        model_name: str = "provider-default",
+        provider: str = "default-provider",
+        temperature: float = 0.0,
+    ):
+        super().__init__(replies or [])
+        self.model_name = model_name
+        self.provider = provider
+        self.temperature = temperature
+        self.used_models: list[tuple[str, str, float]] = []
+
+    async def ainvoke(self, messages, stop=None, **kwargs):
+        self.used_models.append((self.model_name, self.provider, self.temperature))
+        return await super().ainvoke(messages, stop=stop, **kwargs)
+
+    def model_copy(self, *, update=None, **kwargs):
+        copied = CopyableScriptedLLM(
+            model_name=self.model_name,
+            provider=self.provider,
+            temperature=self.temperature,
+        )
+        copied.replies = self.replies
+        copied.prompts = self.prompts
+        copied.stops = self.stops
+        copied.bound = self.bound
+        copied.used_models = self.used_models
+        if update:
+            for key, value in update.items():
+                setattr(copied, key, value)
+        return copied
 
 
 class RecordingProvider:
     def __init__(self, replies=None):
         self.llm_calls = []
         self.chat_calls = []
-        self.shared_llm = ScriptedLLM(replies or ["No.\nSo the final answer is: done"])
+        self.shared_llm = CopyableScriptedLLM(replies or ["No.\nSo the final answer is: done"])
 
     def get_llm(self, model_name=None, temperature=0.0, **kwargs):
         self.llm_calls.append({"model_name": model_name, "temperature": temperature, **kwargs})
-        llm = ScriptedLLM([])
+        llm = CopyableScriptedLLM(
+            model_name=model_name or "provider-default",
+            provider="default-provider",
+            temperature=temperature,
+        )
         llm.replies = self.shared_llm.replies
         llm.prompts = self.shared_llm.prompts
         llm.stops = self.shared_llm.stops
         llm.bound = self.shared_llm.bound
-        llm.temperature = temperature
+        llm.used_models = self.shared_llm.used_models
         return llm
 
     def get_chat_model(self, model_settings, temperature=0.0, **kwargs):
         self.chat_calls.append(
             {"model_settings": model_settings, "temperature": temperature, **kwargs}
         )
-        llm = ScriptedLLM(self.shared_llm.replies or ["refined"])
-        llm.temperature = temperature
+        llm = CopyableScriptedLLM(
+            self.shared_llm.replies or ["refined"],
+            model_name=model_settings.get("model_name", "provider-default"),
+            provider=model_settings.get("platform", "default-provider"),
+            temperature=temperature,
+        )
         return llm
 
 
@@ -77,21 +123,32 @@ async def test_shared_loop_model_is_constructed_with_agent_temperature(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_shared_loop_model_rebuilds_when_handed_mismatched_temperature(monkeypatch):
+async def test_shared_loop_model_preserves_caller_model_when_temperature_differs(monkeypatch):
     import lasagna.providers
     from lasagna.agentic.loops.self_ask import SelfAskPipeline
 
-    provider = RecordingProvider(["No.\nSo the final answer is: done"])
+    provider = RecordingProvider(["unused"])
     monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: provider)
-    wrong_temp_llm = ScriptedLLM(["unused"])
-    wrong_temp_llm.temperature = 0.0
+    caller_llm = CopyableScriptedLLM(
+        ["No.\nSo the final answer is: done"],
+        model_name="gpt-4o",
+        provider="custom-openai",
+        temperature=0.2,
+    )
     config = _config(agent_temperature=0.9)
 
-    result = await SelfAskPipeline().run(pipeline_input("q", wrong_temp_llm, config))
+    resolved = loop_llm("self_ask", pipeline_input("q", caller_llm, config), config)
+    result = await SelfAskPipeline().run(pipeline_input("q", caller_llm, config))
 
     assert result.agent_summary == "done"
-    assert provider.llm_calls == [{"model_name": None, "temperature": 0.9}]
-    assert wrong_temp_llm.bound == []
+    assert resolved is not caller_llm
+    assert resolved.model_name == "gpt-4o"
+    assert resolved.provider == "custom-openai"
+    assert resolved.temperature == 0.9
+    assert caller_llm.temperature == 0.2
+    assert caller_llm.used_models == [("gpt-4o", "custom-openai", 0.9)]
+    assert caller_llm.bound == []
+    assert provider.llm_calls == []
 
 
 def test_loop_default_temperature_is_zero(monkeypatch):
@@ -141,7 +198,40 @@ def test_agentic_rag_create_uses_session_agent_temperature(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_legacy_react_pipeline_constructs_llm_with_agent_temperature(monkeypatch):
+async def test_legacy_react_pipeline_preserves_caller_model_and_updates_temperature(monkeypatch):
+    from lasagna.agentic import agentic_rag
+    import lasagna.providers
+
+    provider = RecordingProvider(["answer"])
+    monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: provider)
+    monkeypatch.setattr(agentic_rag, "create_agent", lambda llm, tools, system_prompt: "graph")
+    captured = {}
+
+    async def _fake_retrieve(self, **kwargs):
+        captured["llm"] = self.llm
+        return "ok"
+
+    monkeypatch.setattr(AgenticRAG, "retrieve", _fake_retrieve)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-no-request-is-made")  # pragma: allowlist secret
+    caller_llm = ChatOpenAI(
+        model="gpt-4o",
+        temperature=0.2,
+        base_url="https://custom.example.com/v1",
+    )
+    config = _config(agent_temperature=0.9, max_agent_iterations=2)
+
+    await LegacyReActPipeline().run(pipeline_input("q", caller_llm, config))
+
+    assert provider.llm_calls == []
+    assert isinstance(captured["llm"], ChatOpenAI)
+    assert captured["llm"].model_name == "gpt-4o"
+    assert captured["llm"].openai_api_base == "https://custom.example.com/v1"
+    assert captured["llm"].temperature == 0.9
+    assert caller_llm.temperature == 0.2
+
+
+@pytest.mark.asyncio
+async def test_legacy_react_pipeline_constructs_llm_when_missing(monkeypatch):
     from lasagna.agentic import agentic_rag
     import lasagna.providers
 
@@ -155,19 +245,52 @@ async def test_legacy_react_pipeline_constructs_llm_with_agent_temperature(monke
         return "ok"
 
     monkeypatch.setattr(AgenticRAG, "retrieve", _fake_retrieve)
-    wrong_temp_llm = ScriptedLLM(["unused"])
-    wrong_temp_llm.temperature = 0.0
     config = _config(agent_temperature=0.9, max_agent_iterations=2)
 
-    await LegacyReActPipeline().run(pipeline_input("q", wrong_temp_llm, config))
+    await LegacyReActPipeline().run(pipeline_input("q", None, config))
 
     assert provider.llm_calls == [{"model_name": None, "temperature": 0.9}]
     assert captured["llm_temp"] == 0.9
-    assert wrong_temp_llm.bound == []
 
 
 @pytest.mark.asyncio
-async def test_structured_graph_pipeline_constructs_llm_with_agent_temperature(monkeypatch):
+async def test_structured_graph_pipeline_preserves_caller_model_and_updates_temperature(
+    monkeypatch,
+):
+    from lasagna.agentic import graph_builder
+    import lasagna.providers
+
+    provider = RecordingProvider(["answer"])
+    monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: provider)
+    captured = {}
+
+    class _FakeGraph:
+        async def ainvoke(self, state):
+            captured["llm"] = state["llm"]
+            return {"agent_summary": "done"}
+
+    monkeypatch.setattr(graph_builder, "build_rag_graph", lambda **kwargs: _FakeGraph())
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-no-request-is-made")  # pragma: allowlist secret
+    caller_llm = ChatOpenAI(
+        model="gpt-4o",
+        temperature=0.2,
+        base_url="https://custom.example.com/v1",
+    )
+    config = _config(agent_temperature=0.9, max_agent_iterations=2)
+
+    result = await BuiltinStructuredPipeline().run(pipeline_input("q", caller_llm, config))
+
+    assert result.agent_summary == "done"
+    assert provider.llm_calls == []
+    assert isinstance(captured["llm"], ChatOpenAI)
+    assert captured["llm"].model_name == "gpt-4o"
+    assert captured["llm"].openai_api_base == "https://custom.example.com/v1"
+    assert captured["llm"].temperature == 0.9
+    assert caller_llm.temperature == 0.2
+
+
+@pytest.mark.asyncio
+async def test_structured_graph_pipeline_constructs_llm_when_missing(monkeypatch):
     from lasagna.agentic import graph_builder
     import lasagna.providers
 
@@ -181,16 +304,13 @@ async def test_structured_graph_pipeline_constructs_llm_with_agent_temperature(m
             return {"agent_summary": "done"}
 
     monkeypatch.setattr(graph_builder, "build_rag_graph", lambda **kwargs: _FakeGraph())
-    wrong_temp_llm = ScriptedLLM(["unused"])
-    wrong_temp_llm.temperature = 0.0
     config = _config(agent_temperature=0.9, max_agent_iterations=2)
 
-    result = await BuiltinStructuredPipeline().run(pipeline_input("q", wrong_temp_llm, config))
+    result = await BuiltinStructuredPipeline().run(pipeline_input("q", None, config))
 
     assert result.agent_summary == "done"
     assert provider.llm_calls == [{"model_name": None, "temperature": 0.9}]
     assert captured["llm_temp"] == 0.9
-    assert wrong_temp_llm.bound == []
 
 
 @pytest.mark.asyncio
@@ -292,6 +412,10 @@ async def test_pinned_adaptive_classifier_stays_deterministic(monkeypatch):
         {"model_name": None, "temperature": 0.9},
         {"model_name": "classifier", "temperature": 0.0},
     ]
+    assert provider.shared_llm.used_models == [
+        ("classifier", "default-provider", 0.0),
+        ("provider-default", "default-provider", 0.9),
+    ]
 
 
 @pytest.mark.asyncio
@@ -308,9 +432,38 @@ async def test_unpinned_adaptive_classifier_stays_deterministic_while_reasoning_
     result = await AdaptiveRAGPipeline().run(pipeline_input("q", None, config))
 
     assert result.agent_summary == "done"
-    assert provider.llm_calls == [
-        {"model_name": None, "temperature": 0.9},
-        {"model_name": None, "temperature": 0.0},
+    assert provider.llm_calls == [{"model_name": None, "temperature": 0.9}]
+    assert provider.shared_llm.used_models == [
+        ("provider-default", "default-provider", 0.0),
+        ("provider-default", "default-provider", 0.9),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_unpinned_adaptive_classifier_preserves_caller_model_at_zero_while_reasoning_uses_agent_temperature(
+    monkeypatch,
+):
+    from lasagna.agentic.loops.adaptive import AdaptiveRAGPipeline
+    import lasagna.providers
+
+    provider = RecordingProvider(["unused"])
+    monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: provider)
+    caller_llm = CopyableScriptedLLM(
+        ["A", "So the answer is: done."],
+        model_name="gpt-4o",
+        provider="custom-openai",
+        temperature=0.2,
+    )
+    config = _config(agent_temperature=0.9, adaptive_rag_classifier_model="")
+
+    result = await AdaptiveRAGPipeline().run(pipeline_input("q", caller_llm, config))
+
+    assert result.agent_summary == "done"
+    assert provider.llm_calls == []
+    assert caller_llm.temperature == 0.2
+    assert caller_llm.used_models == [
+        ("gpt-4o", "custom-openai", 0.0),
+        ("gpt-4o", "custom-openai", 0.9),
     ]
 
 
@@ -337,9 +490,91 @@ async def test_crag_grading_stays_deterministic(monkeypatch):
     assert provider.chat_calls[-1]["temperature"] == 0.0
 
 
-def test_ollama_model_constructed_with_temperature_without_binding():
-    provider = SimpleLLMProvider(default_provider="ollama")
-    llm = provider.get_llm(model_name="llama3.2", temperature=0.9)
+def test_chat_openai_model_copy_preserves_model_and_updates_temperature(monkeypatch):
+    import lasagna.providers
 
-    assert getattr(llm, "temperature", None) == 0.9
+    provider = RecordingProvider()
+    monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: provider)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-no-request-is-made")  # pragma: allowlist secret
+    original = ChatOpenAI(
+        model="gpt-4o",
+        temperature=0.2,
+        base_url="https://custom.example.com/v1",
+    )
+
+    updated = llm_with_temperature(original, 0.9)
+
+    assert provider.llm_calls == []
+    assert isinstance(updated, ChatOpenAI)
+    assert updated.model_name == "gpt-4o"
+    assert updated.openai_api_base == "https://custom.example.com/v1"
+    assert updated.temperature == 0.9
+    assert updated._default_params["model"] == "gpt-4o"
+    assert updated._default_params["temperature"] == 0.9
+    assert original.temperature == 0.2
+
+    bound = original.bind(stop=["END"])
+    bound_updated = llm_with_temperature(bound, 0.9)
+    assert bound_updated.kwargs == {"stop": ["END"]}
+    assert bound_updated.bound.model_name == "gpt-4o"
+    assert bound_updated.bound.openai_api_base == "https://custom.example.com/v1"
+    assert bound_updated.bound.temperature == 0.9
+    assert bound.bound.temperature == 0.2
+
+
+def test_ollama_model_constructed_and_copied_with_temperature_without_binding(monkeypatch):
+    import lasagna.providers
+
+    provider = SimpleLLMProvider(default_provider="ollama")
+    llm = provider.get_llm(model_name="llama3.2", temperature=0.2)
+
+    assert getattr(llm, "temperature", None) == 0.2
+    assert llm.cache.deterministic is False
     assert not hasattr(llm, "kwargs") or "temperature" not in getattr(llm, "kwargs", {})
+
+    recording = RecordingProvider()
+    monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: recording)
+    copied = llm_with_temperature(llm, 0.9)
+    copied_zero = llm_with_temperature(copied, 0.0)
+
+    assert recording.llm_calls == []
+    assert getattr(copied, "model", getattr(copied, "model_name", None)) == "llama3.2"
+    assert getattr(copied, "temperature", None) == 0.9
+    assert getattr(llm, "temperature", None) == 0.2
+    assert copied.cache.deterministic is False
+    assert copied_zero.cache.deterministic is True
+    assert copied.cache is not copied_zero.cache
+    assert not hasattr(copied, "kwargs") or "temperature" not in getattr(copied, "kwargs", {})
+
+    try:
+        from langchain_ollama import ChatOllama
+    except ImportError:
+        ChatOllama = None
+
+    if ChatOllama is not None:
+        native = ChatOllama(
+            model="llama3.2",
+            temperature=0.2,
+            base_url="http://custom-ollama:11434",
+        )
+        native_copied = llm_with_temperature(native, 0.9)
+        assert native_copied.model == "llama3.2"
+        assert native_copied.base_url == "http://custom-ollama:11434"
+        assert native_copied.temperature == 0.9
+        assert native.temperature == 0.2
+        params = native_copied._chat_params([HumanMessage(content="hi")])
+        assert params["model"] == "llama3.2"
+        assert params["options"]["temperature"] == 0.9
+
+
+def test_non_copyable_model_raises_type_error_instead_of_replacing(monkeypatch):
+    import lasagna.providers
+
+    provider = RecordingProvider()
+    monkeypatch.setattr(lasagna.providers, "get_llm_provider", lambda: provider)
+    non_copyable = SimpleNamespace(model_name="custom", temperature=0.2)
+
+    with pytest.raises(TypeError, match="does not support model_copy"):
+        llm_with_temperature(non_copyable, 0.9)
+
+    assert provider.llm_calls == []
