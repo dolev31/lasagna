@@ -484,7 +484,7 @@ chunk_refinement_method = "auto"
 # refinement_model = "gpt-6-luna"
 
 # Agent temperature (low for determinism and predictability)
-agent_temperature = 0.1
+agent_temperature = 0.0
 
 # Max query length for refined queries (tokens, keeps queries focused)
 max_query_length = 12

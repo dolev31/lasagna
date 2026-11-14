@@ -690,7 +690,11 @@ class RAGBackend:
         from lasagna.providers import get_llm_provider
 
         config = self.get_session_config(session_id)
-        llm = get_llm_provider().get_llm()
+        temperature = float(getattr(config, "agent_temperature", 0.0) or 0.0)
+        provider = get_llm_provider()
+        llm = (
+            provider.get_llm(temperature=temperature) if temperature != 0.0 else provider.get_llm()
+        )
         agent = AgenticRAG(
             llm=llm,
             max_iterations=getattr(config, "max_agent_iterations", 3),

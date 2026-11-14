@@ -138,6 +138,14 @@ Upgrading:
 
 ### Fixed
 
+- Agentic reasoning and chunk-refinement LLM calls now honor the session's
+  `agent_temperature`, including shared and pinned loop models (#82). Previously,
+  `RAGConfig.agent_temperature` documented a default of `0.1` that never reached
+  any LLM call because models were built with the provider default (`0.0`). The
+  runtime default remains `0.0` so existing behavior does not silently change,
+  explicit session `agent_temperature` values now reach every reasoning and
+  chunk-refinement call, and adaptive complexity classification and CRAG
+  document grading remain deterministic at `0.0`.
 - A run that writes no answers names no judge and no answer-similarity
   model, since only answers are judged. A live retrieval sweep recorded the
   judge from `RAG_EVAL_JUDGE_MODEL` or `judge_model:`, and the similarity

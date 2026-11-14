@@ -255,7 +255,7 @@ These are the `KnowledgeConfig` defaults (`sdk/config.py`). Every backend settin
 | `max_agent_iterations` | int | 3 | Max search hops |
 | `chunk_refinement_method` | str | auto | Chunk refinement (vanilla, refined, auto) |
 | `refinement_model` | str | `MODEL_NAME`, else gpt-6-luna | Model for chunk refinement |
-| `agent_temperature` | float | 0.1 | Temperature for agent LLM calls |
+| `agent_temperature` | float | 0.0 | Temperature for agent/refinement reasoning calls; adaptive classification and CRAG grading remain deterministic |
 | `enable_crag` | bool | False | Enable Corrective RAG quality grading |
 | `crag_web_search_fallback` | bool | False | Allow web search fallback on poor CRAG grade |
 | `enable_query_decomposition` | bool | False | Break complex queries into sub-questions |

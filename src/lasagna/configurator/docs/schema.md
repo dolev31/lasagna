@@ -160,7 +160,7 @@ All nested under `document_awareness` parent key.
 | Key | Type | Default | Constraints | Flags |
 |-----|------|---------|-------------|-------|
 | `max_agent_iterations` | integer | `3` | min=1, max=10, step=1 |  |
-| `agent_temperature` | float | `0.1` | min=0.0, max=1.0, step=0.05 |  |
+| `agent_temperature` | float | `0.0` | min=0.0, max=1.0, step=0.05 |  |
 | `chunk_refinement_method` | enum | `"auto"` | Options: `vanilla`, `refined`, `auto` |  |
 | `refinement_model` | string | `"gpt-6-luna"` | `MODEL_NAME` when set |  |
 | `agentic_hyde_strategy` | enum | `"adaptive"` | Options: `off`, `first_hop`, `adaptive`, `always` |  |

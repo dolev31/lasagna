@@ -199,8 +199,18 @@ def create_agentic_rag(
         rag_settings=rag_settings,
     )
 
+    from lasagna.core.config import rag_config
+
     max_iterations = int((rag_settings or {}).get("max_agent_iterations", 3))
-    return AgenticRAG(llm=get_llm_provider().get_llm(), max_iterations=max_iterations)
+    temperature = float(
+        (rag_settings or {}).get("agent_temperature", rag_config.agent_temperature) or 0.0
+    )
+    provider = get_llm_provider()
+    llm = provider.get_llm(temperature=temperature) if temperature != 0.0 else provider.get_llm()
+    return AgenticRAG(
+        llm=llm,
+        max_iterations=max_iterations,
+    )
 
 
 def reset_standalone():

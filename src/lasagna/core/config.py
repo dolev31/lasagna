@@ -3046,7 +3046,7 @@ class RAGConfig:
     @property
     def agent_temperature(self) -> float:
         """Temperature for agent/refinement model (low for determinism)."""
-        return self._get_knowledge_setting("rag", "agent_temperature", default=0.1)
+        return self._get_knowledge_setting("rag", "agent_temperature", default=0.0)
 
     @property
     def max_query_length(self) -> int:
