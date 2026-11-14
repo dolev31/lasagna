@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -295,6 +296,40 @@ class TestTheDiff:
         )
         assert check_pr_body.diff_problems(diff) == []
 
+    #: CHANGELOG.md with 0.3.0 released; line 7 is under Unreleased, line 14 under 0.3.0.
+    CHANGELOG = (
+        "# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- New.\n\n"
+        "## [0.3.0] - 2026-11-07\n\n### Fixed\n\n- Old.\n- Late.\n"
+    )
+
+    @staticmethod
+    def _changelog_diff(added: dict[int, str]) -> str:
+        hunks = "".join(f"@@ -{n},0 +{n},1 @@\n+{text}\n" for n, text in added.items())
+        return (
+            "diff --git a/CHANGELOG.md b/CHANGELOG.md\n--- a/CHANGELOG.md\n+++ b/CHANGELOG.md\n"
+            + hunks
+        )
+
+    def test_a_changelog_line_under_unreleased_passes(self):
+        diff = self._changelog_diff({7: "- New."})
+        assert check_pr_body.diff_problems(diff, changelog=self.CHANGELOG) == []
+
+    def test_a_changelog_line_under_a_released_version_fails(self):
+        diff = self._changelog_diff({14: "- Late."})
+        (found,) = check_pr_body.diff_problems(diff, changelog=self.CHANGELOG)
+        assert found.startswith("CHANGELOG.md:14: 1 added line(s)")
+        assert '"## [0.3.0] - 2026-11-07"' in found and '"## [Unreleased]"' in found
+
+    def test_a_release_opens_its_own_section(self):
+        """A release adds the version heading, and may add lines under it."""
+        diff = self._changelog_diff({9: "## [0.3.0] - 2026-11-07", 14: "- Late."})
+        assert check_pr_body.diff_problems(diff, changelog=self.CHANGELOG) == []
+
+    def test_the_label_waives_the_released_section(self):
+        diff = self._changelog_diff({14: "- Late."})
+        labels = {"changelog-history"}
+        assert check_pr_body.diff_problems(diff, labels, changelog=self.CHANGELOG) == []
+
 
 class TestTheCommandAndTheWorkflow:
     def test_the_command_reads_a_file_and_says_what_is_missing(self, tmp_path):
@@ -312,6 +347,59 @@ class TestTheCommandAndTheWorkflow:
         )
         assert passed.returncode == 0, passed.stdout
 
+    def test_a_branch_from_before_a_release_is_read_as_merged(self, tmp_path):
+        """A clean merge can put a branch's line under the release cut after it.
+
+        CI checks out the merge commit, so the check reads the CHANGELOG there.
+        This is how #94's line would have landed under 0.3.0.
+        """
+        repo = tmp_path / "repo"
+        (repo / "scripts").mkdir(parents=True)
+        shutil.copy(REPO_ROOT / "scripts" / "check_pr_body.py", repo / "scripts")
+        changelog = repo / "CHANGELOG.md"
+        body = tmp_path / "body.md"
+        body.write_text(FILLED, encoding="utf-8")
+
+        def git(*args):
+            subprocess.run(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
+                + ["-c", "commit.gpgsign=false", *args],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+
+        def check():
+            script = str(repo / "scripts" / "check_pr_body.py")
+            return subprocess.run(
+                [sys.executable, script, "--file", str(body), "--diff", "main"],
+                capture_output=True,
+                text=True,
+            )
+
+        changelog.write_text("# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- Earlier.\n")
+        git("init", "-q", "-b", "main")
+        git("add", ".")
+        git("commit", "-qm", "start")
+        git("checkout", "-qb", "fix")
+        changelog.write_text(changelog.read_text() + "- The branch's fix.\n")
+        git("commit", "-qam", "fix")
+        git("checkout", "-q", "main")
+        released = "## [Unreleased]\n\n## [0.3.0] - 2026-11-07\n\n### Fixed\n\n- Earlier.\n"
+        changelog.write_text("# Changelog\n\n" + released)
+        git("commit", "-qam", "release 0.3.0")
+        git("checkout", "-q", "--detach")
+        git("merge", "-q", "--no-edit", "fix")
+
+        merged = check()
+        assert merged.returncode == 1, merged.stdout
+        assert '::error::CHANGELOG.md:10: 1 added line(s) land under "## [0.3.0]' in merged.stdout
+
+        moved = released.replace("[Unreleased]\n", "[Unreleased]\n\n- The branch's fix.\n")
+        changelog.write_text("# Changelog\n\n" + moved)
+        git("commit", "-qam", "move the line under Unreleased")
+        assert check().returncode == 0
+
     def test_the_workflow_runs_the_check_on_every_change_to_the_pull_request(self):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         # PyYAML reads the key `on` as True.
@@ -328,5 +416,5 @@ class TestTheCommandAndTheWorkflow:
     def test_the_waiver_labels_are_named_in_contributing(self):
         contributing = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
         assert "## Quality bar" in contributing
-        for label in ("no-changelog", "no-new-test"):
+        for label in ("no-changelog", "no-new-test", "changelog-history"):
             assert f"`{label}`" in contributing, label

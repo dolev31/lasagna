@@ -31,7 +31,12 @@ With `--diff BASE`, checks the lines `git diff BASE...HEAD` adds:
 - a new module under `src/lasagna/` opens with a docstring;
 - a change to code under `src/lasagna/` comes with a CHANGELOG.md line and a
   change under `tests/`, unless a maintainer added the `no-changelog` or
-  `no-new-test` label.
+  `no-new-test` label;
+- a CHANGELOG.md line lands under `## [Unreleased]`, not under a version that
+  is already out. On a pull request the workflow checks out the merge commit,
+  so this reads the file as it will be once merged: a branch started before a
+  release merges cleanly but puts its line under that release. A maintainer
+  adds `changelog-history` to correct a released version's notes.
 
 Only added lines are checked, so code that was already there never fails a
 pull request that did not touch it.
@@ -79,6 +84,9 @@ PLACEHOLDERS = {"todo", "tbd", "wip", "n/a", "na", "none", "-", "...", "see diff
 
 #: A "Why" shorter than this is a title, not a reason.
 MIN_WHY_WORDS = 5
+
+#: The CHANGELOG section a pull request adds its lines to.
+UNRELEASED = "## [Unreleased]"
 
 #: The checker and its tests spell out the patterns they reject.
 EXEMPT = ("scripts/check_pr_body.py", "tests/test_pr_body_check.py")
@@ -241,8 +249,41 @@ def _missing_docstring(added: list[tuple[int, str]]) -> bool:
     return False
 
 
-def diff_problems(diff_text: str, labels: set[str] | frozenset[str] = frozenset()) -> list[str]:
-    """What the lines a pull request adds break, one sentence each."""
+def _released_lines(added: list[tuple[int, str]], changelog: str) -> list[str]:
+    """The added CHANGELOG lines that sit under a version already released.
+
+    Each line belongs to the nearest `## ` heading above it. A heading the same
+    diff adds is a section this pull request opens, as a release does.
+    """
+    lines = changelog.replace("\r\n", "\n").split("\n")
+    added_at = {n for n, _ in added}
+    under: dict[int, list[int]] = {}
+    for n, text in added:
+        if not text.strip():
+            continue
+        head = next((i for i in range(n, 0, -1) if lines[i - 1].startswith("## ")), None)
+        if head is None or head in added_at or lines[head - 1].strip() == UNRELEASED:
+            continue
+        under.setdefault(head, []).append(n)
+    return [
+        f"CHANGELOG.md:{at[0]}: {len(at)} added line(s) land under "
+        f'"{lines[head - 1].strip()}", a version already released; merge main and '
+        f'move them under "{UNRELEASED}" (a maintainer adds changelog-history to '
+        "correct a released version's notes)"
+        for head, at in under.items()
+    ]
+
+
+def diff_problems(
+    diff_text: str,
+    labels: set[str] | frozenset[str] = frozenset(),
+    changelog: str | None = None,
+) -> list[str]:
+    """What the lines a pull request adds break, one sentence each.
+
+    `changelog` is CHANGELOG.md as the diff leaves it, to say which section each
+    added line lands in.
+    """
     found = []
     files = _files(diff_text)
     for path, info in files.items():
@@ -263,6 +304,8 @@ def diff_problems(diff_text: str, labels: set[str] | frozenset[str] = frozenset(
             "the code under src/lasagna/ changed but nothing under tests/ did; add the "
             "test that fails without the change (a maintainer adds no-new-test for a pure refactor)"
         )
+    if changelog is not None and "CHANGELOG.md" in files and "changelog-history" not in labels:
+        found += _released_lines(files["CHANGELOG.md"]["added"], changelog)
     return found
 
 
@@ -293,7 +336,9 @@ def main(argv: list[str] | None = None) -> int:
     found = problems(body)
     if args.diff:
         labels = {label.strip() for label in args.labels.split(",") if label.strip()}
-        found += diff_problems(_git_diff(args.diff), labels)
+        changelog = REPO_ROOT / "CHANGELOG.md"
+        text = changelog.read_text(encoding="utf-8") if changelog.is_file() else None
+        found += diff_problems(_git_diff(args.diff), labels, text)
 
     for p in found:
         print(f"::error::{p}")
