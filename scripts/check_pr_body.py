@@ -88,6 +88,12 @@ MIN_WHY_WORDS = 5
 #: The CHANGELOG section a pull request adds its lines to.
 UNRELEASED = "## [Unreleased]"
 
+#: A release being prepared, not yet dated (`## [0.4.0] - YYYY-MM-DD`), is open too.
+UNDATED = "YYYY-MM-DD"
+
+#: A link definition, `[0.3.0]: https://...`, the file's last lines; not a note.
+_LINK_DEFINITION = re.compile(r"^\[[^\]]+\]:\s")
+
 #: The checker and its tests spell out the patterns they reject.
 EXEMPT = ("scripts/check_pr_body.py", "tests/test_pr_body_check.py")
 
@@ -208,7 +214,8 @@ def _files(diff_text: str) -> dict[str, dict]:
         elif raw.startswith("+"):
             files[current]["added"].append((line_no, raw[1:]))
             line_no += 1
-        elif raw.startswith(" "):
+        elif raw.startswith(" ") or raw == "":
+            # A blank context line is "" under git's diff.suppressBlankEmpty.
             line_no += 1
     return files
 
@@ -253,16 +260,20 @@ def _released_lines(added: list[tuple[int, str]], changelog: str) -> list[str]:
     """The added CHANGELOG lines that sit under a version already released.
 
     Each line belongs to the nearest `## ` heading above it. A heading the same
-    diff adds is a section this pull request opens, as a release does.
+    diff adds is a section this pull request opens, as a release does, and one
+    still dated `YYYY-MM-DD` is a release being prepared.
     """
     lines = changelog.replace("\r\n", "\n").split("\n")
     added_at = {n for n, _ in added}
     under: dict[int, list[int]] = {}
     for n, text in added:
-        if not text.strip():
+        if not text.strip() or _LINK_DEFINITION.match(text):
             continue
         head = next((i for i in range(n, 0, -1) if lines[i - 1].startswith("## ")), None)
-        if head is None or head in added_at or lines[head - 1].strip() == UNRELEASED:
+        if head is None or head in added_at:
+            continue
+        heading = lines[head - 1].strip()
+        if heading == UNRELEASED or heading.endswith(UNDATED):
             continue
         under.setdefault(head, []).append(n)
     return [
@@ -309,14 +320,24 @@ def diff_problems(
     return found
 
 
-def _git_diff(base: str) -> str:
+def _git(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["git", "diff", "--no-color", "--no-ext-diff", f"{base}...HEAD"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
+        ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8"
+    )
+
+
+def _git_diff(base: str) -> str:
+    # The prefixes are spelled out: diff.noprefix would leave _files no paths.
+    diff = ["diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/"]
+    ran = _git(*diff, f"{base}...HEAD")
+    ran.check_returncode()
+    return ran.stdout
+
+
+def _committed_changelog() -> str | None:
+    """CHANGELOG.md at HEAD, the commit the diff ends at (in CI, the merge commit)."""
+    shown = _git("show", "HEAD:CHANGELOG.md")
+    return shown.stdout if shown.returncode == 0 else None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -336,9 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     found = problems(body)
     if args.diff:
         labels = {label.strip() for label in args.labels.split(",") if label.strip()}
-        changelog = REPO_ROOT / "CHANGELOG.md"
-        text = changelog.read_text(encoding="utf-8") if changelog.is_file() else None
-        found += diff_problems(_git_diff(args.diff), labels, text)
+        found += diff_problems(_git_diff(args.diff), labels, _committed_changelog())
 
     for p in found:
         print(f"::error::{p}")

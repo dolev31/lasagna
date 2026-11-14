@@ -10,6 +10,7 @@ and each diff rule fails its own bad line and passes the fixed one.
 from __future__ import annotations
 
 import importlib.util
+import os
 import re
 import shutil
 import subprocess
@@ -325,6 +326,31 @@ class TestTheDiff:
         diff = self._changelog_diff({9: "## [0.3.0] - 2026-11-07", 14: "- Late."})
         assert check_pr_body.diff_problems(diff, changelog=self.CHANGELOG) == []
 
+    def test_a_release_in_preparation_is_open(self):
+        undated = self.CHANGELOG.replace("2026-11-07", "YYYY-MM-DD")
+        diff = self._changelog_diff({14: "- Late."})
+        assert check_pr_body.diff_problems(diff, changelog=undated) == []
+
+    def test_the_link_definitions_at_the_end_are_not_notes(self):
+        """A release adds its compare link at the end, under the oldest version."""
+        changelog = (
+            self.CHANGELOG
+            + "\n[0.3.0]: https://github.com/dolev31/lasagna/compare/v0.2.1...v0.3.0\n"
+        )
+        diff = self._changelog_diff(
+            {16: "[0.3.0]: https://github.com/dolev31/lasagna/compare/v0.2.1...v0.3.0"}
+        )
+        assert check_pr_body.diff_problems(diff, changelog=changelog) == []
+
+    def test_a_blank_context_line_without_its_space_is_counted(self):
+        """git's diff.suppressBlankEmpty writes a blank context line as ""."""
+        diff = (
+            "diff --git a/CHANGELOG.md b/CHANGELOG.md\n--- a/CHANGELOG.md\n+++ b/CHANGELOG.md\n"
+            "@@ -12,2 +12,3 @@\n\n - Old.\n+- Late.\n"
+        )
+        (found,) = check_pr_body.diff_problems(diff, changelog=self.CHANGELOG)
+        assert found.startswith("CHANGELOG.md:14:")
+
     def test_the_label_waives_the_released_section(self):
         diff = self._changelog_diff({14: "- Late."})
         labels = {"changelog-history"}
@@ -360,19 +386,21 @@ class TestTheCommandAndTheWorkflow:
         body = tmp_path / "body.md"
         body.write_text(FILLED, encoding="utf-8")
 
+        # The machine's git settings and hooks stay out (GIT_CONFIG_GLOBAL: git 2.32).
+        env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_INDEX_FILE")}
+        env |= {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
         def git(*args):
+            identity = ["-c", "user.name=t", "-c", "user.email=t@example.com"]
             subprocess.run(
-                ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
-                + ["-c", "commit.gpgsign=false", *args],
-                cwd=repo,
-                check=True,
-                capture_output=True,
+                ["git", *identity, *args], cwd=repo, env=env, check=True, capture_output=True
             )
 
         def check():
             script = str(repo / "scripts" / "check_pr_body.py")
             return subprocess.run(
                 [sys.executable, script, "--file", str(body), "--diff", "main"],
+                env=env,
                 capture_output=True,
                 text=True,
             )
