@@ -71,7 +71,7 @@ means updating the docs in the same commit; the suite will tell you.
 | `src/lasagna/retrieval/` | retrievers, hybrid search, reranking, query enhancement |
 | `src/lasagna/processing/` | document processors and chunkers |
 | `src/lasagna/generation/` | answer generators (the `generator` stage) |
-| `src/lasagna/agentic/` | multi-step retrieval: the structured graph (CRAG, quality gates) and the published loops (Self-Ask, IRCoT, FLARE, Adaptive-RAG, Self-RAG) |
+| `src/lasagna/agentic/` | multi-step retrieval: the structured graph (CRAG, quality gates) and the published loops (Self-Ask, IRCoT, FLARE, Adaptive-RAG, Self-RAG, Search-o1) |
 | `src/lasagna/vector_backends/` | 6 backends behind one adapter interface |
 | `src/lasagna/knowledge_evaluation_sdk/` | benchmarks, metrics, bundles, leaderboard |
 | `src/lasagna/mcp/` | MCP server, 29 tools |

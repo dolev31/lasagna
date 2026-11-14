@@ -293,6 +293,11 @@ Milvus Lite and in the Compose stack found seven harness bugs, filed as #46 to
   install (with CPU-only torch, under the release's constraints) and Docker on
   first start, so the Compose stack a pull request is tested in runs inside
   it.
+- **Agentic pipeline:** `search_o1`, Search-o1 (arXiv:2501.05366) with the
+  authors' prompts: a reasoning model writes search queries mid-reasoning, and
+  Reason-in-Documents reads each search's passages back into the reasoning.
+  Its bounds (`search_o1_max_searches`, `search_o1_max_turns`,
+  `search_o1_docs_per_search`) default to the authors' code's.
 
 ### Fixed
 

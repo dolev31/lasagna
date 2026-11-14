@@ -685,8 +685,12 @@ _CONFIG_PATTERNS = (
 
 #: Model input, left as written: rewording a prompt changes what the model
 #: answers and the prompt fingerprint in the comparability key. Self-RAG's
-#: few-shot examples are the paper's own text.
-_PROMPT_CONSTANTS = {("src/lasagna/agentic/loops/self_rag.py", "ISSUP_PROMPT")}
+#: few-shot examples are the paper's own text, and so is Search-o1's
+#: Reason-in-Documents prompt ("seamlessly integrate", from the authors' code).
+_PROMPT_CONSTANTS = {
+    ("src/lasagna/agentic/loops/self_rag.py", "ISSUP_PROMPT"),
+    ("src/lasagna/agentic/loops/search_o1.py", "REASON_IN_DOCUMENTS_PROMPT"),
+}
 
 
 def _python_strings():

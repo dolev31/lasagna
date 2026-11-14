@@ -484,7 +484,7 @@ def _agentic_stub_llm():
             return self
 
         # The prompt matches below serve Adaptive RAG, FLARE and Self-RAG,
-        # respectively; the fallback finishes Self-Ask and IRCoT.
+        # respectively; the fallback finishes Self-Ask, IRCoT and Search-o1.
         def _generate(self, messages, stop=None, run_manager=None, **kwargs):
             prompt = str(messages[-1].content)
             if "Class (A, B or C):" in prompt:
