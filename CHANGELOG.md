@@ -65,6 +65,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   once more without them and cut by the loop, after any blank lines it opens
   with; a reply that opens with one of Self-Ask's markers is still empty. A
   model whose replies the stops do not empty makes the same calls as before.
+- **A CHANGELOG line lands under Unreleased.** A branch started before a
+  release merges cleanly, but its line then sits under that release, so the
+  release notes claim a change the release never had. The "PR quality" check
+  now reads CHANGELOG.md as it will be once merged and fails while an added
+  line sits under a released version; a maintainer adds `changelog-history`
+  to correct a released version's notes.
 
 ## [0.3.0] - 2026-11-07
 
