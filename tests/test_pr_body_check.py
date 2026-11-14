@@ -351,6 +351,15 @@ class TestTheDiff:
         (found,) = check_pr_body.diff_problems(diff, changelog=self.CHANGELOG)
         assert found.startswith("CHANGELOG.md:14:")
 
+    def test_a_form_feed_in_a_line_does_not_end_it(self):
+        """git ends a diff line at \\n only."""
+        diff = (
+            "diff --git a/CHANGELOG.md b/CHANGELOG.md\n--- a/CHANGELOG.md\n+++ b/CHANGELOG.md\n"
+            "@@ -13,1 +13,2 @@\n - Old.\x0c\n+- Late.\n"
+        )
+        (found,) = check_pr_body.diff_problems(diff, changelog=self.CHANGELOG)
+        assert found.startswith("CHANGELOG.md:14:")
+
     def test_the_label_waives_the_released_section(self):
         diff = self._changelog_diff({14: "- Late."})
         labels = {"changelog-history"}
@@ -398,9 +407,11 @@ class TestTheCommandAndTheWorkflow:
 
         def check():
             script = str(repo / "scripts" / "check_pr_body.py")
+            # With diff.noprefix the paths would lose their a/ and b/; the script sets them.
+            noprefix = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "diff.noprefix"}
             return subprocess.run(
                 [sys.executable, script, "--file", str(body), "--diff", "main"],
-                env=env,
+                env=env | noprefix | {"GIT_CONFIG_VALUE_0": "true"},
                 capture_output=True,
                 text=True,
             )

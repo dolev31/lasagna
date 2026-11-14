@@ -194,7 +194,8 @@ def _files(diff_text: str) -> dict[str, dict]:
     current = None
     in_header = False
     line_no = 0
-    for raw in diff_text.splitlines():
+    # Lines end at \n only, as git's do; splitlines() also breaks at \x0c and the like.
+    for raw in diff_text.split("\n"):
         if raw.startswith("diff --git "):
             match = re.match(r"diff --git a/(.+?) b/(.+)$", raw)
             current = match.group(2) if match else None
@@ -322,7 +323,12 @@ def diff_problems(
 
 def _git(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8"
+        ["git", *args],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
 
