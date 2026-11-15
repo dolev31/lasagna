@@ -25,6 +25,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   benchmark", and the experiment it then starts does not probe the judge a
   second time (`Experiment.preflight_judge`). Retrieval-only runs still check
   no judge (#96).
+- Agentic reasoning and chunk-refinement LLM calls now honor the session's
+  `agent_temperature`, including shared and pinned loop models (#82). Previously,
+  `RAGConfig.agent_temperature` documented a default of `0.1` that never reached
+  any LLM call because models were built with the provider default (`0.0`). The
+  runtime default remains `0.0` so existing behavior does not silently change,
+  explicit session `agent_temperature` values now reach every reasoning and
+  chunk-refinement call, and adaptive complexity classification and CRAG
+  document grading remain deterministic at `0.0`.
 - **Four benchmarks load again, and a fifth says why it cannot.** `datasets`
   5, the version the release pins, refuses a Hub repository named without its
   owner, and since 4.0 it no longer runs loading scripts. `triviaqa`,

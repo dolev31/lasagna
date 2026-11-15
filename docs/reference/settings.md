@@ -363,7 +363,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `use_final_search` | bool | `false` | `LASAGNA_USE_FINAL_SEARCH`, `RAG_USE_FINAL_SEARCH` | Do final search after refinement for complete citations. |
 | `max_agent_iterations` | int | `3` | `LASAGNA_MAX_AGENT_ITERATIONS`, `RAG_MAX_AGENT_ITERATIONS` | Maximum number of search iterations for agentic RAG. |
 | `chunk_refinement_method` | str | `"auto"` | `LASAGNA_CHUNK_REFINEMENT_METHOD`, `RAG_CHUNK_REFINEMENT_METHOD` | Whether the AI cleans up and highlights the most relevant parts of found content. |
-| `agent_temperature` | float | `0.1` | `LASAGNA_AGENT_TEMPERATURE`, `RAG_AGENT_TEMPERATURE` | Temperature for agent/refinement model (low for determinism). |
+| `agent_temperature` | float | `0.0` | `LASAGNA_AGENT_TEMPERATURE`, `RAG_AGENT_TEMPERATURE` | Temperature for agent/refinement model (low for determinism). |
 | `max_query_length` | int | `12` | `LASAGNA_MAX_QUERY_LENGTH`, `RAG_MAX_QUERY_LENGTH` | Maximum query length in tokens for refinement queries. |
 | `auto_refine_avg_length_threshold` | int | `1000` | `LASAGNA_AUTO_REFINE_AVG_LENGTH_THRESHOLD`, `RAG_AUTO_REFINE_AVG_LENGTH_THRESHOLD` | Average chunk length threshold to trigger auto-refinement. |
 | `auto_refine_avg_score_threshold` | float | `0.5` | `LASAGNA_AUTO_REFINE_AVG_SCORE_THRESHOLD`, `RAG_AUTO_REFINE_AVG_SCORE_THRESHOLD` | Average score threshold below which to trigger auto-refinement. |
