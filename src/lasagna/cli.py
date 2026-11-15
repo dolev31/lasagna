@@ -2088,12 +2088,6 @@ def benchmark_run(
                 )
             )
 
-    console.print(
-        f"Running benchmark [cyan]{name}[/cyan] (up to {_count(samples, 'sample')}, "
-        f"{_count(runs, 'run')}, mode={mode}, split={split}, profile={profile}, "
-        f"tracks={','.join(track_list)})"
-    )
-
     # Without a way to name a component, "check it runs" measured the stock
     # pipeline, whatever the user had written. A file of your own names its
     # results folder by its stem: ./my.jsonl gave benchmark_._my.jsonl_<time>.
@@ -2114,6 +2108,19 @@ def benchmark_run(
         tracks=track_list,
     )
     exp = Experiment(config=config)
+    # Beside the generator check above: a generation run whose judge cannot be
+    # reached stops here, before the corpus is ingested or an answer written.
+    # The experiment remembers it, so run() does not probe the judge again.
+    try:
+        exp.preflight_judge()
+    except RuntimeError as exc:
+        _error(str(exc))
+
+    console.print(
+        f"Running benchmark [cyan]{name}[/cyan] (up to {_count(samples, 'sample')}, "
+        f"{_count(runs, 'run')}, mode={mode}, split={split}, profile={profile}, "
+        f"tracks={','.join(track_list)})"
+    )
 
     async def _execute():
         return await exp.run()
@@ -2197,6 +2204,7 @@ def benchmark_experiment(
     """Run a multi-benchmark experiment from a config file."""
     from .knowledge_evaluation_sdk.experiment import (
         Experiment,
+        _offline_dataset_problem,
         base_profiles_line,
         runs_were_identical,
     )
@@ -2257,6 +2265,16 @@ def benchmark_experiment(
         # sentence, before "Starting experiment"; a 40-line Rich traceback
         # buried it, and an unknown benchmark failed every task instead.
         _error(str(exc))
+    problem = _offline_dataset_problem([t.benchmark_name for t in tasks])
+    if problem is not None:
+        _error(str(problem))
+    # Validate the judge before cp.clear() so a misconfigured judge never wipes
+    # existing checkpoints; run() remembers the preflight and does not re-probe.
+    if hasattr(exp, "preflight_judge"):
+        try:
+            exp.preflight_judge()
+        except RuntimeError as exc:
+            _error(str(exc))
     cp = CheckpointManager(exp.config.checkpoint_dir or exp.config.effective_output_dir())
     if not resume:
         # When not resuming, clear any stale checkpoints from a previous run
