@@ -346,7 +346,9 @@ async def refine_chunks_node(state: dict) -> dict:
         max_tokens=max_tokens,
         context="refinement_model",
     )
-    refinement_llm = get_llm_provider().get_chat_model(model_settings)
+    refinement_llm = get_llm_provider().get_chat_model(
+        model_settings, temperature=session_config.agent_temperature
+    )
 
     # Token count before refinement
     tokens_before = sum(estimate_tokens(c.content) for c in retrieved_chunks)
