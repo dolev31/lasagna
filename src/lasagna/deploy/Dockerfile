@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # The versions the release was tested with (constraints/<version>.txt): without
 # them every build took whatever torch and sentence-transformers were newest.
 # The stage loads the models with the same versions the image runs them with.
-ARG CONSTRAINTS=constraints/0.2.1.txt
+ARG CONSTRAINTS=constraints/0.3.0.txt
 COPY ${CONSTRAINTS} /tmp/constraints.txt
 
 # torch's CPU-only build at the version the constraints pin, installed before
@@ -98,7 +98,7 @@ RUN chown -R rag:rag /home/rag/.cache
 
 # The tested versions (see the models stage). A package they do not list (the
 # production extras: celery, redis, psycopg, gunicorn) takes its newest match.
-ARG CONSTRAINTS=constraints/0.2.1.txt
+ARG CONSTRAINTS=constraints/0.3.0.txt
 COPY ${CONSTRAINTS} ./constraints.txt
 
 # Which torch build the image runs.

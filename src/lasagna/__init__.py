@@ -215,7 +215,7 @@ def __getattr__(name: str):
         # Not cached, so every use is reported. stacklevel=2 is the user's line
         # for `from lasagna import X` too: warn() skips importlib's frames.
         _warnings.warn(
-            f"`lasagna.{name}` is deprecated and will be removed in 0.3.0. "
+            f"`lasagna.{name}` is deprecated and will be removed in 0.4.0. "
             f"Use `from {mod.__name__} import {attr_name}`.",
             DeprecationWarning,
             stacklevel=2,

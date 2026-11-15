@@ -6,6 +6,111 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Four benchmarks load again, and a fifth says why it cannot.** `datasets`
+  5, the version the release pins, refuses a Hub repository named without its
+  owner, and since 4.0 it no longer runs loading scripts. `triviaqa`,
+  `hotpotqa` and `kilt/nq` named `trivia_qa`, `hotpot_qa` and `kilt_tasks`,
+  and `fever` was a script, so none of them loaded, and the loader reported
+  each failure as a missing split ("Split 'validation' is not available").
+  They now name their repositories in full, at the same commits, so their
+  comparability keys do not change. FEVER loads the Hub's parquet conversion
+  of its script, pinned to the commit that was checked, one split at a time,
+  online or from the local cache. A dataset that does not load now says why,
+  instead of naming a split. `kilt/triviaqa` has never loaded: the Hub's KILT
+  has no `triviaqa` config, and the `triviaqa_support_only` it has carries no
+  questions. It now says so; the `triviaqa` benchmark has the questions.
+- **An agentic arm under `speed` runs its loop.** `pipeline.query` forces the
+  agentic tier for an arm that names an agentic pipeline, and the router
+  dropped any forced tier whenever a profile turned query routing off. Under
+  `speed` (routing off, default tier `fast`), every agentic arm (the five
+  published loops, the structured graph and legacy ReAct) searched the fast
+  tier, never ran its loop, and was scored on the harness's own answer, with
+  no warning. A tier the caller forces now holds when routing is off, unless
+  `routing_allow_tier_override` is false. That also covers `routing_tier` on
+  `POST /api/v1/search`, the citations route and the SDK's `search`, and CRAG,
+  which forces the agentic tier and, with `use_agentic_rag` off, now runs the
+  standard tier under `speed` instead of the fast one. An agentic sample
+  answered by any other tier now counts in `agentic_fallback`, not only one
+  whose agentic run failed. Numbers move under a profile with routing off and
+  a default tier other than `comprehensive` (of the built-in profiles,
+  `speed`): for agentic arms, and for a CRAG arm that turned on a stage the
+  fast tier turns off, such as a reranker.
+- **An agentic arm's exact match and F1 score its own answer.** The
+  generation track has the harness's generator answer from the passages each
+  search returned, so arms are compared on the same generator. For an agentic
+  arm the loop writes an answer too, and the judged metrics already scored it
+  (`faithfulness` was the loop's answer, `faithfulness_regen` the harness's).
+  Exact match, token F1, ROUGE-L, containment, abstention and answer
+  similarity scored only the harness's answer, so one row judged two answers,
+  and `lasagna results significance -m exact_match` compared the harness's
+  answers, not the loops. They now follow the judged metrics: the unsuffixed
+  key is the loop's answer where it gave one, `_regen` keeps the harness's,
+  `_agentic` is the loop's alone, and the loop's answer is saved with the
+  trajectory and shown in `lasagna results view` beside the harness's. A
+  question the loop answered no longer counts in `generations_failed` when
+  the harness's generator wrote nothing; `generations_failed_regen` counts
+  those. Numbers move for agentic arms only, and the metrics version is now
+  1.8, so results from earlier builds do not share a comparability key with
+  new ones.
+- **Self-Ask answers with a reasoning model.** A reasoning model served with
+  its thinking split off (Ollama's `think`, on by default for Qwen3; vLLM's
+  reasoning parser) applies a stop sequence to its reasoning too, and any of
+  Self-Ask's stops can end a reply there. Qwen3's reasoning opens with
+  `<think>` and a newline, so the newline stop on the final-answer call (made
+  when the chain ends without a final answer, as every question did once it
+  used its five follow-ups) ended the reply after two tokens, and the loop
+  answered nothing. A loop step whose stops leave the reply empty is now asked
+  once more without them and cut by the loop, after any blank lines it opens
+  with; a reply that opens with one of Self-Ask's markers is still empty. A
+  model whose replies the stops do not empty makes the same calls as before.
+- **A CHANGELOG line lands under Unreleased.** A branch started before a
+  release merges cleanly, but its line then sits under that release, so the
+  release notes claim a change the release never had. The "PR quality" check
+  now reads CHANGELOG.md as it will be once merged and fails while an added
+  line sits under a released version; a maintainer adds `changelog-history`
+  to correct a released version's notes.
+
+## [0.3.0] - 2026-11-07
+
+Chat with a corpus from any OpenAI client, a knowledge graph every process
+shares, and benchmarks that say when a stage fell back. Thank you to
+[@segevshlomovIBM](https://github.com/segevshlomovIBM), for the stage isolation
+check's move to judging each setting an arm names, on each track that ran
+(#25), and for the evidence runs in the Compose stack that found hybrid search
+failing over with no trace in the bundle (#50) and, under `speed`, running
+dense-only (#52), both fixed here.
+
+Upgrading:
+
+- New runs get new stage digests, and a run that writes no answers no longer
+  records a judge, so their comparability keys differ from 0.2.x results; and
+  seven settings under `system.stages.<stage>.settings` are recorded per
+  track.
+- A benchmark graph arm's corpus is ingested once more: its key now holds the
+  extraction model.
+- Documents uploaded with `enable_graph_retrieval` before 0.3.0 have no stored
+  graph (0.2.x kept it in one process's memory), so graph expansion finds
+  nothing for them until they are reindexed:
+  `POST /api/v1/documents/{document_id}/reindex` for one, or
+  `POST /api/knowledge/reindex` for every document of a session. The reindex
+  reads the stored file, and needs an LLM to extract with.
+- The new graph tables are created on their own, on SQLite and PostgreSQL;
+  there is nothing to migrate.
+
+### Deprecated
+
+- The old names renamed in 0.1.0 (`lasagna benchmark compare`, `lasagna
+  benchmark leaderboard`, `results interaction --bootstrap`, and the names
+  dropped from `lasagna.__all__`) and the unversioned `/api/config/knowledge`
+  routes stay for one more release, with their warnings: the old names are
+  removed in 0.4.0, and the routes move under `/api/v1` then, once the
+  configurator calls them there. 0.2.0 said 0.3.0.
+- `lasagna.retrieval.graph.get_or_create_session_graph`: it builds a graph no
+  other process sees, and retrieval no longer reads it. Use `graph_for` and
+  `index_document_graph`.
+
 ### Added
 
 - A benchmark's run record says how each graph arm's corpus got its knowledge
@@ -786,6 +891,8 @@ The first standalone release of Lasagna; this is everything it brings.
 - Lasagna vendors no third-party source, bundles no model weights, and
   redistributes no benchmark corpora.
 
-[Unreleased]: https://github.com/dolev31/lasagna/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/dolev31/lasagna/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dolev31/lasagna/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/dolev31/lasagna/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dolev31/lasagna/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dolev31/lasagna/releases/tag/v0.1.0

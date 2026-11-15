@@ -507,9 +507,15 @@ def _evidence(row: Optional[Mapping[str, Any]]) -> str:
     if not row:
         return '<p class="muted">Not scored.</p>'
     parts = []
+    # An agentic arm's row is scored on its loop's answer; the harness's own,
+    # written from the loop's passages, is its _regen score.
+    loop = row.get("_agentic_answer")
+    if loop:
+        parts.append(f'<p class="answer"><b>Loop\'s answer:</b> {_e(_clip(loop))}</p>')
     answer = row.get("_generated_answer")
     if answer:
-        parts.append(f'<p class="answer"><b>Answer:</b> {_e(_clip(answer))}</p>')
+        label = "Harness's answer (_regen)" if loop else "Answer"
+        parts.append(f'<p class="answer"><b>{label}:</b> {_e(_clip(answer))}</p>')
     contexts = row.get("_retrieved_contexts")
     if isinstance(contexts, list) and contexts:
         items = "".join(f"<li>{_e(_clip(c))}</li>" for c in contexts[:_CONTEXTS_SHOWN])

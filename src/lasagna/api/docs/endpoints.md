@@ -48,7 +48,7 @@ Readiness: can this instance serve? Checks that the embedding model of the sessi
   "failing": [],
   "degraded": [],
   "require_auth": false,
-  "version": "0.2.1"
+  "version": "0.3.0"
 }
 ```
 
@@ -854,7 +854,7 @@ List all registered agentic pipelines. With `RAG_REQUIRE_AUTH=true`, this needs 
 
 These endpoints serve the configurator frontend UI. They provide full profile CRUD, session-scoped configuration, and import/export. All return `KnowledgeConfigFullResponse`.
 
-**Deprecated for other callers:** they are unversioned because the configurator calls them by these paths, and they will move under `/api/v1` in 0.3.0. A program should read and change a session's settings with `GET` and `PATCH /api/v1/config`. One has no `/api/v1` counterpart in 0.1.0: clearing a session's overrides is `POST /api/config/knowledge/reset`, which is why the fixes in error messages name it. Being unversioned, it is outside the API stability promise in [GOVERNANCE.md](https://github.com/dolev31/lasagna/blob/main/GOVERNANCE.md).
+**Deprecated for other callers:** they are unversioned because the configurator calls them by these paths, and they will move under `/api/v1` in 0.4.0. A program should read and change a session's settings with `GET` and `PATCH /api/v1/config`. One has no `/api/v1` counterpart in 0.1.0: clearing a session's overrides is `POST /api/config/knowledge/reset`, which is why the fixes in error messages name it. Being unversioned, it is outside the API stability promise in [GOVERNANCE.md](https://github.com/dolev31/lasagna/blob/main/GOVERNANCE.md).
 
 With `RAG_CONFIGURATOR=true`, the UI's own routes are mounted too: `GET /configurator/api/schema` and `POST /configurator/api/validate`. With `RAG_REQUIRE_AUTH=true`, they need a session token like the routes below (401 without one).
 
