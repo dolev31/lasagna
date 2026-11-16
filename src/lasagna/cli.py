@@ -2113,7 +2113,7 @@ def benchmark_run(
     # The experiment remembers it, so run() does not probe the judge again.
     try:
         exp.preflight_judge()
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         _error(str(exc))
 
     console.print(
@@ -2272,7 +2272,7 @@ def benchmark_experiment(
     # existing checkpoints; run() remembers the preflight and does not re-probe.
     try:
         exp.preflight_judge()
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         _error(str(exc))
     cp = CheckpointManager(exp.config.checkpoint_dir or exp.config.effective_output_dir())
     if not resume:

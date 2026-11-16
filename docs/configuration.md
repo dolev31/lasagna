@@ -275,8 +275,14 @@ Ollama's `/v1` or vLLM's `/v1`), set both its `/v1` base URL and a non-empty
 key:
 
 ```bash
-export RAG_EVAL_JUDGE_MODEL=qwen3:0.6b RAG_EVAL_JUDGE_BASE_URL=http://localhost:11434/v1 RAG_EVAL_JUDGE_API_KEY=ollama
+export RAG_EVAL_JUDGE_MODEL=llama3.2
+export RAG_EVAL_JUDGE_BASE_URL=http://ollama:11434/v1
+export RAG_EVAL_JUDGE_API_KEY=ollama
 ```
+
+Here `ollama` is the Ollama container's service name on the Docker Compose
+network, matching the acceptance test; use `localhost` instead only when Ollama
+runs on the same machine and network namespace as Lasagna.
 
 The run metadata and the comparability key name the judge, so
 results judged by different models never share a leaderboard group. A run

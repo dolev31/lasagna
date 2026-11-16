@@ -9,22 +9,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - **A generation experiment checks its judge before the first answer is written.**
-  The RAGAS judge uses its own OpenAI-compatible client
-  (`RAG_EVAL_JUDGE_BASE_URL` and `RAG_EVAL_JUDGE_API_KEY`, falling back to
-  `OPENAI_BASE_URL` and `OPENAI_API_KEY`) rather than `OLLAMA_BASE_URL` or the
-  generator's LLM provider, and was built only after corpus ingestion,
-  retrieval and answer generation had finished. When `_build_judge_llm` failed,
-  it logged `Judge LLM construction failed; RAGAS will use its default` and
-  returned `None`, after which RAGAS's own default client failed for the same
-  reason and every generated answer went unscored. `Experiment._run` now builds
-  the judge and sends one minimal structured-output check once per run before
-  any corpus is ingested or any answer is generated, stopping immediately with
-  an error that names the resolved judge model and `RAG_EVAL_JUDGE_BASE_URL`,
-  `RAG_EVAL_JUDGE_API_KEY` and `OPENAI_API_KEY`. `lasagna benchmark run` makes
-  the check beside its generator-LLM check, before it prints "Running
-  benchmark", and the experiment it then starts does not probe the judge a
-  second time (`Experiment.preflight_judge`). Retrieval-only runs still check
-  no judge (#96).
+  `Experiment._run` and the CLI (`lasagna benchmark run`, `lasagna benchmark experiment`)
+  now validate the RAGAS judge once before corpus ingestion, checkpoint clearing, or
+  answer generation using its independent `RAG_EVAL_JUDGE_*` / `OPENAI_*`
+  configuration, while retrieval-only runs still do not probe the judge (#96).
 - Agentic reasoning and chunk-refinement LLM calls now honor the session's
   `agent_temperature`, including shared and pinned loop models (#82). Previously,
   `RAGConfig.agent_temperature` documented a default of `0.1` that never reached

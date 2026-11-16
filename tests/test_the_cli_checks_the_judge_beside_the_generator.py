@@ -302,3 +302,35 @@ def test_preflight_judge_skips_local_file_with_corpus_on_retrieval_track(monkeyp
     finally:
         benchmark_registry._adapters.clear()
         benchmark_registry._adapters.update(before)
+
+
+def test_benchmark_run_unscorable_local_retrieval_file_exits_cleanly(monkeypatch, tmp_path):
+    """A local JSONL file with no contexts fails cleanly on --tracks retrieval without probing."""
+    from lasagna.knowledge_evaluation_sdk.benchmarks import benchmark_registry
+
+    _clear_judge_env(monkeypatch)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    local_file = tmp_path / "no_contexts.jsonl"
+    local_file.write_text(
+        json.dumps({"question": "What is Lasagna?", "answer": "A RAG evaluation framework."}) + "\n"
+    )
+
+    def _never(*a, **k):
+        raise AssertionError("unscorable retrieval-only local file must not probe the judge")
+
+    monkeypatch.setattr(exp, "_check_judge_llm", _never)
+    monkeypatch.setattr(exp, "_build_judge_llm", _never)
+    benchmark_registry.names()
+    before = dict(benchmark_registry._adapters)
+    try:
+        result = CliRunner().invoke(
+            cli.app,
+            ["benchmark", "run", str(local_file), "--tracks", "retrieval"],
+        )
+    finally:
+        benchmark_registry._adapters.clear()
+        benchmark_registry._adapters.update(before)
+
+    assert result.exit_code == 1, result.output
+    assert "cannot be scored on retrieval" in result.output
+    assert "Traceback" not in result.output
