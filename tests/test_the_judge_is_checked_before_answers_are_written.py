@@ -372,10 +372,6 @@ def test_retrieval_only_experiment_never_checks_the_judge(tmp_path, monkeypatch)
     monkeypatch.setattr(exp, "_check_judge_llm", _never)
     monkeypatch.setattr(exp, "_build_judge_llm", _never)
 
-    from tests.test_retrieval_metrics_score_the_ranked_order import (  # noqa: F401
-        live,
-        orchestrator,
-    )
     import lasagna.api.rag_backend as rag_backend_mod
     from lasagna.core.pipeline import KnowledgePipeline
     from lasagna.knowledge_evaluation_sdk.benchmarks.adapters import smoke

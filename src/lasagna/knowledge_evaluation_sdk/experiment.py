@@ -2117,6 +2117,19 @@ class Experiment:
             RuntimeError: the judge cannot be built or reached; the message
                 names the model and the variables to set.
         """
+        if self._eval_fn is not None:
+            return
+        if "generation" not in _parse_tracks(self.config.tracks) and any(
+            getattr(b, "path", "") for b in self.config.benchmarks
+        ):
+            # Local data files are only registered during generate_tasks();
+            # register them here so resolve_mode() sees their corpus instead of
+            # falling back to generation_only for an unknown benchmark name.
+            from .benchmarks.adapters.local_files import prepare_local_benchmarks
+
+            prepare_local_benchmarks(
+                self.config.benchmarks, self.config.base_dir, self.config.tracks
+            )
         if not _should_check_judge(self.config, self._eval_fn):
             return
         fingerprint = _judge_fingerprint(_resolve_judge_model(self.config))

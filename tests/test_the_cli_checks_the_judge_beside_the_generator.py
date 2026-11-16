@@ -11,6 +11,7 @@ direct SDK run keeps its check.
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 import yaml
@@ -261,3 +262,35 @@ def test_benchmark_experiment_checks_judge_before_clearing_checkpoints_and_only_
     assert ok.exit_code == 0, ok.output
     assert len(judge_requests) == 1
     assert len(prompts) == 2
+
+
+def test_preflight_judge_skips_local_file_with_corpus_on_retrieval_track(monkeypatch, tmp_path):
+    """Regression test: a local data path with contexts runs in live mode on retrieval-only."""
+    _clear_judge_env(monkeypatch)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    local_file = tmp_path / "my_data.jsonl"
+    local_file.write_text(
+        json.dumps(
+            {
+                "question": "What is Lasagna?",
+                "contexts": ["Lasagna is a RAG evaluation framework."],
+                "answer": "A RAG evaluation framework.",
+            }
+        )
+        + "\n"
+    )
+
+    def _never(*a, **k):
+        raise AssertionError("retrieval-only local data with a corpus must not probe the judge")
+
+    monkeypatch.setattr(exp, "_check_judge_llm", _never)
+    monkeypatch.setattr(exp, "_build_judge_llm", _never)
+    retrieval_exp = exp.Experiment.from_dict(
+        {
+            "name": "local_retrieval",
+            "benchmarks": [{"path": str(local_file)}],
+            "tracks": ["retrieval"],
+            "pipeline": {"base_profile": "speed"},
+        }
+    )
+    retrieval_exp.preflight_judge()
