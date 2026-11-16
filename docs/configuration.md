@@ -280,9 +280,9 @@ export RAG_EVAL_JUDGE_BASE_URL=http://ollama:11434/v1
 export RAG_EVAL_JUDGE_API_KEY=ollama
 ```
 
-Here `ollama` is the Ollama container's service name on the Docker Compose
-network, matching the acceptance test; use `localhost` instead only when Ollama
-runs on the same machine and network namespace as Lasagna.
+Here `ollama` is the name of an Ollama container on the stack's Docker
+network (the Compose stack does not start one). With Ollama on the same
+machine as a local install, use `http://localhost:11434/v1` instead.
 
 The run metadata and the comparability key name the judge, so
 results judged by different models never share a leaderboard group. A run
