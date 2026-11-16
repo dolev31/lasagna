@@ -2270,11 +2270,10 @@ def benchmark_experiment(
         _error(str(problem))
     # Validate the judge before cp.clear() so a misconfigured judge never wipes
     # existing checkpoints; run() remembers the preflight and does not re-probe.
-    if hasattr(exp, "preflight_judge"):
-        try:
-            exp.preflight_judge()
-        except RuntimeError as exc:
-            _error(str(exc))
+    try:
+        exp.preflight_judge()
+    except RuntimeError as exc:
+        _error(str(exc))
     cp = CheckpointManager(exp.config.checkpoint_dir or exp.config.effective_output_dir())
     if not resume:
         # When not resuming, clear any stale checkpoints from a previous run

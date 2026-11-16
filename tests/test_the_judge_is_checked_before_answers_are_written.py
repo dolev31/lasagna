@@ -515,3 +515,26 @@ def test_judge_construction_failure_log_is_truthful(monkeypatch):
     combined = "\n".join(logged)
     assert "Judge LLM construction failed; judge metrics will fail" in combined
     assert "RAGAS will use its default" not in combined
+
+
+def test_check_judge_llm_preserves_type_error_from_client_construction(monkeypatch):
+    """A genuine TypeError during judge construction is surfaced (and redacted), not swallowed."""
+    _clear_judge_env(monkeypatch)
+    secret = "sk-typeerror-secret-987654"  # pragma: allowlist secret
+    monkeypatch.setenv("RAG_EVAL_JUDGE_API_KEY", secret)
+    monkeypatch.setenv("RAG_EVAL_JUDGE_MODEL", "qwen3:0.6b")
+
+    def _bad_build(model_name=None, *, _require=False):
+        assert _require is True
+        raise TypeError(f"unexpected argument 'timeout' for client with key {secret}")
+
+    monkeypatch.setattr(exp, "_build_judge_llm", _bad_build)
+    with pytest.raises(RuntimeError) as exc_info:
+        exp._check_judge_llm("qwen3:0.6b")
+
+    msg = str(exc_info.value)
+    assert "[TypeError]" in msg
+    assert "unexpected argument 'timeout'" in msg
+    assert "returned None" not in msg
+    assert secret not in msg
+    assert exc_info.value.__cause__ is None

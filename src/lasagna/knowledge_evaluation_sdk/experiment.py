@@ -3077,10 +3077,7 @@ def _check_judge_llm(model_name: Optional[str] = None) -> None:
         ok: bool
 
     try:
-        try:
-            judge = _build_judge_llm(resolved_model, _require=True)
-        except TypeError:
-            judge = _build_judge_llm(resolved_model)
+        judge = _build_judge_llm(resolved_model, _require=True)
         if judge is None:
             raise RuntimeError(
                 "Judge LLM construction returned None (no API key or client configured)"

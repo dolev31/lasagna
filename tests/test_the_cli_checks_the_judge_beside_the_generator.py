@@ -266,6 +266,8 @@ def test_benchmark_experiment_checks_judge_before_clearing_checkpoints_and_only_
 
 def test_preflight_judge_skips_local_file_with_corpus_on_retrieval_track(monkeypatch, tmp_path):
     """Regression test: a local data path with contexts runs in live mode on retrieval-only."""
+    from lasagna.knowledge_evaluation_sdk.benchmarks import benchmark_registry
+
     _clear_judge_env(monkeypatch)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     local_file = tmp_path / "my_data.jsonl"
@@ -285,12 +287,18 @@ def test_preflight_judge_skips_local_file_with_corpus_on_retrieval_track(monkeyp
 
     monkeypatch.setattr(exp, "_check_judge_llm", _never)
     monkeypatch.setattr(exp, "_build_judge_llm", _never)
-    retrieval_exp = exp.Experiment.from_dict(
-        {
-            "name": "local_retrieval",
-            "benchmarks": [{"path": str(local_file)}],
-            "tracks": ["retrieval"],
-            "pipeline": {"base_profile": "speed"},
-        }
-    )
-    retrieval_exp.preflight_judge()
+    benchmark_registry.names()  # populate built-ins before taking the snapshot
+    before = dict(benchmark_registry._adapters)
+    try:
+        retrieval_exp = exp.Experiment.from_dict(
+            {
+                "name": "local_retrieval",
+                "benchmarks": [{"path": str(local_file)}],
+                "tracks": ["retrieval"],
+                "pipeline": {"base_profile": "speed"},
+            }
+        )
+        retrieval_exp.preflight_judge()
+    finally:
+        benchmark_registry._adapters.clear()
+        benchmark_registry._adapters.update(before)
