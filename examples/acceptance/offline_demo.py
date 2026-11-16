@@ -347,6 +347,7 @@ def _install_stub_judge() -> None:
 
     ragas_evaluator.RAGASEvaluator = OfflineStubJudge  # type: ignore[misc]
     experiment._build_judge_llm = lambda *args, **kwargs: None
+    experiment._check_judge_llm = lambda *args, **kwargs: None
 
 
 # ---------------------------------------------------------------------------

@@ -55,6 +55,7 @@ def test_a_run_writes_its_results_and_cache_there(data_dir, monkeypatch):
     monkeypatch.setattr(providers, "get_llm_provider", lambda: provider)
     monkeypatch.setattr(ragas, "RAGASEvaluator", _Judge)
     monkeypatch.setattr(exp, "_build_judge_llm", lambda *a, **k: None)
+    monkeypatch.setattr(exp, "_check_judge_llm", lambda *a, **k: None)
     monkeypatch.setenv("RAG_EVAL_SIMILARITY_MODEL", "none")
     monkeypatch.delenv("LASAGNA_LLM_CACHE", raising=False)
     config = {

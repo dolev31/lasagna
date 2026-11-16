@@ -2099,6 +2099,44 @@ class Experiment:
     ) -> None:
         self.config = config
         self._eval_fn = eval_fn
+        # What the judge was last validated under (see preflight_judge); None
+        # when no validation is pending for run() to skip.
+        self._judge_checked: Optional[tuple] = None
+
+    def preflight_judge(self) -> None:
+        """Validate the judge now, so the caller can fail before any work starts.
+
+        The CLI calls this beside its generator check. ``run()`` then skips its
+        own check once, rather than probing the judge a second time. The record
+        is consumed by that run, and is ignored if the judge's model, endpoint
+        or key changed since, so it cannot excuse a later run or another
+        configuration. A no-op where no judge is needed (retrieval-only runs,
+        a custom ``eval_fn``).
+
+        Raises:
+            RuntimeError: the judge cannot be built or reached; the message
+                names the model and the variables to set.
+        """
+        if self._eval_fn is not None:
+            return
+        if "generation" not in _parse_tracks(self.config.tracks) and any(
+            getattr(b, "path", "") for b in self.config.benchmarks
+        ):
+            # Local data files are only registered during generate_tasks();
+            # register them here so resolve_mode() sees their corpus instead of
+            # falling back to generation_only for an unknown benchmark name.
+            from .benchmarks.adapters.local_files import prepare_local_benchmarks
+
+            prepare_local_benchmarks(
+                self.config.benchmarks, self.config.base_dir, self.config.tracks
+            )
+        if not _should_check_judge(self.config, self._eval_fn):
+            return
+        fingerprint = _judge_fingerprint(_resolve_judge_model(self.config))
+        if self._judge_checked == fingerprint:
+            return
+        _check_judge_llm(fingerprint[0])
+        self._judge_checked = fingerprint
 
     @classmethod
     def from_file(cls, path: str, eval_fn: Optional[Callable] = None) -> "Experiment":
@@ -2203,9 +2241,12 @@ class Experiment:
         Returns:
             :class:`BenchmarkResults` with all task outcomes.
         """
+        global _active_judge_model
         try:
             return await self._run(progress_callback)
         finally:
+            _active_judge_model = None
+            self._judge_checked = None  # a preflight covers one run
             _tidy_run_folder(self.config)
 
     async def _run(
@@ -2251,6 +2292,13 @@ class Experiment:
         problem = _offline_dataset_problem([t.benchmark_name for t in tasks])
         if problem is not None:
             raise problem
+
+        # Validate the judge once per run before any corpus is ingested or any
+        # answer is generated (#96).
+        if _should_check_judge(cfg, self._eval_fn) and self._judge_checked != _judge_fingerprint(
+            _active_judge_model
+        ):
+            await asyncio.to_thread(_check_judge_llm, _active_judge_model)
 
         # Pre-register corpus ref counts for live mode.
         # With max_concurrency=1 tasks run sequentially; without this,
@@ -2885,7 +2933,7 @@ def _resolve_generator_model() -> Optional[str]:
     return os.environ.get("RAG_EVAL_GENERATOR_MODEL") or os.environ.get("MODEL_NAME") or None
 
 
-def _build_judge_llm(model_name: Optional[str] = None):
+def _build_judge_llm(model_name: Optional[str] = None, *, _require: bool = False):
     """Build the RAGAS judge LLM against an OpenAI-compatible endpoint.
 
     Credentials resolve judge-first so they cannot disturb the generator's
@@ -2898,9 +2946,8 @@ def _build_judge_llm(model_name: Optional[str] = None):
                 → ``DEFAULT_JUDGE_MODEL``
     ==========  ==========================================================
 
-    Returns None when construction fails, or when nothing names a judge and
-    there is no key for the default one; callers then fall back to the RAGAS
-    default judge.
+    Returns None when construction fails (unless ``_require=True``), or when
+    nothing names a judge and there is no key for the default one.
 
     Each request is rebuilt for the model it names (``pin_openai_client``):
     RAGAS sends gpt-5 and later temperature 1.0 at their default reasoning
@@ -2918,7 +2965,7 @@ def _build_judge_llm(model_name: Optional[str] = None):
     if not resolved_model:
         resolved_model = DEFAULT_JUDGE_MODEL
     named = model_name or os.environ.get("RAG_EVAL_JUDGE_MODEL")
-    if resolved_model == DEFAULT_JUDGE_MODEL and not named and not api_key:
+    if not _require and resolved_model == DEFAULT_JUDGE_MODEL and not named and not api_key:
         # The default judge needs a key, and nobody asked for it: no judge is
         # not an error here, as it was not before there was a default.
         return None
@@ -2947,11 +2994,103 @@ def _build_judge_llm(model_name: Optional[str] = None):
         logger.info(f"RAGAS judge using model: {resolved_model}")
         return judge
     except Exception as exc:
+        if _require:
+            raise
         logger.warning(
             f"Could not create judge LLM ({resolved_model}) [{type(exc).__name__}]: {exc}"
         )
-        logger.exception("Judge LLM construction failed; RAGAS will use its default")
+        logger.exception("Judge LLM construction failed; judge metrics will fail")
         return None
+
+
+def _redact_secret(text: str, secret: Optional[str]) -> str:
+    """Strip a credential value if an upstream exception ever echoed it."""
+    if secret and len(secret) >= 4 and secret in text:
+        return text.replace(secret, "<redacted>")
+    return text
+
+
+def _judge_error_message(
+    resolved_model: str,
+    base_url: Optional[str],
+    detail: str,
+) -> str:
+    endpoint = f" at {base_url}" if base_url else ""
+    return (
+        f"Judge LLM ({resolved_model}{endpoint}) could not be reached or configured: "
+        f"{detail}. The RAGAS judge uses its own OpenAI-compatible client and does not "
+        f"inherit OLLAMA_BASE_URL or the generator's LLM provider. Set "
+        f"RAG_EVAL_JUDGE_BASE_URL and RAG_EVAL_JUDGE_API_KEY (falling back to "
+        f"OPENAI_BASE_URL and OPENAI_API_KEY; set OPENAI_API_KEY for the default judge "
+        f"{DEFAULT_JUDGE_MODEL}), and RAG_EVAL_JUDGE_MODEL to choose the judge model."
+    )
+
+
+def _should_check_judge(cfg: "ExperimentConfig", eval_fn: Optional[Callable]) -> bool:
+    """Whether ``Experiment._run`` should validate the judge before tasks start."""
+    if eval_fn is not None or not _writes_answers(cfg):
+        return False
+    if (
+        "retrieval" in _parse_tracks(cfg.tracks)
+        and not any(resolve_mode(cfg.mode, s.name)[0] == "generation_only" for s in cfg.benchmarks)
+        and not os.environ.get("RAG_EVAL_JUDGE_MODEL")
+        and not cfg.judge_model
+    ):
+        from .synthesize import llm_configured
+
+        if not llm_configured():
+            # Both tracks with no LLM configured at all: _eval_live skips
+            # generation and keeps retrieval metrics (test_generation_without_a_key).
+            return False
+    return True
+
+
+def _judge_fingerprint(model_name: Optional[str]) -> tuple:
+    """The model, key and endpoint a judge check applies to (never logged)."""
+    return (
+        model_name or os.environ.get("RAG_EVAL_JUDGE_MODEL") or DEFAULT_JUDGE_MODEL,
+        os.environ.get("RAG_EVAL_JUDGE_API_KEY") or os.environ.get("OPENAI_API_KEY"),
+        os.environ.get("RAG_EVAL_JUDGE_BASE_URL") or os.environ.get("OPENAI_BASE_URL"),
+    )
+
+
+def _check_judge_llm(model_name: Optional[str] = None) -> None:
+    """Build the RAGAS judge and run one minimal structured-output request.
+
+    Called once at the start of an experiment that writes answers, outside the
+    LLM cache and per-task token meters, so a missing key, wrong base URL, or
+    unreachable model stops the run before any corpus is ingested or any answer
+    is generated.
+    """
+    resolved_model = (
+        model_name
+        or _active_judge_model
+        or os.environ.get("RAG_EVAL_JUDGE_MODEL")
+        or DEFAULT_JUDGE_MODEL
+    )
+    api_key = os.environ.get("RAG_EVAL_JUDGE_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    base_url = os.environ.get("RAG_EVAL_JUDGE_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+
+    from pydantic import BaseModel
+
+    class _JudgeProbe(BaseModel):
+        ok: bool
+
+    try:
+        judge = _build_judge_llm(resolved_model, _require=True)
+        if judge is None:
+            raise RuntimeError(
+                "Judge LLM construction returned None (no API key or client configured)"
+            )
+        judge.generate('Reply with {"ok": true}.', _JudgeProbe)
+    except Exception as exc:
+        root = exc.__cause__ if exc.__cause__ is not None else exc
+        exc_names = (
+            f"{type(exc).__name__}/{type(root).__name__}" if root is not exc else type(exc).__name__
+        )
+        msg = str(root) if root is not exc and str(root) else str(exc)
+        detail = _redact_secret(f"[{exc_names}] {msg}", api_key)
+        raise RuntimeError(_judge_error_message(resolved_model, base_url, detail)) from None
 
 
 async def _default_eval_fn(

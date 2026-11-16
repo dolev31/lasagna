@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A generation experiment checks its judge before the first answer is written.**
+  `Experiment._run` and the CLI (`lasagna benchmark run`, `lasagna benchmark experiment`)
+  now validate the RAGAS judge once before corpus ingestion, checkpoint clearing, or
+  answer generation using its independent `RAG_EVAL_JUDGE_*` / `OPENAI_*`
+  configuration, while retrieval-only runs still do not probe the judge (#96).
 - Agentic reasoning and chunk-refinement LLM calls now honor the session's
   `agent_temperature`, including shared and pinned loop models (#82). Previously,
   `RAGConfig.agent_temperature` documented a default of `0.1` that never reached
