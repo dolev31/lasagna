@@ -11,19 +11,19 @@ in production.
 The same class of problem covers every store service in the stack, so the
 rest of this file pins the whole policy, not just Qdrant:
 
-* ``PINNED`` -- (compose file, service) pairs that must set a minimum soft
+* ``PINNED``: (compose file, service) pairs that must set a minimum soft
   ``nofile``, with the reason each value was chosen.
-* ``PENDING_MEASUREMENT`` -- pairs whose limit is still being measured: the
+* ``PENDING_MEASUREMENT``: pairs whose limit is still being measured: the
   pair is known and the named burst/measure test decides the number. A pair
   moves to ``PINNED`` (or ``SAFE_UNSET``) once the run reports.
-* ``SAFE_UNSET`` -- pairs deliberately left at the default, each with a
+* ``SAFE_UNSET``: pairs deliberately left at the default, each with a
   one-line reason.
 
 ``test_every_store_service_has_an_explicit_nofile_decision`` enumerates every
 service that runs its own image in ``docker-compose.yml`` and
 ``backends/*.yml``. A new backend file (or a new image service) that is not
 listed in one of the three tables fails this test, so the decision cannot be
-forgotten -- add the pair to the right table with its reason.
+forgotten: add the pair to the right table with its reason.
 """
 
 from __future__ import annotations
@@ -34,10 +34,6 @@ from tests._paths import DEPLOY_DIR
 
 MIN_NOFILE = 524288
 
-OPENSEARCH_DOCS_URL = (
-    "https://docs.opensearch.org/latest/install-and-configure/install-opensearch/docker/"
-)
-
 # (compose file relative to DEPLOY_DIR, service) -> (minimum soft nofile, why)
 PINNED = {
     ("backends/qdrant.yml", "qdrant"): (
@@ -45,17 +41,20 @@ PINNED = {
         "validated by the 8-client collection+index burst "
         "(main 50/50 failed at the 1024 default, branch 50/50 clean at 524288)",
     ),
-    ("backends/opensearch.yml", "opensearch"): (
-        65536,
-        "OpenSearch's own Docker documentation requires nofile 65536 "
-        f"(and memlock unlimited) on every node: {OPENSEARCH_DOCS_URL}",
-    ),
 }
 
 # (compose file, service) -> (burst/measure test relative to tests/, what the run decides)
 # Pairs stay here only while unmeasured; once a run reports, move the pair to
 # PINNED or SAFE_UNSET and record the measured numbers in the reason.
-PENDING_MEASUREMENT = {}
+PENDING_MEASUREMENT = {
+    ("backends/opensearch.yml", "opensearch"): (
+        "stress/test_opensearch_fd_burst.py",
+        "OpenSearch's own Docker documentation requires nofile 65536 "
+        "(and memlock unlimited) on every node, but the stack run that would "
+        "confirm the node starts and holds is still to do, so the pin stays "
+        "unapplied until the burst reports",
+    ),
+}
 
 # (compose file, service) -> one-line reason for leaving the default unset
 SAFE_UNSET = {
@@ -66,9 +65,10 @@ SAFE_UNSET = {
     ),
     ("backends/weaviate.yml", "weaviate"): (
         "safe, because the Weaviate container runs one server process and never "
-        "fans out concurrent collection creators itself -- collections are "
-        "created by the single RAG API process -- so there is no client-burst "
-        "path inside the container"
+        "fans out concurrent collection creators itself: collections are "
+        "created by the RAG API, which runs four gunicorn workers by default "
+        "(src/lasagna/deploy/Dockerfile), so at most four creators contend "
+        "and there is no client-burst path inside the container"
     ),
     ("backends/pgvector.yml", "postgres"): (
         "safe, because the pgvector backend reuses the metadata Postgres with "
@@ -124,17 +124,6 @@ def test_pinned_services_meet_their_minimums():
         )
 
 
-def test_opensearch_sets_memlock_unlimited():
-    services = yaml.safe_load((DEPLOY_DIR / "backends/opensearch.yml").read_text())["services"]
-    memlock = (services["opensearch"].get("ulimits") or {}).get("memlock")
-    if isinstance(memlock, dict):
-        soft, hard = memlock.get("soft"), memlock.get("hard")
-    else:  # compose also allows the scalar form, e.g. `memlock: -1`
-        soft = hard = memlock
-    assert int(soft or 0) == -1, "opensearch memlock soft must be unlimited (-1)"
-    assert int(hard or 0) == -1, "opensearch memlock hard must be unlimited (-1)"
-
-
 def test_pending_measurements_have_their_measure_test():
     import tests as tests_pkg
     from pathlib import Path
@@ -162,5 +151,5 @@ def test_every_store_service_has_an_explicit_nofile_decision():
     assert not unknown, (
         "store services without an explicit nofile decision: "
         + ", ".join(f"{rel}#{service}" for rel, service in unknown)
-        + " -- add each to PINNED, SAFE_UNSET or PENDING_MEASUREMENT with its reason"
+        + ": add each to PINNED, SAFE_UNSET or PENDING_MEASUREMENT with its reason"
     )

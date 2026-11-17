@@ -30,7 +30,7 @@ whether it held::
 
 If the burst exhausts the container's default descriptors, the failure *is*
 the measurement: raise the limit the Qdrant way and pin it in
-``tests/test_compose_qdrant_sets_nofile_ulimit.py`` (moving the pair out of
+``tests/test_compose_nofile_policy.py`` (moving the pair out of
 ``PENDING_MEASUREMENT``); if it holds, record the numbers instead.
 """
 

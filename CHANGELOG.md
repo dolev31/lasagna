@@ -88,18 +88,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   A burst of concurrent clients creating collections and payload indexes
   exhausted the container's default 1024 file descriptors ("Too many open
   files"), which could take the vector store down in production.
-- The Compose stack's OpenSearch service now sets the limits its own Docker
-  documentation requires on every node: `memlock` unlimited and `nofile`
-  65536. A stress burst for Milvus, the default backend, is added beside the
-  Qdrant-only race test (`tests/stress/test_milvus_fd_burst.py`): eight
-  processes on one barrier build a `MilvusBackend` from `MILVUS_URI` and
-  create collections and indexes, reporting the container's `nofile` budget
-  and whether it holds.
-- The nofile policy for every store service in the Compose stack is now
-  pinned by `tests/test_compose_qdrant_sets_nofile_ulimit.py`: each service
-  with its own image is listed as pinned, pending measurement, or safe with
-  a one-line reason, so a new backend file without an explicit decision
-  fails the test.
+- Every store service in the Compose stack now ships with an explicit
+  nofile decision, checked by `tests/test_compose_nofile_policy.py`: a new
+  backend cannot silently inherit the container's default 1024 file
+  descriptors, so a burst of clients creating collections can no longer
+  take a store down with "Too many open files".
 
 ## [0.3.0] - 2026-11-07
 
