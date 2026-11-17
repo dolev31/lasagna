@@ -458,7 +458,7 @@ class SearchOrchestrator:
                 )
 
             record_routing_tier(
-                routing_decision.tier.value if routing_decision is not None else "standard_fallback"
+                routing_decision.tier.value if routing_decision is not None else "standard"
             )
 
         # Track effective values for features that may be overridden by FAST tier.

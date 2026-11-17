@@ -207,11 +207,15 @@ def test_run_record_reports_effective_routing_tiers_for_both_tracks(
             {"name": "with_reranker", "enable_reranking": True},
         ],
     )
-    for r in results:
-        assert r.system["routing_tiers"] == {
-            "retrieval": {"standard": 12},
-            "generation": {"standard": 12},
-        }
+    by_name = {r.config_name: r for r in results}
+    assert by_name["control"].system["routing_tiers"] == {
+        "retrieval": {"standard": 12},
+        "generation": {"fast": 12},
+    }
+    assert by_name["with_reranker"].system["routing_tiers"] == {
+        "retrieval": {"standard": 12},
+        "generation": {"standard": 12},
+    }
     report = isolation_report([r.to_dict() for r in results])
     assert report["undeclared"] == []
     assert report["inert"] == []
@@ -323,6 +327,37 @@ def test_comprehensive_fallback_records_single_standard_fallback_entry(
     assert tiers == ["standard_fallback"]
 
 
+def test_routing_decision_failure_records_single_standard_entry(
+    orchestrator,  # noqa: F811 - pytest fixture
+    monkeypatch,
+):
+    from lasagna.core.strict import observe_routing
+    from lasagna.retrieval.routing.router import get_query_router
+    from tests.test_retrieval_metrics_score_the_ranked_order import _Ranked
+
+    router = get_query_router()
+
+    def _failing_route(*args, **kwargs):
+        raise RuntimeError("router boom")
+
+    monkeypatch.setattr(router, "route", _failing_route)
+
+    with observe_routing() as tiers:
+        results = orchestrator.search(
+            "who wrote hamlet",
+            "stub-session",
+            top_k=3,
+            _retriever_override=_Ranked(),
+            query_config_overrides={
+                **exp._resolve_profile_config("speed"),
+                "enable_search_cache": False,
+            },
+        )
+
+    assert tiers == ["standard"]
+    assert results
+
+
 def test_context_reordering_executes_on_generation_track_under_speed(
     tmp_path,
     llm,  # noqa: F811 - pytest fixture
@@ -385,3 +420,119 @@ def test_hyde_executes_on_generation_track_under_speed(
         [{"name": "with_hyde", "enable_hyde": True}],
     )
     assert len(hyde_calls) > 0
+
+
+def test_plain_speed_control_retains_fast_routing_tier(
+    tmp_path,
+    llm,  # noqa: F811 - pytest fixture
+    orchestrator,  # noqa: F811 - pytest fixture
+):
+    (result,) = _run_generation(tmp_path, [{"name": "control"}])
+    assert result.system["routing_tiers"] == {"generation": {"fast": 12}}
+    assert result.system["stages"]["query_enhancer"]["settings"]["routing_default_tier"] == {
+        "retrieval": "standard",
+        "generation": "fast",
+    }
+
+
+def test_hybrid_search_executes_on_generation_track_under_speed(
+    tmp_path,
+    llm,  # noqa: F811 - pytest fixture
+    orchestrator,  # noqa: F811 - pytest fixture
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from tests.test_retrieval_metrics_score_the_ranked_order import _Ranked
+
+    hybrid_calls: list[str] = []
+    real_search = orchestrator.search
+    ranked_retriever = _Ranked()
+
+    def _search_without_retriever_override(*args, **kwargs):
+        kwargs["_retriever_override"] = None
+        return real_search(*args, **kwargs)
+
+    def _backend_search(**kwargs):
+        docs = ranked_retriever.retrieve("who", "", top_k=kwargs.get("top_k", 10))
+        return [
+            SimpleNamespace(
+                id=d.chunk_id,
+                score=d.score,
+                distance=d.score,
+                entity={
+                    "content": d.content,
+                    "document_id": d.document_id,
+                    "metadata": {},
+                },
+            )
+            for d in docs
+        ]
+
+    def _search_hybrid(query, dense_results, **kwargs):
+        hybrid_calls.append(query)
+        converted = [
+            SimpleNamespace(
+                chunk_id=h["id"],
+                document_id=h["entity"]["document_id"],
+                content=h["entity"]["content"],
+                score=h["distance"],
+                combined_score=h["distance"],
+                metadata=h["entity"].get("metadata", {}),
+                highlights=None,
+                embedding=None,
+            )
+            for h in dense_results
+        ]
+        return converted, {"sparse_ms": 1.0, "merge_ms": 0.5, "hybrid_mode": "hybrid"}
+
+    monkeypatch.setattr(orchestrator, "search", _search_without_retriever_override)
+    monkeypatch.setattr(orchestrator._default_backend, "search", _backend_search)
+    monkeypatch.setattr(
+        orchestrator,
+        "hybrid_searcher",
+        SimpleNamespace(
+            hydrate_session_index=lambda *a, **kw: None,
+            search_hybrid=_search_hybrid,
+        ),
+    )
+
+    (result,) = _run_generation(
+        tmp_path,
+        [{"name": "with_hybrid", "enable_hybrid_search": True}],
+    )
+    assert len(hybrid_calls) > 0
+    assert result.system["routing_tiers"] == {"generation": {"standard": 12}}
+
+
+def test_mmr_is_preserved_on_generation_track_under_speed(
+    tmp_path,
+    llm,  # noqa: F811 - pytest fixture
+    orchestrator,  # noqa: F811 - pytest fixture
+    monkeypatch,
+):
+    from lasagna.api import _search_orchestrator as orch_mod
+
+    reranker = _RecordingReversingReranker()
+    real_search = orchestrator.search
+    mmr_lambdas: list[object] = []
+    orig_log_json = orch_mod.log_json
+
+    def _search_with_reranker(*args, **kwargs):
+        kwargs["_reranker_override"] = reranker
+        return real_search(*args, **kwargs)
+
+    def _spy_log_json(event, payload):
+        if event == "rag_search_metrics":
+            mmr_lambdas.append(payload.get("mmr_lambda"))
+        return orig_log_json(event, payload)
+
+    monkeypatch.setattr(orchestrator, "search", _search_with_reranker)
+    monkeypatch.setattr(orch_mod, "log_json", _spy_log_json)
+
+    (result,) = _run_generation(
+        tmp_path,
+        [{"name": "with_mmr", "enable_mmr": True, "enable_reranking": True}],
+    )
+    assert result.system["routing_tiers"] == {"generation": {"standard": 12}}
+    assert mmr_lambdas and all(v is not None for v in mmr_lambdas)

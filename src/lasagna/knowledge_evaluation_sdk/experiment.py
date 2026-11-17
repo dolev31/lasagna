@@ -1468,19 +1468,29 @@ def _fix_retrieval_routing(task_config: Dict[str, Any]) -> None:
     task_config["routing_default_tier"] = "standard"
 
 
+_FAST_TIER_DISABLED_FEATURES = (
+    "enable_hyde",
+    "enable_reranking",
+    "enable_hybrid_search",
+    "enable_mmr",
+    "enable_context_reordering",
+    "enable_hierarchical",
+)
+
+
 def _fix_generation_routing(
     gen_config: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None
 ) -> None:
-    """Run non-routing generation arms at standard tier instead of speed's fast tier.
+    """Upgrade speed's fast tier to standard only when an arm enables a fast-disabled stage.
 
     The ``speed`` profile sets ``enable_query_routing=False`` and
     ``routing_default_tier="fast"``, which triggers ``_FAST_OVERRIDES`` in
-    ``QueryRouter`` and silently disables explicitly enabled features
-    (reranking, hybrid search, HyDE, MMR, context reordering, hierarchical).
-    When an arm does not explicitly configure routing via
-    ``enable_query_routing`` or ``routing_default_tier``, default generation
-    routing to ``"standard"`` (mirroring retrieval) while leaving the ``speed``
-    profile itself unchanged outside the harness.
+    ``QueryRouter`` and silently disables HyDE, reranking, hybrid search, MMR,
+    context reordering, and hierarchical retrieval. A plain ``speed`` arm
+    keeps ``"fast"`` so its existing routing and metrics are preserved; an arm
+    that explicitly enables one of those six features (without explicitly
+    setting ``enable_query_routing`` or ``routing_default_tier``) is promoted
+    to ``"standard"`` so the enabled stage executes.
     """
     arm_overrides = overrides or {}
     if "routing_default_tier" in arm_overrides or "enable_query_routing" in arm_overrides:
@@ -1488,6 +1498,7 @@ def _fix_generation_routing(
     if (
         not gen_config.get("enable_query_routing", True)
         and str(gen_config.get("routing_default_tier", "standard")).lower() == "fast"
+        and any(gen_config.get(key) for key in _FAST_TIER_DISABLED_FEATURES)
     ):
         gen_config["routing_default_tier"] = "standard"
 
@@ -4824,8 +4835,12 @@ async def _eval_live(
 
     # Save config for generation path — includes task overrides + embedding fixes,
     # but NOT the IR-specific overrides that disable agentic routing.
+    # Keep `gen_config` as the arm's configured values for `system["stages"]`
+    # and derive `gen_exec_config` for runtime search so promoting an arm that
+    # enables a fast-disabled stage to `standard` does not alter stage digests.
     gen_config = dict(pipeline._config)
-    _fix_generation_routing(gen_config, task.config_overrides)
+    gen_exec_config = dict(gen_config)
+    _fix_generation_routing(gen_exec_config, task.config_overrides)
 
     # Live-mode fix 2 (IR only): Disable agentic/comprehensive routing.
     # The agentic pipeline runs multi-hop retrieval + LLM synthesis. For IR
@@ -5215,7 +5230,7 @@ async def _eval_live(
                                     gen_sample.question,
                                     10,
                                     shared_session_id,
-                                    gen_config,
+                                    gen_exec_config,
                                 ),
                                 timeout=300,  # 5 min
                             )
