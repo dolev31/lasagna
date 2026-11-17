@@ -154,6 +154,7 @@ from lasagna.core.strict import (  # noqa: E402
     ContextPresentation,
     lost_in_the_middle,
     observe_reranking,
+    observe_routing,
     present_context_order,
 )
 
@@ -1427,6 +1428,30 @@ def _fix_retrieval_routing(task_config: Dict[str, Any]) -> None:
     task_config["use_agentic_rag"] = False
     task_config["agentic_pipeline"] = "legacy_react"
     task_config["routing_default_tier"] = "standard"
+
+
+def _fix_generation_routing(
+    gen_config: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None
+) -> None:
+    """Run non-routing generation arms at standard tier instead of speed's fast tier.
+
+    The ``speed`` profile sets ``enable_query_routing=False`` and
+    ``routing_default_tier="fast"``, which triggers ``_FAST_OVERRIDES`` in
+    ``QueryRouter`` and silently disables explicitly enabled features
+    (reranking, hybrid search, HyDE, MMR, context reordering, hierarchical).
+    When an arm does not explicitly configure routing via
+    ``enable_query_routing`` or ``routing_default_tier``, default generation
+    routing to ``"standard"`` (mirroring retrieval) while leaving the ``speed``
+    profile itself unchanged outside the harness.
+    """
+    arm_overrides = overrides or {}
+    if "routing_default_tier" in arm_overrides or "enable_query_routing" in arm_overrides:
+        return
+    if (
+        not gen_config.get("enable_query_routing", True)
+        and str(gen_config.get("routing_default_tier", "standard")).lower() == "fast"
+    ):
+        gen_config["routing_default_tier"] = "standard"
 
 
 def _context_order(gen_config: Any) -> Dict[str, str]:
@@ -4632,6 +4657,7 @@ async def _eval_live(
     # Save config for generation path — includes task overrides + embedding fixes,
     # but NOT the IR-specific overrides that disable agentic routing.
     gen_config = dict(pipeline._config)
+    _fix_generation_routing(gen_config, task.config_overrides)
 
     # Live-mode fix 2 (IR only): Disable agentic/comprehensive routing.
     # The agentic pipeline runs multi-hop retrieval + LLM synthesis. For IR
@@ -4683,6 +4709,9 @@ async def _eval_live(
     # What fell back while each track's queries ran (#50).
     _ir_degraded = _DegradedTally()
     _gen_degraded = _DegradedTally()
+    # Effective runtime routing tiers executed per track (#98).
+    _ir_routing_tiers: Dict[str, int] = {}
+    _gen_routing_tiers: Dict[str, int] = {}
 
     # The cutoff the IR metrics are reported at. Was hard-coded to 10 in six
     # places, so NDCG@100 and Recall@1000 -- the cutoffs much of the retrieval
@@ -4761,6 +4790,7 @@ async def _eval_live(
                 sample_meter,
                 sample_meter.scope(SYSTEM),
                 observe_reranking() as moved,
+                observe_routing() as _ir_tiers,
                 _ir_degraded.query(),
             ):
                 search_results = await asyncio.to_thread(
@@ -4770,6 +4800,8 @@ async def _eval_live(
                     shared_session_id,
                     task_config,
                 )
+            for _tier in _ir_tiers:
+                _ir_routing_tiers[_tier] = _ir_routing_tiers.get(_tier, 0) + 1
             query_latency_ms = (time.monotonic() - query_start) * 1000
 
             # Extract doc IDs from search results.
@@ -5005,6 +5037,7 @@ async def _eval_live(
                             gen_meter,
                             gen_meter.scope(SYSTEM),
                             present_context_order() as _presented,
+                            observe_routing() as _gen_tiers,
                             _gen_degraded.query(),
                         ):
                             search_results = await asyncio.wait_for(
@@ -5017,6 +5050,8 @@ async def _eval_live(
                                 ),
                                 timeout=300,  # 5 min
                             )
+                        for _tier in _gen_tiers:
+                            _gen_routing_tiers[_tier] = _gen_routing_tiers.get(_tier, 0) + 1
                     except asyncio.TimeoutError:
                         logger.warning(
                             f"Query timed out after 5 min for sample "
@@ -5595,6 +5630,13 @@ async def _eval_live(
         ]
     except Exception as exc:  # the manifest must never cost a result
         logger.warning(f"Could not record the stage manifest: {exc}")
+    _routing_tiers = {
+        track: dict(sorted(counts.items()))
+        for track, counts in (("retrieval", _ir_routing_tiers), ("generation", _gen_routing_tiers))
+        if counts
+    }
+    if _routing_tiers:
+        _system["routing_tiers"] = _routing_tiers
     if _context_free:
         # Read by the reports, which say why this arm has no faithfulness.
         _system["generator_context"] = "none"

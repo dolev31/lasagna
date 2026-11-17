@@ -369,6 +369,48 @@ class TestRoutingDisabled:
         assert decision.tier == RoutingTier.STANDARD
         assert "downgraded" in decision.rationale
 
+    def test_disabled_honours_forced_fast_when_override_allowed(self):
+        config = _StubConfig(
+            enable_query_routing=False,
+            routing_default_tier="standard",
+            routing_allow_tier_override=True,
+        )
+        decision = self.router.route("query", None, None, config, forced_tier="fast")
+        assert decision.tier == RoutingTier.FAST
+        assert decision.strategy_used == "forced"
+
+    def test_disabled_honours_forced_comprehensive_when_override_allowed(self):
+        config = _StubConfig(
+            enable_query_routing=False,
+            routing_default_tier="fast",
+            routing_allow_tier_override=True,
+            use_agentic_rag=True,
+        )
+        decision = self.router.route("query", None, None, config, forced_tier="comprehensive")
+        assert decision.tier == RoutingTier.COMPREHENSIVE
+        assert decision.strategy_used == "forced"
+
+    def test_disabled_ignores_forced_tier_when_override_disabled(self):
+        config = _StubConfig(
+            enable_query_routing=False,
+            routing_default_tier="fast",
+            routing_allow_tier_override=False,
+            use_agentic_rag=True,
+        )
+        decision = self.router.route("query", None, None, config, forced_tier="comprehensive")
+        assert decision.tier == RoutingTier.FAST
+        assert decision.strategy_used == "disabled"
+
+    def test_disabled_invalid_forced_tier_falls_back_to_default_tier(self):
+        config = _StubConfig(
+            enable_query_routing=False,
+            routing_default_tier="fast",
+            routing_allow_tier_override=True,
+        )
+        decision = self.router.route("query", None, None, config, forced_tier="invalid_tier")
+        assert decision.tier == RoutingTier.FAST
+        assert decision.strategy_used == "disabled"
+
 
 # =========================================================================
 # 7. Override Application

@@ -39,6 +39,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Non-agentic generation-track arms under the `speed` profile now run at the
+  `standard` routing tier by default (mirroring the retrieval track) so
+  explicitly enabled retrieval features (reranking, hybrid search, HyDE, MMR,
+  context reordering, and hierarchical chunking) are preserved instead of
+  being disabled by `fast`-tier overrides (#98). Arms that explicitly set
+  `enable_query_routing` or `routing_default_tier` retain their routing
+  configuration, agentic arms continue to force the `comprehensive` tier (even
+  when `enable_query_routing` is false under `speed`), the `speed` profile
+  outside the evaluation harness is unchanged, and `system.routing_tiers`
+  records the effective routing tiers executed per track.
 - A run that writes no answers names no judge and no answer-similarity
   model, since only answers are judged. A live retrieval sweep recorded the
   judge from `RAG_EVAL_JUDGE_MODEL` or `judge_model:`, and the similarity

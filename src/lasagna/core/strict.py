@@ -103,6 +103,29 @@ def present_context_order() -> Iterator[ContextPresentation]:
         _PRESENTATION.reset(token)
 
 
+_ROUTING_OBSERVATIONS: contextvars.ContextVar[Optional[List[str]]] = contextvars.ContextVar(
+    "lasagna_routing_observations", default=None
+)
+
+
+def record_routing_tier(tier: str) -> None:
+    """Append the effective routing tier of a top-level search inside :func:`observe_routing`."""
+    seen = _ROUTING_OBSERVATIONS.get()
+    if seen is not None:
+        seen.append(tier)
+
+
+@contextmanager
+def observe_routing() -> Iterator[List[str]]:
+    """Collect the effective routing tier used by each top-level search inside the block."""
+    seen: List[str] = []
+    token = _ROUTING_OBSERVATIONS.set(seen)
+    try:
+        yield seen
+    finally:
+        _ROUTING_OBSERVATIONS.reset(token)
+
+
 def claim_context_presentation() -> Optional[ContextPresentation]:
     """The record for the outermost search in the block, once; None for any other search.
 
