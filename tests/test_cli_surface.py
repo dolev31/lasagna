@@ -316,7 +316,12 @@ def test_an_experiment_ends_with_the_leaderboard(monkeypatch, tmp_path):
         # The Next line names results interaction after a factorial.
         pipeline=SimpleNamespace(factorial=None),
     )
-    fake = SimpleNamespace(config=config, generate_tasks=lambda: [], run=run)
+    fake = SimpleNamespace(
+        config=config,
+        generate_tasks=lambda: [],
+        preflight_judge=lambda: None,
+        run=run,
+    )
     monkeypatch.setattr(experiment.Experiment, "from_file", classmethod(lambda cls, path: fake))
     monkeypatch.setattr(cli, "_release_backend", lambda: None)
     result = CliRunner().invoke(cli.app, ["benchmark", "experiment", str(sweep)])

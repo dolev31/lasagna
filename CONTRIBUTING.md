@@ -193,7 +193,11 @@ the next person.
   A change under `src/lasagna/` with nothing changed under `tests/` fails the
   check, unless a maintainer adds `no-new-test` to a pure refactor.
 - Anything a user sees gets a line in `CHANGELOG.md` under Unreleased. A
-  maintainer adds `no-changelog` when nothing changed for users.
+  maintainer adds `no-changelog` when nothing changed for users. In CI the
+  check reads the file as it will be once merged, so a branch started before
+  a release merges `main` and moves its line under the new Unreleased (run
+  the check after merging `main` to see the same); a maintainer adds
+  `changelog-history` to correct a released version's notes.
 - Every suppression says why: `# noqa: BLE001 - reason`,
   `# type: ignore[arg-type]`, `# pragma: no cover - reason`,
   `pytest.skip("reason")`. An `except` that only passes says in a comment why the

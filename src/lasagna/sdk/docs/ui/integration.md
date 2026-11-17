@@ -1269,7 +1269,7 @@ The main `KnowledgeConfig` fields, grouped by category. Every setting, with its 
 |-----|------|---------|-------------|
 | `max_agent_iterations` | int | 3 | Max search hops |
 | `chunk_refinement_method` | str | `auto` | `vanilla`, `refined`, `auto` |
-| `agent_temperature` | float | 0.1 | Agent model temperature |
+| `agent_temperature` | float | 0.0 | Agent/refinement reasoning model temperature |
 | `agentic_pipeline` | str? | null | Pipeline name |
 
 ### Citations

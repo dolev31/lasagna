@@ -2088,12 +2088,6 @@ def benchmark_run(
                 )
             )
 
-    console.print(
-        f"Running benchmark [cyan]{name}[/cyan] (up to {_count(samples, 'sample')}, "
-        f"{_count(runs, 'run')}, mode={mode}, split={split}, profile={profile}, "
-        f"tracks={','.join(track_list)})"
-    )
-
     # Without a way to name a component, "check it runs" measured the stock
     # pipeline, whatever the user had written. A file of your own names its
     # results folder by its stem: ./my.jsonl gave benchmark_._my.jsonl_<time>.
@@ -2114,6 +2108,19 @@ def benchmark_run(
         tracks=track_list,
     )
     exp = Experiment(config=config)
+    # Beside the generator check above: a generation run whose judge cannot be
+    # reached stops here, before the corpus is ingested or an answer written.
+    # The experiment remembers it, so run() does not probe the judge again.
+    try:
+        exp.preflight_judge()
+    except (RuntimeError, ValueError) as exc:
+        _error(str(exc))
+
+    console.print(
+        f"Running benchmark [cyan]{name}[/cyan] (up to {_count(samples, 'sample')}, "
+        f"{_count(runs, 'run')}, mode={mode}, split={split}, profile={profile}, "
+        f"tracks={','.join(track_list)})"
+    )
 
     async def _execute():
         return await exp.run()
@@ -2197,6 +2204,7 @@ def benchmark_experiment(
     """Run a multi-benchmark experiment from a config file."""
     from .knowledge_evaluation_sdk.experiment import (
         Experiment,
+        _offline_dataset_problem,
         base_profiles_line,
         runs_were_identical,
     )
@@ -2256,6 +2264,15 @@ def benchmark_experiment(
         # data file, wrong signature, a contract failure) end in one actionable
         # sentence, before "Starting experiment"; a 40-line Rich traceback
         # buried it, and an unknown benchmark failed every task instead.
+        _error(str(exc))
+    problem = _offline_dataset_problem([t.benchmark_name for t in tasks])
+    if problem is not None:
+        _error(str(problem))
+    # Validate the judge before cp.clear() so a misconfigured judge never wipes
+    # existing checkpoints; run() remembers the preflight and does not re-probe.
+    try:
+        exp.preflight_judge()
+    except (RuntimeError, ValueError) as exc:
         _error(str(exc))
     cp = CheckpointManager(exp.config.checkpoint_dir or exp.config.effective_output_dir())
     if not resume:
@@ -2517,7 +2534,7 @@ def _sweep_example(stage: Optional[str], name: str) -> str:
 
 def _deprecated_spelling(old: str, new: str) -> None:
     console.print(
-        f"[yellow]`lasagna {old}` is deprecated and will be removed in 0.3.0; "
+        f"[yellow]`lasagna {old}` is deprecated and will be removed in 0.4.0; "
         f"use `lasagna {new}`.[/yellow]"
     )
 
@@ -3821,7 +3838,7 @@ def results_interaction(
         "30 queries differ; with 30 or fewer it is exact. The interval is a t interval.",
     ),
     bootstrap: Optional[int] = typer.Option(
-        None, "--bootstrap", hidden=True, help="Old name of --resamples, removed in 0.3.0."
+        None, "--bootstrap", hidden=True, help="Old name of --resamples, removed in 0.4.0."
     ),
 ):
     """Do two techniques compose, or do they overlap?

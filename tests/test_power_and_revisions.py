@@ -254,11 +254,13 @@ class TestDatasetRevisions:
         """Deliberate. A SHA written in without being resolved against the Hub
         would be a fabricated provenance record: it would satisfy `--strict`
         while proving nothing, which is worse than an honest blank. Only the
-        two datasets whose snapshot was loaded and checked are pinned."""
+        datasets whose snapshot was loaded and checked are pinned; FEVER's is
+        the Hub's parquet conversion of its loading script, which `datasets`
+        no longer runs."""
         from lasagna.knowledge_evaluation_sdk.datasets import _BENCHMARKS, resolve_dataset_revision
 
         pinned = {name for name, meta in _BENCHMARKS.items() if meta.get("hf_revision")}
-        assert pinned == {"beir/scifact", "beir/hotpotqa"}
+        assert pinned == {"beir/scifact", "beir/hotpotqa", "fever"}
         assert (
             resolve_dataset_revision("beir/scifact") == _BENCHMARKS["beir/scifact"]["hf_revision"]
         )

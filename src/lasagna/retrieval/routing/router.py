@@ -86,7 +86,11 @@ class QueryRouter:
         enable = getattr(config, "enable_query_routing", True)
         default_tier_str = getattr(config, "routing_default_tier", "standard")
 
-        # --- Forced tier from caller (e.g. API or agentic pipeline) ---
+        # --- Forced tier from the caller ---
+        # Before the disabled check: "routing off" means no tier is chosen per
+        # query, not that a caller's choice is dropped. Read after it, a
+        # forced tier was lost under `speed` (routing off, default fast), so
+        # every agentic arm there searched the fast tier and never ran its loop.
         allow_override = getattr(config, "routing_allow_tier_override", True)
         if forced_tier and allow_override:
             forced_lower = forced_tier.strip().lower()
@@ -94,7 +98,7 @@ class QueryRouter:
                 logger.warning(
                     f"Invalid routing_tier '{forced_tier}', ignoring. Valid: {sorted(_VALID_TIERS)}"
                 )
-                # Fall through to disabled/strategy-based routing
+                # Fall through to strategy-based routing
             else:
                 tier = RoutingTier(forced_lower)
                 signals = extract_signals(query, document_ids, classification)

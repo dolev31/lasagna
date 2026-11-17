@@ -48,7 +48,8 @@ _CACHE_VERSION = 3  # Bumped: BEIR output now includes expected_docs from qrels
 # benchmark" may have measured different corpora.
 #
 # The catalogue pins a revision only where it was resolved against the Hub and
-# the snapshot loaded (`beir/scifact`, the README demo, and `beir/hotpotqa`).
+# the snapshot loaded (`beir/scifact`, the README demo, `beir/hotpotqa`, and
+# `fever`, whose only loadable copy is the Hub's parquet conversion).
 # A SHA written here without being resolved would be a fabricated provenance
 # record, which is worse than an honest blank: it would satisfy `--strict` while
 # proving nothing. The rest stay unpinned, and a run that cares can pin them
@@ -291,13 +292,13 @@ _BENCHMARKS: Dict[str, Dict[str, Any]] = {
     # Additional benchmarks (used by the benchmark adapter framework)
     # -----------------------------------------------------------------------
     "triviaqa": {
-        "hf_dataset": "trivia_qa",
+        "hf_dataset": "mandarjoshi/trivia_qa",
         "description": "TriviaQA: trivia question answering (95K QA pairs)",
         "format": "triviaqa",
         "config": "rc",
     },
     "hotpotqa": {
-        "hf_dataset": "hotpot_qa",
+        "hf_dataset": "hotpotqa/hotpot_qa",
         "description": "HotpotQA: multi-hop question answering with supporting facts",
         "format": "hotpotqa",
         "config": "fullwiki",
@@ -334,22 +335,38 @@ _BENCHMARKS: Dict[str, Dict[str, Any]] = {
         "config": "hotpotqa",
     },
     "kilt/nq": {
-        "hf_dataset": "kilt_tasks",
+        "hf_dataset": "facebook/kilt_tasks",
         "description": "KILT Natural Questions: knowledge-intensive language tasks",
         "format": "kilt",
         "config": "nq",
     },
     "kilt/triviaqa": {
-        "hf_dataset": "kilt_tasks",
+        "hf_dataset": "facebook/kilt_tasks",
         "description": "KILT TriviaQA: trivia questions as knowledge-intensive task",
         "format": "kilt",
-        "config": "triviaqa",
+        # The Hub's KILT has no `triviaqa` config; `triviaqa_support_only` is
+        # its TriviaQA, published with the support but without the questions.
+        "config": "triviaqa_support_only",
+        "note": (
+            "KILT publishes TriviaQA without its questions, which have to be joined "
+            "from mandarjoshi/trivia_qa by id; the `triviaqa` benchmark has them"
+        ),
     },
     "fever": {
-        "hf_dataset": "fever",
+        # A loading script, which `datasets` no longer runs (since 4.0). The
+        # Hub's parquet conversion of it, at the commit this was checked
+        # against (loaded with datasets 5.1.0 on 2026-11-13).
+        "hf_dataset": "fever/fever",
+        "hf_revision": "5f577157472532aa1d9924d2df63aac44f70cf2b",  # pragma: allowlist secret
+        # The conversion keeps each split in its own folder; named one by one,
+        # since `datasets` would fold labelled and unlabelled dev into one
+        # `validation` split.
+        "hf_data_files": {
+            split: f"v1.0/{split}/*.parquet"
+            for split in ("train", "labelled_dev", "paper_dev", "paper_test")
+        },
         "description": "FEVER: Fact Extraction and VERification (185K claims)",
         "format": "fever",
-        "config": "v1.0",
     },
 }
 
@@ -483,9 +500,15 @@ def load_benchmark(
             load_kwargs["name"] = info["config"]
         if revision:
             load_kwargs["revision"] = revision
+        data_files = info.get("hf_data_files")
+
+        def _load_split(which: str) -> Any:
+            if data_files:
+                return _load_hub_parquet(hf_name, data_files, which, revision)
+            return load_dataset(hf_name, split=which, **load_kwargs)
 
         try:
-            ds = load_dataset(hf_name, split=split, **load_kwargs)
+            ds = _load_split(split)
             actual_split = split
         except (ValueError, KeyError) as exc:
             # Substituting a split changes what the number means -- `train`
@@ -495,8 +518,21 @@ def load_benchmark(
             #
             # Opt in explicitly, and the substitution is recorded rather than
             # merely logged.
+            available = (
+                list(data_files)
+                if data_files
+                else _available_splits(hf_name, load_kwargs.get("name"), revision)
+            )
+            if split in available or (not available and not allow_split_fallback):
+                # Not a missing split: the dataset itself did not load (a bad
+                # repository id, a script `datasets` no longer runs, the
+                # network). Say that, with its own error, instead of sending
+                # the reader to --split.
+                raise ValueError(
+                    f"Benchmark '{name}' could not be loaded from the Hub dataset "
+                    f"'{hf_name}': {exc}"
+                ) from exc
             if not allow_split_fallback:
-                available = _available_splits(hf_name, load_kwargs.get("name"))
                 raise ValueError(
                     f"Split '{split}' is not available for benchmark '{name}'"
                     + (f" (available: {', '.join(available)})" if available else "")
@@ -508,21 +544,23 @@ def load_benchmark(
             fallbacks = [s for s in ["test", "validation", "train"] if s != split]
             ds = None
             actual_split = ""
+            last_exc: BaseException = exc
             for fallback in fallbacks:
                 try:
                     logger.warning(
                         f"Split '{split}' not found for '{name}', substituting '{fallback}'. "
                         f"These numbers are NOT comparable to '{split}' results."
                     )
-                    ds = load_dataset(hf_name, split=fallback, **load_kwargs)
+                    ds = _load_split(fallback)
                     actual_split = fallback
                     break
-                except (ValueError, KeyError):
-                    continue
+                except (ValueError, KeyError) as fallback_exc:
+                    last_exc = fallback_exc
             if ds is None:
                 raise ValueError(
-                    f"No usable split found for '{name}'. Tried: {split}, {', '.join(fallbacks)}"
-                )
+                    f"No usable split found for '{name}'. Tried: {split}, "
+                    f"{', '.join(fallbacks)} (last error: {last_exc})"
+                ) from last_exc
 
         # Convert to our evaluation format
         converter = _FORMAT_CONVERTERS.get(fmt)
@@ -539,6 +577,16 @@ def load_benchmark(
             ds = ds.select(indices)
 
         samples = converter(ds)
+        if len(ds) and not samples:
+            # Rows came back, but none held a question: an empty benchmark that
+            # would score nothing and look like a run. KILT's TriviaQA is one:
+            # the Hub publishes its support without the questions.
+            raise ValueError(
+                f"Benchmark '{name}': split '{actual_split}' of '{hf_name}' has {len(ds)} rows, "
+                f"but the '{fmt}' converter made no sample from any of them"
+                + (f" ({info['note']})" if info.get("note") else "")
+                + "."
+            )
 
     # Cache under the split that was actually loaded, not the one requested.
     # Keying on the request is how a substitution outlives the run that made
@@ -1117,7 +1165,39 @@ _FORMAT_CONVERTERS = {
 # ---------------------------------------------------------------------------
 
 
-def _available_splits(hf_name: str, config: Optional[str] = None) -> List[str]:
+def _load_hub_parquet(
+    hf_name: str, data_files: Dict[str, str], split: str, revision: Optional[str]
+) -> Any:
+    """One split of a dataset kept as parquet files in a Hub repository.
+
+    Every split's files are fetched together with ``snapshot_download`` (from
+    the local cache when offline), as ``load_dataset`` fetches a Hub dataset's
+    splits together, so the offline check that the dataset is cached holds
+    for any split; the requested one is read as plain parquet. Passing ``data_files`` to
+    ``load_dataset`` on the Hub repository instead hashes the config
+    differently offline, so a cached split could not be found again
+    (datasets 5.1.0).
+    """
+    from datasets import load_dataset
+    from huggingface_hub import snapshot_download
+
+    if split not in data_files:
+        raise ValueError(f'Unknown split "{split}". Should be one of {sorted(data_files)}.')
+    root = snapshot_download(
+        hf_name,
+        repo_type="dataset",
+        revision=revision or None,
+        allow_patterns=sorted(data_files.values()),
+        local_files_only=_offline(),
+    )
+    return load_dataset(
+        "parquet", data_files={split: str(Path(root) / data_files[split])}, split=split
+    )
+
+
+def _available_splits(
+    hf_name: str, config: Optional[str] = None, revision: Optional[str] = None
+) -> List[str]:
     """Split names HuggingFace reports for a dataset, best effort.
 
     Only used to make the "split not available" error actionable. Any failure
@@ -1127,7 +1207,8 @@ def _available_splits(hf_name: str, config: Optional[str] = None) -> List[str]:
     try:
         from datasets import get_dataset_split_names
 
-        return list(get_dataset_split_names(hf_name, config_name=config))
+        kwargs: Dict[str, Any] = {"revision": revision} if revision else {}
+        return list(get_dataset_split_names(hf_name, config_name=config, **kwargs))
     except Exception:
         return []
 

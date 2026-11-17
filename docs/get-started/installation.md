@@ -43,7 +43,7 @@ the release. It was resolved on Python 3.12 and needs 3.12 or later, because
 numpy does not install on 3.10 or 3.11 with those pins.
 
 ```bash
-pip install "lasagna-rag[eval]==0.2.1" -c https://raw.githubusercontent.com/dolev31/lasagna/v0.2.1/constraints/0.2.1.txt
+pip install "lasagna-rag[eval]==0.3.0" -c https://raw.githubusercontent.com/dolev31/lasagna/v0.3.0/constraints/0.3.0.txt
 ```
 
 ## Extras

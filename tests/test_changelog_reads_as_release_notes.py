@@ -43,12 +43,20 @@ def test_the_release_entry_is_short_and_has_the_sections_a_reader_needs():
     assert "None." not in known and known.count("\n- **") >= 3
 
 
+#: The metrics version 0.1.0 shipped with. Each later step is stated in the
+#: entry that made it, as "the metrics version is now X.Y".
+SHIPPED_WITH_0_1_0 = "1.7"
+
+
 def test_every_metric_definition_step_is_stated():
-    current = bundle.METRICS_VERSION
-    major, minor = (int(p) for p in current.split("."))
-    assert f"`METRICS_VERSION` {current}" in RELEASE
+    major, minor = (int(p) for p in SHIPPED_WITH_0_1_0.split("."))
+    assert f"`METRICS_VERSION` {SHIPPED_WITH_0_1_0}" in RELEASE
     for step in range(2, minor + 1):
         assert f"- **{major}.{step}:**" in RELEASE, f"{major}.{step} is not described"
+    later = " ".join(CHANGELOG[: CHANGELOG.index("## [0.1.0]")].split())
+    current = int(bundle.METRICS_VERSION.split(".")[1])
+    for step in range(minor + 1, current + 1):
+        assert f"metrics version is now {major}.{step}" in later, f"{major}.{step} is not stated"
 
 
 def test_every_change_to_the_comparability_key_is_stated():

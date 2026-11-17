@@ -31,7 +31,12 @@ With `--diff BASE`, checks the lines `git diff BASE...HEAD` adds:
 - a new module under `src/lasagna/` opens with a docstring;
 - a change to code under `src/lasagna/` comes with a CHANGELOG.md line and a
   change under `tests/`, unless a maintainer added the `no-changelog` or
-  `no-new-test` label.
+  `no-new-test` label;
+- a CHANGELOG.md line lands under `## [Unreleased]`, not under a version that
+  is already out. On a pull request the workflow checks out the merge commit,
+  so this reads the file as it will be once merged: a branch started before a
+  release merges cleanly but puts its line under that release. A maintainer
+  adds `changelog-history` to correct a released version's notes.
 
 Only added lines are checked, so code that was already there never fails a
 pull request that did not touch it.
@@ -79,6 +84,15 @@ PLACEHOLDERS = {"todo", "tbd", "wip", "n/a", "na", "none", "-", "...", "see diff
 
 #: A "Why" shorter than this is a title, not a reason.
 MIN_WHY_WORDS = 5
+
+#: The CHANGELOG section a pull request adds its lines to.
+UNRELEASED = "## [Unreleased]"
+
+#: A release being prepared, not yet dated (`## [0.4.0] - YYYY-MM-DD`), is open too.
+UNDATED = "YYYY-MM-DD"
+
+#: A link definition, `[0.3.0]: https://...`, the file's last lines; not a note.
+_LINK_DEFINITION = re.compile(r"^\[[^\]]+\]:\s")
 
 #: The checker and its tests spell out the patterns they reject.
 EXEMPT = ("scripts/check_pr_body.py", "tests/test_pr_body_check.py")
@@ -180,7 +194,8 @@ def _files(diff_text: str) -> dict[str, dict]:
     current = None
     in_header = False
     line_no = 0
-    for raw in diff_text.splitlines():
+    # Lines end at \n only, as git's do; splitlines() also breaks at \x0c and the like.
+    for raw in diff_text.split("\n"):
         if raw.startswith("diff --git "):
             match = re.match(r"diff --git a/(.+?) b/(.+)$", raw)
             current = match.group(2) if match else None
@@ -200,7 +215,8 @@ def _files(diff_text: str) -> dict[str, dict]:
         elif raw.startswith("+"):
             files[current]["added"].append((line_no, raw[1:]))
             line_no += 1
-        elif raw.startswith(" "):
+        elif raw.startswith(" ") or raw == "":
+            # A blank context line is "" under git's diff.suppressBlankEmpty.
             line_no += 1
     return files
 
@@ -241,8 +257,45 @@ def _missing_docstring(added: list[tuple[int, str]]) -> bool:
     return False
 
 
-def diff_problems(diff_text: str, labels: set[str] | frozenset[str] = frozenset()) -> list[str]:
-    """What the lines a pull request adds break, one sentence each."""
+def _released_lines(added: list[tuple[int, str]], changelog: str) -> list[str]:
+    """The added CHANGELOG lines that sit under a version already released.
+
+    Each line belongs to the nearest `## ` heading above it. A heading the same
+    diff adds is a section this pull request opens, as a release does, and one
+    still dated `YYYY-MM-DD` is a release being prepared.
+    """
+    lines = changelog.replace("\r\n", "\n").split("\n")
+    added_at = {n for n, _ in added}
+    under: dict[int, list[int]] = {}
+    for n, text in added:
+        if not text.strip() or _LINK_DEFINITION.match(text):
+            continue
+        head = next((i for i in range(n, 0, -1) if lines[i - 1].startswith("## ")), None)
+        if head is None or head in added_at:
+            continue
+        heading = lines[head - 1].strip()
+        if heading == UNRELEASED or heading.endswith(UNDATED):
+            continue
+        under.setdefault(head, []).append(n)
+    return [
+        f"CHANGELOG.md:{at[0]}: {len(at)} added line(s) land under "
+        f'"{lines[head - 1].strip()}", a version already released; merge main and '
+        f'move them under "{UNRELEASED}" (a maintainer adds changelog-history to '
+        "correct a released version's notes)"
+        for head, at in under.items()
+    ]
+
+
+def diff_problems(
+    diff_text: str,
+    labels: set[str] | frozenset[str] = frozenset(),
+    changelog: str | None = None,
+) -> list[str]:
+    """What the lines a pull request adds break, one sentence each.
+
+    `changelog` is CHANGELOG.md as the diff leaves it, to say which section each
+    added line lands in.
+    """
     found = []
     files = _files(diff_text)
     for path, info in files.items():
@@ -263,17 +316,34 @@ def diff_problems(diff_text: str, labels: set[str] | frozenset[str] = frozenset(
             "the code under src/lasagna/ changed but nothing under tests/ did; add the "
             "test that fails without the change (a maintainer adds no-new-test for a pure refactor)"
         )
+    if changelog is not None and "CHANGELOG.md" in files and "changelog-history" not in labels:
+        found += _released_lines(files["CHANGELOG.md"]["added"], changelog)
     return found
 
 
-def _git_diff(base: str) -> str:
+def _git(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["git", "diff", "--no-color", "--no-ext-diff", f"{base}...HEAD"],
+        ["git", *args],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
-        check=True,
-    ).stdout
+        encoding="utf-8",
+        errors="replace",
+    )
+
+
+def _git_diff(base: str) -> str:
+    # The prefixes are spelled out: diff.noprefix would leave _files no paths.
+    diff = ["diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/"]
+    ran = _git(*diff, f"{base}...HEAD")
+    ran.check_returncode()
+    return ran.stdout
+
+
+def _committed_changelog() -> str | None:
+    """CHANGELOG.md at HEAD, the commit the diff ends at (in CI, the merge commit)."""
+    shown = _git("show", "HEAD:CHANGELOG.md")
+    return shown.stdout if shown.returncode == 0 else None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -293,7 +363,7 @@ def main(argv: list[str] | None = None) -> int:
     found = problems(body)
     if args.diff:
         labels = {label.strip() for label in args.labels.split(",") if label.strip()}
-        found += diff_problems(_git_diff(args.diff), labels)
+        found += diff_problems(_git_diff(args.diff), labels, _committed_changelog())
 
     for p in found:
         print(f"::error::{p}")
