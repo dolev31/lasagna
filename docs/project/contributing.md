@@ -40,9 +40,22 @@ checked against the real command line.
 
 ## Find something to work on
 
+First, star the repository and watch its releases (Watch > Custom > Releases):
+stars help other researchers find Lasagna, and a release can change what your
+pull request depends on.
+
 [Wanted](wanted.md) lists the components, benchmarks and studies the project
-would like to have, each with what "done" means. Comment on an item's issue to
-claim it.
+would like to have, each with what "done" means. Every issue open for
+contribution is labeled `size: feature` or `size: research`. Lasagna does not take tiny pull requests: a
+typo, a broken link or a one-line pin on its own is an issue, and a maintainer
+folds it into the next change.
+
+To claim an issue, read its comments first: the first claim with a plan wins.
+Then comment "I'm taking this" with your plan: the files you will change, the
+test that will fail on `main`, and the `docker compose` commands you will run
+(for a study: the question, the arms, what is held fixed, and what would prove
+it wrong). Claim one issue
+at a time, and deliver every item of its "Done when".
 
 ## The bar for a pull request
 

@@ -690,7 +690,11 @@ class RAGBackend:
         from lasagna.providers import get_llm_provider
 
         config = self.get_session_config(session_id)
-        llm = get_llm_provider().get_llm()
+        temperature = float(getattr(config, "agent_temperature", 0.0) or 0.0)
+        provider = get_llm_provider()
+        llm = (
+            provider.get_llm(temperature=temperature) if temperature != 0.0 else provider.get_llm()
+        )
         agent = AgenticRAG(
             llm=llm,
             max_iterations=getattr(config, "max_agent_iterations", 3),
@@ -764,6 +768,16 @@ class RAGBackend:
                 logger.debug(f"BM25 index cleared for session: {session_id}")
             except Exception as e:
                 logger.warning(f"BM25 clear failed for session {session_id}: {e}")
+
+        # The knowledge graphs this process loaded for the session: their rows
+        # went with the session's documents, each removed with its document.
+        try:
+            from ..retrieval.graph.graph_store import drop_loaded_graphs
+
+            drop_loaded_graphs(session_id)
+        except ImportError:
+            # Safe to ignore: without the graph module nothing was loaded.
+            pass
 
         # 2. Invalidate search cache
         if rag_config.enable_search_cache:

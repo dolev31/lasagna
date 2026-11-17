@@ -4,13 +4,13 @@
 
 ## Package Overview
 
-The `api/` package is the interface layer the SDK, the CLI, the MCP server and the REST server share. It exposes a thread-safe singleton facade (`RAGBackend`) that delegates to four specialized managers, and a FastAPI REST API with 41 endpoints, a middleware chain, and stateless session tokens.
+The `api/` package is the interface layer the SDK, the CLI, the MCP server and the REST server share. It exposes a thread-safe singleton facade (`RAGBackend`) that delegates to four specialized managers, and a FastAPI REST API with 43 endpoints, a middleware chain, and stateless session tokens.
 
 Components:
 
 - **RAGBackend**: thread-safe singleton facade with double-check locking, delegating to 4 managers
 - **4 specialized managers**: `CollectionManager`, `DocumentPipeline`, `SearchOrchestrator`, `AutoMerger`
-- **FastAPI REST API**: 41 endpoints across 10 route modules, 4 custom middleware layers plus CORS, JWT session tokens
+- **FastAPI REST API**: 43 endpoints across 11 route modules, 4 custom middleware layers plus CORS, JWT session tokens
 - **Document lifecycle**: soft-delete (`archive`), restore, bulk session delete, APScheduler-driven GC
 
 ---

@@ -78,3 +78,55 @@ def test_option_type_labels_do_not_depend_on_the_typer_version(monkeypatch):
     }
     for opt, label in expected.items():
         assert gen_cli_doc._type(options[opt]) == label, opt
+
+
+def test_option_types_read_without_click_types(monkeypatch):
+    """Typer 0.29 keeps each parameter's annotation and no click type (#35's page).
+
+    ``param.type`` is gone there, so the page check failed on every PR once
+    Typer 0.29.0 was released. The label comes from the annotation instead, and
+    it must be the one the click type gives on an older Typer: the page is the
+    same whichever Typer is installed.
+    """
+    import enum
+    from types import SimpleNamespace
+    from typing import List, Literal, Optional, Tuple
+
+    monkeypatch.syspath_prepend(str(REPO / "scripts"))
+    import gen_cli_doc  # noqa: PLC0415 - scripts/ is a flat directory, not a package
+
+    class Mode(enum.Enum):
+        FAST = "fast"
+        FULL = "full"
+
+    def typer_029_option(annotation, is_flag=False, **info):
+        # The shape of a Typer 0.29 option: no `type` attribute.
+        info = SimpleNamespace(**{"file_okay": True, "dir_okay": True, **info})
+        desc = SimpleNamespace(annotation=annotation, parameter_info=info)
+        return SimpleNamespace(is_flag=is_flag, type_descriptor=desc)
+
+    cases = {
+        str: "text",
+        int: "int",
+        float: "float",
+        Path: "path",
+        Optional[int]: "int",
+        List[str]: "text",
+        Tuple[str, str]: "<text text>",
+        tuple[str, int]: "<text int>",
+        Literal["a", "b"]: "a | b",
+        Mode: "fast | full",
+    }
+    for annotation, label in cases.items():
+        assert gen_cli_doc._type(typer_029_option(annotation)) == label, annotation
+    assert gen_cli_doc._type(typer_029_option(bool, is_flag=True)) == ""
+    # What click labels a path that must be a file or a directory, and a file.
+    import typer
+
+    assert gen_cli_doc._type(typer_029_option(Path, dir_okay=False)) == "file"
+    assert gen_cli_doc._type(typer_029_option(List[Path], file_okay=False)) == "directory"
+    assert gen_cli_doc._type(typer_029_option(typer.FileText)) == "filename"
+    # An argument's name: the metavar, else the name, under either attribute.
+    assert gen_cli_doc._argument_name(SimpleNamespace(display_name_raw="query")) == "query"
+    old_typer = SimpleNamespace(human_readable_name="QUERY", display_name_raw="unused")
+    assert gen_cli_doc._argument_name(old_typer) == "QUERY"

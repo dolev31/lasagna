@@ -116,7 +116,7 @@ class TestTheStageManifest:
         arm = _row("fixed", {"chunking_strategy": "fixed"}, {"chunking_strategy": "fixed", **on})
         report = isolation_report([control, arm])
         assert report["undeclared"] == []
-        assert any("'fixed' names ['chunker']" in line for line in report["inert"])
+        assert any("'fixed' names ['chunking_strategy']" in line for line in report["inert"])
 
     def test_a_chunker_component_keeps_the_setting_as_given(self):
         config = SimpleNamespace(_config={"chunking_strategy": "structure_aware", **STRUCTURE_OFF})

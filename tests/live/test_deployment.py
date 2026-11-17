@@ -916,6 +916,131 @@ class TestReindex:
             )
 
 
+#: Distinct one-sentence documents, each with the question only it answers.
+_READY_DOCS = [
+    (
+        "Photosynthesis turns light, water and carbon dioxide into glucose in plant cells.",
+        "How do plants make glucose from light?",
+    ),
+    (
+        "The Danube flows through ten countries before it reaches the Black Sea.",
+        "Which river reaches the Black Sea after ten countries?",
+    ),
+    (
+        "A sourdough starter is flour and water fermented by wild yeast and bacteria.",
+        "What ferments a sourdough starter?",
+    ),
+    (
+        "Mercury is the planet closest to the Sun and has almost no atmosphere.",
+        "Which planet is closest to the Sun?",
+    ),
+    (
+        "Basalt forms when lava rich in iron and magnesium cools quickly at the surface.",
+        "How does basalt form from lava?",
+    ),
+    (
+        "The violin has four strings tuned in perfect fifths: G, D, A and E.",
+        "How are the violin's four strings tuned?",
+    ),
+    (
+        "Honeybees tell each other where flowers are with a waggle dance.",
+        "How do honeybees share where flowers are?",
+    ),
+    (
+        "A lunar eclipse happens when the Earth passes between the Sun and the Moon.",
+        "When does a lunar eclipse happen?",
+    ),
+]
+
+
+@pytest.mark.usefixtures("docker_service_available")
+class TestReadyMeansSearchable:
+    """A search sent the moment a document turns ready finds it.
+
+    On a Milvus server searches read at the Bounded level, and a search sent
+    right after the insert missed the new chunks: in the default Compose stack
+    27 of 30 such searches missed the document they had just seen turn ready,
+    and every one found it a second later. Most tests here poll once a second,
+    so they rarely sent their search inside that window, and CI failed only
+    once on it.
+
+    The stack limits requests per session, and this module's ``http`` waits
+    out a 429, which would send the search late and pass without the fix. So
+    each document gets a session of its own, its polls and its search go
+    through a client that does not retry, and a search that is limited counts
+    as inconclusive rather than as a hit.
+    """
+
+    def test_a_search_right_after_ready_finds_the_document(self, tmp_path_factory):
+        plain = requests.Session()  # no retries: a 429 must show, not be waited out
+        missed, limited, uploaded = [], 0, []
+        folder = tmp_path_factory.mktemp("ready")
+        try:
+            for i, (text, question) in enumerate(_READY_DOCS):
+                headers = {"X-Session-ID": f"test-ready-{uuid.uuid4().hex[:8]}"}
+                path = folder / f"fact_{i}.txt"
+                path.write_text(text, encoding="utf-8")
+                with open(path, "rb") as f:
+                    resp = http.post(
+                        f"{BASE_URL}/documents",
+                        files={"file": (path.name, f, "text/plain")},
+                        headers=headers,
+                        timeout=UPLOAD_TIMEOUT,
+                    )
+                assert resp.status_code == 201, resp.text
+                document_id = resp.json()["document_id"]
+                uploaded.append((document_id, headers))
+                deadline = time.time() + POLL_MAX_WAIT
+                while True:
+                    assert time.time() < deadline, f"{document_id} was not ready in time"
+                    status = plain.get(
+                        f"{BASE_URL}/documents/{document_id}/status",
+                        headers=headers,
+                        timeout=DEFAULT_TIMEOUT,
+                    )
+                    if status.status_code == 200:
+                        state = status.json().get("status")
+                        assert state != "error", status.text
+                        if state == "ready":
+                            break
+                    # 0.2 s: inside the ~0.3 s window, and slow enough that the
+                    # session's 10-request burst lasts a document that takes 2 s.
+                    time.sleep(0.5 if status.status_code == 429 else 0.2)
+                found = plain.post(
+                    f"{BASE_URL}/search",
+                    json={
+                        "query": question,
+                        "top_k": 3,
+                        "use_hyde": False,
+                        "use_reranking": False,
+                    },
+                    headers=headers,
+                    timeout=SEARCH_TIMEOUT,
+                )
+                if found.status_code == 429:
+                    limited += 1
+                    continue
+                assert found.status_code == 200, found.text
+                if document_id not in {r["document_id"] for r in found.json()["results"]}:
+                    missed.append(question)
+            conclusive = len(_READY_DOCS) - limited
+            assert conclusive >= len(_READY_DOCS) - 2, (
+                f"the rate limiter answered {limited} of {len(_READY_DOCS)} searches, "
+                "so the test measured too little"
+            )
+            assert not missed, (
+                f"{len(missed)} of {conclusive} searches sent as their document turned "
+                f"ready missed it: {missed}"
+            )
+        finally:
+            for document_id, headers in uploaded:
+                http.delete(
+                    f"{BASE_URL}/documents/{document_id}",
+                    headers=headers,
+                    timeout=DEFAULT_TIMEOUT,
+                )
+
+
 @pytest.mark.usefixtures("docker_service_available")
 class TestMultiSessionIsolation:
     """Documents in one session must be invisible to another."""

@@ -511,6 +511,36 @@ class VectorStoreAdapter(ABC):
                 return
             offset += len(rows)
 
+    def wait_until_searchable(
+        self,
+        collection_name: str,
+        filter_expr: FilterExpression,
+        partition_key: Optional[str] = None,
+    ) -> None:
+        """Return once a search sees every write made so far to the rows ``filter_expr`` names.
+
+        The ingest pipeline calls it before it marks a document ready, so that
+        "ready" means a search finds the document. A store whose writes are
+        searchable when the write returns needs nothing, which is this default
+        (Milvus Lite, Qdrant with ``wait``, OpenSearch with ``refresh``,
+        pgvector, Weaviate). A store that serves searches from a slightly stale
+        view overrides it. Pinecone is eventually consistent and does not, so
+        there a search sent right after ready can still miss the document.
+        """
+        return None
+
+    def collection_supports_native_hybrid(self, collection_name: str) -> bool:
+        """Whether native hybrid search can run on ``collection_name``.
+
+        ``capabilities`` says what the store can do; this says what one
+        collection can. A Milvus server runs native hybrid search only on a
+        collection with a ``sparse_embedding`` field, and the collections
+        Lasagna creates have none, so it overrides this to read the fields.
+        Every other store answers from its capabilities.
+        """
+        caps = self.capabilities
+        return bool(caps.supports_hybrid_search or caps.supports_native_bm25)
+
     def read_fresh(self) -> ContextManager[None]:
         """A block whose filter reads see every write made before it.
 

@@ -1,12 +1,12 @@
 # REST API Endpoint Reference
 
-Lasagna exposes 41 HTTP endpoints across two route groups: 32 versioned endpoints under `/api/v1/` (including 2 document lifecycle and 6 admin routes) and 9 non-versioned endpoints for the configurator UI and bulk reindexing. All endpoints accept and return JSON, except the two document upload routes, which take multipart form data. Session identity is resolved from headers or tokens on every request.
+Lasagna exposes 43 HTTP endpoints across two route groups: 34 versioned endpoints under `/api/v1/` (including 2 document lifecycle and 6 admin routes) and 9 non-versioned endpoints for the configurator UI and bulk reindexing. All endpoints accept and return JSON, except the two document upload routes, which take multipart form data. Session identity is resolved from headers or tokens on every request.
 
 `tests/snapshots/openapi.json` records the full schema of every route, and `GET /openapi.json` on a running server returns the same document. When this page and that schema disagree, the schema is right. The interactive page at `/docs` loads the Swagger UI scripts and styles from cdn.jsdelivr.net, as FastAPI does, so it needs a network connection; offline, `/openapi.json` and this page have the same reference.
 
 ---
 
-## Versioned Routes (`/api/v1/`): 32 endpoints
+## Versioned Routes (`/api/v1/`): 34 endpoints
 
 ### Health & Stats
 
@@ -48,7 +48,7 @@ Readiness: can this instance serve? Checks that the embedding model of the sessi
   "failing": [],
   "degraded": [],
   "require_auth": false,
-  "version": "0.2.0"
+  "version": "0.3.0"
 }
 ```
 
@@ -555,12 +555,70 @@ curl -X POST http://localhost:8000/api/v1/search/agentic \
 
 ---
 
+### Chat completions (OpenAI format)
+
+| # | Method | Path | Description | Response Model |
+|---|--------|------|-------------|----------------|
+| 26 | `POST` | `/api/v1/chat/completions` | Answer from the session's documents, in the OpenAI format, at once or streamed. | `ChatCompletionResponse` |
+| 27 | `GET` | `/api/v1/models` | The one model OpenAI clients may name (`lasagna`). | `ModelList` |
+
+An OpenAI client library or chat front end points its base URL at `.../api/v1`
+and sends the session as on `/search` (`X-Session-Token`, or `X-Session-ID`
+with auth off), for example through `default_headers`. The session decides
+what is searched; `model` is echoed back.
+
+#### `POST /api/v1/chat/completions`
+
+The last `user` message is the question, at most 10,000 characters as on
+`/search`, and `system` and `developer` messages are passed to the generator as
+instructions (at most 10,000 characters together); earlier turns are not used.
+The session's search runs as on `/search/citations`, under the same deadline
+(`RAG_SEARCH_TIMEOUT`), quota and errors. The `cited` generator then writes the
+answer with the configured LLM, under `RAG_CHAT_TIMEOUT` (120 s), and
+`citations` lists the passages: `[n]` in the answer is `citations[n-1]`.
+`degraded_stages` names any search stage that fell back. `finish_reason` is
+`length` when the provider cut the answer at `max_tokens`.
+
+| Field | Default | Description |
+|---|---|---|
+| `messages` | required | The conversation, 1 to 200 messages. Content is a string or a list of text parts. |
+| `model` | `lasagna` | Echoed back; at most 256 characters. |
+| `stream` | `false` | Answer as server-sent `chat.completion.chunk` events. The last carries `finish_reason`, `citations` and `degraded_stages`; then `data: [DONE]`. |
+| `stream_options` | none | `{"include_usage": true}` adds a chunk with no choices and the token usage before `[DONE]`. |
+| `temperature` | `0.0` | Passed to the configured LLM (one per server, set by `OPENAI_API_KEY`, `OLLAMA_BASE_URL` and `MODEL_NAME`). |
+| `max_tokens`, `max_completion_tokens` | `1000` | The answer's length limit, under either name. |
+| `top_k` | `5` | Passages to retrieve (Lasagna's own; `extra_body` in the OpenAI SDKs). |
+| `document_ids` | none | Search only these documents (Lasagna's own). |
+
+`n` above 1, `tools` and a `response_format` other than text are refused with
+400. Other OpenAI fields are ignored. A session with no documents is answered
+with the same note `/search` gives, and a search that found nothing with "No
+passage in this session matches the question."; neither calls the LLM.
+
+| Status | When |
+|---|---|
+| 200 | Answered |
+| 400 | No user message with text, or a field this route does not serve |
+| 401 | `RAG_REQUIRE_AUTH` is on and the session token is missing or invalid |
+| 429 | Rate limit or quota exceeded |
+| 502 | The LLM provider failed while answering |
+| 503 | No LLM is configured, a model is not downloaded, or the session's focused documents could not be read |
+| 504 | The search ran past `RAG_SEARCH_TIMEOUT`, or the answer past `RAG_CHAT_TIMEOUT` |
+
+The LLM is checked before the search, so without one nothing is searched. The
+502, 503 and 504 answers that come from the LLM carry `x-should-retry: false`:
+the OpenAI clients would otherwise retry them, running the whole search again.
+A provider that fails or times out after a streamed answer has started ends the
+stream with an `error` event, then `data: [DONE]`.
+
+---
+
 ### Citations
 
 | # | Method | Path | Description | Response Model |
 |---|--------|------|-------------|----------------|
-| 26 | `GET` | `/api/v1/citations` | List session citations from last search. | `CitationListResponse` |
-| 27 | `GET` | `/api/v1/citations/{citation_id}` | Get a specific citation by ID. | `CitationResponse` |
+| 28 | `GET` | `/api/v1/citations` | List session citations from last search. | `CitationListResponse` |
+| 29 | `GET` | `/api/v1/citations/{citation_id}` | Get a specific citation by ID. | `CitationResponse` |
 
 ---
 
@@ -609,10 +667,10 @@ Get a specific citation by ID. Uses a two-tier lookup: first checks the in-memor
 
 | # | Method | Path | Description | Response Model |
 |---|--------|------|-------------|----------------|
-| 28 | `GET` | `/api/v1/config` | Get current session configuration. | `ConfigResponse` |
-| 29 | `GET` | `/api/v1/config/profiles` | List available profiles. | `ProfileListResponse` |
-| 30 | `PATCH` | `/api/v1/config` | Patch configuration keys. | `ConfigResponse` |
-| 31 | `PUT` | `/api/v1/config/profiles/{profile_name}` | Apply a named profile. | `ConfigResponse` |
+| 30 | `GET` | `/api/v1/config` | Get current session configuration. | `ConfigResponse` |
+| 31 | `GET` | `/api/v1/config/profiles` | List available profiles. | `ProfileListResponse` |
+| 32 | `PATCH` | `/api/v1/config` | Patch configuration keys. | `ConfigResponse` |
+| 33 | `PUT` | `/api/v1/config/profiles/{profile_name}` | Apply a named profile. | `ConfigResponse` |
 
 ---
 
@@ -750,7 +808,7 @@ curl -X PUT http://localhost:8000/api/v1/config/profiles/max_quality \
 
 | # | Method | Path | Description | Response Model |
 |---|--------|------|-------------|----------------|
-| 32 | `GET` | `/api/v1/pipelines` | List all registered agentic pipelines. | `PipelineListResponse` |
+| 34 | `GET` | `/api/v1/pipelines` | List all registered agentic pipelines. | `PipelineListResponse` |
 
 ---
 
@@ -796,20 +854,20 @@ List all registered agentic pipelines. With `RAG_REQUIRE_AUTH=true`, this needs 
 
 These endpoints serve the configurator frontend UI. They provide full profile CRUD, session-scoped configuration, and import/export. All return `KnowledgeConfigFullResponse`.
 
-**Deprecated for other callers:** they are unversioned because the configurator calls them by these paths, and they will move under `/api/v1` in 0.3.0. A program should read and change a session's settings with `GET` and `PATCH /api/v1/config`. One has no `/api/v1` counterpart in 0.1.0: clearing a session's overrides is `POST /api/config/knowledge/reset`, which is why the fixes in error messages name it. Being unversioned, it is outside the API stability promise in [GOVERNANCE.md](https://github.com/dolev31/lasagna/blob/main/GOVERNANCE.md).
+**Deprecated for other callers:** they are unversioned because the configurator calls them by these paths, and they will move under `/api/v1` in 0.4.0. A program should read and change a session's settings with `GET` and `PATCH /api/v1/config`. One has no `/api/v1` counterpart in 0.1.0: clearing a session's overrides is `POST /api/config/knowledge/reset`, which is why the fixes in error messages name it. Being unversioned, it is outside the API stability promise in [GOVERNANCE.md](https://github.com/dolev31/lasagna/blob/main/GOVERNANCE.md).
 
 With `RAG_CONFIGURATOR=true`, the UI's own routes are mounted too: `GET /configurator/api/schema` and `POST /configurator/api/validate`. With `RAG_REQUIRE_AUTH=true`, they need a session token like the routes below (401 without one).
 
 | # | Method | Path | Description |
 |---|--------|------|-------------|
-| 33 | `GET` | `/api/config/knowledge` | Get full config state (profiles, overrides, RAG status). |
-| 34 | `PUT` | `/api/config/knowledge/active` | Set active profile with optional config overrides. |
-| 35 | `POST` | `/api/config/knowledge/profile` | Save or update a named profile. |
-| 36 | `POST` | `/api/config/knowledge/profile/delete` | Delete a custom profile (built-ins protected). |
-| 37 | `POST` | `/api/config/knowledge/profile/rename` | Rename a custom profile (built-ins protected). |
-| 38 | `POST` | `/api/config/knowledge/reset` | Reset config to defaults. |
-| 39 | `GET` | `/api/config/knowledge/export` | Export full session config as JSON. |
-| 40 | `POST` | `/api/config/knowledge/import` | Import config from JSON (validated depth/size). |
+| 35 | `GET` | `/api/config/knowledge` | Get full config state (profiles, overrides, RAG status). |
+| 36 | `PUT` | `/api/config/knowledge/active` | Set active profile with optional config overrides. |
+| 37 | `POST` | `/api/config/knowledge/profile` | Save or update a named profile. |
+| 38 | `POST` | `/api/config/knowledge/profile/delete` | Delete a custom profile (built-ins protected). |
+| 39 | `POST` | `/api/config/knowledge/profile/rename` | Rename a custom profile (built-ins protected). |
+| 40 | `POST` | `/api/config/knowledge/reset` | Reset config to defaults. |
+| 41 | `GET` | `/api/config/knowledge/export` | Export full session config as JSON. |
+| 42 | `POST` | `/api/config/knowledge/import` | Import config from JSON (validated depth/size). |
 
 ---
 
@@ -926,7 +984,7 @@ Import configuration from JSON. Validates nesting depth (max 5) and profile size
 
 | # | Method | Path | Description | Response Model |
 |---|--------|------|-------------|----------------|
-| 41 | `POST` | `/api/knowledge/reindex` | Bulk reindex all session documents. | `ReindexResponse` |
+| 43 | `POST` | `/api/knowledge/reindex` | Bulk reindex all session documents. | `ReindexResponse` |
 
 ---
 

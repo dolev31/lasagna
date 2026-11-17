@@ -8,7 +8,7 @@ body:
         A method that is in Lasagna can be swapped into any pipeline and measured
         against every other component of its stage on the same benchmarks. Check
         [Wanted](https://dolev31.github.io/lasagna/docs/project/wanted/) first: if
-        your method is listed there, comment on its tracker issue to claim it.
+        your method is listed there, claim its tracker issue with a plan (CONTRIBUTING.md, "Claiming an issue").
 
         You may not need a pull request. A package of your own with a
         `lasagna_components` entry point makes the component available to anyone

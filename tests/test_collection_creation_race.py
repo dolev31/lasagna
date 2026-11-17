@@ -238,6 +238,7 @@ def test_milvus_create_maps_an_existing_name_to_collection_exists_error():
     backend._client = SimpleNamespace(create_collection=_create_collection)
     backend._session_column = {}
     backend._native_hybrid = {}
+    backend._loaded_collections = set()
     backend._to_milvus_schema = lambda schema: SimpleNamespace()
     with pytest.raises(CollectionExistsError) as excinfo:
         backend.create_collection("c1", _schema())

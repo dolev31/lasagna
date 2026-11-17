@@ -12,7 +12,9 @@ Checks, against the tree it runs in:
 
 - the tag is `v` + `[project] version` in pyproject.toml;
 - CHANGELOG.md has a `## [<version>] - <date>` section with a real date;
-- CITATION.cff has the same `version` and `date-released` as that date;
+- CITATION.cff has the same `version` and `date-released` as that date, and
+  names the concept DOI: a version's own DOI exists only after its release, so
+  one in the tree belongs to an earlier version;
 - `constraints/<version>.txt` exists, and README.md installs that version with it;
 - the Colab notebook and its script install that same version, because the
   output the notebook documents belongs to one release.
@@ -35,6 +37,8 @@ except ModuleNotFoundError:  # Python 3.10; tomli is a core dependency there
     import tomli as tomllib
 
 PLACEHOLDER = "YYYY-MM-DD"
+#: Zenodo's DOI for every version of Lasagna; it resolves to the latest one.
+CONCEPT_DOI = "10.5281/zenodo.23548068"
 #: Files that install the package at the release they document.
 NOTEBOOK_FILES = (
     "examples/notebooks/compare_your_reranker.ipynb",
@@ -80,6 +84,12 @@ def problems(tag: str, root: Path = REPO_ROOT, allow_placeholder: bool = False) 
     released = _cff_field(cff, "date-released")
     if date not in (None, PLACEHOLDER) and released != date:
         found.append(f"CITATION.cff date-released is {released!r}, CHANGELOG.md says {date!r}")
+    doi = _cff_field(cff, "doi")
+    if doi != CONCEPT_DOI:
+        found.append(
+            f"CITATION.cff doi is {doi!r}; it must be the concept DOI {CONCEPT_DOI} "
+            "(a version's own DOI is minted only after its release)"
+        )
 
     constraints = f"constraints/{version}.txt"
     if not (root / constraints).is_file():

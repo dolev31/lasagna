@@ -459,12 +459,15 @@ class CollectionManager:
         from ..vector_backends.base import IndexConfig, IndexType, MetricType
 
         try:
+            index_type = _dense_index_type(backend, config)
             index_params = backend.prepare_index_params()
             index_params.add_index(
                 field_name="embedding",
-                index_type=_dense_index_type(backend, config),
+                index_type=index_type,
                 metric_type=config.metric_type,
-                params=config.index_params,
+                # A Milvus server takes only the metric with AUTOINDEX, as
+                # MilvusBackend.create_index also enforces.
+                params={} if str(index_type).upper() == "AUTOINDEX" else config.index_params,
             )
             backend.create_index(collection_name, "embedding", index_params)
             logger.info(f"Created index on {collection_name} ({backend.backend_name})")

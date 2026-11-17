@@ -289,6 +289,18 @@ class PooledVectorBackend(VectorStoreAdapter):
         finally:
             self._release(backend)
 
+    def collection_supports_native_hybrid(self, collection_name: str) -> bool:
+        # Asked of an instance: the answer is the server's, read from the
+        # collection's fields. The base default would answer from the
+        # capabilities alone, so every collection on a Milvus server claimed
+        # native hybrid search and every hybrid search failed over to the
+        # BM25 index, or ran dense-only when that was empty (#50, #52).
+        backend = self._acquire()
+        try:
+            return backend.collection_supports_native_hybrid(collection_name)
+        finally:
+            self._release(backend)
+
     def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
         backend = self._acquire()
         try:
@@ -344,6 +356,21 @@ class PooledVectorBackend(VectorStoreAdapter):
         backend = self._acquire()
         try:
             return backend.delete(collection_name, filter_expr, partition_key=partition_key)
+        finally:
+            self._release(backend)
+
+    def wait_until_searchable(
+        self,
+        collection_name: str,
+        filter_expr: FilterExpression,
+        partition_key: Optional[str] = None,
+    ) -> None:
+        # One instance is enough: the wait is on the server, which every
+        # instance searches. Without this the pool kept the base no-op, as it
+        # once did for ``read_fresh``.
+        backend = self._acquire()
+        try:
+            backend.wait_until_searchable(collection_name, filter_expr, partition_key=partition_key)
         finally:
             self._release(backend)
 

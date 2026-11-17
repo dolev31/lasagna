@@ -1256,47 +1256,24 @@ class DocumentPipeline:
             except Exception as e:
                 logger.warning(f"Contextual enrichment failed, using original chunks: {e}")
 
-        # GraphRAG entity extraction (synchronous, ThreadPoolExecutor for parallelism)
+        # GraphRAG entity extraction (synchronous, ThreadPoolExecutor for parallelism).
+        # Extracted here, from the chunk texts; stored once the chunks are in
+        # the vector store, below, so a failed upload leaves no graph behind.
+        pending_graph = None
         if getattr(config, "enable_graph_retrieval", False):
             try:
-                from ..retrieval.graph import EntityExtractor, get_or_create_session_graph
-                from ..providers.llm_provider import SimpleLLMProvider
+                from ..retrieval.graph.entity_extractor import extract_graph
 
-                extractor = EntityExtractor(
-                    entity_types=getattr(config, "graph_entity_types", None),
-                    model_name=getattr(config, "graph_extraction_model", None),
-                )
-                from ..utils.model_utils import get_default_model_name
-
-                extraction_model = (
-                    getattr(config, "graph_extraction_model", "") or get_default_model_name()
-                )
-                llm = SimpleLLMProvider().get_llm(model_name=extraction_model, temperature=0)
-                chunk_texts_for_graph = [ct for ct, _ in chunks_with_metadata]
-                extractions = extractor.extract_batch_sync(
-                    chunk_texts_for_graph, llm, max_workers=4
-                )
-                graph_store = get_or_create_session_graph(document.session_id)
-                for idx, extraction in enumerate(extractions):
-                    chunk_id = f"{chunk_prefix}_chunk_{idx}"
-                    for entity in extraction.get("entities", []):
-                        entity_emb = embedder.encode_document(entity["name"])
-                        graph_store.add_entity(
-                            entity_id=entity["name"],
-                            entity_type=entity.get("type", "UNKNOWN"),
-                            embedding=entity_emb,
-                            chunk_id=chunk_id,
-                        )
-                    for rel in extraction.get("relationships", []):
-                        graph_store.add_relationship(
-                            source_id=rel["source"],
-                            target_id=rel["target"],
-                            rel_type=rel.get("type", "RELATED"),
-                        )
-                logger.info(
-                    f"GraphRAG: extracted {graph_store.num_entities} entities, "
-                    f"{graph_store.num_relationships} relationships "
-                    f"for document {document.document_id}"
+                found = extract_graph([ct for ct, _ in chunks_with_metadata], config)
+                if found.failed:
+                    logger.warning(
+                        f"GraphRAG: {found.failed} chunks of {document.document_id} could not "
+                        f"be extracted; its graph keeps what the others named"
+                    )
+                pending_graph = (
+                    found,
+                    [f"{chunk_prefix}_chunk_{idx}" for idx in range(len(found.extractions))],
+                    embedder.encode_document,
                 )
             except Exception as e:
                 logger.warning(f"GraphRAG entity extraction failed: {e}")
@@ -1452,6 +1429,7 @@ class DocumentPipeline:
             return len(batch_data), chunks_for_bm25
 
         inserted = False
+        graph_stored = False
         try:
             chunk_count, chunks_for_bm25 = self._insert_or_rebuild(
                 _insert_all_chunks, document, config, backend
@@ -1461,6 +1439,10 @@ class DocumentPipeline:
                 self._retire_replaced_chunks(
                     document, old_copy, config, backend, new_ids, partition_key
                 )
+            self._wait_until_searchable(document, config, backend, partition_key)
+            if pending_graph is not None:
+                graph_stored = self._store_graph(document, config, pending_graph)
+            if replacing:
                 # From here the old copy's chunks are gone: the row is pointed at
                 # the new ones in one write, and what follows it cannot undo it.
                 processing_time = _time.monotonic() - start_time
@@ -1486,6 +1468,12 @@ class DocumentPipeline:
                     preview_text=self._generate_preview_text(text),
                 )
         except Exception as exc:
+            if graph_stored:
+                # Its chunks go: so does what the graph says about them. A
+                # reindex that fails here loses the old copy's part of the
+                # graph until the next reindex, rather than point at chunks
+                # that no longer exist.
+                self._unstore_graph(document)
             self._discard_new_chunks(
                 document,
                 backend,
@@ -1605,6 +1593,35 @@ class DocumentPipeline:
                 with self._rebuild_lock:
                     self._rebuilding = False
 
+    def _wait_until_searchable(
+        self, document: Document, config: RAGConfig, backend: Any, partition_key: Optional[str]
+    ) -> None:
+        """Wait until a search sees the document's new chunks, then let it be marked ready.
+
+        On a Milvus server a search sent right after the insert missed them,
+        so "ready" did not yet mean a search finds the document. For a
+        replacement this runs after the old copy's chunks are retired, so a
+        search also stops seeing those (in the same collection). Logged, never
+        raised: a failure here must not discard chunks that are already
+        stored, or a replaced copy; the document is then marked ready as
+        before.
+        """
+        wait = getattr(backend, "wait_until_searchable", None)
+        if wait is None:  # a store that does not derive from VectorStoreAdapter
+            return
+        try:
+            wait(
+                config.collection_name,
+                FilterExpression.eq("document_id", document.document_id),
+                partition_key=partition_key,
+            )
+        except Exception as exc:  # noqa: BLE001 - logged; the document is still stored and complete
+            logger.warning(
+                f"Could not confirm that a search sees {document.document_id} yet "
+                f"({type(exc).__name__}: {exc}); it is marked ready, and a search sent "
+                "in the next second may still miss it."
+            )
+
     def _clear_previous_attempt(
         self, document: Document, backend: Any, config: RAGConfig, partition_key: Optional[str]
     ) -> None:
@@ -1624,6 +1641,53 @@ class DocumentPipeline:
                 f"{config.collection_name!r} could not be removed ({type(exc).__name__}: "
                 f"{exc}), so it was not indexed again."
             ) from exc
+
+    def _store_graph(self, document, config, pending_graph) -> bool:
+        """Store the document's part of the session's knowledge graph.
+
+        Where every process reads it: in the stack the Celery worker builds the
+        graph and the API workers search it (#55). After the chunks are
+        inserted, so a refused or failed upload stores none, and before the
+        content change is recorded, which tells other processes to load it
+        again. Storing replaces the document's earlier part: a reindex's new
+        chunk ids replace the old ones. A failure is logged and the document
+        stays searchable, as an extraction failure always left it.
+        """
+        from ..retrieval.graph.graph_store import index_document_graph
+
+        found, chunk_ids, encode = pending_graph
+        try:
+            index_document_graph(
+                document.session_id,
+                config.collection_name,
+                document.document_id,
+                found.extractions,
+                chunk_ids,
+                encode,
+                extraction_model=found.model,
+                complete=found.complete,
+                unparsed_chunks=found.unparsed,
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"GraphRAG: the graph of {document.document_id} was not stored: {e}")
+            return False
+
+    def _unstore_graph(self, document) -> None:
+        """Remove the document's part of the session's graphs; logged, never raised."""
+        try:
+            from lasagna.core.database import get_rag_database
+
+            from ..retrieval.graph.graph_store import graph_for
+
+            graph_for(document.session_id, "").remove_document(document.document_id)
+            # A process that loaded the graph after the upload's own change
+            # would keep the removed part until the next one.
+            get_rag_database().bump_content_generation(document.session_id)
+        except Exception as e:
+            logger.warning(
+                f"GraphRAG: the graph part of {document.document_id} could not be removed: {e}"
+            )
 
     def _finish_new_document(
         self,
@@ -2062,6 +2126,15 @@ class DocumentPipeline:
         # Remove from BM25 fallback index
         if rag_config.enable_hybrid_search:
             self.hybrid_searcher.remove_document(document_id, session_id)
+        # Its part of the session's knowledge graphs, before the change is
+        # recorded, so another process that loads the graph again finds it
+        # gone (#55). Every delete path comes through here.
+        try:
+            from ..retrieval.graph.graph_store import graph_for
+
+            graph_for(session_id, "").remove_document(document_id)
+        except Exception as e:
+            logger.warning(f"GraphRAG: the graph part of {document_id} was not removed: {e}")
         self._record_content_change(session_id, indexed_here=rag_config.enable_hybrid_search)
 
         # Clean up parent chunks from SQLite

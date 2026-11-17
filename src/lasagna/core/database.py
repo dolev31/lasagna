@@ -2065,6 +2065,177 @@ class RAGDatabase:
             finally:
                 conn.close()
 
+    # =========================================================================
+    # KNOWLEDGE GRAPH (one per session and collection, shared by every process)
+    # =========================================================================
+    #
+    # The graph graph retrieval expands through (retrieval/graph/graph_store.py).
+    # Every mention and edge names its document, so a document's part can be
+    # removed. Created on first use, like content_generations.
+
+    def _graph_conn(self):
+        conn = self._get_connection()
+        if not getattr(self, "_graph_tables_ready", False):
+            conn.executescript(CREATE_GRAPH_TABLES)
+            conn.commit()
+            self._graph_tables_ready = True
+        return conn
+
+    def save_graph_document(
+        self,
+        session_id: str,
+        collection_name: str,
+        document_id: str,
+        entities: List[tuple],
+        mentions: List[tuple],
+        edges: List[tuple],
+        extraction_model: Optional[str] = None,
+        complete: bool = True,
+        unparsed_chunks: int = 0,
+    ) -> None:
+        """Replace the document's part of a graph: ``(name, type, embedding)``,
+        ``(name, chunk_id)``, ``(source, target, rel_type)``, in one transaction.
+
+        ``complete`` (the default): every chunk was answered, so the document is
+        recorded as done (``graph_documents``), entities or none. Pass False
+        when a chunk's call failed: the document keeps what was found and stays
+        to be extracted again.
+        """
+        with self._lock:
+            conn = self._graph_conn()
+            try:
+                key = (session_id, collection_name)
+                touched = _touched_names(conn, "?", session_id, document_id, collection_name)
+                # The new names too: an entity stored with no mention is an orphan.
+                touched |= {row[0] for row in entities}
+                conn.execute(
+                    "DELETE FROM graph_mentions WHERE session_id = ? AND collection_name = ? "
+                    "AND document_id = ?",
+                    (*key, document_id),
+                )
+                conn.execute(
+                    "DELETE FROM graph_edges WHERE session_id = ? AND collection_name = ? "
+                    "AND document_id = ?",
+                    (*key, document_id),
+                )
+                conn.executemany(
+                    "INSERT INTO graph_entities (session_id, collection_name, name, entity_type, "
+                    "embedding) VALUES (?, ?, ?, ?, ?) ON CONFLICT (session_id, collection_name, "
+                    "name) DO UPDATE SET entity_type = excluded.entity_type, "
+                    "embedding = COALESCE(excluded.embedding, graph_entities.embedding)",
+                    [
+                        (*key, name, entity_type, embedding)
+                        for name, entity_type, embedding in entities
+                    ],
+                )
+                conn.executemany(
+                    "INSERT OR IGNORE INTO graph_mentions (session_id, collection_name, name, "
+                    "chunk_id, document_id) VALUES (?, ?, ?, ?, ?)",
+                    [(*key, name, chunk_id, document_id) for name, chunk_id in mentions],
+                )
+                conn.executemany(
+                    "INSERT OR IGNORE INTO graph_edges (session_id, collection_name, source, "
+                    "target, rel_type, document_id) VALUES (?, ?, ?, ?, ?, ?)",
+                    [(*key, src, tgt, rel, document_id) for src, tgt, rel in edges],
+                )
+                _delete_orphan_entities(conn, "?", session_id, touched, collection_name)
+                conn.execute(
+                    "DELETE FROM graph_documents WHERE session_id = ? AND collection_name = ? "
+                    "AND document_id = ?",
+                    (*key, document_id),
+                )
+                if complete:
+                    conn.execute(
+                        "INSERT INTO graph_documents (session_id, collection_name, document_id, "
+                        "extraction_model, unparsed_chunks) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (*key, document_id, extraction_model, int(unparsed_chunks)),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+    def load_graph(self, session_id: str, collection_name: str) -> tuple:
+        """The graph's ``(entities, mentions, edges)`` rows, as `save_graph_document` takes them,
+        with each mention and edge's document."""
+        with self._lock:
+            conn = self._graph_conn()
+            try:
+                key = (session_id, collection_name)
+                entities = conn.execute(
+                    "SELECT name, entity_type, embedding FROM graph_entities "
+                    "WHERE session_id = ? AND collection_name = ? ORDER BY name",
+                    key,
+                ).fetchall()
+                mentions = conn.execute(
+                    "SELECT name, chunk_id, document_id FROM graph_mentions "
+                    "WHERE session_id = ? AND collection_name = ? ORDER BY name, chunk_id",
+                    key,
+                ).fetchall()
+                edges = conn.execute(
+                    "SELECT source, target, rel_type, document_id FROM graph_edges "
+                    "WHERE session_id = ? AND collection_name = ? "
+                    "ORDER BY source, target, document_id",
+                    key,
+                ).fetchall()
+                return (
+                    [tuple(r) for r in entities],
+                    [tuple(r) for r in mentions],
+                    [tuple(r) for r in edges],
+                )
+            finally:
+                conn.close()
+
+    def extracted_graph_documents(
+        self, session_id: str, collection_name: str
+    ) -> Dict[str, Dict[str, Any]]:
+        """The documents whose every chunk was answered:
+        ``{document_id: {"model": extraction_model, "unparsed_chunks": n}}``."""
+        with self._lock:
+            conn = self._graph_conn()
+            try:
+                rows = conn.execute(
+                    "SELECT document_id, extraction_model, unparsed_chunks FROM graph_documents "
+                    "WHERE session_id = ? AND collection_name = ?",
+                    (session_id, collection_name),
+                ).fetchall()
+                return {r[0]: {"model": r[1], "unparsed_chunks": int(r[2] or 0)} for r in rows}
+            finally:
+                conn.close()
+
+    def delete_graph_document(self, session_id: str, document_id: str) -> None:
+        """Remove the document's mentions and edges from every graph of the session,
+        and the entities left with neither."""
+        with self._lock:
+            conn = self._graph_conn()
+            try:
+                touched = _touched_names(conn, "?", session_id, document_id)
+                for table in ("graph_mentions", "graph_edges", "graph_documents"):
+                    conn.execute(
+                        f"DELETE FROM {table} WHERE session_id = ? AND document_id = ?",
+                        (session_id, document_id),
+                    )
+                _delete_orphan_entities(conn, "?", session_id, touched)
+                conn.commit()
+            finally:
+                conn.close()
+
+    def drop_graphs(self, session_id: str, collection_name: Optional[str] = None) -> None:
+        """Remove every graph of the session, or only its graph over ``collection_name``."""
+        where = "session_id = ?" + (" AND collection_name = ?" if collection_name else "")
+        params = (session_id, collection_name) if collection_name else (session_id,)
+        with self._lock:
+            conn = self._graph_conn()
+            try:
+                for table in _GRAPH_TABLES:
+                    conn.execute(f"DELETE FROM {table} WHERE {where}", params)
+                conn.commit()
+            finally:
+                conn.close()
+
 
 #: Statuses of a document that some process is still working on.
 _UNFINISHED_SQL = "'uploading', 'processing', 'indexing'"
@@ -2119,6 +2290,109 @@ CREATE TABLE IF NOT EXISTS profile_switches (
     started_at REAL NOT NULL
 );
 """
+
+#: The knowledge graph's rows (see RAGDatabase.save_graph_document). The same
+#: DDL runs on PostgreSQL (database_pg.py), with BYTEA for the embedding.
+CREATE_GRAPH_TABLES = """
+CREATE TABLE IF NOT EXISTS graph_entities (
+    session_id TEXT NOT NULL,
+    collection_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    entity_type TEXT,
+    embedding BLOB,
+    PRIMARY KEY (session_id, collection_name, name)
+);
+CREATE TABLE IF NOT EXISTS graph_mentions (
+    session_id TEXT NOT NULL,
+    collection_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    chunk_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    PRIMARY KEY (session_id, collection_name, name, chunk_id)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_mentions_document ON graph_mentions(session_id, document_id);
+CREATE TABLE IF NOT EXISTS graph_edges (
+    session_id TEXT NOT NULL,
+    collection_name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    target TEXT NOT NULL,
+    rel_type TEXT,
+    document_id TEXT NOT NULL,
+    PRIMARY KEY (session_id, collection_name, source, target, document_id)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_edges_document ON graph_edges(session_id, document_id);
+CREATE TABLE IF NOT EXISTS graph_documents (
+    session_id TEXT NOT NULL,
+    collection_name TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    extraction_model TEXT,
+    unparsed_chunks INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (session_id, collection_name, document_id)
+);
+"""
+
+
+#: Every table of the knowledge graph, children first.
+_GRAPH_TABLES = ("graph_mentions", "graph_edges", "graph_entities", "graph_documents")
+
+
+def _touched_names(conn, placeholder: str, session_id: str, document_id: str, collection=None):
+    """The entity names the document's mentions and edges name, before they are deleted."""
+    where = f"session_id = {placeholder} AND document_id = {placeholder}"
+    params: tuple = (session_id, document_id)
+    if collection is not None:
+        where += f" AND collection_name = {placeholder}"
+        params = params + (collection,)
+    names = set()
+    for sql in (
+        f"SELECT DISTINCT name FROM graph_mentions WHERE {where}",
+        f"SELECT DISTINCT source FROM graph_edges WHERE {where}",
+        f"SELECT DISTINCT target FROM graph_edges WHERE {where}",
+    ):
+        names.update(row[0] for row in _run(conn, sql, params, fetch=True))
+    return names
+
+
+def _run(conn, sql: str, params: tuple, fetch: bool = False):
+    """Run ``sql`` on a sqlite3 or psycopg 3 connection (both have ``execute``),
+    or on a psycopg2 one (through a cursor)."""
+    if hasattr(conn, "execute"):
+        cur = conn.execute(sql, params)
+        return cur.fetchall() if fetch else None
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        return cur.fetchall() if fetch else None
+
+
+def _delete_orphan_entities(
+    conn, placeholder: str, session_id: str, names, collection: str = None
+) -> None:
+    """Delete those of ``names`` no mention and no edge of the session names any more.
+
+    Only the names a write or a delete touched: checking every entity of the
+    session on every document made ingest quadratic in the graph's size.
+    ``placeholder`` is the driver's parameter marker (``?`` or ``%s``), so the
+    two databases run the same statement.
+    """
+    names = sorted(names)
+    scope = f" AND collection_name = {placeholder}" if collection is not None else ""
+    for start in range(0, len(names), 500):
+        batch = names[start : start + 500]
+        marks = ", ".join([placeholder] * len(batch))
+        sql = (
+            f"DELETE FROM graph_entities WHERE session_id = {placeholder}{scope} "
+            f"AND name IN ({marks}) "
+            "AND NOT EXISTS (SELECT 1 FROM graph_mentions m WHERE m.session_id = graph_entities.session_id "
+            "AND m.collection_name = graph_entities.collection_name AND m.name = graph_entities.name) "
+            "AND NOT EXISTS (SELECT 1 FROM graph_edges e WHERE e.session_id = graph_entities.session_id "
+            "AND e.collection_name = graph_entities.collection_name "
+            "AND (e.source = graph_entities.name OR e.target = graph_entities.name))"
+        )
+        params = (
+            (session_id, collection, *batch) if collection is not None else (session_id, *batch)
+        )
+        _run(conn, sql, params)
+
 
 #: One row per session: a counter bumped on every upload and delete, which tells
 #: each process whether its in-memory BM25 index of the session is current.
@@ -2233,6 +2507,13 @@ def reset_rag_database():
     (if it supports it) to cleanly shut down connection pools.
     """
     global _rag_database
+    try:
+        from lasagna.retrieval.graph.graph_store import drop_all_loaded_graphs
+
+        drop_all_loaded_graphs()  # loaded from the database being reset
+    except ImportError:
+        # Safe to ignore: without the graph module there are no loaded graphs.
+        pass
     with _rag_database_lock:
         old = _rag_database
         _rag_database = None

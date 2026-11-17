@@ -1120,6 +1120,7 @@ class SearchOrchestrator:
                     existing_chunk_ids=existing_ids,
                     session_id=session_id,
                     max_hops=getattr(config, "graph_max_hops", 2),
+                    collection_name=config.collection_name,
                 )
                 if new_chunk_ids:
                     # Fetch chunk data from vector backend
@@ -2226,7 +2227,13 @@ class SearchOrchestrator:
             from lasagna.agentic.agentic_rag import AgenticRAG
             from lasagna.providers import get_llm_provider
 
-            llm = get_llm_provider().get_llm()
+            temperature = float(getattr(config, "agent_temperature", 0.0) or 0.0)
+            provider = get_llm_provider()
+            llm = (
+                provider.get_llm(temperature=temperature)
+                if temperature != 0.0
+                else provider.get_llm()
+            )
             max_iterations = getattr(config, "max_agent_iterations", 3)
             agent = AgenticRAG(
                 llm=llm,

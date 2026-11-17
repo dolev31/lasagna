@@ -391,3 +391,26 @@ def only_cached(monkeypatch):
         )
 
     return hold
+
+
+@pytest.fixture(autouse=True)
+def _a_fresh_ping_pool():
+    """Each test starts with an empty readiness ping pool.
+
+    Readiness pings run on a module-level pool of four threads, and a ping
+    whose dependency hangs keeps its thread until it returns: it cannot be
+    cancelled. Tests that hang a dependency on purpose left threads asleep, and
+    in a shuffled order a later readiness test found the pool full, timed its
+    pings out in the queue and reported a healthy vector store as down (503 on
+    ``main``, Python 3.13, 2026-11-03). Only a module already imported is
+    touched, so the suite imports nothing it would not have.
+    """
+    health = sys.modules.get("lasagna.api.rest.routes.health")
+    if health is not None:
+        health._ping_pool = None  # one left by a wider-scoped fixture, too
+    yield
+    health = sys.modules.get("lasagna.api.rest.routes.health")
+    pool = getattr(health, "_ping_pool", None) if health is not None else None
+    if pool is not None:
+        pool.shutdown(wait=False, cancel_futures=True)
+        health._ping_pool = None

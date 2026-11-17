@@ -100,6 +100,22 @@ class LongContextGenerator(BaseGenerator):
         )
 
 
+def cited_prompt(query: str, contexts: List[str], instructions: str = "") -> str:
+    """The `cited` generator's prompt: passages numbered [1], [2], ... in order.
+
+    One function, so an answer written at once and one streamed token by token
+    (``POST /api/v1/chat/completions``) read the same prompt.
+    """
+    return (
+        "Instruction: Write an accurate and concise answer for the given question "
+        "using only the provided documents (some of which might be irrelevant) and "
+        "cite them properly. Always cite for any factual claim. When citing several "
+        "documents, use [1][2][3]. Cite at least one document and at most three "
+        f"documents in each sentence. {instructions}\n\n"
+        f"Question: {query}\n\n{_numbered(contexts)}\n\nAnswer:"
+    )
+
+
 class CitedGenerator(BaseGenerator):
     """Answers that cite their supporting passages as [n] (ALCE, Gao et al. 2023).
 
@@ -109,14 +125,7 @@ class CitedGenerator(BaseGenerator):
     """
 
     def generate(self, query, contexts, *, llm=None, instructions="", **kwargs) -> str:
-        prompt = (
-            "Instruction: Write an accurate and concise answer for the given question "
-            "using only the provided documents (some of which might be irrelevant) and "
-            "cite them properly. Always cite for any factual claim. When citing several "
-            "documents, use [1][2][3]. Cite at least one document and at most three "
-            f"documents in each sentence. {instructions}\n\n"
-            f"Question: {query}\n\n{_numbered(contexts)}\n\nAnswer:"
-        )
+        prompt = cited_prompt(query, contexts, instructions)
         return _invoke(llm, prompt, "the cited generator").strip()
 
 

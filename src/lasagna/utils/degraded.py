@@ -28,6 +28,13 @@ _reasons: ContextVar[Optional[Dict[str, str]]] = ContextVar(
 _fixes: ContextVar[Optional[Dict[str, Dict[str, str]]]] = ContextVar(
     "lasagna_degraded_fixes", default=None
 )
+#: ``{stage: [reason, ...]}``: every distinct reason, in the order recorded.
+#: One stage can fall back twice in one search: hybrid search's native call
+#: fails, then its BM25 index is empty and it returns dense results only. The
+#: first reason alone named the failure that changed nothing.
+_all_reasons: ContextVar[Optional[Dict[str, List[str]]]] = ContextVar(
+    "lasagna_degraded_all_reasons", default=None
+)
 
 
 def record(stage: str, reason: object = "", fixes: Optional[Dict[str, str]] = None) -> None:
@@ -48,6 +55,11 @@ def record(stage: str, reason: object = "", fixes: Optional[Dict[str, str]] = No
     reasons = _reasons.get()
     if reasons is not None and reason and stage not in reasons:
         reasons[stage] = str(reason)
+    every = _all_reasons.get()
+    if every is not None and reason:
+        seen = every.setdefault(stage, [])
+        if str(reason) not in seen:
+            seen.append(str(reason))
     known = _fixes.get()
     if known is not None and fixes and stage not in known:
         known[stage] = dict(fixes)
@@ -73,6 +85,19 @@ def reasons() -> Dict[str, str]:
     return dict(_reasons.get() or {})
 
 
+def all_reasons() -> Dict[str, List[str]]:
+    """Every distinct reason each collected stage fell back for, in order.
+
+    `reasons` keeps the first, which is what a caller of one search is shown.
+    The evaluation harness records all of them, because the later one can be
+    the one that changed the results.
+    """
+    # A snapshot: a search that timed out keeps running in its worker thread
+    # and can still record into this dict while the caller reads it.
+    every = dict(_all_reasons.get() or {})
+    return {stage: list(found) for stage, found in every.items()}
+
+
 def report(stages: Iterable[str]) -> None:
     """Add stages another process fell back on (a server's ``degraded_stages``).
 
@@ -89,14 +114,42 @@ def report(stages: Iterable[str]) -> None:
 
 @contextmanager
 def collecting() -> Iterator[List[str]]:
-    """Collect the stages that fall back inside the ``with``, in order."""
+    """Collect the stages that fall back inside the ``with``, in order.
+
+    A block opened inside another hands what it collected to the outer one
+    when it closes. The evaluation harness opens one per query; a search path
+    that opened its own would otherwise hide every fallback from it.
+    """
+    outer_stages = _stages.get()
+    outer_reasons = _reasons.get()
+    outer_fixes = _fixes.get()
+    outer_all = _all_reasons.get()
     stages: List[str] = []
+    reasons: Dict[str, str] = {}
+    fixes: Dict[str, Dict[str, str]] = {}
+    every: Dict[str, List[str]] = {}
     token = _stages.set(stages)
-    reasons_token = _reasons.set({})
-    fixes_token = _fixes.set({})
+    reasons_token = _reasons.set(reasons)
+    fixes_token = _fixes.set(fixes)
+    all_token = _all_reasons.set(every)
     try:
         yield stages
     finally:
+        _all_reasons.reset(all_token)
         _fixes.reset(fixes_token)
         _reasons.reset(reasons_token)
         _stages.reset(token)
+        if outer_stages is not None:
+            for stage in list(stages):
+                if stage not in outer_stages:
+                    outer_stages.append(stage)
+        if outer_reasons is not None:
+            for stage, reason in list(reasons.items()):
+                outer_reasons.setdefault(stage, reason)
+        if outer_fixes is not None:
+            for stage, fix_by_surface in list(fixes.items()):
+                outer_fixes.setdefault(stage, fix_by_surface)
+        if outer_all is not None:
+            for stage, found in list(every.items()):
+                seen = outer_all.setdefault(stage, [])
+                seen.extend(r for r in list(found) if r not in seen)

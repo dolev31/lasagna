@@ -48,6 +48,7 @@ from .benchmarks._base import BaseBenchmarkAdapter as _BaseBenchmarkAdapter
 from .checkpoint import CheckpointManager
 from .results import BenchmarkResults, primary_metric
 from .runner import HARNESS_KEYS, BenchmarkRunner, BenchmarkTask, TaskResult
+from ..utils import degraded as _degraded
 from ..utils.llm_cache import CacheStats, LLMCacheSettings, llm_cache_scope
 from .cost import PriceTable
 
@@ -88,6 +89,10 @@ _INGESTION_TIME_KEYS = frozenset(
         "raptor_max_cluster_size",
         "raptor_max_levels",
         "enable_graph_retrieval",
+        # Two graph arms that differ in the extraction model or the entity
+        # types build different graphs, so each gets a corpus of its own.
+        "graph_extraction_model",
+        "graph_entity_types",
         "collection_name",
     }
 )
@@ -268,10 +273,48 @@ def _answer_scores(answer: str, sample: Any) -> Dict[str, float]:
     return out
 
 
+def _reference_scores(answer: str, sample: Any) -> Dict[str, float]:
+    """Exact match, token F1 and :func:`_answer_scores` for one answer.
+
+    Scored without citation markers, as ALCE does.
+    """
+    from .answer_metrics import exact_match, strip_citations, token_f1
+
+    answer = strip_citations(answer)
+    gt = getattr(sample, "ground_truth", "") or ""
+    aliases = getattr(sample, "ground_truth_answers", None) or []
+    if _is_unanswerable(sample):
+        em = f1 = _no_answer_em(answer)
+    elif gt.strip() and answer.strip():
+        em = exact_match(answer, gt, aliases=aliases)
+        f1 = token_f1(answer, gt, aliases=aliases)
+    else:
+        em = f1 = 0.0
+    return {"exact_match": em, "token_f1": f1, **_answer_scores(answer, sample)}
+
+
+#: The answer metrics an agentic arm gets on both answers: its loop's own
+#: (``_agentic``) and the harness's, written from the loop's passages
+#: (``_regen``). The unsuffixed key is the loop's where it answered, as for the
+#: judged metrics. Citation quality is left out: ``[n]`` numbers the passages
+#: the harness's generator was shown.
+_SCORED_ON_EITHER_ANSWER = (
+    "exact_match",
+    "token_f1",
+    "rouge_l",
+    "contains_answer",
+    "abstention_rate",
+    "answer_similarity",
+)
+
+
 def _add_answer_similarity(
-    rows: List[Dict[str, Any]], answers: List[str], samples: List[Any]
+    rows: List[Dict[str, Any]],
+    answers: List[str],
+    samples: List[Any],
+    key: str = "answer_similarity",
 ) -> None:
-    """``answer_similarity`` on each row that has a reference, in one batch.
+    """``answer_similarity`` (or ``key``) on each row that has a reference, in one batch.
 
     Left out, with a warning, when the embedder cannot be loaded (offline with
     no cached copy) or ``RAG_EVAL_SIMILARITY_MODEL=none``: the rest of the
@@ -301,7 +344,7 @@ def _add_answer_similarity(
         return
     for row, score in zip(rows, scores):
         if score is not None:
-            row["answer_similarity"] = score
+            row[key] = score
 
 
 def _add_citation_scores(
@@ -752,6 +795,84 @@ def _reranker_that_ran(component: Optional[str], task_config: Dict[str, Any]) ->
     key = _RERANKER_MODEL_KEYS.get(component)
     model = task_config.get(key) if key else None
     return f"{component}:{model}" if model else component
+
+
+def _drop_corpus_graph(session_id: str, collection_name: str) -> None:
+    """Drop a stale corpus's graph with its vectors: its parts name deleted chunks."""
+    try:
+        from lasagna.core.database import get_rag_database
+        from lasagna.retrieval.graph.graph_store import drop_loaded_graphs
+
+        get_rag_database().drop_graphs(session_id, collection_name)
+        drop_loaded_graphs(session_id)
+    except Exception as exc:  # noqa: BLE001 - a re-ingest replaces each document's part
+        logger.warning(f"Could not drop the stale corpus graph of {session_id}: {exc}")
+
+
+class _DegradedTally:
+    """The stages that fell back on one track of a task, counted by query.
+
+    A stage that catches its own failure and carries on with less calls
+    `lasagna.utils.degraded.record`, which collects it only inside
+    ``degraded.collecting()``. REST, MCP and the SDK open one per request; the
+    harness opened none, so every fallback during a benchmark reached the
+    metrics counter and nothing a reader of the results sees (#50).
+
+    Counted per reason too: hybrid search that falls back to BM25 fusion
+    scores as hybrid search does, and one that then finds its BM25 index empty
+    returns dense results only, which is the control's number (#52). One stage
+    name covers both, so the reason says which happened, on how many queries.
+    """
+
+    #: A Milvus error message runs to a few hundred characters.
+    _REASON_CHARS = 300
+    #: Distinct reasons kept per stage; queries with others still count.
+    _REASONS_KEPT = 3
+
+    def __init__(self) -> None:
+        self.queries = 0
+        self._stages: Dict[str, Dict[str, Any]] = {}
+
+    @contextlib.contextmanager
+    def query(self):
+        """Count one query, and what fell back while it ran."""
+        from lasagna.core.provenance import redact
+
+        self.queries += 1
+        with _degraded.collecting() as stages:
+            try:
+                yield
+            finally:
+                reasons = _degraded.all_reasons()
+                for stage in list(stages):
+                    entry = self._stages.setdefault(stage, {"queries": 0, "reasons": []})
+                    entry["queries"] += 1
+                    dropped = False
+                    for reason in reasons.get(stage, []):
+                        # Bundles are published: no machine-local paths.
+                        text = str(redact(reason))[: self._REASON_CHARS]
+                        kept = next((r for r in entry["reasons"] if r["reason"] == text), None)
+                        if kept is not None:
+                            kept["queries"] += 1
+                        elif len(entry["reasons"]) < self._REASONS_KEPT:
+                            entry["reasons"].append({"reason": text, "queries": 1})
+                        else:
+                            dropped = True
+                    if dropped:
+                        # Said, not lost: a reason first seen after the cap (an
+                        # index rebuilt empty mid-run) may be the one that
+                        # changed the results.
+                        entry["other_reasons"] = entry.get("other_reasons", 0) + 1
+
+    def to_dict(self) -> Dict[str, Dict[str, Any]]:
+        """``{stage: {"queries": n, "of": total, "reasons": [{"reason", "queries"}]}}``.
+
+        ``other_reasons``, when present, counts the queries that also fell back
+        for a reason past the cap.
+        """
+        return {
+            stage: {**entry, "of": self.queries} for stage, entry in sorted(self._stages.items())
+        }
 
 
 def _ran_system(
@@ -1333,6 +1454,19 @@ def _fix_retrieval_depth(task_config: Dict[str, Any], depth: int) -> None:
     task_config["default_top_k"] = max(int(task_config.get("default_top_k") or 0), depth)
 
 
+def _fix_retrieval_routing(task_config: Dict[str, Any]) -> None:
+    """Send every retrieval-track query through the standard tier.
+
+    The agentic loop runs multi-hop retrieval and an LLM synthesis; retrieval
+    metrics need the chunk-level results of one search, with stable document
+    ids, and the loop's are neither. The generation track puts the arm's own
+    routing back.
+    """
+    task_config["use_agentic_rag"] = False
+    task_config["agentic_pipeline"] = "legacy_react"
+    task_config["routing_default_tier"] = "standard"
+
+
 def _context_order(gen_config: Any) -> Dict[str, str]:
     """The order each track reads its results in, for the stage manifest.
 
@@ -1428,9 +1562,11 @@ class _StaleCorpusCleanupError(RuntimeError):
 def _agentic_fell_back(agentic_requested: bool, search_results: List[Any]) -> bool:
     """Whether an agentic request was served by standard retrieval instead.
 
-    The orchestrator stamps the tier that ran on the first result. A failed
-    agentic run falls back to standard search and still returns results, so an
-    empty list is not the only sign of a fallback.
+    The agentic tier stamps "comprehensive" on the first result it returns. A
+    failed agentic run falls back to standard search and stamps
+    "standard_fallback", and a query the router sent to another tier carries no
+    stamp at all; both still return results, so an empty list is not the only
+    sign of a fallback.
     """
     if not agentic_requested:
         return False
@@ -1438,7 +1574,7 @@ def _agentic_fell_back(agentic_requested: bool, search_results: List[Any]) -> bo
         return True
     first_chunk = getattr(search_results[0], "chunk", None)
     tier_used = (getattr(first_chunk, "metadata", None) or {}).get("_routing_tier_used")
-    return tier_used == "standard_fallback"
+    return tier_used != "comprehensive"
 
 
 _TOP_LEVEL_KEYS = frozenset(
@@ -1963,6 +2099,44 @@ class Experiment:
     ) -> None:
         self.config = config
         self._eval_fn = eval_fn
+        # What the judge was last validated under (see preflight_judge); None
+        # when no validation is pending for run() to skip.
+        self._judge_checked: Optional[tuple] = None
+
+    def preflight_judge(self) -> None:
+        """Validate the judge now, so the caller can fail before any work starts.
+
+        The CLI calls this beside its generator check. ``run()`` then skips its
+        own check once, rather than probing the judge a second time. The record
+        is consumed by that run, and is ignored if the judge's model, endpoint
+        or key changed since, so it cannot excuse a later run or another
+        configuration. A no-op where no judge is needed (retrieval-only runs,
+        a custom ``eval_fn``).
+
+        Raises:
+            RuntimeError: the judge cannot be built or reached; the message
+                names the model and the variables to set.
+        """
+        if self._eval_fn is not None:
+            return
+        if "generation" not in _parse_tracks(self.config.tracks) and any(
+            getattr(b, "path", "") for b in self.config.benchmarks
+        ):
+            # Local data files are only registered during generate_tasks();
+            # register them here so resolve_mode() sees their corpus instead of
+            # falling back to generation_only for an unknown benchmark name.
+            from .benchmarks.adapters.local_files import prepare_local_benchmarks
+
+            prepare_local_benchmarks(
+                self.config.benchmarks, self.config.base_dir, self.config.tracks
+            )
+        if not _should_check_judge(self.config, self._eval_fn):
+            return
+        fingerprint = _judge_fingerprint(_resolve_judge_model(self.config))
+        if self._judge_checked == fingerprint:
+            return
+        _check_judge_llm(fingerprint[0])
+        self._judge_checked = fingerprint
 
     @classmethod
     def from_file(cls, path: str, eval_fn: Optional[Callable] = None) -> "Experiment":
@@ -2067,9 +2241,12 @@ class Experiment:
         Returns:
             :class:`BenchmarkResults` with all task outcomes.
         """
+        global _active_judge_model
         try:
             return await self._run(progress_callback)
         finally:
+            _active_judge_model = None
+            self._judge_checked = None  # a preflight covers one run
             _tidy_run_folder(self.config)
 
     async def _run(
@@ -2087,19 +2264,6 @@ class Experiment:
             f"{cfg.n_runs} {'run' if cfg.n_runs == 1 else 'runs'}, mode={cfg.mode})"
         )
 
-        # Set judge model for offline eval (module-level so _eval_offline can read it)
-        # RAG_EVAL_JUDGE_MODEL env var takes precedence over YAML judge_model so
-        # operators can override the model without editing YAML files (e.g. for OpenRouter).
-        global _active_judge_model
-        _active_judge_model = _resolve_judge_model(cfg)
-        if _active_judge_model:
-            logger.info(f"Judge model: {_active_judge_model}")
-        # Said once, before any work: a model that takes no temperature makes
-        # repeated runs differ, and n_runs is how a reader learns by how much.
-        if "generation" in _parse_tracks(cfg.tracks):
-            for note in _sampling_notes():
-                logger.warning(note)
-
         # Checkpoint manager
         cp_dir = cfg.checkpoint_dir or output_dir
         checkpoint = CheckpointManager(cp_dir)
@@ -2108,11 +2272,33 @@ class Experiment:
         tasks = self.generate_tasks()
         logger.info(f"Generated {len(tasks)} tasks")
 
+        # Set judge model for offline eval (module-level so _eval_offline can read it)
+        # RAG_EVAL_JUDGE_MODEL env var takes precedence over YAML judge_model so
+        # operators can override the model without editing YAML files (e.g. for OpenRouter).
+        # After the tasks: a local benchmark file is named only then, and
+        # whether the run writes answers depends on its mode.
+        global _active_judge_model
+        _active_judge_model = _resolve_judge_model(cfg)
+        if _active_judge_model:
+            logger.info(f"Judge model: {_active_judge_model}")
+        # Said once, before any work: a model that takes no temperature makes
+        # repeated runs differ, and n_runs is how a reader learns by how much.
+        if _writes_answers(cfg):
+            for note in _sampling_notes():
+                logger.warning(note)
+
         # Offline, a benchmark whose data is not cached fails here, once, rather
         # than in every task with the same "dataset_info.json not found".
         problem = _offline_dataset_problem([t.benchmark_name for t in tasks])
         if problem is not None:
             raise problem
+
+        # Validate the judge once per run before any corpus is ingested or any
+        # answer is generated (#96).
+        if _should_check_judge(cfg, self._eval_fn) and self._judge_checked != _judge_fingerprint(
+            _active_judge_model
+        ):
+            await asyncio.to_thread(_check_judge_llm, _active_judge_model)
 
         # Pre-register corpus ref counts for live mode.
         # With max_concurrency=1 tasks run sequentially; without this,
@@ -2180,8 +2366,9 @@ class Experiment:
             # The table and the rates behind every cost_usd_estimate.
             from .cost import generator_model_name, judge_model_name
 
+            # The judge's rates only for a run that wrote answers to judge.
             results.experiment_config["cost_estimate"] = prices.record(
-                [generator_model_name(), judge_model_name()]
+                [generator_model_name()] + ([judge_model_name()] if _writes_answers(cfg) else [])
             )
 
         # Save outputs
@@ -2312,6 +2499,7 @@ def _run_metadata(cfg: "ExperimentConfig", concurrency: Optional[int] = None) ->
     from .bundle import METRICS_VERSION
     from .run_provenance import determinism_label, package_version, rag_overrides
 
+    _generates = _writes_answers(cfg)
     meta: Dict[str, Any] = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "experiment_name": cfg.name,
@@ -2355,14 +2543,18 @@ def _run_metadata(cfg: "ExperimentConfig", concurrency: Optional[int] = None) ->
             "generators": list(cfg.pipeline.generators),
             "config_overrides": list(cfg.pipeline.config_overrides),
         },
-        "judge_model": _active_judge_model or cfg.judge_model or None,
+        # The judge and the embedder behind answer_similarity only score
+        # answers: a run that writes none names neither, so the environment's
+        # judge neither flags it UNRESOLVED_JUDGE_ALIAS nor splits it from an
+        # identical run on a leaderboard.
+        "judge_model": (_active_judge_model or cfg.judge_model or None) if _generates else None,
         # Whether temperature reached the generator and the judge. A model that
         # takes none ("provider-default") samples between runs however the
-        # pipeline is configured. None for a run that generates nothing.
-        "sampling": _sampling_record() if "generation" in _parse_tracks(cfg.tracks) else None,
-        # The embedder behind answer_similarity: a different one gives
-        # different numbers, so it belongs in the comparability key.
-        "similarity_model": _similarity_model_for_record(),
+        # pipeline is configured. None for a run that writes no answers.
+        "sampling": _sampling_record() if _generates else None,
+        # A different embedder gives different answer_similarity numbers, so
+        # it belongs in the comparability key of a run that generates.
+        "similarity_model": _similarity_model_for_record() if _generates else None,
         "max_corpus_docs": cfg.max_corpus_docs,
         "ingest_failure_tolerance": cfg.ingest_failure_tolerance,
         "tracks": list(cfg.tracks),
@@ -2635,7 +2827,7 @@ def _set_resume_fingerprints(cfg: "ExperimentConfig", tasks: List[BenchmarkTask]
         llms["judge_base_url"] = (
             os.environ.get("RAG_EVAL_JUDGE_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or None
         )
-    scorers = [_similarity_model_for_record()] if "generation" in _parse_tracks(cfg.tracks) else []
+    scorers = [_similarity_model_for_record()] if _writes_answers(cfg) else []
     by_arm: Dict[str, str] = {}
     for task in tasks:
         if task.config_hash not in by_arm:
@@ -2650,14 +2842,28 @@ def _set_resume_fingerprints(cfg: "ExperimentConfig", tasks: List[BenchmarkTask]
         task.resume_fingerprint = by_arm[task.config_hash]
 
 
+def _writes_answers(cfg: "ExperimentConfig") -> bool:
+    """Whether any task of the run writes answers, the only thing a judge scores.
+
+    A generation track does, and so does a benchmark whose mode resolves to
+    ``generation_only`` (``auto`` on a benchmark with no corpus, such as
+    TriviaQA): it answers and is judged whatever ``tracks`` says.
+    """
+    if "generation" in _parse_tracks(cfg.tracks):
+        return True
+    # resolve_mode never raises: a benchmark it cannot inspect resolves to
+    # generation_only, so it counts as judged.
+    return any(resolve_mode(cfg.mode, spec.name)[0] == "generation_only" for spec in cfg.benchmarks)
+
+
 def _resolve_judge_model(cfg: "ExperimentConfig") -> Optional[str]:
     """``RAG_EVAL_JUDGE_MODEL``, then ``judge_model:``, then the default.
 
-    A run with no generation track has no judge: None, so its comparability
-    key stays what it was.
+    A run that writes no answers judges nothing: only a judge it was told to
+    use, which the run record then leaves out.
     """
     named = os.environ.get("RAG_EVAL_JUDGE_MODEL") or cfg.judge_model or None
-    if named or "generation" not in _parse_tracks(cfg.tracks):
+    if named or not _writes_answers(cfg):
         return named
     return DEFAULT_JUDGE_MODEL
 
@@ -2727,7 +2933,7 @@ def _resolve_generator_model() -> Optional[str]:
     return os.environ.get("RAG_EVAL_GENERATOR_MODEL") or os.environ.get("MODEL_NAME") or None
 
 
-def _build_judge_llm(model_name: Optional[str] = None):
+def _build_judge_llm(model_name: Optional[str] = None, *, _require: bool = False):
     """Build the RAGAS judge LLM against an OpenAI-compatible endpoint.
 
     Credentials resolve judge-first so they cannot disturb the generator's
@@ -2740,9 +2946,8 @@ def _build_judge_llm(model_name: Optional[str] = None):
                 → ``DEFAULT_JUDGE_MODEL``
     ==========  ==========================================================
 
-    Returns None when construction fails, or when nothing names a judge and
-    there is no key for the default one; callers then fall back to the RAGAS
-    default judge.
+    Returns None when construction fails (unless ``_require=True``), or when
+    nothing names a judge and there is no key for the default one.
 
     Each request is rebuilt for the model it names (``pin_openai_client``):
     RAGAS sends gpt-5 and later temperature 1.0 at their default reasoning
@@ -2760,7 +2965,7 @@ def _build_judge_llm(model_name: Optional[str] = None):
     if not resolved_model:
         resolved_model = DEFAULT_JUDGE_MODEL
     named = model_name or os.environ.get("RAG_EVAL_JUDGE_MODEL")
-    if resolved_model == DEFAULT_JUDGE_MODEL and not named and not api_key:
+    if not _require and resolved_model == DEFAULT_JUDGE_MODEL and not named and not api_key:
         # The default judge needs a key, and nobody asked for it: no judge is
         # not an error here, as it was not before there was a default.
         return None
@@ -2789,11 +2994,103 @@ def _build_judge_llm(model_name: Optional[str] = None):
         logger.info(f"RAGAS judge using model: {resolved_model}")
         return judge
     except Exception as exc:
+        if _require:
+            raise
         logger.warning(
             f"Could not create judge LLM ({resolved_model}) [{type(exc).__name__}]: {exc}"
         )
-        logger.exception("Judge LLM construction failed; RAGAS will use its default")
+        logger.exception("Judge LLM construction failed; judge metrics will fail")
         return None
+
+
+def _redact_secret(text: str, secret: Optional[str]) -> str:
+    """Strip a credential value if an upstream exception ever echoed it."""
+    if secret and len(secret) >= 4 and secret in text:
+        return text.replace(secret, "<redacted>")
+    return text
+
+
+def _judge_error_message(
+    resolved_model: str,
+    base_url: Optional[str],
+    detail: str,
+) -> str:
+    endpoint = f" at {base_url}" if base_url else ""
+    return (
+        f"Judge LLM ({resolved_model}{endpoint}) could not be reached or configured: "
+        f"{detail}. The RAGAS judge uses its own OpenAI-compatible client and does not "
+        f"inherit OLLAMA_BASE_URL or the generator's LLM provider. Set "
+        f"RAG_EVAL_JUDGE_BASE_URL and RAG_EVAL_JUDGE_API_KEY (falling back to "
+        f"OPENAI_BASE_URL and OPENAI_API_KEY; set OPENAI_API_KEY for the default judge "
+        f"{DEFAULT_JUDGE_MODEL}), and RAG_EVAL_JUDGE_MODEL to choose the judge model."
+    )
+
+
+def _should_check_judge(cfg: "ExperimentConfig", eval_fn: Optional[Callable]) -> bool:
+    """Whether ``Experiment._run`` should validate the judge before tasks start."""
+    if eval_fn is not None or not _writes_answers(cfg):
+        return False
+    if (
+        "retrieval" in _parse_tracks(cfg.tracks)
+        and not any(resolve_mode(cfg.mode, s.name)[0] == "generation_only" for s in cfg.benchmarks)
+        and not os.environ.get("RAG_EVAL_JUDGE_MODEL")
+        and not cfg.judge_model
+    ):
+        from .synthesize import llm_configured
+
+        if not llm_configured():
+            # Both tracks with no LLM configured at all: _eval_live skips
+            # generation and keeps retrieval metrics (test_generation_without_a_key).
+            return False
+    return True
+
+
+def _judge_fingerprint(model_name: Optional[str]) -> tuple:
+    """The model, key and endpoint a judge check applies to (never logged)."""
+    return (
+        model_name or os.environ.get("RAG_EVAL_JUDGE_MODEL") or DEFAULT_JUDGE_MODEL,
+        os.environ.get("RAG_EVAL_JUDGE_API_KEY") or os.environ.get("OPENAI_API_KEY"),
+        os.environ.get("RAG_EVAL_JUDGE_BASE_URL") or os.environ.get("OPENAI_BASE_URL"),
+    )
+
+
+def _check_judge_llm(model_name: Optional[str] = None) -> None:
+    """Build the RAGAS judge and run one minimal structured-output request.
+
+    Called once at the start of an experiment that writes answers, outside the
+    LLM cache and per-task token meters, so a missing key, wrong base URL, or
+    unreachable model stops the run before any corpus is ingested or any answer
+    is generated.
+    """
+    resolved_model = (
+        model_name
+        or _active_judge_model
+        or os.environ.get("RAG_EVAL_JUDGE_MODEL")
+        or DEFAULT_JUDGE_MODEL
+    )
+    api_key = os.environ.get("RAG_EVAL_JUDGE_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    base_url = os.environ.get("RAG_EVAL_JUDGE_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+
+    from pydantic import BaseModel
+
+    class _JudgeProbe(BaseModel):
+        ok: bool
+
+    try:
+        judge = _build_judge_llm(resolved_model, _require=True)
+        if judge is None:
+            raise RuntimeError(
+                "Judge LLM construction returned None (no API key or client configured)"
+            )
+        judge.generate('Reply with {"ok": true}.', _JudgeProbe)
+    except Exception as exc:
+        root = exc.__cause__ if exc.__cause__ is not None else exc
+        exc_names = (
+            f"{type(exc).__name__}/{type(root).__name__}" if root is not exc else type(exc).__name__
+        )
+        msg = str(root) if root is not exc and str(root) else str(exc)
+        detail = _redact_secret(f"[{exc_names}] {msg}", api_key)
+        raise RuntimeError(_judge_error_message(resolved_model, base_url, detail)) from None
 
 
 async def _default_eval_fn(
@@ -3282,8 +3579,6 @@ async def _eval_offline(
                 per_sample_scores[i].update(per_sample_usage[i].to_dict())
 
         # EM/F1 + trajectory for offline path (mirrors live path)
-        from .answer_metrics import exact_match as _em_fn, strip_citations, token_f1 as _tf1_fn
-
         _save_traj = (task.config_overrides or {}).get("save_trajectories", "minimal")
         for i, sample in enumerate(eval_samples):
             if i >= len(per_sample_scores):
@@ -3295,20 +3590,9 @@ async def _eval_offline(
             _meta = getattr(sample, "metadata", {}) or {}
             ps["_source_benchmark"] = _meta.get("source_benchmark", "")
 
-            # EM/F1, on the answer without citation markers
             _gt = ground_truths[i] if i < len(ground_truths) else ""
             _ans = answers[i] if i < len(answers) else ""
-            _scored = strip_citations(_ans)
-            _aliases = getattr(sample, "ground_truth_answers", None) or []
-            if _is_unanswerable(sample):
-                ps["exact_match"] = ps["token_f1"] = _no_answer_em(_scored)
-            elif _gt.strip() and _scored.strip():
-                ps["exact_match"] = _em_fn(_scored, _gt, aliases=_aliases)
-                ps["token_f1"] = _tf1_fn(_scored, _gt, aliases=_aliases)
-            else:
-                ps["exact_match"] = 0.0
-                ps["token_f1"] = 0.0
-            ps.update(_answer_scores(_scored, sample))
+            ps.update(_reference_scores(_ans, sample))
             if _has_unanswerable:
                 ps["_answerable"] = 0.0 if _is_unanswerable(sample) else 1.0
 
@@ -3326,6 +3610,8 @@ async def _eval_offline(
 
         # Semantic similarity (local embedder) and, for answers that cite,
         # citation quality (the judge, counted as eval spend).
+        from .answer_metrics import strip_citations
+
         await asyncio.to_thread(
             _add_answer_similarity,
             per_sample_scores,
@@ -3524,6 +3810,16 @@ def _corpus_cache_key(task: "BenchmarkTask") -> Optional[str]:
         k: v for k, v in (task.config_overrides or {}).items() if k in _ingestion_time_keys()
     }
     merged = {**_profile_ingestion, **_explicit_ingestion}
+    from lasagna.core.config import rag_config as _graph_cfg
+
+    # On for this arm, or for every arm (RAG_ENABLE_GRAPH_RETRIEVAL, as in the
+    # Compose stack) unless the arm turns it off.
+    _graph_on = merged.get("enable_graph_retrieval", _graph_cfg.enable_graph_retrieval)
+    if _graph_on and not merged.get("graph_extraction_model"):
+        # The graph is part of a graph arm's corpus: keyed by the model that
+        # extracts it, the default model when the arm names none, so two runs
+        # with different MODEL_NAMEs never share, or swap, one graph (#55).
+        merged["graph_extraction_model"] = _graph_cfg.graph_extraction_model
     # A chunker or embedder component makes its own corpus: keyed by what the
     # component is, so a changed function is never served an old corpus.
     for _slot in _INGEST_COMPONENTS:
@@ -3996,6 +4292,7 @@ async def _ensure_corpus_ingested(
                             f"or collection and rerun."
                         ) from _del_exc
                     _ingest_backend.hybrid_searcher.clear_session(shared_session_id)
+                    _drop_corpus_graph(shared_session_id, _coll_name)
                     ready_ids = set()
         except _StaleCorpusCleanupError:
             raise
@@ -4018,6 +4315,7 @@ async def _ensure_corpus_ingested(
                     f"that session or collection and rerun."
                 ) from _del_exc
             _ingest_backend.hybrid_searcher.clear_session(shared_session_id)
+            _drop_corpus_graph(shared_session_id, _coll_name)
             ready_ids = set()
 
         if not _skip_ingest:
@@ -4064,6 +4362,29 @@ async def _ensure_corpus_ingested(
             pass  # a store without filtered queries: nothing to compare
         except Exception as exc:  # noqa: BLE001 - the census only guards the result
             logger.warning(f"Could not count the published corpus: {exc}")
+        graph_info = None
+        if getattr(_rag_cfg.with_session(shared_session_id), "enable_graph_retrieval", False):
+            # Under the corpus lock: a task waiting for this corpus waits for
+            # its graph too (#55).
+            try:
+                from ..retrieval.graph.graph_store import ensure_corpus_graph
+
+                _graph_cfg = _rag_cfg.with_session(shared_session_id)
+                graph_info = await asyncio.to_thread(
+                    ensure_corpus_graph,
+                    shared_session_id,
+                    _coll_name,
+                    _resolved,
+                    {corpus_to_valid[cid] for cid in corpus} - failed_valid_ids,
+                    set(ingested_ids) if not _skip_ingest else set(),
+                    _graph_cfg,
+                    _ingest_backend._collection_manager.embedder_for(_graph_cfg).encode_document,
+                )
+            except Exception as exc:  # noqa: BLE001 - the record says what is known
+                from lasagna.core.provenance import redact
+
+                logger.warning(f"Could not check the corpus graph: {exc}")
+                graph_info = {"state": "unknown", "error": str(redact(str(exc)))[:200]}
         corpus_lock.release()
         logger.info(f"Corpus ingestion complete for '{benchmark_name}' (cache_key='{cache_key}')")
         ingest_gap = _ingest_gap(corpus, valid_to_corpus, failed_valid_ids)
@@ -4092,6 +4413,7 @@ async def _ensure_corpus_ingested(
             # could never fire and truncated bundles validated clean.
             slot["corpus_truncated"] = bool(getattr(adapter, "corpus_truncated", False))
             slot["corpus_ingest_gap"] = ingest_gap
+            slot["graph"] = graph_info
             slot["corpus_census"] = census
             slot["_census_store"] = (
                 lambda: _get_ingest_backend()._collection_manager.resolve_backend(shared_session_id)
@@ -4414,10 +4736,14 @@ async def _eval_live(
     )
     if _enable_hybrid:
         _hybrid = _backend.hybrid_searcher
+        # The collection this task searches: each embedder has its own. Asked
+        # about before the first search registers it with the searcher, which
+        # otherwise answered for the default collection.
+        _coll = pipeline._config.get("collection_name", _rag_cfg.collection_name)
         # Guard 1: Skip entirely if native hybrid is available (no fallback needed)
-        if _hybrid.is_native_mode_available() or _hybrid._backend_supports_native_hybrid(
-            shared_session_id
-        ):
+        if _hybrid._legacy_native_serves(
+            shared_session_id, _coll
+        ) or _hybrid._backend_supports_native_hybrid(shared_session_id, _coll):
             logger.debug("Native hybrid available: skipping BM25 fallback prebuild")
         elif not _BM25_AVAIL:
             # Guard 2: rank_bm25 not installed
@@ -4441,7 +4767,6 @@ async def _eval_live(
                     f"(fetching from vector store)"
                 )
                 _vec = _backend._vector_backend
-                _coll = pipeline._config.get("collection_name", _rag_cfg.collection_name)
                 # Fetch every chunk for this session. This must be exhaustive:
                 # a BM25 index built from part of the corpus still returns
                 # results, so a truncated scan produces a plausible retrieval
@@ -4460,7 +4785,7 @@ async def _eval_live(
                 # Convert to BM25 chunk format and build index.
                 _bm25_docs = build_bm25_docs(_all_chunks)
                 if _bm25_docs:
-                    _hybrid.index_chunks(_bm25_docs, shared_session_id)
+                    _hybrid.index_chunks(_bm25_docs, shared_session_id, collection_name=_coll)
                     logger.info(
                         f"BM25 fallback index built: {len(_bm25_docs)} chunks "
                         f"for session {shared_session_id}"
@@ -4483,9 +4808,7 @@ async def _eval_live(
     # (Note: agentic DOES return SearchResult objects via _convert_agentic_results,
     # but their document_ids may differ and latency is high — not suitable for IR eval.)
     if ir_samples:
-        pipeline._config["use_agentic_rag"] = False
-        pipeline._config["agentic_pipeline"] = "legacy_react"
-        pipeline._config["routing_default_tier"] = "standard"
+        _fix_retrieval_routing(pipeline._config)
         # Clear component name so pipeline.query() doesn't force comprehensive
         # tier; the generation path below puts it back.
         _agentic_name = pipeline._component_names.pop("agentic_pipeline", None)
@@ -4520,11 +4843,15 @@ async def _eval_live(
     _eval_failures: List[str] = []
     _n_generations = 0
     _failed_generations = 0
+    _failed_regen = 0  # the harness's answer alone, for an agentic arm's _regen keys
     total_dropped = 0
     #: The judge's spend, accumulated across every RAGAS pass in this task.
     eval_meter = UsageMeter()
     #: Set when the generator read no passages, for the reports' footnote.
     _context_free = False
+    # What fell back while each track's queries ran (#50).
+    _ir_degraded = _DegradedTally()
+    _gen_degraded = _DegradedTally()
 
     # The cutoff the IR metrics are reported at. Was hard-coded to 10 in six
     # places, so NDCG@100 and Recall@1000 -- the cutoffs much of the retrieval
@@ -4599,7 +4926,12 @@ async def _eval_live(
             # made deep inside the pipeline -- HyDE, query expansion, the whole
             # agentic graph -- are attributed to this sample.
             sample_meter = UsageMeter()
-            with sample_meter, sample_meter.scope(SYSTEM), observe_reranking() as moved:
+            with (
+                sample_meter,
+                sample_meter.scope(SYSTEM),
+                observe_reranking() as moved,
+                _ir_degraded.query(),
+            ):
                 search_results = await asyncio.to_thread(
                     pipeline.query,
                     sample.question,
@@ -4842,6 +5174,7 @@ async def _eval_live(
                             gen_meter,
                             gen_meter.scope(SYSTEM),
                             present_context_order() as _presented,
+                            _gen_degraded.query(),
                         ):
                             search_results = await asyncio.wait_for(
                                 asyncio.to_thread(
@@ -4888,7 +5221,9 @@ async def _eval_live(
                     first_meta = (
                         getattr(getattr(search_results[0], "chunk", None), "metadata", {}) or {}
                     )
-                    _agentic_answer = first_meta.get("_agentic_answer", "")
+                    _agentic_answer = first_meta.get("_agentic_answer", "") or ""
+                    if not _agentic_answer.strip():
+                        _agentic_answer = ""  # blank: the loop did not answer
 
                 # Agentic pipeline makes many parallel LLM calls which can
                 # saturate a hosted endpoint's rate limit. An optional pause
@@ -5030,9 +5365,12 @@ async def _eval_live(
 
                 _n_generations += 1
                 if not (answer or "").strip():
-                    # No answer: no context, no generator, or every attempt
-                    # failed. Scored, it would read as an unfaithful answer.
-                    _failed_generations += 1
+                    _failed_regen += 1
+                    if not _agentic_answer:
+                        # No answer: no context, no generator, or every attempt
+                        # failed. Scored, it would read as an unfaithful answer.
+                        # A loop's own answer is the one its row is scored on.
+                        _failed_generations += 1
                 gen_questions.append(gen_sample.question)
                 gen_answers.append(answer)
                 # Pass the SAME contexts used for generation to RAGAS.
@@ -5052,23 +5390,8 @@ async def _eval_live(
                     if hasattr(gen_sample, "metadata")
                     else ""
                 )
-                # ── EM / Token-F1 (free, no LLM calls) ──────────────
-                # Scored on the answer without citation markers, as ALCE does.
-                from .answer_metrics import strip_citations
-
-                _scored_answer = strip_citations(answer)
-                _em_score = 0.0
-                _f1_score_val = 0.0
+                # ── EM / Token-F1 and the other free answer metrics ──
                 _gt = gen_sample.ground_truth or ""
-                _gt_aliases = getattr(gen_sample, "ground_truth_answers", None) or []
-                if _is_unanswerable(gen_sample):
-                    _em_score = _f1_score_val = _no_answer_em(_scored_answer)
-                elif _gt.strip() and _scored_answer.strip():
-                    from .answer_metrics import exact_match as _em_fn, token_f1 as _tf1_fn
-
-                    _em_score = _em_fn(_scored_answer, _gt, aliases=_gt_aliases)
-                    _f1_score_val = _tf1_fn(_scored_answer, _gt, aliases=_gt_aliases)
-
                 _gen_sample_metrics: Dict[str, Any] = {
                     "_sample_id": gen_sample.query_id,
                     "_source_benchmark": _src,
@@ -5079,10 +5402,15 @@ async def _eval_live(
                     "generation_ms": _generation_ms,
                     "n_contexts": float(len(contexts)),
                     "agentic_fallback": 1.0 if fallback else 0.0,
-                    "exact_match": _em_score,
-                    "token_f1": _f1_score_val,
+                    **_reference_scores(answer, gen_sample),
                 }
-                _gen_sample_metrics.update(_answer_scores(_scored_answer, gen_sample))
+                if _agentic_answer:
+                    _gen_sample_metrics.update(
+                        {
+                            f"{k}_agentic": v
+                            for k, v in _reference_scores(_agentic_answer, gen_sample).items()
+                        }
+                    )
                 if _has_unanswerable:
                     _gen_sample_metrics["_answerable"] = (
                         0.0 if _is_unanswerable(gen_sample) else 1.0
@@ -5117,6 +5445,9 @@ async def _eval_live(
                 elif _save_traj == "minimal":
                     _gen_sample_metrics["_generated_answer"] = answer[:500]
                     _gen_sample_metrics["_question"] = gen_sample.question[:200]
+                if _agentic_answer and _save_traj in ("full", "minimal"):
+                    _cut = 2000 if _save_traj == "full" else 500
+                    _gen_sample_metrics["_agentic_answer"] = _agentic_answer[:_cut]
 
                 per_sample_scores.append(_gen_sample_metrics)
 
@@ -5131,6 +5462,25 @@ async def _eval_live(
                 [strip_citations(a) for a in gen_answers],
                 gen_samples,
             )
+
+            # An agentic arm is scored on its loop's answer, as the judged
+            # metrics below are: the harness's answer keeps the _regen keys,
+            # and a question the loop did not answer keeps the harness's.
+            _looped = filter_nonempty_agentic_indices(gen_agentic_answers)
+            if _looped:
+                await asyncio.to_thread(
+                    _add_answer_similarity,
+                    [_gen_rows[i] for i in _looped],
+                    [strip_citations(gen_agentic_answers[i]) for i in _looped],
+                    [gen_samples[i] for i in _looped],
+                    "answer_similarity_agentic",
+                )
+                for row in _gen_rows:
+                    for k in _SCORED_ON_EITHER_ANSWER:
+                        if k in row:
+                            row[f"{k}_regen"] = row[k]
+                        if f"{k}_agentic" in row:
+                            row[k] = row[f"{k}_agentic"]
 
             # Run RAGAS on all collected generation samples that have a
             # reference answer (an unanswerable question has none).
@@ -5332,6 +5682,16 @@ async def _eval_live(
                 metrics["token_f1"] = sum(s["token_f1"] for s in _gen_ps) / len(_gen_ps)
                 metrics.update(_answerability_split(_gen_ps))
                 metrics.update(_mean_present(_gen_ps, _ANSWER_METRICS))
+                metrics.update(
+                    _mean_present(
+                        _gen_ps,
+                        [
+                            f"{k}{s}"
+                            for s in ("_regen", "_agentic")
+                            for k in _SCORED_ON_EITHER_ANSWER
+                        ],
+                    )
+                )
 
         # Tokens and LLM calls per query, over both tracks' rows.
         metrics.update(_per_query_costs(per_sample_scores))
@@ -5354,6 +5714,9 @@ async def _eval_live(
 
     if _n_generations:
         metrics["generations_failed"] = float(_failed_generations)
+        if any(gen_agentic_answers):
+            # The _regen keys average these empty answers in as misses.
+            metrics["generations_failed_regen"] = float(_failed_regen)
         # A few failures (a content filter, one timeout) are reported; more than
         # a tenth means the generation metrics describe the outage, not the system.
         if _failed_generations / _n_generations > _MAX_FAILED_GENERATION_RATE:
@@ -5378,42 +5741,110 @@ async def _eval_live(
         metrics = {k: v for k, v in metrics.items() if k in _retrieval_metric_keys}
         per_sample_scores = per_sample_scores[:_retrieval_rows]
         _eval_failures = []
-    # What reached each stage, from the config the search actually resolved
-    # (session plus this arm's overrides) and the components it named; the
-    # bundle's isolation check compares these across arms.
+    # What reached each stage: the configuration each track searched with
+    # (session plus this arm's overrides; the retrieval track's routing and
+    # depth forced, the generation track's the arm's own) and the components
+    # it named. The split keys are recorded per track whether or not the track
+    # ran, and `tracks` says which did; the bundle's isolation check compares
+    # these across arms.
     try:
         from lasagna.core.config import rag_config as _rc
 
-        from .stages import stage_manifest
+        from .stages import stage_manifest, track_manifest
 
-        _system["stages"] = stage_manifest(
-            _rc.with_session(shared_session_id).with_query_overrides(task_config),
-            {
-                k: v
-                for k, v in (task.config_overrides or {}).items()
-                if k in _COMPONENT_KEYS and isinstance(v, str)
-            },
-            harness={
-                "metric_k": _metric_k,
-                "retrieval_chunk_overfetch": _chunk_overfetch,
-                # Only when set, so every other arm's retriever digest is the
-                # one it always had.
-                **({"no_rag": True} if _no_rag(task) else {}),
-                # The order each track used: the retrieval track always scores
-                # the ranked list; the generator reads its passages reordered
-                # when the arm says so. Without this the manifest showed
-                # reordering off (the retrieval setting) for an arm whose
-                # generator read the reordered list.
-                "context_order": _context_order(
-                    _rc.with_session(shared_session_id).with_query_overrides(gen_config)
-                ),
-            },
+        _manifest_components = {
+            k: v
+            for k, v in (task.config_overrides or {}).items()
+            if k in _COMPONENT_KEYS and isinstance(v, str)
+        }
+        _manifest_harness = {
+            "metric_k": _metric_k,
+            "retrieval_chunk_overfetch": _chunk_overfetch,
+            # Only when set, so every other arm's retriever digest is the
+            # one it always had.
+            **({"no_rag": True} if _no_rag(task) else {}),
+        }
+        # Forced the same way whether or not retrieval ran, so an arm digests
+        # alike on a retrieval-only run and a full one.
+        _retrieval_track_config = dict(task_config)
+        _fix_retrieval_routing(_retrieval_track_config)
+        # The order each track used: the retrieval track always scores the
+        # ranked list; the generator reads its passages reordered when the
+        # arm says so. Without this the manifest showed reordering off (the
+        # retrieval setting) for an arm whose generator read the reordered
+        # list.
+        _track_order = _context_order(
+            _rc.with_session(shared_session_id).with_query_overrides(gen_config)
         )
+        _system["stages"] = track_manifest(
+            {
+                track: stage_manifest(
+                    _rc.with_session(shared_session_id).with_query_overrides(config),
+                    _manifest_components,
+                    harness={**_manifest_harness, "context_order": _track_order[track]},
+                )
+                for track, config in (
+                    ("retrieval", _retrieval_track_config),
+                    ("generation", gen_config),
+                )
+            }
+        )
+        _system["tracks"] = [
+            track for track, ran in (("retrieval", ir_samples), ("generation", gen_samples)) if ran
+        ]
     except Exception as exc:  # the manifest must never cost a result
         logger.warning(f"Could not record the stage manifest: {exc}")
     if _context_free:
         # Read by the reports, which say why this arm has no faithfulness.
         _system["generator_context"] = "none"
+    # Only when something fell back, so a clean task's row, and the run id of
+    # its bundle, are what they were. Outside the comparability key, which
+    # reads named fields only: the bundle's integrity block reports it.
+    _fell_back = {
+        track: tally.to_dict()
+        for track, tally in (("retrieval", _ir_degraded), ("generation", _gen_degraded))
+        if tally.to_dict()
+    }
+    if _fell_back:
+        _system["degraded_stages"] = _fell_back
+    if corpus_info.get("graph"):
+        # Whether this corpus's knowledge graph was built by this run, reused
+        # from an earlier one, or rebuilt because a reused corpus had none (#55).
+        # Outside the comparability key, which reads named fields only.
+        _system["graph"] = corpus_info["graph"]
+        _graph = corpus_info["graph"]
+        # Every query of the arm ran on a graph missing documents, or on none
+        # at all: a fallback, reported as the bundle reports the others (#84),
+        # under the stage name the search's own graph expansion records.
+        _cause = f" ({_graph['error']})" if _graph.get("error") else ""
+        _why = None
+        if _graph.get("state") == "incomplete":
+            _of = _graph.get("documents", 0) + _graph.get("missing", 0)
+            _why = f"the corpus graph is missing {_graph.get('missing')} of {_of} documents"
+            _why += _cause
+        elif _graph.get("state") == "unknown":
+            _why = "the corpus graph could not be checked" + _cause
+        elif _graph.get("entities") == 0 and _graph.get("unparsed_chunks"):
+            # An endpoint that answers 200 with no JSON (a reasoning model's
+            # empty content, a proxy's HTML page) leaves every document done
+            # and the graph empty.
+            _why = (
+                "the corpus graph is empty: "
+                f"{_graph['unparsed_chunks']} replies of the extraction model held no readable JSON"
+            )
+        if _why:
+            for _track, _tally in (("retrieval", _ir_degraded), ("generation", _gen_degraded)):
+                if not _tally.queries:
+                    continue
+                _stages = _system.setdefault("degraded_stages", {}).setdefault(_track, {})
+                _before = _stages.get("graphrag") or {}
+                _stages["graphrag"] = {
+                    **_before,
+                    "queries": _tally.queries,
+                    "of": _tally.queries,
+                    "reasons": [{"reason": _why, "queries": _tally.queries}]
+                    + list(_before.get("reasons") or []),
+                }
 
     result = TaskResult(
         task_key=task.task_key,

@@ -266,8 +266,30 @@ configuring one in code, is covered in
 **In an experiment**, the answers come from `RAG_EVAL_GENERATOR_MODEL`, else
 `MODEL_NAME`, else the provider default above. The judge is separate:
 `RAG_EVAL_JUDGE_MODEL`, else `judge_model:` in the sweep file, else
-`gpt-6-luna`. The run metadata and the comparability key name the judge, so
-results judged by different models never share a leaderboard group.
+`gpt-6-luna`. It uses its own OpenAI-compatible client (`RAG_EVAL_JUDGE_BASE_URL`
+and `RAG_EVAL_JUDGE_API_KEY`, falling back to `OPENAI_BASE_URL` and
+`OPENAI_API_KEY`) so its credentials do not alter provider auto-detection for
+the generator, and it does not follow `OLLAMA_BASE_URL` or the generator's LLM
+provider. To point the judge at a local OpenAI-compatible server (such as
+Ollama's `/v1` or vLLM's `/v1`), set both its `/v1` base URL and a non-empty
+key:
+
+```bash
+export RAG_EVAL_JUDGE_MODEL=llama3.2
+export RAG_EVAL_JUDGE_BASE_URL=http://ollama:11434/v1
+export RAG_EVAL_JUDGE_API_KEY=ollama
+```
+
+Here `ollama` is the name of an Ollama container on the stack's Docker
+network (the Compose stack does not start one). With Ollama on the same
+machine as a local install, use `http://localhost:11434/v1` instead.
+
+The run metadata and the comparability key name the judge, so
+results judged by different models never share a leaderboard group. A run
+that writes no answers (a live run with no generation track) judges nothing,
+so it names no judge, and no answer-similarity model, whatever the
+environment sets. A benchmark answered offline (`generation_only`, or `auto`
+on a benchmark with no corpus) is judged whatever the tracks.
 
 ## Temperature and repeatable runs
 

@@ -86,20 +86,11 @@ class QueryRouter:
         enable = getattr(config, "enable_query_routing", True)
         default_tier_str = getattr(config, "routing_default_tier", "standard")
 
-        # --- Routing disabled: return default tier ---
-        if not enable:
-            default_tier = _parse_tier(default_tier_str)
-            decision = RoutingDecision(
-                tier=default_tier,
-                signals=None,
-                confidence=1.0,
-                rationale="Query routing disabled: using default tier",
-                strategy_used="disabled",
-            )
-            decision.overrides = self.get_tier_overrides(default_tier)
-            return self._apply_downgrade(decision, config)
-
-        # --- Forced tier from API ---
+        # --- Forced tier from the caller ---
+        # Before the disabled check: "routing off" means no tier is chosen per
+        # query, not that a caller's choice is dropped. Read after it, a
+        # forced tier was lost under `speed` (routing off, default fast), so
+        # every agentic arm there searched the fast tier and never ran its loop.
         allow_override = getattr(config, "routing_allow_tier_override", True)
         if forced_tier and allow_override:
             forced_lower = forced_tier.strip().lower()
@@ -120,6 +111,19 @@ class QueryRouter:
                 )
                 decision.overrides = self.get_tier_overrides(tier)
                 return self._apply_downgrade(decision, config)
+
+        # --- Routing disabled: return default tier ---
+        if not enable:
+            default_tier = _parse_tier(default_tier_str)
+            decision = RoutingDecision(
+                tier=default_tier,
+                signals=None,
+                confidence=1.0,
+                rationale="Query routing disabled: using default tier",
+                strategy_used="disabled",
+            )
+            decision.overrides = self.get_tier_overrides(default_tier)
+            return self._apply_downgrade(decision, config)
 
         # --- Strategy-based routing ---
         signals = extract_signals(query, document_ids, classification)

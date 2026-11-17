@@ -31,6 +31,7 @@ def test_the_cli_names_what_was_compared(capsys):
         "system": {"stages": {"retriever": {"digest": "x"}}},
     }
     cli._print_isolation(SimpleNamespace(_results=[row, dict(row, config_name="other")]))
-    out = capsys.readouterr().out
-    assert "configuration that reached each stage" in out
-    assert "arms differ only in the stages they name" not in out
+    out = " ".join(capsys.readouterr().out.split())
+    # The claim is about configuration, and about the settings the arms name.
+    assert "the configuration that reached each stage differs only in the settings" in out
+    assert "the arms name (1 pair compared)" in out

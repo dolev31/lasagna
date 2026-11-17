@@ -2,7 +2,7 @@
 
 The Dockerfile installed ``.[production,pgvector,opensearch,flag-embedding]``:
 no ``qdrant-client``, ``weaviate-client`` or ``pinecone``. So the stack built
-with ``backends/qdrant.yml`` (the CI ``live-compose`` job's choice), and the
+with ``backends/qdrant.yml`` (one of the CI ``live-compose`` job's two backends), and the
 weaviate and pinecone fragments, started an api that could not load its
 backend and never passed its readiness check.
 
