@@ -260,7 +260,7 @@ class TestDatasetRevisions:
         from lasagna.knowledge_evaluation_sdk.datasets import _BENCHMARKS, resolve_dataset_revision
 
         pinned = {name for name, meta in _BENCHMARKS.items() if meta.get("hf_revision")}
-        assert pinned == {"beir/scifact", "beir/hotpotqa", "fever"}
+        assert pinned == {"beir/scifact", "beir/hotpotqa", "fever", "kilt/triviaqa"}
         assert (
             resolve_dataset_revision("beir/scifact") == _BENCHMARKS["beir/scifact"]["hf_revision"]
         )
