@@ -30,7 +30,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -342,15 +342,16 @@ _BENCHMARKS: Dict[str, Dict[str, Any]] = {
     },
     "kilt/triviaqa": {
         "hf_dataset": "facebook/kilt_tasks",
+        "hf_revision": "0f7881c6bf693742af91a31b4d8f827db2f41233",  # pragma: allowlist secret
+        "hf_questions_dataset": "mandarjoshi/trivia_qa",
+        "hf_questions_config": "rc.wikipedia.nocontext",
+        "hf_questions_revision": "0f7faf33a3908546c6fd5b73a660e0f8ff173c2f",  # pragma: allowlist secret
         "description": "KILT TriviaQA: trivia questions as knowledge-intensive task",
         "format": "kilt",
         # The Hub's KILT has no `triviaqa` config; `triviaqa_support_only` is
-        # its TriviaQA, published with the support but without the questions.
+        # its TriviaQA, published with the support and answers without the
+        # questions, which are joined by id from `rc.wikipedia.nocontext`.
         "config": "triviaqa_support_only",
-        "note": (
-            "KILT publishes TriviaQA without its questions, which have to be joined "
-            "from mandarjoshi/trivia_qa by id; the `triviaqa` benchmark has them"
-        ),
     },
     "fever": {
         # A loading script, which `datasets` no longer runs (since 4.0). The
@@ -561,6 +562,26 @@ def load_benchmark(
                     f"No usable split found for '{name}'. Tried: {split}, "
                     f"{', '.join(fallbacks)} (last error: {last_exc})"
                 ) from last_exc
+
+        source_repo = info.get("hf_questions_dataset")
+        if source_repo:
+            q_kwargs: Dict[str, Any] = {}
+            if info.get("hf_questions_config"):
+                q_kwargs["name"] = info["hf_questions_config"]
+            if info.get("hf_questions_revision"):
+                q_kwargs["revision"] = info["hf_questions_revision"]
+            questions_ds = load_dataset(source_repo, split=actual_split, **q_kwargs)
+            ds, matched_count, unmatched_count = _fill_kilt_questions(ds, questions_ds)
+            total_rows = matched_count + unmatched_count
+            logger.info(
+                f"Joined '{name}' ({actual_split}) questions from '{source_repo}': "
+                f"{matched_count}/{total_rows} matched ({unmatched_count} unmatched)"
+            )
+            if unmatched_count:
+                logger.warning(
+                    f"Benchmark '{name}' ({actual_split}): skipped {unmatched_count} of "
+                    f"{total_rows} KILT rows with no matching question in '{source_repo}'"
+                )
 
         # Convert to our evaluation format
         converter = _FORMAT_CONVERTERS.get(fmt)
@@ -1101,6 +1122,48 @@ def _convert_ragbench(ds) -> List[Dict[str, Any]]:
                 )
             samples.append(sample)
     return samples
+
+
+def _fill_kilt_questions(kilt_dataset: Any, questions_dataset: Any) -> Tuple[Any, int, int]:
+    """Join KILT rows with TriviaQA questions by ``id`` == ``question_id``.
+
+    Returns ``(joined_dataset, matched_count, unmatched_count)`` containing only
+    matched rows with ``input`` populated and all original KILT fields
+    (``id``, ``output``, ``meta``) preserved. Neither input dataset is mutated.
+    """
+    from datasets import Dataset
+
+    questions_by_id: Dict[str, str] = {}
+    for row in questions_dataset:
+        qid = row.get("question_id")
+        question = row.get("question")
+        if (
+            isinstance(qid, str)
+            and qid
+            and isinstance(question, str)
+            and question
+            and qid not in questions_by_id
+        ):
+            questions_by_id[qid] = question
+
+    matched_rows: List[Dict[str, Any]] = []
+    total = len(kilt_dataset)
+    for row in kilt_dataset:
+        qid = row.get("id")
+        question = questions_by_id.get(qid) if isinstance(qid, str) and qid else None
+        if question:
+            updated = dict(row)
+            updated["input"] = question
+            matched_rows.append(updated)
+
+    matched_count = len(matched_rows)
+    unmatched_count = total - matched_count
+    if total and not matched_count:
+        raise ValueError(
+            f"KILT question join matched 0 of {total} rows; "
+            "verify the question dataset config and split match the KILT ids."
+        )
+    return Dataset.from_list(matched_rows), matched_count, unmatched_count
 
 
 def _convert_kilt(ds) -> List[Dict[str, Any]]:

@@ -112,14 +112,206 @@ def test_a_split_that_is_really_missing_still_says_so(monkeypatch, tmp_path):
 
 
 def test_a_benchmark_whose_rows_hold_no_question_says_so(monkeypatch, tmp_path):
-    # KILT's TriviaQA comes without its questions: every row converts to
-    # nothing, which used to be an empty benchmark with no error.
+    # A benchmark whose rows produce zero samples after conversion raises an
+    # actionable error instead of returning an empty benchmark.
     import datasets
 
     rows = datasets.Dataset.from_list([{"id": "q1", "input": "", "output": [{"answer": "x"}]}])
     monkeypatch.setattr("datasets.load_dataset", lambda *a, **k: rows)
     with pytest.raises(
         ValueError,
-        match="has 1 rows, but the .kilt. converter made no sample.*without its questions",
+        match="has 1 rows, but the .kilt. converter made no sample from any of them",
     ):
+        ds.load_benchmark("kilt/nq", split="validation", cache_dir=str(tmp_path))
+
+
+def _fake_kilt_and_triviaqa_loader(kilt_rows, triviaqa_rows, calls):
+    import datasets
+
+    kilt_ds = datasets.Dataset.from_list(kilt_rows)
+    tqa_ds = datasets.Dataset.from_list(triviaqa_rows)
+
+    def _load(repo, split=None, **kwargs):
+        calls.append((repo, split, dict(kwargs)))
+        if repo == "facebook/kilt_tasks":
+            return kilt_ds
+        if repo == "mandarjoshi/trivia_qa":
+            return tqa_ds
+        raise AssertionError(f"Unexpected repo {repo}")
+
+    return _load
+
+
+def test_kilt_triviaqa_loads_both_pinned_datasets_and_joins_by_id(monkeypatch, tmp_path):
+    calls = []
+    # Intentionally reversed/non-positional order vs KILT rows.
+    kilt_rows = [
+        {"id": "sfq_2", "input": "", "meta": {"src": "b"}, "output": [{"answer": "Paris"}]},
+        {"id": "sfq_1", "input": "", "meta": {"src": "a"}, "output": [{"answer": "Jim Laker"}]},
+    ]
+    tqa_rows = [
+        {"question_id": "sfq_1", "question": "Who took 19 wickets in a Test match?"},
+        {"question_id": "other_9", "question": "Unrelated question?"},
+        {"question_id": "sfq_2", "question": "What is the capital of France?"},
+    ]
+    monkeypatch.setattr(
+        "datasets.load_dataset",
+        _fake_kilt_and_triviaqa_loader(kilt_rows, tqa_rows, calls),
+    )
+
+    samples = ds.load_benchmark("kilt/triviaqa", split="validation", cache_dir=str(tmp_path))
+
+    assert calls == [
+        (
+            "facebook/kilt_tasks",
+            "validation",
+            {
+                "name": "triviaqa_support_only",
+                "revision": "0f7881c6bf693742af91a31b4d8f827db2f41233",  # pragma: allowlist secret
+            },
+        ),
+        (
+            "mandarjoshi/trivia_qa",
+            "validation",
+            {
+                "name": "rc.wikipedia.nocontext",
+                "revision": "0f7faf33a3908546c6fd5b73a660e0f8ff173c2f",  # pragma: allowlist secret
+            },
+        ),
+    ]
+    assert samples == [
+        {"question": "What is the capital of France?", "ground_truth": "Paris"},
+        {"question": "Who took 19 wickets in a Test match?", "ground_truth": "Jim Laker"},
+    ]
+
+
+def test_kilt_triviaqa_excludes_unmatched_logs_counts_and_respects_n_samples(monkeypatch, tmp_path):
+    from loguru import logger
+
+    calls = []
+    kilt_rows = [
+        {"id": f"id_{i}", "input": "", "meta": {"i": i}, "output": [{"answer": f"ans_{i}"}]}
+        for i in range(7)
+    ]
+    # 5 matched (id_0..id_4), 2 unmatched (id_5, id_6).
+    tqa_rows = [{"question_id": f"id_{i}", "question": f"Question {i}?"} for i in range(5)]
+    monkeypatch.setattr(
+        "datasets.load_dataset",
+        _fake_kilt_and_triviaqa_loader(kilt_rows, tqa_rows, calls),
+    )
+
+    records = []
+    hid = logger.add(lambda msg: records.append(str(msg)), level="INFO")
+    try:
+        samples = ds.load_benchmark(
+            "kilt/triviaqa", split="validation", n_samples=5, seed=42, cache_dir=str(tmp_path)
+        )
+    finally:
+        logger.remove(hid)
+
+    assert len(samples) == 5
+    assert all(
+        s["question"].startswith("Question ") and s["ground_truth"].startswith("ans_")
+        for s in samples
+    )
+    joined_logs = "\n".join(records)
+    assert "5/7 matched (2 unmatched)" in joined_logs
+    assert "skipped 2 of 7" in joined_logs
+
+
+def test_kilt_triviaqa_raises_when_zero_rows_match(monkeypatch, tmp_path):
+    calls = []
+    kilt_rows = [{"id": "sfq_1", "input": "", "meta": {}, "output": [{"answer": "x"}]}]
+    tqa_rows = [{"question_id": "different_id", "question": "Q?"}]
+    monkeypatch.setattr(
+        "datasets.load_dataset",
+        _fake_kilt_and_triviaqa_loader(kilt_rows, tqa_rows, calls),
+    )
+
+    with pytest.raises(ValueError, match="matched 0 of 1 rows"):
         ds.load_benchmark("kilt/triviaqa", split="validation", cache_dir=str(tmp_path))
+
+
+def test_fill_kilt_questions_preserves_metadata_handles_duplicates_and_does_not_mutate():
+    import datasets
+
+    kilt_rows = [
+        {"id": "dup_1", "input": "", "meta": {"tag": "keep"}, "output": [{"answer": "A1"}]},
+        {"id": "", "input": "", "meta": {"tag": "missing_id"}, "output": [{"answer": "A2"}]},
+    ]
+    tqa_rows = [
+        {"question_id": "dup_1", "question": "First question?"},
+        {"question_id": "dup_1", "question": "Second duplicate question?"},
+        {"question_id": "empty_q", "question": ""},
+        {"question_id": None, "question": "No ID?"},
+    ]
+    kilt_ds = datasets.Dataset.from_list(kilt_rows)
+    tqa_ds = datasets.Dataset.from_list(tqa_rows)
+
+    joined, matched_count, unmatched_count = ds._fill_kilt_questions(kilt_ds, tqa_ds)
+
+    assert matched_count == 1
+    assert unmatched_count == 1
+    assert len(joined) == 1
+    assert joined[0]["id"] == "dup_1"
+    assert joined[0]["input"] == "First question?"
+    assert joined[0]["meta"] == {"tag": "keep"}
+    assert joined[0]["output"] == [{"answer": "A1"}]
+    # Original input dataset was not mutated.
+    assert kilt_ds[0]["input"] == ""
+
+
+def test_kilt_triviaqa_uses_actual_split_on_split_fallback(monkeypatch, tmp_path):
+    import datasets
+
+    calls = []
+    kilt_ds = datasets.Dataset.from_list(
+        [{"id": "sfq_1", "input": "", "meta": {}, "output": [{"answer": "42"}]}]
+    )
+    tqa_ds = datasets.Dataset.from_list([{"question_id": "sfq_1", "question": "What is 6x7?"}])
+
+    def _load(repo, split=None, **kwargs):
+        calls.append((repo, split))
+        if repo == "facebook/kilt_tasks" and split == "test":
+            raise ValueError('Unknown split "test". Should be one of ["validation"].')
+        if repo == "facebook/kilt_tasks" and split == "validation":
+            return kilt_ds
+        if repo == "mandarjoshi/trivia_qa":
+            return tqa_ds
+        raise AssertionError(f"Unexpected call: {repo}, {split}")
+
+    monkeypatch.setattr("datasets.load_dataset", _load)
+    monkeypatch.setattr(ds, "_available_splits", lambda *a, **k: ["validation"])
+
+    samples = ds.load_benchmark(
+        "kilt/triviaqa",
+        split="test",
+        cache_dir=str(tmp_path),
+        allow_split_fallback=True,
+    )
+    assert calls == [
+        ("facebook/kilt_tasks", "test"),
+        ("facebook/kilt_tasks", "validation"),
+        ("mandarjoshi/trivia_qa", "validation"),
+    ]
+    assert samples == [{"question": "What is 6x7?", "ground_truth": "42"}]
+
+
+def test_kilt_nq_continues_using_single_dataset_path(monkeypatch, tmp_path):
+    import datasets
+
+    calls = []
+    rows = datasets.Dataset.from_list(
+        [{"id": "nq_1", "input": "Who wrote Hamlet?", "output": [{"answer": "Shakespeare"}]}]
+    )
+
+    def _load(repo, split=None, **kwargs):
+        calls.append((repo, split, dict(kwargs)))
+        return rows
+
+    monkeypatch.setattr("datasets.load_dataset", _load)
+
+    samples = ds.load_benchmark("kilt/nq", split="validation", cache_dir=str(tmp_path))
+    assert len(calls) == 1
+    assert calls[0][0] == "facebook/kilt_tasks"
+    assert samples == [{"question": "Who wrote Hamlet?", "ground_truth": "Shakespeare"}]

@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`kilt/triviaqa` now joins its questions from TriviaQA and loads usable samples (#101).**
+  `facebook/kilt_tasks` (`triviaqa_support_only`, pinned) publishes answers and
+  support without questions, so `load_benchmark("kilt/triviaqa", ...)` now
+  loads questions from `mandarjoshi/trivia_qa` (`rc.wikipedia.nocontext`,
+  pinned), joins them by `id == question_id` before sampling and conversion,
+  and logs matched/unmatched counts.
+
 - **A generation experiment checks its judge before the first answer is written.**
   `Experiment._run` and the CLI (`lasagna benchmark run`, `lasagna benchmark experiment`)
   now validate the RAGAS judge once before corpus ingestion, checkpoint clearing, or
