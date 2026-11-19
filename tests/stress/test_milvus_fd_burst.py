@@ -100,7 +100,7 @@ def _worker_main(barrier, collection_name, milvus_uri, result_queue):
     handler_id = logger.add(lambda m: warnings.append(m.record["message"]), level="WARNING")
     # Importing the lasagna package disables its own loguru records
     # (src/lasagna/__init__.py); the CLIs re-enable them, and so does this
-    # harness -- otherwise index-path warnings would be silently dropped.
+    # harness. Otherwise index-path warnings would be silently dropped.
     logger.enable("lasagna")
 
     outcome = {"raised": None, "warnings": []}
