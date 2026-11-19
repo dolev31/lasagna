@@ -8,6 +8,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A `speed`-profile arm that turns on a retrieval stage now runs it on the
+  generation track (#98).** Non-agentic generation-track arms under `speed`
+  default to the `standard` routing tier (mirroring retrieval) instead of
+  `fast`, so an arm that explicitly enables HyDE, reranking, hybrid search,
+  MMR, context reordering, or hierarchical retrieval executes that stage and
+  its generation metrics reflect the change. A plain `speed`-profile arm
+  retains its existing behavior and numbers, explicit `enable_query_routing`
+  and `routing_default_tier` overrides are preserved, and
+  `system.routing_tiers` records the effective routing tiers executed per
+  track.
 - **A generation experiment checks its judge before the first answer is written.**
   `Experiment._run` and the CLI (`lasagna benchmark run`, `lasagna benchmark experiment`)
   now validate the RAGAS judge once before corpus ingestion, checkpoint clearing, or
