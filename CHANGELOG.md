@@ -84,6 +84,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   now reads CHANGELOG.md as it will be once merged and fails while an added
   line sits under a released version; a maintainer adds `changelog-history`
   to correct a released version's notes.
+- The Compose stack's Qdrant service now raises its `nofile` ulimit to 524288.
+  A burst of eight clients creating collections and payload indexes exhausted
+  the container's default 1024 file descriptors ("Too many open files") and
+  could take the vector store down. Every other store service now has a
+  written decision, checked by `tests/test_compose_nofile_policy.py`: Milvus
+  holds at its default (measured), OpenSearch waits for its measurement, and
+  a new backend cannot inherit the default unnoticed.
 
 ## [0.3.0] - 2026-11-07
 
