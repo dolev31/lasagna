@@ -55,6 +55,7 @@ def stubbed(monkeypatch, tmp_path):
     monkeypatch.setattr(providers, "get_llm_provider", lambda: provider)
     monkeypatch.setattr(ragas, "RAGASEvaluator", _Judge)
     monkeypatch.setattr(exp, "_build_judge_llm", lambda *a, **k: None)
+    monkeypatch.setattr(exp, "_check_judge_llm", lambda *a, **k: None)
 
 
 def test_six_tasks_say_it_once_and_record_it(stubbed, tmp_path):

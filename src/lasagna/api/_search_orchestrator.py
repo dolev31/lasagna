@@ -2227,7 +2227,13 @@ class SearchOrchestrator:
             from lasagna.agentic.agentic_rag import AgenticRAG
             from lasagna.providers import get_llm_provider
 
-            llm = get_llm_provider().get_llm()
+            temperature = float(getattr(config, "agent_temperature", 0.0) or 0.0)
+            provider = get_llm_provider()
+            llm = (
+                provider.get_llm(temperature=temperature)
+                if temperature != 0.0
+                else provider.get_llm()
+            )
             max_iterations = getattr(config, "max_agent_iterations", 3)
             agent = AgenticRAG(
                 llm=llm,

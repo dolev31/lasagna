@@ -17,6 +17,89 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   benchmark is counted for the corpus and named in the bundle as a
   `contextual_retrieval` fallback, which `lasagna results validate --strict`
   refuses (#49).
+- **A generation experiment checks its judge before the first answer is written.**
+  `Experiment._run` and the CLI (`lasagna benchmark run`, `lasagna benchmark experiment`)
+  now validate the RAGAS judge once before corpus ingestion, checkpoint clearing, or
+  answer generation using its independent `RAG_EVAL_JUDGE_*` / `OPENAI_*`
+  configuration, while retrieval-only runs still do not probe the judge (#96).
+- Agentic reasoning and chunk-refinement LLM calls now honor the session's
+  `agent_temperature`, including shared and pinned loop models (#82). Previously,
+  `RAGConfig.agent_temperature` documented a default of `0.1` that never reached
+  any LLM call because models were built with the provider default (`0.0`). The
+  runtime default remains `0.0` so existing behavior does not silently change,
+  explicit session `agent_temperature` values now reach every reasoning and
+  chunk-refinement call, and adaptive complexity classification and CRAG
+  document grading remain deterministic at `0.0`.
+- **Four benchmarks load again, and a fifth says why it cannot.** `datasets`
+  5, the version the release pins, refuses a Hub repository named without its
+  owner, and since 4.0 it no longer runs loading scripts. `triviaqa`,
+  `hotpotqa` and `kilt/nq` named `trivia_qa`, `hotpot_qa` and `kilt_tasks`,
+  and `fever` was a script, so none of them loaded, and the loader reported
+  each failure as a missing split ("Split 'validation' is not available").
+  They now name their repositories in full, at the same commits, so their
+  comparability keys do not change. FEVER loads the Hub's parquet conversion
+  of its script, pinned to the commit that was checked, one split at a time,
+  online or from the local cache. A dataset that does not load now says why,
+  instead of naming a split. `kilt/triviaqa` has never loaded: the Hub's KILT
+  has no `triviaqa` config, and the `triviaqa_support_only` it has carries no
+  questions. It now says so; the `triviaqa` benchmark has the questions.
+- **An agentic arm under `speed` runs its loop.** `pipeline.query` forces the
+  agentic tier for an arm that names an agentic pipeline, and the router
+  dropped any forced tier whenever a profile turned query routing off. Under
+  `speed` (routing off, default tier `fast`), every agentic arm (the five
+  published loops, the structured graph and legacy ReAct) searched the fast
+  tier, never ran its loop, and was scored on the harness's own answer, with
+  no warning. A tier the caller forces now holds when routing is off, unless
+  `routing_allow_tier_override` is false. That also covers `routing_tier` on
+  `POST /api/v1/search`, the citations route and the SDK's `search`, and CRAG,
+  which forces the agentic tier and, with `use_agentic_rag` off, now runs the
+  standard tier under `speed` instead of the fast one. An agentic sample
+  answered by any other tier now counts in `agentic_fallback`, not only one
+  whose agentic run failed. Numbers move under a profile with routing off and
+  a default tier other than `comprehensive` (of the built-in profiles,
+  `speed`): for agentic arms, and for a CRAG arm that turned on a stage the
+  fast tier turns off, such as a reranker.
+- **An agentic arm's exact match and F1 score its own answer.** The
+  generation track has the harness's generator answer from the passages each
+  search returned, so arms are compared on the same generator. For an agentic
+  arm the loop writes an answer too, and the judged metrics already scored it
+  (`faithfulness` was the loop's answer, `faithfulness_regen` the harness's).
+  Exact match, token F1, ROUGE-L, containment, abstention and answer
+  similarity scored only the harness's answer, so one row judged two answers,
+  and `lasagna results significance -m exact_match` compared the harness's
+  answers, not the loops. They now follow the judged metrics: the unsuffixed
+  key is the loop's answer where it gave one, `_regen` keeps the harness's,
+  `_agentic` is the loop's alone, and the loop's answer is saved with the
+  trajectory and shown in `lasagna results view` beside the harness's. A
+  question the loop answered no longer counts in `generations_failed` when
+  the harness's generator wrote nothing; `generations_failed_regen` counts
+  those. Numbers move for agentic arms only, and the metrics version is now
+  1.8, so results from earlier builds do not share a comparability key with
+  new ones.
+- **Self-Ask answers with a reasoning model.** A reasoning model served with
+  its thinking split off (Ollama's `think`, on by default for Qwen3; vLLM's
+  reasoning parser) applies a stop sequence to its reasoning too, and any of
+  Self-Ask's stops can end a reply there. Qwen3's reasoning opens with
+  `<think>` and a newline, so the newline stop on the final-answer call (made
+  when the chain ends without a final answer, as every question did once it
+  used its five follow-ups) ended the reply after two tokens, and the loop
+  answered nothing. A loop step whose stops leave the reply empty is now asked
+  once more without them and cut by the loop, after any blank lines it opens
+  with; a reply that opens with one of Self-Ask's markers is still empty. A
+  model whose replies the stops do not empty makes the same calls as before.
+- **A CHANGELOG line lands under Unreleased.** A branch started before a
+  release merges cleanly, but its line then sits under that release, so the
+  release notes claim a change the release never had. The "PR quality" check
+  now reads CHANGELOG.md as it will be once merged and fails while an added
+  line sits under a released version; a maintainer adds `changelog-history`
+  to correct a released version's notes.
+- The Compose stack's Qdrant service now raises its `nofile` ulimit to 524288.
+  A burst of eight clients creating collections and payload indexes exhausted
+  the container's default 1024 file descriptors ("Too many open files") and
+  could take the vector store down. Every other store service now has a
+  written decision, checked by `tests/test_compose_nofile_policy.py`: Milvus
+  holds at its default (measured), OpenSearch waits for its measurement, and
+  a new backend cannot inherit the default unnoticed.
 
 ## [0.3.0] - 2026-11-07
 

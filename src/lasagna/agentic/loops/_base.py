@@ -40,17 +40,60 @@ from lasagna.agentic.prompts import resolve_node_model
 from lasagna.core.base_components import AgenticPipelineInput, BaseAgenticPipeline
 
 
+def llm_with_temperature(llm: Any, temperature: float, *, model_name: Optional[str] = None) -> Any:
+    """Return ``llm`` at ``temperature``, or build one from the provider when ``llm`` is None.
+
+    When a caller supplies an LLM whose ``temperature`` differs from the target,
+    copy that model with ``model_copy(update={"temperature": temperature})`` so
+    its model name, provider, credentials, and base URL are preserved rather
+    than replaced with the provider's default model.
+    """
+    if llm is None:
+        from lasagna.providers import get_llm_provider
+
+        return get_llm_provider().get_llm(model_name=model_name, temperature=temperature)
+
+    from langchain_core.runnables import RunnableBinding
+
+    if isinstance(llm, RunnableBinding):
+        inner = llm_with_temperature(llm.bound, temperature)
+        return llm if inner is llm.bound else llm.model_copy(update={"bound": inner})
+
+    built_temp = getattr(llm, "temperature", None)
+    if built_temp == temperature:
+        return llm
+
+    model_copy = getattr(llm, "model_copy", None)
+    if callable(model_copy):
+        copied = model_copy(update={"temperature": temperature})
+        from lasagna.utils.llm_cache import attach_llm_cache, carries_llm_cache
+
+        if carries_llm_cache(copied):
+            kept = getattr(copied, "temperature", temperature)
+            attach_llm_cache(copied, copied.cache.platform, temperature == 0 and kept == 0)
+        return copied
+
+    if built_temp is None and temperature == 0.0:
+        return llm
+
+    raise TypeError(
+        f"Cannot set temperature={temperature} on {type(llm).__name__}: "
+        "model does not support model_copy()"
+    )
+
+
 def loop_llm(method: str, pipeline_input: AgenticPipelineInput, config: Any) -> Any:
     """The chat model a loop reasons with, or RuntimeError when there is none."""
     pinned = resolve_node_model(method, config)
+    temperature = float(setting(config, "agent_temperature") or 0.0)
     llm = None if pinned else pipeline_input.llm
     if llm is None:
         try:
-            from lasagna.providers import get_llm_provider
-
-            llm = get_llm_provider().get_llm(model_name=pinned)
+            llm = llm_with_temperature(None, temperature, model_name=pinned)
         except Exception as exc:
             raise RuntimeError(f"{method} needs an LLM, and none is configured") from exc
+    else:
+        llm = llm_with_temperature(llm, temperature)
     if llm is None:
         raise RuntimeError(f"{method} needs an LLM, and none is configured")
     return llm
@@ -210,9 +253,31 @@ class LoopRun:
         return response
 
     async def complete(self, prompt: str, stop: Optional[Sequence[str]] = None) -> str:
-        """One LLM call; returns its text, cut at the first stop sequence."""
+        """One LLM call; returns its text, cut at the first stop sequence.
+
+        A reasoning model served with its thinking split off (Ollama's
+        ``think``, vLLM's reasoning parser) is stopped on its reasoning too:
+        Qwen3's opens with ``<think>\\n``, so a newline stop ends the reply
+        before it says anything. A reply the stops left empty is asked once
+        more without them, and cut here after the blank lines it opens with.
+        """
         text = message_text(await self.ask(prompt, stop=stop))
-        return cut_at(text, stop) if stop else text
+        if not stop:
+            return text
+        if not text.strip():
+            text = message_text(await self.ask(prompt)).lstrip()
+            # A reply that opens with a marker stop ("\nIntermediate answer:")
+            # is empty, as a server honoring stops returns it; after the strip
+            # the newline before the marker cannot be seen, so the marker alone
+            # decides. A blank stop ("\n") is what the strip is for.
+            if any(s.strip() and text.startswith(s.lstrip()) for s in stop):
+                return ""
+            if not text.strip():
+                logger.warning(
+                    f"[{self.method}] the model answered nothing, with its stop sequences "
+                    f"and without: a reasoning model may have spent its max_tokens reasoning"
+                )
+        return cut_at(text, stop)
 
     def result(
         self,
