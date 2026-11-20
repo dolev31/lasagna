@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Contextual enrichment, graph extraction and RAPTOR call the configured LLM
+  provider, Ollama included, through one helper (`get_ingest_llm`). Each built
+  an OpenAI client of its own, so with only `OLLAMA_BASE_URL` set a
+  `max_quality` corpus was ingested with no context and no graph. Enrichment
+  also called a chat model's `generate` with a string and kept every chunk
+  unchanged; it now calls `invoke`. A chunk whose enrichment fails during a
+  benchmark is counted for the corpus and named in the bundle as a
+  `contextual_retrieval` fallback, which `lasagna results validate --strict`
+  refuses (#49).
 - **A generation experiment checks its judge before the first answer is written.**
   `Experiment._run` and the CLI (`lasagna benchmark run`, `lasagna benchmark experiment`)
   now validate the RAGAS judge once before corpus ingestion, checkpoint clearing, or

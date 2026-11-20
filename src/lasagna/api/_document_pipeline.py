@@ -1238,10 +1238,9 @@ class DocumentPipeline:
         if getattr(config, "enable_contextual_retrieval", False) and text:
             try:
                 from ..processing.contextual import ContextualEnricher
-                from ..providers.llm_provider import SimpleLLMProvider
+                from ..providers import get_ingest_llm
 
-                llm = SimpleLLMProvider().get_llm()
-                enricher = ContextualEnricher(llm_provider=llm)
+                enricher = ContextualEnricher(llm_provider=get_ingest_llm())
                 doc_context = text[:10000]
                 chunk_texts = [ct for ct, _ in chunks_with_metadata]
                 enriched_texts = enricher.enrich_batch(doc_context, chunk_texts)
@@ -1249,10 +1248,18 @@ class DocumentPipeline:
                     (et, cm) for et, (_, cm) in zip(enriched_texts, chunks_with_metadata)
                 ]
                 logger.info(
-                    f"Contextual enrichment: enriched {len(enriched_texts)} chunks "
-                    f"for document {document.document_id} "
+                    f"Contextual enrichment: enriched {len(enriched_texts) - enricher.failed} "
+                    f"of {len(enriched_texts)} chunks for document {document.document_id} "
                     f"(doc context: {len(doc_context)} chars)"
                 )
+                if enricher.failed:
+                    from ..utils import degraded
+
+                    logger.warning(
+                        f"Contextual enrichment failed for {enricher.failed} chunks of "
+                        f"{document.document_id}, stored without context: {enricher.first_error}"
+                    )
+                    degraded.record("contextual_retrieval", enricher.first_error)
             except Exception as e:
                 logger.warning(f"Contextual enrichment failed, using original chunks: {e}")
 
@@ -1300,12 +1307,11 @@ class DocumentPipeline:
         if getattr(config, "enable_raptor", False):
             try:
                 from ..retrieval.raptor import RaptorTreeBuilder
-                from ..providers.llm_provider import SimpleLLMProvider
+                from ..providers import get_ingest_llm
 
-                llm = SimpleLLMProvider().get_llm(temperature=0)
                 builder = RaptorTreeBuilder(
                     embedding_manager=embedder,
-                    llm_provider=llm,
+                    llm_provider=get_ingest_llm(temperature=0),
                     max_cluster_size=getattr(config, "raptor_max_cluster_size", 10),
                     max_levels=getattr(config, "raptor_max_levels", 5),
                 )

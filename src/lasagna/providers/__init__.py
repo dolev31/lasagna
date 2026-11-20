@@ -27,7 +27,7 @@ Quick Start::
 import os
 from pathlib import Path
 from threading import Lock
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from loguru import logger
 
@@ -211,6 +211,18 @@ def get_llm_provider() -> LLMProvider:
     return _llm_provider
 
 
+def get_ingest_llm(model_name: Optional[str] = None, temperature: float = 0.0) -> Any:
+    """The chat model an ingest-time feature calls: contextual enrichment, graph extraction, RAPTOR.
+
+    One place for every LLM call made while a corpus is ingested, through the
+    configured provider (`get_llm_provider`), so ingest uses the LLM the rest of
+    Lasagna uses, Ollama included. Each feature used to build
+    ``SimpleLLMProvider().get_llm()``, an OpenAI client whatever was configured (#49).
+    Raises `LLMProviderNotConfigured` when no LLM is configured.
+    """
+    return get_llm_provider().get_llm(model_name=model_name, temperature=temperature)
+
+
 class LLMProviderNotConfigured(RuntimeError):
     """No LLM is configured: a setup problem, not a failure of the request."""
 
@@ -309,6 +321,7 @@ __all__ = [
     "get_config_provider",
     "set_config_provider",
     "get_llm_provider",
+    "get_ingest_llm",
     "set_llm_provider",
     "get_session_provider",
     "set_session_provider",

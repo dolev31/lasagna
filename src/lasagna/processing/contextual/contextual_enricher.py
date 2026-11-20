@@ -9,6 +9,7 @@ Reference: https://www.anthropic.com/news/contextual-retrieval
 
 import hashlib
 import asyncio
+import threading
 from collections import OrderedDict
 from typing import Dict, List, Optional
 from loguru import logger
@@ -51,9 +52,10 @@ class ContextualEnricher:
         """Initialize the contextual enricher.
 
         Args:
-            llm_provider: LLM provider instance for generating context.
-                         Must have a `generate(prompt: str) -> str` method
-                         or `agenerate(prompt: str) -> str` async method.
+            llm_provider: The model that writes the context: a LangChain chat
+                         model (called with `invoke` / `ainvoke`), or any object
+                         with `generate(prompt: str) -> str` or
+                         `agenerate(prompt: str) -> str`.
             cache: Optional pre-populated cache mapping (doc_hash, chunk_hash) -> context
             max_cache_size: Maximum cache entries before LRU eviction
             max_document_chars: Characters of the document put in the prompt;
@@ -68,6 +70,16 @@ class ContextualEnricher:
         self._max_cache_size = max_cache_size
         self._max_document_chars = max_document_chars
         self._strict = strict
+        #: Chunks handed back without context, and the first reason: the caller
+        #: reports them, so a corpus stored unenriched is not taken for an enriched one.
+        self.failed = 0
+        self.first_error = ""
+        self._failed_lock = threading.Lock()
+
+    def _fell_back(self, reason: object) -> None:
+        with self._failed_lock:
+            self.failed += 1
+            self.first_error = self.first_error or str(reason)
 
     def _document_for_prompt(self, document: str) -> str:
         if self._max_document_chars is None:
@@ -114,6 +126,7 @@ class ContextualEnricher:
             if self._strict:
                 raise RuntimeError("contextual retrieval needs an LLM, and none is configured")
             logger.warning("No LLM provider configured for contextual retrieval")
+            self._fell_back("no LLM is configured")
             return chunk
 
         prompt = self.CONTEXT_PROMPT.format(
@@ -122,14 +135,17 @@ class ContextualEnricher:
         )
 
         try:
-            if hasattr(self._llm, "generate"):
-                context = self._llm.generate(prompt)
-            elif hasattr(self._llm, "invoke"):
+            # `invoke` first: a LangChain chat model also has `generate`, which
+            # takes lists of messages and fails on a string (#49).
+            if hasattr(self._llm, "invoke"):
                 context = self._llm.invoke(prompt)
+            elif hasattr(self._llm, "generate"):
+                context = self._llm.generate(prompt)
             else:
                 if self._strict:
                     raise TypeError("the contextual retrieval LLM has no generate() or invoke()")
                 logger.warning("LLM provider has no generate/invoke method")
+                self._fell_back("the LLM has no generate() or invoke()")
                 return chunk
 
             # Handle LangChain-style response objects
@@ -147,6 +163,7 @@ class ContextualEnricher:
             if self._strict:
                 raise
             logger.warning(f"Contextual enrichment failed: {e}")
+            self._fell_back(e)
             return chunk
 
     async def aenrich(self, full_document: str, chunk: str) -> str:
@@ -161,6 +178,7 @@ class ContextualEnricher:
         if self._llm is None:
             if self._strict:
                 raise RuntimeError("contextual retrieval needs an LLM, and none is configured")
+            self._fell_back("no LLM is configured")
             return chunk
 
         prompt = self.CONTEXT_PROMPT.format(
@@ -169,16 +187,18 @@ class ContextualEnricher:
         )
 
         try:
-            if hasattr(self._llm, "agenerate"):
-                context = await self._llm.agenerate(prompt)
-            elif hasattr(self._llm, "ainvoke"):
+            # `ainvoke` first, as in `enrich`: a chat model's `agenerate` takes message lists.
+            if hasattr(self._llm, "ainvoke"):
                 context = await self._llm.ainvoke(prompt)
+            elif hasattr(self._llm, "agenerate"):
+                context = await self._llm.agenerate(prompt)
             elif hasattr(self._llm, "generate"):
                 loop = asyncio.get_running_loop()
                 context = await loop.run_in_executor(None, self._llm.generate, prompt)
             else:
                 if self._strict:
                     raise TypeError("the contextual retrieval LLM has no generate() or invoke()")
+                self._fell_back("the LLM has no generate() or invoke()")
                 return chunk
 
             if hasattr(context, "content"):
@@ -191,6 +211,7 @@ class ContextualEnricher:
             if self._strict:
                 raise
             logger.warning(f"Async contextual enrichment failed: {e}")
+            self._fell_back(e)
             return chunk
 
     def context_for(self, full_document: str, chunk: str) -> str:
