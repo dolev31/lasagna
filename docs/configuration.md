@@ -284,6 +284,40 @@ Here `ollama` is the name of an Ollama container on the stack's Docker
 network (the Compose stack does not start one). With Ollama on the same
 machine as a local install, use `http://localhost:11434/v1` instead.
 
+A reasoning model as judge (Qwen3, the DeepSeek-R1 distills, gpt-oss) reasons
+before it answers, and the reasoning counts against the judge's output-token
+limit, RAGAS's 1024. A reply cut off there loses its judgement. The log says
+how many replies were cut off, and so does the task's error when a metric is
+left with no score; the check a run makes before it writes answers says so
+too. Raise the limit for such a judge:
+
+```bash
+export RAG_EVAL_JUDGE_MAX_TOKENS=8192
+```
+
+Or turn the judge's reasoning off, where the server takes that per request.
+`RAG_EVAL_JUDGE_EXTRA_BODY` is a JSON object added to every judge request; for
+Qwen3 on vLLM or SGLang:
+
+```bash
+export RAG_EVAL_JUDGE_EXTRA_BODY='{"chat_template_kwargs": {"enable_thinking": false}}'
+```
+
+With its reasoning on, Qwen3-8B on vLLM sometimes answered a judge request with
+an empty object, `{}`, which no metric can read; with it off it answered with
+the object asked for, in a few tokens. vLLM and SGLang read
+`chat_template_kwargs`; other servers have their own fields for this. The
+extra body's fields replace the request's own, so it may not set the ones the
+judge sets (`model`, `messages`, `response_format`, `max_tokens`,
+`max_completion_tokens`, `temperature`, `top_p`); a `reasoning_effort` in it
+replaces the one Lasagna sends gpt-6-luna. It is recorded with any key that
+names a credential hidden, but give the judge its key through
+`RAG_EVAL_JUDGE_API_KEY`, not here.
+
+Unset, the judge sends the request RAGAS sends. The run metadata records the
+limit (`sampling.judge.max_tokens`) and both settings (`rag_overrides`), and
+`--resume` does not restore judgements made under others.
+
 The run metadata and the comparability key name the judge, so
 results judged by different models never share a leaderboard group. A run
 that writes no answers (a live run with no generation track) judges nothing,

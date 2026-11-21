@@ -18,14 +18,23 @@ import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 #: Setting names whose value is a credential, a host or a connection string.
+#: ``token`` but not ``max_tokens`` or ``tokenizer``: ``docling_max_tokens`` is
+#: a count and ``chunk_tokenizer`` a model, both recorded; ``auth_tokens`` is not.
 _SENSITIVE_NAME = re.compile(
-    r"(key|token|secret|password|passwd|dsn|uri|url|endpoint|host|broker|backend_config)",
+    r"(key|(?<!max_)token(?!izer)|secret|password|passwd|dsn|uri|url|endpoint|host|broker|backend_config)",
     re.IGNORECASE,
 )
 _REDACTED = "<redacted>"
 
-#: Evaluation variables that change a number: which models judge and write.
-_EVAL_MODEL_ENV = ("RAG_EVAL_JUDGE_MODEL", "RAG_EVAL_GENERATOR_MODEL", "RAG_EVAL_SIMILARITY_MODEL")
+#: Evaluation variables that change a number: which models judge and write,
+#: and the judge's output-token limit and extra request fields.
+_EVAL_MODEL_ENV = (
+    "RAG_EVAL_JUDGE_MODEL",
+    "RAG_EVAL_JUDGE_MAX_TOKENS",
+    "RAG_EVAL_JUDGE_EXTRA_BODY",
+    "RAG_EVAL_GENERATOR_MODEL",
+    "RAG_EVAL_SIMILARITY_MODEL",
+)
 
 
 def package_version() -> Optional[str]:
@@ -47,21 +56,39 @@ def _setting_names() -> set:
     return names - {"upload_dir", "db_path", "citation_db_path"}
 
 
+#: JSON settings a user writes whatever their name: recorded parsed, with every
+#: key that names a credential hidden.
+_JSON_SETTINGS = frozenset({"RAG_EVAL_JUDGE_EXTRA_BODY"})
+
+
+def _redact_keys(value: Any) -> Any:
+    """``value`` with every key that names a credential hidden, at any depth."""
+    from lasagna.core.provenance import redact
+
+    if isinstance(value, dict):
+        return {
+            k: _REDACTED if _SENSITIVE_NAME.search(str(k)) else _redact_keys(v)
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_keys(v) for v in value]
+    return redact(value)
+
+
 def _redact_value(name: str, raw: str) -> Any:
     from lasagna.core.provenance import redact
 
-    if _SENSITIVE_NAME.search(name) or "://" in raw:
+    sensitive = bool(_SENSITIVE_NAME.search(name)) or "://" in raw
+    if sensitive or name in _JSON_SETTINGS:
         if raw.strip()[:1] == "{":
             try:
                 parsed = json.loads(raw)
             except ValueError:
-                return _REDACTED
+                parsed = None
             if isinstance(parsed, dict):
-                return {
-                    k: _REDACTED if _SENSITIVE_NAME.search(str(k)) else redact(v)
-                    for k, v in parsed.items()
-                }
-        return _REDACTED
+                return _redact_keys(parsed)
+        if sensitive:
+            return _REDACTED
     return redact(raw)
 
 

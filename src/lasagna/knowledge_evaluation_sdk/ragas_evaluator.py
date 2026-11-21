@@ -18,7 +18,10 @@ Example:
     print(results)  # {'faithfulness': 0.92, 'context_precision': 0.85, ...}
 """
 
+import functools
+import json
 import os
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from loguru import logger
@@ -100,6 +103,146 @@ _RAGAS_KEY_MAP = {
 
 class UnusableMetric(Exception):
     """Every judgement for a metric was unusable; it has no score."""
+
+
+#: RAGAS's own limit on a judge reply (``InstructorModelArgs.max_tokens``), the
+#: judge's when ``RAG_EVAL_JUDGE_MAX_TOKENS`` sets none.
+RAGAS_JUDGE_MAX_TOKENS = 1024
+
+
+def judge_max_tokens() -> Optional[int]:
+    """``RAG_EVAL_JUDGE_MAX_TOKENS``, or None to keep RAGAS's limit.
+
+    A reasoning model as judge (Qwen3, the DeepSeek-R1 distills, gpt-oss)
+    reasons before it answers, and the reasoning counts against this limit: at
+    RAGAS's 1024 its judgements are cut off.
+    """
+    raw = os.environ.get("RAG_EVAL_JUDGE_MAX_TOKENS", "").strip()
+    if not raw:
+        return None
+    if not raw.isdigit() or int(raw) == 0:
+        raise ValueError(
+            f"RAG_EVAL_JUDGE_MAX_TOKENS must be a whole number of tokens above 0, not {raw!r}"
+        )
+    return int(raw)
+
+
+#: Request fields the judge sets itself. The extra body's fields replace the
+#: request's, so these would make the run record false or break the judge.
+_JUDGE_OWN_FIELDS = frozenset(
+    {
+        "model",
+        "messages",
+        "response_format",
+        "max_tokens",
+        "max_completion_tokens",
+        "temperature",
+        "top_p",
+    }
+)
+
+
+def judge_extra_body() -> Optional[Dict[str, Any]]:
+    """``RAG_EVAL_JUDGE_EXTRA_BODY``: fields added to every judge request, or None.
+
+    For what a server reads beyond the OpenAI API, such as turning a model's
+    reasoning off: ``{"chat_template_kwargs": {"enable_thinking": false}}`` on
+    vLLM or SGLang for Qwen3. A JSON object that sets none of the fields the
+    judge sets itself; anything else is refused. The value is not repeated in
+    the error, as it may hold what a server takes as a credential.
+    """
+    raw = os.environ.get("RAG_EVAL_JUDGE_EXTRA_BODY", "").strip()
+    if not raw:
+        return None
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise ValueError("RAG_EVAL_JUDGE_EXTRA_BODY must be a JSON object")
+    own = sorted(_JUDGE_OWN_FIELDS & set(body))
+    if own:
+        raise ValueError(
+            f"RAG_EVAL_JUDGE_EXTRA_BODY may not set {', '.join(own)}: the judge sets "
+            f"them itself (its token limit is RAG_EVAL_JUDGE_MAX_TOKENS)"
+        )
+    return body
+
+
+class _CutOff:
+    """How many of one judge's replies stopped at its token limit, and that limit."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self.count = 0
+        self._lock = threading.Lock()
+
+    def add(self) -> None:
+        with self._lock:  # RAGAS runs judgements in several threads
+            self.count += 1
+
+
+#: The judge attribute that holds its ``_CutOff`` (set by ``_build_judge_llm``).
+CUT_OFF_ATTR = "_lasagna_cut_off"
+
+
+def count_cut_off_replies(client: Any, limit: int) -> _CutOff:
+    """Count, on ``client`` in place, the replies cut off at the token limit.
+
+    instructor turns such a reply (``finish_reason: length``) into
+    ``IncompleteOutputException`` and RAGAS into NaN, so this count is all that
+    says why the judgement was lost. Patched in place, as
+    ``instrument_openai_client`` is: instructor dispatches on
+    ``isinstance(client, OpenAI)``. Never raises.
+    """
+    tally = _CutOff(limit)
+    try:
+        completions = client.chat.completions
+        for name in ("create", "parse"):
+            original = getattr(completions, name, None)
+            if original is None:
+                continue
+
+            def counted(*args: Any, _original: Any = original, **kwargs: Any) -> Any:
+                response = _original(*args, **kwargs)
+                choices = getattr(response, "choices", None) or ()
+                if any(getattr(c, "finish_reason", None) == "length" for c in choices):
+                    tally.add()
+                return response
+
+            setattr(completions, name, functools.wraps(original)(counted))
+    except Exception as exc:  # noqa: BLE001 - a missing count must never break the judge
+        logger.debug(f"Could not count the judge's cut-off replies: {exc}")
+    return tally
+
+
+def _tally(judge: Any) -> Optional[_CutOff]:
+    """``judge``'s tally, read from its own attributes.
+
+    Not ``getattr``: on a ``Mock`` judge that returns a made-up child.
+    """
+    tally = getattr(judge, "__dict__", {}).get(CUT_OFF_ATTR)
+    return tally if isinstance(tally, _CutOff) else None
+
+
+def cut_off_replies(judge: Any) -> int:
+    """How many of ``judge``'s replies so far were cut off at its token limit."""
+    tally = _tally(judge)
+    return tally.count if tally else 0
+
+
+def cut_off_note(judge: Any, since: int = 0) -> str:
+    """Why ``judge``'s replies after the first ``since`` were lost, and the fix; "" if none were."""
+    tally = _tally(judge)
+    count = tally.count - since if tally else 0
+    if count <= 0:
+        return ""
+    replies = "reply was" if count == 1 else "replies were"
+    return (
+        f"{count} judge {replies} cut off at the judge's limit of {tally.limit} output "
+        f"tokens, which a reasoning model can spend before it answers: raise "
+        f"RAG_EVAL_JUDGE_MAX_TOKENS"
+    )
 
 
 def _extract_score(result: Any, metric_name: str) -> float:
@@ -381,6 +524,7 @@ class RAGASEvaluator:
         """
         ragas = _import_ragas()
         metric_names = metrics or DEFAULT_METRICS
+        cut_off_before = cut_off_replies(self._llm)
 
         # Build RAGAS samples
         samples = []
@@ -506,14 +650,27 @@ class RAGASEvaluator:
                     per_sample = []
 
             return DetailedEvalResult(
-                aggregate=aggregate, per_sample=per_sample, failed_metrics=failed_metrics
+                aggregate=aggregate,
+                per_sample=per_sample,
+                failed_metrics=failed_metrics,
+                cut_off_note=self._cut_off_since(cut_off_before),
             )
 
         except Exception as e:
             logger.error(f"RAGAS detailed evaluation failed: {e}")
             return DetailedEvalResult(
-                aggregate={}, per_sample=[], failed_metrics=list(active_metric_names)
+                aggregate={},
+                per_sample=[],
+                failed_metrics=list(active_metric_names),
+                cut_off_note=self._cut_off_since(cut_off_before),
             )
+
+    def _cut_off_since(self, before: int) -> str:
+        """The judge's replies cut off since ``before``, logged with the fix when any were."""
+        note = cut_off_note(self._llm, before)
+        if note:
+            logger.warning(f"RAGAS: {note}.")
+        return note
 
 
 @dataclass
@@ -527,11 +684,14 @@ class DetailedEvalResult:
         failed_metrics: Metrics that were requested but could not be scored
             (every judgement unusable, or the evaluation itself failed). They
             are absent from ``aggregate``, never reported as 0.0.
+        cut_off_note: How many of the judge's replies in this evaluation were
+            cut off at its token limit, and the fix; empty when none were.
     """
 
     aggregate: Dict[str, float] = field(default_factory=dict)
     per_sample: List[Dict[str, float]] = field(default_factory=list)
     failed_metrics: List[str] = field(default_factory=list)
+    cut_off_note: str = ""
 
     def scores_for_metric(self, metric: str) -> List[float]:
         """Extract per-sample scores for a single metric.

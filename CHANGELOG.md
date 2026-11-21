@@ -8,6 +8,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A reasoning model can judge.** Qwen3, the DeepSeek-R1 distills and gpt-oss
+  reason before they answer, and RAGAS's limit of 1024 output tokens cut their
+  judgements off, so a generation run with one as judge failed with "judge
+  produced no usable scores" and no reason. `RAG_EVAL_JUDGE_MAX_TOKENS` raises
+  the limit, and the run metadata records it. A reply cut off is counted in the
+  log, and in the task's error when a metric is left with no score.
+  `RAG_EVAL_JUDGE_EXTRA_BODY` adds fields to every judge request, such as
+  `{"chat_template_kwargs": {"enable_thinking": false}}`, which turns Qwen3's
+  reasoning off on vLLM: with it on, Qwen3-8B sometimes answered `{}`. The
+  check before answers are written says the judge answered, cut off or with
+  JSON that does not fit, instead of blaming its credentials. Unset, the
+  judge's requests are unchanged. In `rag_overrides`, `docling_max_tokens`,
+  `query2doc_max_tokens` and `chunk_tokenizer` are no longer recorded as
+  `<redacted>`, so `--resume` tells their values apart, and a credential key
+  inside a JSON setting is hidden at any depth, not only at the top (#111).
 - **A generation experiment checks its judge before the first answer is written.**
   `Experiment._run` and the CLI (`lasagna benchmark run`, `lasagna benchmark experiment`)
   now validate the RAGAS judge once before corpus ingestion, checkpoint clearing, or
