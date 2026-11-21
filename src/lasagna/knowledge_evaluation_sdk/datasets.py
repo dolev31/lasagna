@@ -309,7 +309,12 @@ _BENCHMARKS: Dict[str, Dict[str, Any]] = {
         "format": "musique",
     },
     "wiki_multihop": {
-        "hf_dataset": "varun-v-rao/2WikiMultiHopQA",
+        "hf_dataset": "xanhho/2WikiMultihopQA",
+        "hf_revision": "612bc5039a457880d9e7d84c3b0a4cf154b70e4f",
+        "hf_data_files": {
+            split: f"{split}.parquet"
+            for split in ("dev", "train")
+        },
         "description": "2WikiMultiHopQA: multi-hop reasoning over two Wikipedia articles",
         "format": "wiki_multihop",
     },

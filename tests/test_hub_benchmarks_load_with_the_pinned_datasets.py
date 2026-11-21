@@ -24,6 +24,58 @@ def _hub_ids():
                 yield name, key, info[key]
 
 
+def test_wiki_multihop_loads_from_the_parquet_mirror_online_and_from_the_cache(monkeypatch, offline):
+    # The XanhHo mirror stores each split in its own parquet file.
+    # Its splits are fetched at the pinned commit and the requested one
+    # read as plain parquet, so a cached split loads offline too.
+    downloads, reads = [], []
+
+    def fake_snapshot(repo, **kwargs):
+        downloads.append((repo, kwargs))
+        return "/hub/xanhho"
+
+    def fake_load(builder, **kwargs):
+        reads.append((builder, kwargs))
+        raise RuntimeError("stop after the read is recorded")
+
+    monkeypatch.setattr("huggingface_hub.snapshot_download", fake_snapshot)
+    monkeypatch.setattr("datasets.load_dataset", fake_load)
+    monkeypatch.setattr(ds, "_offline", lambda: offline)
+    with pytest.raises(RuntimeError):
+        ds.load_benchmark("wiki_multihop", split="dev", n_samples=1, cache_dir="/nonexistent")
+    assert downloads == [
+        (
+            "xanhho/2WikiMultihopQA",
+            {
+                "repo_type": "dataset",
+                "revision": "612bc5039a457880d9e7d84c3b0a4cf154b70e4f",
+                # Every split, as load_dataset fetches them: the offline check
+                # that the dataset is cached then holds for any split.
+                "allow_patterns": ["dev.parquet", "train.parquet"],
+                "local_files_only": offline,
+            },
+        )
+    ]
+    assert reads == [
+        (
+            "parquet",
+            {
+                "data_files": {"dev": "/hub/xanhho/dev.parquet"},
+                "split": "dev",
+            },
+        )
+    ]
+
+
+def test_a_split_wiki_multihop_does_not_have_lists_the_ones_it_has(monkeypatch, tmp_path):
+    def no_download(*args, **kwargs):
+        raise AssertionError("a missing split downloads nothing")
+
+    monkeypatch.setattr("huggingface_hub.snapshot_download", no_download)
+    with pytest.raises(ValueError, match="available: dev, train"):
+        ds.load_benchmark("wiki_multihop", split="validation", n_samples=1, cache_dir=str(tmp_path))
+
+
 def test_every_hub_dataset_is_named_with_its_owner():
     unnamed = [(name, key, repo) for name, key, repo in _hub_ids() if "/" not in repo]
     assert unnamed == []
