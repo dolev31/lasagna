@@ -2421,6 +2421,12 @@ cost many judge calls: about 13 per answer for noise sensitivity over five
 contexts.</p>
 <p>Citation metrics are absent, not zero, when the answer cites nothing or no judge
 is available.</p>
+<p>A reasoning model as judge spends its output tokens reasoning before it
+answers. At RAGAS's limit of 1024 its judgements can be cut off; set
+<code>RAG_EVAL_JUDGE_MAX_TOKENS</code> higher, or turn its reasoning off with
+<code>RAG_EVAL_JUDGE_EXTRA_BODY</code> (see <a href="../../configuration/">configuration</a>). The
+log counts the replies cut off that way, and so does the task's error when a
+metric is left with no score.</p>
 <h2 id="operational-metrics">Operational metrics<a class="headerlink" href="#operational-metrics" title="Permanent link">&para;</a></h2>
 <p>Lower is better for all of these.</p>
 <table>

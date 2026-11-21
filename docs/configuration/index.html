@@ -2690,6 +2690,35 @@ key:</p>
 <p>Here <code>ollama</code> is the name of an Ollama container on the stack's Docker
 network (the Compose stack does not start one). With Ollama on the same
 machine as a local install, use <code>http://localhost:11434/v1</code> instead.</p>
+<p>A reasoning model as judge (Qwen3, the DeepSeek-R1 distills, gpt-oss) reasons
+before it answers, and the reasoning counts against the judge's output-token
+limit, RAGAS's 1024. A reply cut off there loses its judgement. The log says
+how many replies were cut off, and so does the task's error when a metric is
+left with no score; the check a run makes before it writes answers says so
+too. Raise the limit for such a judge:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">RAG_EVAL_JUDGE_MAX_TOKENS</span><span class="o">=</span><span class="m">8192</span>
+</code></pre></div>
+<p>Or turn the judge's reasoning off, where the server takes that per request.
+<code>RAG_EVAL_JUDGE_EXTRA_BODY</code> is a JSON object added to every judge request; for
+Qwen3 on vLLM or SGLang:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">RAG_EVAL_JUDGE_EXTRA_BODY</span><span class="o">=</span><span class="s1">'{"chat_template_kwargs": {"enable_thinking": false}}'</span>
+</code></pre></div>
+<p>With its reasoning on, Qwen3-8B on vLLM sometimes answered a judge request with
+an empty object, <code>{}</code>, which no metric can read; with it off it answered with
+the object asked for, in a few tokens. vLLM and SGLang read
+<code>chat_template_kwargs</code>. For Qwen3 on Ollama's <code>/v1</code>, <code>reasoning_effort</code> does
+it; Ollama ignores <code>think</code>, its own API's field, there:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">RAG_EVAL_JUDGE_EXTRA_BODY</span><span class="o">=</span><span class="s1">'{"reasoning_effort": "none"}'</span>
+</code></pre></div>
+<p>Other servers have their own fields for this. The extra body's fields replace
+the request's own, so it may not set the ones the judge sets (<code>model</code>,
+<code>messages</code>, <code>response_format</code>, <code>max_tokens</code>, <code>max_completion_tokens</code>,
+<code>temperature</code>, <code>top_p</code>); a <code>reasoning_effort</code> in it replaces the one Lasagna
+sends gpt-6-luna. It is recorded with any key that names a credential hidden,
+but give the judge its key through <code>RAG_EVAL_JUDGE_API_KEY</code>, not here.</p>
+<p>Unset, the judge sends the request RAGAS sends. The run metadata records the
+limit (<code>sampling.judge.max_tokens</code>) and both settings (<code>rag_overrides</code>), and
+<code>--resume</code> does not restore judgements made under others.</p>
 <p>The run metadata and the comparability key name the judge, so
 results judged by different models never share a leaderboard group. A run
 that writes no answers (a live run with no generation track) judges nothing,
