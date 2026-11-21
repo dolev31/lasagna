@@ -71,6 +71,51 @@ class TestTheRunRecordsWhatItRanUnder:
         }
         assert "never-recorded" not in json.dumps(meta)
 
+    def test_a_token_count_or_tokenizer_is_recorded_and_a_token_credential_is_not(
+        self, monkeypatch
+    ):
+        """A count of tokens or a tokenizer name moves a number and is no secret.
+
+        ``token`` in a name meant a credential, so ``docling_max_tokens``,
+        ``query2doc_max_tokens`` and ``chunk_tokenizer`` were recorded as
+        ``<redacted>``, and runs that differed only there shared a resume
+        fingerprint.
+        """
+        monkeypatch.setenv("RAG_DOCLING_MAX_TOKENS", "256")
+        monkeypatch.setenv("RAG_QUERY2DOC_MAX_TOKENS", "64")
+        monkeypatch.setenv("RAG_CHUNK_TOKENIZER", "bert-base-uncased")
+        monkeypatch.setenv("RAG_EVAL_JUDGE_MAX_TOKENS", "8192")
+        monkeypatch.setenv(
+            "RAG_VECTOR_BACKEND_CONFIG",
+            '{"uri": "http://db:19530", "token": "s", "auth_tokens": ["t1"]}',
+        )
+        overrides = _run_metadata(_cfg())["rag_overrides"]
+        assert overrides["RAG_DOCLING_MAX_TOKENS"] == "256"
+        assert overrides["RAG_QUERY2DOC_MAX_TOKENS"] == "64"
+        assert overrides["RAG_CHUNK_TOKENIZER"] == "bert-base-uncased"
+        assert overrides["RAG_EVAL_JUDGE_MAX_TOKENS"] == "8192"
+        assert overrides["RAG_VECTOR_BACKEND_CONFIG"]["token"] == "<redacted>"
+        assert overrides["RAG_VECTOR_BACKEND_CONFIG"]["auth_tokens"] == "<redacted>"
+
+    def test_a_credential_inside_a_json_setting_is_redacted_at_any_depth(self, monkeypatch):
+        """The judge's extra body and a backend config are JSON a user writes:
+        a key that names a credential is hidden wherever it sits."""
+        monkeypatch.setenv(
+            "RAG_EVAL_JUDGE_EXTRA_BODY",
+            '{"chat_template_kwargs": {"enable_thinking": false}, "api_key": "sk-x"}',  # pragma: allowlist secret
+        )
+        monkeypatch.setenv(
+            "RAG_VECTOR_BACKEND_CONFIG", '{"uri": "http://db:19530", "auth": {"password": "p"}}'
+        )
+        meta = _run_metadata(_cfg())
+        overrides = meta["rag_overrides"]
+        assert overrides["RAG_EVAL_JUDGE_EXTRA_BODY"] == {
+            "chat_template_kwargs": {"enable_thinking": False},
+            "api_key": "<redacted>",
+        }
+        assert overrides["RAG_VECTOR_BACKEND_CONFIG"]["auth"] == {"password": "<redacted>"}
+        assert "sk-x" not in json.dumps(meta)
+
     def test_save_puts_the_versions_beside_the_results(self, tmp_path):
         path = tmp_path / "results.json"
         meta = {"metrics_version": METRICS_VERSION, "package_version": __version__}
