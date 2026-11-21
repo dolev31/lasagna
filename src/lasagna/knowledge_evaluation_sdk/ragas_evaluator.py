@@ -145,11 +145,12 @@ _JUDGE_OWN_FIELDS = frozenset(
 def judge_extra_body() -> Optional[Dict[str, Any]]:
     """``RAG_EVAL_JUDGE_EXTRA_BODY``: fields added to every judge request, or None.
 
-    For what a server reads beyond the OpenAI API, such as turning a model's
-    reasoning off: ``{"chat_template_kwargs": {"enable_thinking": false}}`` on
-    vLLM or SGLang for Qwen3. A JSON object that sets none of the fields the
-    judge sets itself; anything else is refused. The value is not repeated in
-    the error, as it may hold what a server takes as a credential.
+    For fields a server reads that the judge does not set, such as turning a
+    model's reasoning off: for Qwen3, ``{"chat_template_kwargs":
+    {"enable_thinking": false}}`` on vLLM or SGLang and ``{"reasoning_effort":
+    "none"}`` on Ollama's ``/v1``. A JSON object that sets none of the fields
+    the judge sets itself; anything else is refused. The value is not repeated
+    in the error, as it may hold what a server takes as a credential.
     """
     raw = os.environ.get("RAG_EVAL_JUDGE_EXTRA_BODY", "").strip()
     if not raw:

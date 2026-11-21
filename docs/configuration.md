@@ -306,13 +306,19 @@ export RAG_EVAL_JUDGE_EXTRA_BODY='{"chat_template_kwargs": {"enable_thinking": f
 With its reasoning on, Qwen3-8B on vLLM sometimes answered a judge request with
 an empty object, `{}`, which no metric can read; with it off it answered with
 the object asked for, in a few tokens. vLLM and SGLang read
-`chat_template_kwargs`; other servers have their own fields for this. The
-extra body's fields replace the request's own, so it may not set the ones the
-judge sets (`model`, `messages`, `response_format`, `max_tokens`,
-`max_completion_tokens`, `temperature`, `top_p`); a `reasoning_effort` in it
-replaces the one Lasagna sends gpt-6-luna. It is recorded with any key that
-names a credential hidden, but give the judge its key through
-`RAG_EVAL_JUDGE_API_KEY`, not here.
+`chat_template_kwargs`. For Qwen3 on Ollama's `/v1`, `reasoning_effort` does
+it; Ollama ignores `think`, its own API's field, there:
+
+```bash
+export RAG_EVAL_JUDGE_EXTRA_BODY='{"reasoning_effort": "none"}'
+```
+
+Other servers have their own fields for this. The extra body's fields replace
+the request's own, so it may not set the ones the judge sets (`model`,
+`messages`, `response_format`, `max_tokens`, `max_completion_tokens`,
+`temperature`, `top_p`); a `reasoning_effort` in it replaces the one Lasagna
+sends gpt-6-luna. It is recorded with any key that names a credential hidden,
+but give the judge its key through `RAG_EVAL_JUDGE_API_KEY`, not here.
 
 Unset, the judge sends the request RAGAS sends. The run metadata records the
 limit (`sampling.judge.max_tokens`) and both settings (`rag_overrides`), and

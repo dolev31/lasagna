@@ -16,10 +16,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   log, and in the task's error when a metric is left with no score.
   `RAG_EVAL_JUDGE_EXTRA_BODY` adds fields to every judge request, such as
   `{"chat_template_kwargs": {"enable_thinking": false}}`, which turns Qwen3's
-  reasoning off on vLLM: with it on, Qwen3-8B sometimes answered `{}`. The
-  check before answers are written says the judge answered, cut off or with
-  JSON that does not fit, instead of blaming its credentials. Unset, the
-  judge's requests are unchanged. In `rag_overrides`, `docling_max_tokens`,
+  reasoning off on vLLM (`{"reasoning_effort": "none"}` on Ollama): with it on,
+  Qwen3-8B on vLLM sometimes answered `{}`. The check before answers are
+  written says the judge answered, cut off or with JSON that does not fit,
+  instead of blaming its credentials. Unset, the judge's requests are
+  unchanged. In `rag_overrides`, `docling_max_tokens`,
   `query2doc_max_tokens` and `chunk_tokenizer` are no longer recorded as
   `<redacted>`, so `--resume` tells their values apart, and a credential key
   inside a JSON setting is hidden at any depth, not only at the top (#111).
