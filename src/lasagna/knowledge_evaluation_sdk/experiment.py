@@ -397,6 +397,29 @@ def _no_usable_scores(metrics: List[str], cut_off_note: str = "") -> str:
     return f"{message}: {cut_off_note}" if cut_off_note else message
 
 
+def _generation_failure(failed: int, total: int, cut_off: int, detail: str = "") -> str:
+    """The task's error when too many answers came back empty, with the cut-offs among them.
+
+    ``cut_off`` counts the replies that came back empty at their output-token
+    limit while the answers were made (#114): a reasoning model can spend the
+    limit before it answers, and the error then says so instead of only "could
+    not be generated". The generator's and the loops' limit is ``llm_max_tokens``.
+    """
+    message = f"{failed} of {total} answers could not be generated"
+    if detail:
+        message += f" ({detail})"
+    if cut_off:
+        from lasagna.providers.llm_provider import default_max_tokens
+
+        replies = "reply" if cut_off == 1 else "replies"
+        message += (
+            f"; {cut_off} LLM {replies} came back empty at their output-token limit, which "
+            f"a reasoning model can spend before it answers (the generator's and the "
+            f"loops' limit is {default_max_tokens()}: raise RAG_LLM_MAX_TOKENS)"
+        )
+    return message
+
+
 def _per_query_costs(rows: List[Dict[str, Any]]) -> Dict[str, float]:
     """System tokens and LLM calls per query, as named aggregates.
 
@@ -1274,6 +1297,12 @@ def _known_override_keys() -> set:
 _COMPONENT_SETTING_KEYS = frozenset({"ensemble_reranker_models", "ensemble_reranker_weights"})
 
 
+#: Settings every arm shares, read from the environment by the process, not
+#: from an arm's overrides; an arm setting one would run the control's value
+#: under its own name.
+_PROCESS_SETTINGS = {"llm_max_tokens": "RAG_LLM_MAX_TOKENS"}
+
+
 def _check_override_keys(pipeline_configs: List[Dict[str, Any]]) -> None:
     """Refuse an arm setting a key nothing reads, before any corpus is ingested.
 
@@ -1283,6 +1312,13 @@ def _check_override_keys(pipeline_configs: List[Dict[str, Any]]) -> None:
     """
     known = _known_override_keys()
     for pc in pipeline_configs:
+        shared = sorted(set(pc.get("overrides") or {}) & set(_PROCESS_SETTINGS))
+        if shared:
+            names = ", ".join(_PROCESS_SETTINGS[k] for k in shared)
+            raise ValueError(
+                f"Arm {pc.get('name')!r} sets {', '.join(shared)}, which every arm shares: "
+                f"set {names} in the environment instead."
+            )
         unknown = sorted(set(pc.get("overrides") or {}) - known)
         if not unknown:
             continue
@@ -2932,6 +2968,7 @@ def _sampling_record() -> Dict[str, Any]:
         "generator": {
             "model": generator,
             "sampling": sampling_label(generator, platform) if generator else None,
+            "max_tokens": _generator_limit_for_record(),
         },
         "judge": {
             "model": judge,
@@ -2939,6 +2976,19 @@ def _sampling_record() -> Dict[str, Any]:
             "max_tokens": _judge_limit_for_record(),
         },
     }
+
+
+def _generator_limit_for_record() -> Optional[int]:
+    """The generator's output-token limit (``llm_max_tokens``), for the run metadata.
+
+    None if the settings cannot be read; the run itself then stops on them.
+    """
+    from lasagna.providers.llm_provider import default_max_tokens
+
+    try:
+        return default_max_tokens()
+    except ValueError:
+        return None
 
 
 def _judge_limit_for_record() -> Optional[int]:
@@ -3614,6 +3664,10 @@ async def _eval_offline(
                             prompt,
                         )
                     answer = response.content if hasattr(response, "content") else str(response)
+                if not (answer or "").strip():
+                    # Nothing came back (a reasoning model can spend its whole
+                    # limit reasoning): a failed answer, as on the live path.
+                    _offline_failed_generations += 1
                 per_sample_latencies.append((time.monotonic() - q_start) * 1000)
             except Exception as exc:
                 # The gold context used to stand in as the answer here, which a
@@ -3791,8 +3845,12 @@ async def _eval_offline(
         result.metrics["generations_failed"] = float(_offline_failed_generations)
         if _offline_failed_generations / len(eval_samples) > _MAX_FAILED_GENERATION_RATE:
             _offline_failures.append(
-                f"{_offline_failed_generations} of {len(eval_samples)} answers could not be "
-                f"generated (failed, or no generator configured)"
+                _generation_failure(
+                    _offline_failed_generations,
+                    len(eval_samples),
+                    sum(u.cut_off for u in per_sample_usage),
+                    "failed, or no generator configured",
+                )
             )
     result.error = "; ".join(_offline_failures) or None
     result.compute_latency_stats()
@@ -5847,7 +5905,9 @@ async def _eval_live(
         # a tenth means the generation metrics describe the outage, not the system.
         if _failed_generations / _n_generations > _MAX_FAILED_GENERATION_RATE:
             _eval_failures.append(
-                f"{_failed_generations} of {_n_generations} answers could not be generated"
+                _generation_failure(
+                    _failed_generations, _n_generations, gen_meter.usage(SYSTEM).cut_off
+                )
             )
 
     _system = _ran_system(

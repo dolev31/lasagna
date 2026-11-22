@@ -184,6 +184,7 @@ Data lives in `~/.lasagna` (`LASAGNA_DATA_DIR`): the databases in `dbs/`
 | `query2doc_format` | str | `"dense"` | `LASAGNA_QUERY2DOC_FORMAT`, `RAG_QUERY2DOC_FORMAT` | Query2doc: 'dense' (q [SEP] d') or 'sparse' (q repeated, then d'). |
 | `query2doc_query_repeats` | int | `5` | `LASAGNA_QUERY2DOC_QUERY_REPEATS`, `RAG_QUERY2DOC_QUERY_REPEATS` | Query2doc: how many times the query precedes its pseudo-document (sparse form). |
 | `query2doc_max_tokens` | int | `128` | `LASAGNA_QUERY2DOC_MAX_TOKENS`, `RAG_QUERY2DOC_MAX_TOKENS` | Query2doc: token budget for the generated pseudo-document. |
+| `llm_max_tokens` | int, 1 to 262144 | `1000` | `LASAGNA_LLM_MAX_TOKENS`, `RAG_LLM_MAX_TOKENS` | Output tokens of an LLM call whose caller names no limit (generator, loops, ingestion). |
 | `enable_crag` | bool | `false` | `LASAGNA_ENABLE_CRAG`, `RAG_ENABLE_CRAG` | Enable Corrective RAG: LLM grades retrieval quality post-search. |
 | `crag_web_search_fallback` | bool | `false` | `LASAGNA_CRAG_WEB_SEARCH_FALLBACK`, `RAG_CRAG_WEB_SEARCH_FALLBACK` | Enable web search fallback for Corrective RAG. |
 
