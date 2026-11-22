@@ -14,6 +14,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the whole run with `IndexError: pop from an empty deque`. The judge now runs
   in a thread, as it does on the live path; its spend still counts as the
   judge's.
+- **`kilt/triviaqa` loads (#101).** The Hub's KILT publishes TriviaQA
+  (`triviaqa_support_only`) with its answers and support but without the
+  questions, so the benchmark never loaded. It now takes each row's question
+  from `mandarjoshi/trivia_qa` (`rc.wikipedia.nocontext`) by id, with both
+  datasets pinned, before sampling. Every row matches: 5,359 in `validation`
+  and 61,844 in `train`. KILT keeps its test answers hidden, so run it with
+  `--split validation`.
 - **A `speed`-profile arm that turns on a retrieval stage now runs it on the
   generation track (#98).** Under `speed`, the generation track ran every
   non-agentic arm at the `fast` tier, which turns off HyDE, reranking, hybrid
@@ -53,7 +60,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   explicit session `agent_temperature` values now reach every reasoning and
   chunk-refinement call, and adaptive complexity classification and CRAG
   document grading remain deterministic at `0.0`.
-- **Four benchmarks load again, and a fifth says why it cannot.** `datasets`
+- **Four benchmarks load again.** `datasets`
   5, the version the release pins, refuses a Hub repository named without its
   owner, and since 4.0 it no longer runs loading scripts. `triviaqa`,
   `hotpotqa` and `kilt/nq` named `trivia_qa`, `hotpot_qa` and `kilt_tasks`,
@@ -63,9 +70,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   comparability keys do not change. FEVER loads the Hub's parquet conversion
   of its script, pinned to the commit that was checked, one split at a time,
   online or from the local cache. A dataset that does not load now says why,
-  instead of naming a split. `kilt/triviaqa` has never loaded: the Hub's KILT
-  has no `triviaqa` config, and the `triviaqa_support_only` it has carries no
-  questions. It now says so; the `triviaqa` benchmark has the questions.
+  instead of naming a split.
 - **An agentic arm under `speed` runs its loop.** `pipeline.query` forces the
   agentic tier for an arm that names an agentic pipeline, and the router
   dropped any forced tier whenever a profile turned query routing off. Under
