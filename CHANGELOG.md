@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **An offline run no longer crashes in its judge (#117).** In
+  `generation_only` mode (`offline` before) the judge ran inside the event
+  loop, so RAGAS re-entered that loop through `nest_asyncio`, which could stop
+  the whole run with `IndexError: pop from an empty deque`. The judge now runs
+  in a thread, as it does on the live path; its spend still counts as the
+  judge's.
 - **`kilt/triviaqa` loads (#101).** The Hub's KILT publishes TriviaQA
   (`triviaqa_support_only`) with its answers and support but without the
   questions, so the benchmark never loaded. It now takes each row's question
