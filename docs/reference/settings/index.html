@@ -3833,6 +3833,13 @@ setting is ignored with a warning that suggests the closest one. Booleans take
 <td>Query2doc: token budget for the generated pseudo-document.</td>
 </tr>
 <tr>
+<td><code>llm_max_tokens</code></td>
+<td>int, 1 to 262144</td>
+<td><code>1000</code></td>
+<td><code>LASAGNA_LLM_MAX_TOKENS</code>, <code>RAG_LLM_MAX_TOKENS</code></td>
+<td>Output tokens of an LLM call whose caller names no limit (generator, loops, ingestion).</td>
+</tr>
+<tr>
 <td><code>enable_crag</code></td>
 <td>bool</td>
 <td><code>false</code></td>

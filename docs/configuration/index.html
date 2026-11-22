@@ -2719,6 +2719,32 @@ but give the judge its key through <code>RAG_EVAL_JUDGE_API_KEY</code>, not here
 <p>Unset, the judge sends the request RAGAS sends. The run metadata records the
 limit (<code>sampling.judge.max_tokens</code>) and both settings (<code>rag_overrides</code>), and
 <code>--resume</code> does not restore judgements made under others.</p>
+<p>A reasoning model as generator meets a limit too. Every call through <code>get_llm</code>
+that names no limit asks for at most <code>llm_max_tokens</code> output tokens, 1000
+unless set: the harness's generator, every loop, agentic RAG's agent, the LLM
+rerankers, and at ingestion contextual retrieval, RAPTOR and graph extraction. A reasoning
+model reasons inside it, so an answer that needs more comes back empty, and a
+task with too many empty answers fails with "could not be generated", saying
+how many replies came back empty at the limit. Raise it:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">RAG_LLM_MAX_TOKENS</span><span class="o">=</span><span class="m">8192</span>
+</code></pre></div>
+<p>A caller that passes its own limit (the LLM chunkers) keeps it. The setting is
+the process's, so a sweep arm cannot set it. To an OpenAI-compatible provider
+(<code>ollama</code> through <code>OLLAMA_BASE_URL</code> without the <code>local</code> extra, <code>vllm</code>,
+<code>together</code> and the others), Lasagna sends the limit as <code>max_tokens</code>, which they
+all read; Ollama's <code>/v1</code> ignores the <code>max_completion_tokens</code> that LangChain
+sends. With the <code>local</code> extra, <code>ollama</code> uses Ollama's own API, which takes the
+limit as <code>num_predict</code>. Through <code>OPENAI_BASE_URL</code> Lasagna sends
+<code>max_completion_tokens</code>, as OpenAI's reasoning models require, so reach Ollama
+as the <code>ollama</code> provider. The run metadata records the limit
+(<code>sampling.generator.max_tokens</code>) and the setting (<code>rag_overrides</code>).</p>
+<p>A loop also decodes at <code>agent_temperature</code>, 0 by default. With its reasoning
+on, Qwen3-8B at temperature 0 reasoned to every limit it was given (up to
+20,480 tokens) on one server start and stopped at 1,635 on another, while
+sampled (Qwen's advice for thinking is 0.6) the same call answered in under 900
+tokens each time. For such a model in a loop, set <code>RAG_AGENT_TEMPERATURE=0.6</code>
+as well. The harness's own generator stays at temperature 0, so for an arm
+without a loop, turn the model's reasoning off instead.</p>
 <p>The run metadata and the comparability key name the judge, so
 results judged by different models never share a leaderboard group. A run
 that writes no answers (a live run with no generation track) judges nothing,
