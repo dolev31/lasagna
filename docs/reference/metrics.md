@@ -67,6 +67,13 @@ contexts.
 Citation metrics are absent, not zero, when the answer cites nothing or no judge
 is available.
 
+A reasoning model as judge spends its output tokens reasoning before it
+answers. At RAGAS's limit of 1024 its judgements can be cut off; set
+`RAG_EVAL_JUDGE_MAX_TOKENS` higher, or turn its reasoning off with
+`RAG_EVAL_JUDGE_EXTRA_BODY` (see [configuration](../configuration.md)). The
+log counts the replies cut off that way, and so does the task's error when a
+metric is left with no score.
+
 ## Operational metrics
 
 Lower is better for all of these.

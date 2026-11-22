@@ -8,13 +8,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **`kilt/triviaqa` now joins its questions from TriviaQA and loads usable samples (#101).**
-  `facebook/kilt_tasks` (`triviaqa_support_only`, pinned) publishes answers and
-  support without questions, so `load_benchmark("kilt/triviaqa", ...)` now
-  loads questions from `mandarjoshi/trivia_qa` (`rc.wikipedia.nocontext`,
-  pinned), joins them by `id == question_id` before sampling and conversion,
-  and logs matched/unmatched counts.
-
+- **`kilt/triviaqa` loads (#101).** The Hub's KILT publishes TriviaQA
+  (`triviaqa_support_only`) with its answers and support but without the
+  questions, so the benchmark never loaded. It now takes each row's question
+  from `mandarjoshi/trivia_qa` (`rc.wikipedia.nocontext`) by id, with both
+  datasets pinned, before sampling. Every row matches: 5,359 in `validation`
+  and 61,844 in `train`. KILT keeps its test answers hidden, so run it with
+  `--split validation`.
+- **A reasoning model can judge.** Qwen3, the DeepSeek-R1 distills and gpt-oss
+  reason before they answer, and RAGAS's limit of 1024 output tokens cut their
+  judgements off, so a generation run with one as judge failed with "judge
+  produced no usable scores" and no reason. `RAG_EVAL_JUDGE_MAX_TOKENS` raises
+  the limit, and the run metadata records it. A reply cut off is counted in the
+  log, and in the task's error when a metric is left with no score.
+  `RAG_EVAL_JUDGE_EXTRA_BODY` adds fields to every judge request, such as
+  `{"chat_template_kwargs": {"enable_thinking": false}}`, which turns Qwen3's
+  reasoning off on vLLM (`{"reasoning_effort": "none"}` on Ollama): with it on,
+  Qwen3-8B on vLLM sometimes answered `{}`. The check before answers are
+  written says the judge answered, cut off or with JSON that does not fit,
+  instead of blaming its credentials. Unset, the judge's requests are
+  unchanged. In `rag_overrides`, `docling_max_tokens`,
+  `query2doc_max_tokens` and `chunk_tokenizer` are no longer recorded as
+  `<redacted>`, so `--resume` tells their values apart, and a credential key
+  inside a JSON setting is hidden at any depth, not only at the top (#111).
 - **A generation experiment checks its judge before the first answer is written.**
   `Experiment._run` and the CLI (`lasagna benchmark run`, `lasagna benchmark experiment`)
   now validate the RAGAS judge once before corpus ingestion, checkpoint clearing, or
@@ -28,7 +44,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   explicit session `agent_temperature` values now reach every reasoning and
   chunk-refinement call, and adaptive complexity classification and CRAG
   document grading remain deterministic at `0.0`.
-- **Four benchmarks load again, and a fifth says why it cannot.** `datasets`
+- **Four benchmarks load again.** `datasets`
   5, the version the release pins, refuses a Hub repository named without its
   owner, and since 4.0 it no longer runs loading scripts. `triviaqa`,
   `hotpotqa` and `kilt/nq` named `trivia_qa`, `hotpot_qa` and `kilt_tasks`,
@@ -38,9 +54,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   comparability keys do not change. FEVER loads the Hub's parquet conversion
   of its script, pinned to the commit that was checked, one split at a time,
   online or from the local cache. A dataset that does not load now says why,
-  instead of naming a split. `kilt/triviaqa` has never loaded: the Hub's KILT
-  has no `triviaqa` config, and the `triviaqa_support_only` it has carries no
-  questions. It now says so; the `triviaqa` benchmark has the questions.
+  instead of naming a split.
 - **An agentic arm under `speed` runs its loop.** `pipeline.query` forces the
   agentic tier for an arm that names an agentic pipeline, and the router
   dropped any forced tier whenever a profile turned query routing off. Under
@@ -91,6 +105,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   now reads CHANGELOG.md as it will be once merged and fails while an added
   line sits under a released version; a maintainer adds `changelog-history`
   to correct a released version's notes.
+- The Compose stack's Qdrant service now raises its `nofile` ulimit to 524288.
+  A burst of eight clients creating collections and payload indexes exhausted
+  the container's default 1024 file descriptors ("Too many open files") and
+  could take the vector store down. Every other store service now has a
+  written decision, checked by `tests/test_compose_nofile_policy.py`: Milvus
+  holds at its default (measured), OpenSearch waits for its measurement, and
+  a new backend cannot inherit the default unnoticed.
 
 ## [0.3.0] - 2026-11-07
 
