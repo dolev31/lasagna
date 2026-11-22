@@ -3655,15 +3655,23 @@ async def _eval_offline(
         # The judge's own spend, kept separate from the system's. It is often
         # the larger of the two, and reporting one total lets an expensive
         # judge masquerade as an expensive pipeline.
-        if _ans_idx:
+        #
+        # In a thread, as on the live path: RAGAS's evaluate is synchronous,
+        # and on this loop it would apply nest_asyncio and run its jobs here,
+        # which can pop from an empty ready queue and stop the whole run
+        # (#117). The meter is entered in the thread, where the calls happen.
+        def _judge_in_thread():
             with eval_meter, eval_meter.scope(EVAL):
-                detailed = evaluator.evaluate_detailed(
+                return evaluator.evaluate_detailed(
                     questions=[questions[i] for i in _ans_idx],
                     answers=[answers[i] for i in _ans_idx],
                     contexts=[contexts[i] for i in _ans_idx],
                     ground_truths=[ground_truths[i] for i in _ans_idx],
                     metrics=eval_metrics,
                 )
+
+        if _ans_idx:
+            detailed = await asyncio.to_thread(_judge_in_thread)
             metrics = dict(detailed.aggregate)
         # One row per sample, in sample order; the judge's rows go to the
         # answerable samples they scored.
