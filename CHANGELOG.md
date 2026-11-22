@@ -15,6 +15,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   datasets pinned, before sampling. Every row matches: 5,359 in `validation`
   and 61,844 in `train`. KILT keeps its test answers hidden, so run it with
   `--split validation`.
+- **A `speed`-profile arm that turns on a retrieval stage now runs it on the
+  generation track (#98).** Under `speed`, the generation track ran every
+  non-agentic arm at the `fast` tier, which turns off HyDE, reranking, hybrid
+  search, MMR, context reordering and hierarchical retrieval, so an arm that
+  turned one of them on answered from the control's passages. Such an arm now
+  runs its generation track at the `standard` tier, as its retrieval track
+  already did, and its generation numbers change. A plain `speed` arm keeps
+  `fast` and its numbers, and an arm that sets `enable_query_routing` or
+  `routing_default_tier` itself keeps its own routing. `system.routing_tiers`
+  records the tier each track ran on.
 - **A reasoning model can judge.** Qwen3, the DeepSeek-R1 distills and gpt-oss
   reason before they answer, and RAGAS's limit of 1024 output tokens cut their
   judgements off, so a generation run with one as judge failed with "judge

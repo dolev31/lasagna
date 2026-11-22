@@ -32,7 +32,12 @@ from ..retrieval.search.ranker import CombinedReranker, RerankedResult
 from ..retrieval.enhancement.enhancer import QueryEnhancer
 from ..retrieval.routing import get_query_router, RoutingTier
 from ..core.model_downloads import ModelNotDownloaded
-from ..core.strict import claim_context_presentation, lost_in_the_middle, strict_stages
+from ..core.strict import (
+    claim_context_presentation,
+    lost_in_the_middle,
+    record_routing_tier,
+    strict_stages,
+)
 from lasagna.agentic.citation_manager import CitationManager, Citation
 from lasagna.utils.monitoring import METRICS, log_json, log_json_debug, hash_text
 from lasagna.utils.tracing import TRACER
@@ -451,6 +456,10 @@ class SearchOrchestrator:
                     _graph_node_overrides=_graph_node_overrides,
                     query_config_overrides=query_config_overrides,
                 )
+
+            record_routing_tier(
+                routing_decision.tier.value if routing_decision is not None else "standard"
+            )
 
         # Track effective values for features that may be overridden by FAST tier.
         # These local vars shadow config properties so the pipeline uses the
@@ -2311,6 +2320,7 @@ class SearchOrchestrator:
             # results from agentic ones instead of scoring them as agentic.
             if fallback_results:
                 fallback_results[0].chunk.metadata["_routing_tier_used"] = "standard_fallback"
+            record_routing_tier("standard_fallback")
             return fallback_results
 
         # Metrics parity — include pipeline identity for observability
@@ -2339,6 +2349,7 @@ class SearchOrchestrator:
         METRICS.counter("rag.search.calls", 1)
 
         quota_mgr.record_search(session_id)
+        record_routing_tier("comprehensive")
         return search_results
 
     def _convert_agentic_results(
