@@ -378,7 +378,7 @@ def test_an_experiment_says_it_once_and_records_it(anthropic_only, monkeypatch, 
     assert [m for m in logged if "does not accept temperature" in m] == [NOTE]
     sampling = results.experiment_config["sampling"]
     assert sampling["generator"] == {"model": "claude-sonnet-5-5", "sampling": "provider-default"}
-    assert sampling["judge"] == {"model": "gpt-6-luna", "sampling": "pinned"}
+    assert sampling["judge"] == {"model": "gpt-6-luna", "sampling": "pinned", "max_tokens": 1024}
 
 
 # -- comparability ------------------------------------------------------------

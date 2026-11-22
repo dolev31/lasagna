@@ -9,15 +9,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - **A `speed`-profile arm that turns on a retrieval stage now runs it on the
-  generation track (#98).** Non-agentic generation-track arms under `speed`
-  default to the `standard` routing tier (mirroring retrieval) instead of
-  `fast`, so an arm that explicitly enables HyDE, reranking, hybrid search,
-  MMR, context reordering, or hierarchical retrieval executes that stage and
-  its generation metrics reflect the change. A plain `speed`-profile arm
-  retains its existing behavior and numbers, explicit `enable_query_routing`
-  and `routing_default_tier` overrides are preserved, and
-  `system.routing_tiers` records the effective routing tiers executed per
-  track.
+  generation track (#98).** Under `speed`, the generation track ran every
+  non-agentic arm at the `fast` tier, which turns off HyDE, reranking, hybrid
+  search, MMR, context reordering and hierarchical retrieval, so an arm that
+  turned one of them on answered from the control's passages. Such an arm now
+  runs its generation track at the `standard` tier, as its retrieval track
+  already did, and its generation numbers change. A plain `speed` arm keeps
+  `fast` and its numbers, and an arm that sets `enable_query_routing` or
+  `routing_default_tier` itself keeps its own routing. `system.routing_tiers`
+  records the tier each track ran on.
+- **A reasoning model can judge.** Qwen3, the DeepSeek-R1 distills and gpt-oss
+  reason before they answer, and RAGAS's limit of 1024 output tokens cut their
+  judgements off, so a generation run with one as judge failed with "judge
+  produced no usable scores" and no reason. `RAG_EVAL_JUDGE_MAX_TOKENS` raises
+  the limit, and the run metadata records it. A reply cut off is counted in the
+  log, and in the task's error when a metric is left with no score.
+  `RAG_EVAL_JUDGE_EXTRA_BODY` adds fields to every judge request, such as
+  `{"chat_template_kwargs": {"enable_thinking": false}}`, which turns Qwen3's
+  reasoning off on vLLM (`{"reasoning_effort": "none"}` on Ollama): with it on,
+  Qwen3-8B on vLLM sometimes answered `{}`. The check before answers are
+  written says the judge answered, cut off or with JSON that does not fit,
+  instead of blaming its credentials. Unset, the judge's requests are
+  unchanged. In `rag_overrides`, `docling_max_tokens`,
+  `query2doc_max_tokens` and `chunk_tokenizer` are no longer recorded as
+  `<redacted>`, so `--resume` tells their values apart, and a credential key
+  inside a JSON setting is hidden at any depth, not only at the top (#111).
 - **A generation experiment checks its judge before the first answer is written.**
   `Experiment._run` and the CLI (`lasagna benchmark run`, `lasagna benchmark experiment`)
   now validate the RAGAS judge once before corpus ingestion, checkpoint clearing, or
@@ -94,6 +110,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   now reads CHANGELOG.md as it will be once merged and fails while an added
   line sits under a released version; a maintainer adds `changelog-history`
   to correct a released version's notes.
+- The Compose stack's Qdrant service now raises its `nofile` ulimit to 524288.
+  A burst of eight clients creating collections and payload indexes exhausted
+  the container's default 1024 file descriptors ("Too many open files") and
+  could take the vector store down. Every other store service now has a
+  written decision, checked by `tests/test_compose_nofile_policy.py`: Milvus
+  holds at its default (measured), OpenSearch waits for its measurement, and
+  a new backend cannot inherit the default unnoticed.
 
 ## [0.3.0] - 2026-11-07
 

@@ -384,7 +384,17 @@ def _add_citation_scores(
         logger.warning(
             f"citation metrics: the judge scored {scored} of {len(cited)} citing answers"
         )
-    return None if scored else "judge produced no usable scores for citation_recall"
+    if scored:
+        return None
+    from .ragas_evaluator import cut_off_note
+
+    return _no_usable_scores(["citation_recall"], cut_off_note(judge))
+
+
+def _no_usable_scores(metrics: List[str], cut_off_note: str = "") -> str:
+    """The task's error when the judge scored none of ``metrics``, with why when known."""
+    message = "judge produced no usable scores for " + ", ".join(metrics)
+    return f"{message}: {cut_off_note}" if cut_off_note else message
 
 
 def _per_query_costs(rows: List[Dict[str, Any]]) -> Dict[str, float]:
@@ -2923,8 +2933,22 @@ def _sampling_record() -> Dict[str, Any]:
             "model": generator,
             "sampling": sampling_label(generator, platform) if generator else None,
         },
-        "judge": {"model": judge, "sampling": sampling_label(judge, _judge_platform())},
+        "judge": {
+            "model": judge,
+            "sampling": sampling_label(judge, _judge_platform()),
+            "max_tokens": _judge_limit_for_record(),
+        },
     }
+
+
+def _judge_limit_for_record() -> Optional[int]:
+    """The judge's output-token limit, for the run metadata; None if the setting is unreadable."""
+    from .ragas_evaluator import RAGAS_JUDGE_MAX_TOKENS, judge_max_tokens
+
+    try:
+        return judge_max_tokens() or RAGAS_JUDGE_MAX_TOKENS
+    except ValueError:
+        return None
 
 
 def _sampling_notes() -> List[str]:
@@ -3025,8 +3049,33 @@ def _build_judge_llm(model_name: Optional[str] = None, *, _require: bool = False
         from lasagna.utils.llm_cache import cache_openai_client
         from lasagna.utils.token_usage import EVAL, instrument_openai_client
 
+        from .ragas_evaluator import (
+            CUT_OFF_ATTR,
+            RAGAS_JUDGE_MAX_TOKENS,
+            count_cut_off_replies,
+            judge_extra_body,
+            judge_max_tokens,
+        )
+
+        # Unset, RAGAS's own limit applies and the request is the one RAGAS
+        # sends. A reasoning judge needs more, as its reasoning counts against
+        # it, or its reasoning turned off through the extra body.
+        max_tokens = judge_max_tokens()
+        extra_body = judge_extra_body()
+        settings: Dict[str, Any] = {}
+        if max_tokens:
+            settings["max_tokens"] = max_tokens
+        if extra_body:
+            settings["extra_body"] = extra_body
         client = instrument_openai_client(cache_openai_client(OpenAI(**client_kwargs)), EVAL)
-        judge = llm_factory(resolved_model, client=pin_openai_client(client, _JUDGE_TEMPERATURE))
+        cut_off = count_cut_off_replies(client, max_tokens or RAGAS_JUDGE_MAX_TOKENS)
+        judge = llm_factory(
+            resolved_model, client=pin_openai_client(client, _JUDGE_TEMPERATURE), **settings
+        )
+        # Counting must never break the judge: an object that takes no new
+        # attribute is a judge whose cut-offs go uncounted.
+        with contextlib.suppress(Exception):
+            setattr(judge, CUT_OFF_ATTR, cut_off)
         logger.info(f"RAGAS judge using model: {resolved_model}")
         return judge
     except Exception as exc:
@@ -3112,6 +3161,7 @@ def _check_judge_llm(model_name: Optional[str] = None) -> None:
     class _JudgeProbe(BaseModel):
         ok: bool
 
+    judge = None
     try:
         judge = _build_judge_llm(resolved_model, _require=True)
         if judge is None:
@@ -3120,7 +3170,23 @@ def _check_judge_llm(model_name: Optional[str] = None) -> None:
             )
         judge.generate('Reply with {"ok": true}.', _JudgeProbe)
     except Exception as exc:
+        from .ragas_evaluator import cut_off_note
+
+        # It answered: a reasoning judge spent the limit thinking. Not a
+        # credentials problem, so not the advice below.
+        note = cut_off_note(judge)
+        if note:
+            raise RuntimeError(f"Judge LLM ({resolved_model}) answered, but {note}.") from None
         root = exc.__cause__ if exc.__cause__ is not None else exc
+        if type(root).__name__ in ("ValidationError", "JSONDecodeError"):
+            # It answered, with JSON that does not fit (Qwen3 reasoning on
+            # vLLM sometimes sends `{}`): not a credentials problem either.
+            detail = _redact_secret(str(root), api_key)
+            raise RuntimeError(
+                f"Judge LLM ({resolved_model}) answered, but not with the JSON it was asked "
+                f"for: {detail}. A reasoning model can answer that way: turn its reasoning "
+                f"off for the judge with RAG_EVAL_JUDGE_EXTRA_BODY (docs/configuration.md)."
+            ) from None
         exc_names = (
             f"{type(exc).__name__}/{type(root).__name__}" if root is not exc else type(exc).__name__
         )
@@ -3709,7 +3775,7 @@ async def _eval_offline(
     _offline_failures: List[str] = []
     if getattr(detailed, "failed_metrics", None):
         _offline_failures.append(
-            "judge produced no usable scores for " + ", ".join(detailed.failed_metrics)
+            _no_usable_scores(detailed.failed_metrics, getattr(detailed, "cut_off_note", ""))
         )
     if _citation_failure:
         _offline_failures.append(_citation_failure)
@@ -5578,8 +5644,10 @@ async def _eval_live(
                     )
                     if getattr(regen_result, "failed_metrics", None):
                         _eval_failures.append(
-                            "judge produced no usable scores for "
-                            + ", ".join(regen_result.failed_metrics)
+                            _no_usable_scores(
+                                regen_result.failed_metrics,
+                                getattr(regen_result, "cut_off_note", ""),
+                            )
                         )
                     # Store aggregate scores (prefix with _regen when agentic
                     # answers are also available, otherwise use plain names).

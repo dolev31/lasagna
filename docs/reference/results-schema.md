@@ -81,6 +81,13 @@ counts queries that also fell back for a reason past those three.
 Reasons are redacted like the rest of the bundle.
 It is outside the comparability key; the bundle's `ACTIVE_FALLBACKS` reports it.
 
+`system.routing_tiers` counts, per track, the routing tier each query ran at:
+`{"retrieval": {"standard": 12}, "generation": {"fast": 12}}`. `comprehensive`
+is an agentic query, `standard_fallback` one the standard pipeline answered
+after the agentic loop failed, and a query whose routing itself failed counts as
+`standard`, with `routing` in `degraded_stages`. Like `degraded_stages`, it is
+outside the comparability key.
+
 `system.graph`, present when the arm turns on `enable_graph_retrieval`, says how
 the corpus got its knowledge graph: `{"state": "built" | "reused" | "rebuilt" |
 "incomplete", "documents": n, "missing": n, "entities": n, "rebuilt": n,

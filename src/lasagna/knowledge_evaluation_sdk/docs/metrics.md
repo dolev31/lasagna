@@ -273,10 +273,14 @@ the judge, which the harness does not configure.
 
 A judged metric scores only answerable questions (it needs a reference). A
 metric whose every judgment failed is reported in `failed_metrics`, fails the
-task, and is never recorded as 0.0. For agentic configurations the per-query
-keys are suffixed `_regen` and `_agentic`, and an unsuffixed canonical key
-(agentic score where present) is emitted for every requested metric. The
-answer metrics without a judge (section 4) follow the same rule.
+task, and is never recorded as 0.0. A judge reply cut off at the judge's
+output-token limit (`finish_reason: length`, what a reasoning judge hits at
+RAGAS's 1024) is counted in the log, and in the task's error when a metric is
+left with no score, with `RAG_EVAL_JUDGE_MAX_TOKENS`, which raises the limit.
+For agentic configurations the per-query keys are suffixed `_regen` and
+`_agentic`, and an unsuffixed canonical key (agentic score where present) is
+emitted for every requested metric. The answer metrics without a judge
+(section 4) follow the same rule.
 
 ### Evaluation Modes
 
