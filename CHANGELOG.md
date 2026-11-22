@@ -8,6 +8,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A reasoning model can generate (#114).** The harness's generator and every
+  loop asked for at most 1000 output tokens, and nothing raised it, so a
+  reasoning model's answer could come back empty, and a task failed with "could
+  not be generated" and no reason. `llm_max_tokens` (`RAG_LLM_MAX_TOKENS`, 1000
+  by default) is now the limit of every `get_llm` call that names none, the run
+  metadata records it, and a sweep arm cannot set it (every arm shares it). A
+  task's error says how many replies came back empty at their limit. In
+  `generation_only` mode an empty answer counts as failed (`generations_failed`;
+  past a tenth the task fails), as it already did live. To an OpenAI-compatible
+  provider (`ollama` without the `local` extra, `vllm`, `together` and the
+  others) the limit now goes as `max_tokens`: Ollama's `/v1` ignores the
+  `max_completion_tokens` that LangChain sends, so there an answer, and the
+  ingestion calls (contextual retrieval, RAPTOR, graph extraction), had no limit
+  at all and now have this one. A reasoning model there that answered before
+  can now stop at 1000 and fail its task until `RAG_LLM_MAX_TOKENS` is raised.
+  Their LLM cache entries miss once, as the request changed.
 - **An offline run no longer crashes in its judge (#117).** In
   `generation_only` mode (`offline` before) the judge ran inside the event
   loop, so RAGAS re-entered that loop through `nest_asyncio`, which could stop

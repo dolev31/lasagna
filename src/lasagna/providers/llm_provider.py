@@ -95,6 +95,30 @@ def _instrumented(get_chat_model: Any) -> Any:
     return wrapper
 
 
+def _limit_as_max_tokens(params: Dict[str, Any]) -> None:
+    """Send an OpenAI-compatible server the output-token limit as ``max_tokens``, and only so.
+
+    ``ChatOpenAI`` sends it as ``max_completion_tokens``, which Ollama's ``/v1``
+    ignores (0.40.13: a limit of 16 came back with 461 tokens; as
+    ``max_tokens``, with 16), while every compatible server reads
+    ``max_tokens``. One field only: OpenAI's own servers refuse the two together.
+    """
+    limit = params.pop("max_tokens", None)
+    if limit is not None:
+        params["extra_body"] = {**(params.get("extra_body") or {}), "max_tokens": limit}
+
+
+def default_max_tokens() -> int:
+    """The output-token limit of a ``get_llm`` caller that names none.
+
+    ``llm_max_tokens`` (``RAG_LLM_MAX_TOKENS``), 1000 unless set. A reasoning
+    model reasons inside it, so its answers need more (#114).
+    """
+    from lasagna.core.config import get_rag_config
+
+    return int(get_rag_config().llm_max_tokens)
+
+
 class LLMProvider(ABC):
     """Abstract interface for LLM model access.
 
@@ -149,7 +173,7 @@ class LLMProvider(ABC):
         self,
         model_name: Optional[str] = None,
         temperature: float = 0.0,
-        max_tokens: int = 1000,
+        max_tokens: Optional[int] = None,
     ) -> "BaseChatModel":
         """Get a chat model using defaults, with optional model name override.
 
@@ -159,7 +183,8 @@ class LLMProvider(ABC):
         Args:
             model_name: Optional model identifier override
             temperature: Sampling temperature (0.0 = deterministic)
-            max_tokens: Maximum output tokens
+            max_tokens: Maximum output tokens; None for ``llm_max_tokens``
+                (``default_max_tokens()``)
 
         Returns:
             LangChain-compatible chat model instance
@@ -167,6 +192,8 @@ class LLMProvider(ABC):
         settings: Dict[str, Any] = {}
         if model_name:
             settings["model_name"] = model_name
+        if max_tokens is None:
+            max_tokens = default_max_tokens()
         return self.get_chat_model(settings, temperature=temperature, max_tokens=max_tokens)
 
     @abstractmethod
@@ -760,6 +787,7 @@ class SimpleLLMProvider(LLMProvider):
             if headers:
                 params["default_headers"] = headers
 
+        _limit_as_max_tokens(params)
         return ChatOpenAI(**params)
 
     # -- Convenience ---------------------------------------------------------
@@ -768,12 +796,13 @@ class SimpleLLMProvider(LLMProvider):
         self,
         model_name: Optional[str] = None,
         temperature: float = 0.0,
-        max_tokens: int = 1000,
+        max_tokens: Optional[int] = None,
     ) -> "BaseChatModel":
         """Get a chat model using the default provider and optional model name.
 
         Convenience wrapper around get_chat_model() for callers that don't
-        need to specify a full model_settings dict.
+        need to specify a full model_settings dict. With no ``max_tokens``, the
+        limit is ``llm_max_tokens`` (``default_max_tokens()``).
         """
         settings: Dict[str, Any] = {"platform": self._default_provider}
         if model_name:
@@ -786,6 +815,8 @@ class SimpleLLMProvider(LLMProvider):
             settings["model_name"] = get_default_model_name(
                 self.SUPPORTED_PLATFORMS[self._default_provider]
             )
+        if max_tokens is None:
+            max_tokens = default_max_tokens()
         return self.get_chat_model(settings, temperature=temperature, max_tokens=max_tokens)
 
     # -- Validation ----------------------------------------------------------

@@ -61,6 +61,13 @@ class TokenUsage:
     input_tokens: int = 0
     output_tokens: int = 0
     llm_calls: int = 0
+    #: Replies that came back empty at their output-token limit (``length`` in
+    #: ``finish_reason`` or Ollama's ``done_reason``, Anthropic's ``stop_reason``
+    #: ``max_tokens``, Google's ``MAX_TOKENS``, and no text):
+    #: a reasoning model can spend the limit before it answers. A reply cut off
+    #: mid-text is not one. Not a number in the results; the error that
+    #: reports empty answers names it (#114).
+    cut_off: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -80,6 +87,7 @@ class TokenUsage:
         self.input_tokens += other.input_tokens
         self.output_tokens += other.output_tokens
         self.llm_calls += other.llm_calls
+        self.cut_off += other.cut_off
 
     def to_dict(self, prefix: str = "") -> Dict[str, float]:
         return {
@@ -185,7 +193,7 @@ class UsageMeter:
         threads finishing together can drop one of the counts -- an undercount
         that looks like a plausible number.
         """
-        if not usage.measured:
+        if not usage.measured and not usage.cut_off:
             return
         name = scope or _active_scope.get()
         with self._lock:
@@ -207,6 +215,7 @@ class UsageMeter:
                     input_tokens=usage.input_tokens,
                     output_tokens=usage.output_tokens,
                     llm_calls=usage.llm_calls,
+                    cut_off=usage.cut_off,
                 )
                 for name, usage in self._by_scope.items()
             }
@@ -304,12 +313,33 @@ def usage_callback_handler() -> Any:
                                 break
                     if usage.measured:
                         break
+            usage.cut_off += _cut_off_replies(response)
             meter.record(usage)
 
         def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
             _count_llm_call("error")
 
     return _UsageCallbackHandler()
+
+
+#: How each provider says a reply stopped at its output-token limit, lowercased,
+#: as the chat route reads it (``_finish_reason`` in ``api/rest/routes/chat.py``).
+_AT_LIMIT = frozenset({"length", "max_tokens"})
+
+
+def _cut_off_replies(response: Any) -> int:
+    """How many generations of an ``LLMResult`` came back empty at their output-token limit."""
+    count = 0
+    for batch in getattr(response, "generations", None) or []:
+        for generation in batch or []:
+            info = dict(getattr(generation, "generation_info", None) or {})
+            message = getattr(generation, "message", None)
+            info.update(getattr(message, "response_metadata", None) or {})
+            reasons = (info.get(k) for k in ("finish_reason", "done_reason", "stop_reason"))
+            ended_at_limit = any(str(r).lower() in _AT_LIMIT for r in reasons if r)
+            if ended_at_limit and not (getattr(generation, "text", "") or "").strip():
+                count += 1
+    return count
 
 
 def _count_llm_call(outcome: str) -> None:
