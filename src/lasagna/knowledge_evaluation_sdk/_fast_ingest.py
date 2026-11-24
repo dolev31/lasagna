@@ -80,6 +80,14 @@ def _describe_chunk_failure(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
+def _add_enrichment(total: Dict[str, Any], document: Dict[str, Any]) -> None:
+    """Add one document's enrichment tally to the corpus's, keeping the first error."""
+    total["chunks"] = total.get("chunks", 0) + document.get("chunks", 0)
+    total["failed"] = total.get("failed", 0) + document.get("failed", 0)
+    if document.get("error") and not total.get("error"):
+        total["error"] = document["error"]
+
+
 def _chunk_one_doc(
     corpus_id: str,
     text: str,
@@ -90,11 +98,16 @@ def _chunk_one_doc(
     embedding_manager=None,
     chunker=None,
     pending_graphs: Optional[Dict[str, Any]] = None,
+    enrichment: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, List[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
     """Chunk one document from in-memory text.
 
     ``chunker`` is the arm's chunker component, when it named one; otherwise
     the built-in dispatch on the config's chunking settings runs.
+    ``enrichment``, when given, adds what contextual enrichment did to this
+    document: ``chunks`` it was asked to enrich, ``failed`` and the first
+    ``error``. Each chunk's metadata says whether it was enriched
+    (``contextual_enriched``).
 
     Returns:
         (valid_id, child_chunks, parent_chunks_or_None)
@@ -160,18 +173,41 @@ def _chunk_one_doc(
     if getattr(config, "enable_contextual_retrieval", False) and text:
         try:
             from ..processing.contextual import ContextualEnricher
-            from ..providers.llm_provider import SimpleLLMProvider
+            from ..providers import get_ingest_llm
 
-            llm = SimpleLLMProvider().get_llm()
-            enricher = ContextualEnricher(llm_provider=llm)
+            enricher = ContextualEnricher(llm_provider=get_ingest_llm())
             # The same document budget as the contextual chunker component, so
             # the flag and the component measure the same method.
             limit = getattr(config, "contextual_max_document_chars", 10000)
             doc_context = text if limit is None else text[:limit]
             chunk_texts = [c["content"] for c in chunk_dicts]
             enriched_texts = enricher.enrich_batch(doc_context, chunk_texts)
-            for chunk, enriched in zip(chunk_dicts, enriched_texts):
+            for chunk, original, enriched in zip(chunk_dicts, chunk_texts, enriched_texts):
                 chunk["content"] = enriched
+                # Stored with the chunk, so a later run that would reuse this
+                # corpus can tell it was not fully enriched (#49). A failed
+                # call returns the chunk unchanged. A copy: the dict is the
+                # chunker's.
+                chunk["metadata"] = {
+                    **(chunk.get("metadata") or {}),
+                    "contextual_enriched": enriched != original,
+                }
+            # A chunk whose call failed was kept as it was. Counted for the
+            # corpus, so the run record names it instead of a log line alone.
+            if enrichment is not None:
+                _add_enrichment(
+                    enrichment,
+                    {
+                        "chunks": len(chunk_texts),
+                        "failed": enricher.failed,
+                        "error": enricher.first_error,
+                    },
+                )
+            if enricher.failed:
+                logger.warning(
+                    f"Contextual enrichment failed for {enricher.failed} of {len(chunk_texts)} "
+                    f"chunks of {valid_id}, stored without context: {enricher.first_error}"
+                )
         except Exception as e:
             from ..core.strict import strict_stages
 
@@ -180,6 +216,19 @@ def _chunk_one_doc(
                 # plain chunks would score the baseline under its name.
                 raise RuntimeError(f"Contextual enrichment failed: {e}") from e
             logger.warning(f"Contextual enrichment failed for {valid_id}: {e}")
+            # No chunk got its context (no LLM could be built, say): marked and
+            # counted like a failed call, so neither this run nor a later one
+            # reusing the corpus takes them for enriched.
+            unmarked = [
+                c for c in chunk_dicts if "contextual_enriched" not in (c.get("metadata") or {})
+            ]
+            for chunk in unmarked:
+                chunk["metadata"] = {**(chunk.get("metadata") or {}), "contextual_enriched": False}
+            if enrichment is not None:
+                _add_enrichment(
+                    enrichment,
+                    {"chunks": len(unmarked), "failed": len(unmarked), "error": str(e)},
+                )
 
     # GraphRAG entity extraction
     if getattr(config, "enable_graph_retrieval", False):
@@ -214,12 +263,11 @@ def _chunk_one_doc(
     if getattr(config, "enable_raptor", False):
         try:
             from ..retrieval.raptor import RaptorTreeBuilder
-            from ..providers.llm_provider import SimpleLLMProvider
+            from ..providers import get_ingest_llm
 
-            llm = SimpleLLMProvider().get_llm(temperature=0)
             builder = RaptorTreeBuilder(
                 embedding_manager=embedding_manager,
-                llm_provider=llm,
+                llm_provider=get_ingest_llm(temperature=0),
                 max_cluster_size=getattr(config, "raptor_max_cluster_size", 10),
                 max_levels=getattr(config, "raptor_max_levels", 5),
             )
@@ -640,6 +688,7 @@ async def fast_ingest_corpus(
     backend,
     chunker=None,
     embedder=None,
+    enrichment: Optional[Dict[str, Any]] = None,
 ) -> Tuple[int, Set[str], Set[str]]:
     """3-stage fast corpus ingestion pipeline.
 
@@ -652,6 +701,8 @@ async def fast_ingest_corpus(
         backend: RAGBackend instance
         chunker: The arm's chunker component, or None for the built-in.
         embedder: The arm's embedder component, or None for the built-in.
+        enrichment: Filled with what contextual enrichment did, when it is on
+            (see `_chunk_one_doc`).
 
     Returns:
         (total_chunks_inserted, ingested_doc_ids, error_doc_ids)
@@ -793,6 +844,9 @@ async def fast_ingest_corpus(
         with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="ingest-chunk") as pool:
             futures = []
             for corpus_id, text, valid_id in docs_to_ingest:
+                # Each document gets its own tally, added to the corpus's once
+                # its result is in, so workers never write to a shared dict.
+                doc_enrichment: Optional[Dict[str, Any]] = {} if enrichment is not None else None
                 fut = pool.submit(
                     contextvars.copy_context().run,
                     _chunk_one_doc,
@@ -805,12 +859,15 @@ async def fast_ingest_corpus(
                     embedding_manager if (_uses_semantic or _uses_llm_features) else None,
                     chunker,
                     pending_graphs,
+                    doc_enrichment,
                 )
-                futures.append((valid_id, text, fut))
+                futures.append((valid_id, text, fut, doc_enrichment))
 
-            for i, (valid_id, text, fut) in enumerate(futures):
+            for i, (valid_id, text, fut, doc_enrichment) in enumerate(futures):
                 try:
                     doc_id, chunks, parent_chunks = fut.result(timeout=_CHUNK_TIMEOUT_SECONDS)
+                    if doc_enrichment:
+                        _add_enrichment(enrichment, doc_enrichment)
                     # Accumulate parent chunks
                     if parent_chunks:
                         with parent_chunks_lock:

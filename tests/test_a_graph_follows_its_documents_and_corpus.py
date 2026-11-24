@@ -31,7 +31,7 @@ EXTRACTION = {
 
 @pytest.fixture
 def stub_extraction(monkeypatch):
-    from lasagna.providers.llm_provider import SimpleLLMProvider
+    from lasagna import providers
     from lasagna.retrieval.graph.entity_extractor import EntityExtractor
 
     calls = []
@@ -40,7 +40,7 @@ def stub_extraction(monkeypatch):
         calls.append(list(texts))
         return [EXTRACTION for _ in texts]
 
-    monkeypatch.setattr(SimpleLLMProvider, "get_llm", lambda self, **kw: object())
+    monkeypatch.setattr(providers, "get_ingest_llm", lambda **kw: object())
     monkeypatch.setattr(EntityExtractor, "extract_batch_sync", extract)
     return calls
 
@@ -387,9 +387,9 @@ class _LLM:
 
 
 def _use_llm(monkeypatch, llm):
-    from lasagna.providers.llm_provider import SimpleLLMProvider
+    from lasagna import providers
 
-    monkeypatch.setattr(SimpleLLMProvider, "get_llm", lambda self, **kw: llm)
+    monkeypatch.setattr(providers, "get_ingest_llm", lambda **kw: llm)
 
 
 def _graph_config(**extra):
@@ -439,16 +439,16 @@ def test_a_document_that_names_no_entity_is_reused_not_extracted_again(tmp_path,
 
 
 def test_with_no_llm_a_reused_corpus_graph_is_incomplete(tmp_path, monkeypatch):
-    from lasagna.providers.llm_provider import SimpleLLMProvider
+    from lasagna import providers
     from lasagna.retrieval.graph.graph_store import ensure_corpus_graph
 
     _corpus_db(tmp_path, monkeypatch)
     where = os.path.join(os.path.expanduser("~"), "keys", "openai.env")
 
-    def no_llm(self, **kw):
+    def no_llm(**kw):
         raise RuntimeError(f"no API key in {where}")
 
-    monkeypatch.setattr(SimpleLLMProvider, "get_llm", no_llm)
+    monkeypatch.setattr(providers, "get_ingest_llm", no_llm)
     info = ensure_corpus_graph(
         "s", "c", _StoredChunks(LONG_ROWS), {"d1", "d2"}, set(), _graph_config(), _ones
     )
@@ -553,7 +553,7 @@ def test_a_document_with_no_stored_chunks_is_not_missing(tmp_path, monkeypatch):
 
 
 def test_a_stale_model_with_no_llm_to_replace_it_is_incomplete(tmp_path, monkeypatch):
-    from lasagna.providers.llm_provider import SimpleLLMProvider
+    from lasagna import providers
     from lasagna.retrieval.graph.graph_store import ensure_corpus_graph
 
     _corpus_db(tmp_path, monkeypatch)
@@ -568,10 +568,10 @@ def test_a_stale_model_with_no_llm_to_replace_it_is_incomplete(tmp_path, monkeyp
         _ones,
     )
 
-    def no_llm(self, **kw):
+    def no_llm(**kw):
         raise RuntimeError("no LLM configured")
 
-    monkeypatch.setattr(SimpleLLMProvider, "get_llm", no_llm)
+    monkeypatch.setattr(providers, "get_ingest_llm", no_llm)
     info = ensure_corpus_graph(
         "s",
         "c",
