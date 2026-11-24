@@ -95,7 +95,10 @@ from typing import Any, Dict, List, Optional
 #: its judged metrics already did; they scored the answer the harness's
 #: generator wrote from the loop's passages, now kept as ``<metric>_regen``.
 #: Numbers move for agentic arms only.
-METRICS_VERSION = "1.8"
+#: 1.9: factual_correctness and noise_sensitivity are extracted under RAGAS's
+#: mode-suffixed keys (name(mode=...)), so both appear in bundles for the first
+#: time.
+METRICS_VERSION = "1.9"
 
 #: Bundle schema version. Consumers accept >=1.0,<2.0.
 SCHEMA_VERSION = "1.0"
