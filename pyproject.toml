@@ -185,7 +185,12 @@ eval = [
 # Managed / self-hosted vector databases beyond the embedded default
 vector-backends = [
     "pinecone>=5.0.0",
-    "qdrant-client>=1.7.0",
+# The client warns when it is more than one minor version away from the
+    # server ("Major versions should match and minor version difference
+    # must not exceed 1"). backends/qdrant.yml pins the server at v1.13.2,
+    # so the client stays in [1.13, 1.15): within one minor of the server,
+    # and the image can no longer drift to the newest client silently.
+    "qdrant-client>=1.13,<1.15",
     "weaviate-client>=4.4.0",
     # weaviate-client caps grpcio below 1.80, and the Google packages other
     # extras bring want the newest grpcio-status, which needs a newer grpcio.
