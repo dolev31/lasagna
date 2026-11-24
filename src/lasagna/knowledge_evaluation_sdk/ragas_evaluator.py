@@ -23,7 +23,7 @@ import json
 import os
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Iterable, Optional
 from loguru import logger
 
 
@@ -100,6 +100,18 @@ _RAGAS_KEY_MAP = {
     "context_relevance": ["context_relevance", "nv_context_relevance"],
 }
 
+def _find_ragas_key(metric_name: str, available_keys: Iterable[str]) -> Optional[str]:
+    """Find the key in available_keys that corresponds to metric_name.
+    Matches either:
+    1. Exact name or known alias (e.g. 'factual_correctness', 'answer_relevance')
+    2. Any mode suffix (e.g. 'factual_correctness(mode=f1)', 'noise_sensitivity(mode=relevant)')
+    """
+    candidates = _RAGAS_KEY_MAP.get(metric_name, [metric_name])
+    for candidate in candidates:
+        for key in available_keys:
+            if candidate==key or key.startswith(f"{candidate}(mode="):
+                return key
+    return None
 
 class UnusableMetric(Exception):
     """Every judgement for a metric was unusable; it has no score."""
@@ -252,7 +264,16 @@ def _extract_score(result: Any, metric_name: str) -> float:
     RAGAS v0.4 returns lists of per-sample scores from result[key],
     not aggregated scalars. This function averages them.
     """
-    candidates = _RAGAS_KEY_MAP.get(metric_name, [metric_name])
+    # candidates = _RAGAS_KEY_MAP.get(metric_name, [metric_name])
+    try:
+        available_keys = list(result.keys())
+    except Exception:
+        available_keys = list(result) if hasattr(result, "__iter__") else []
+
+    
+    matched_key = _find_ragas_key(metric_name, available_keys)
+    candidates = [matched_key] if matched_key else _RAGAS_KEY_MAP.get(metric_name, [metric_name])
+
     for key in candidates:
         try:
             val = result[key]
@@ -591,10 +612,9 @@ class RAGASEvaluator:
                 # Build reverse map: DataFrame column → our metric name
                 col_to_name: Dict[str, str] = {}
                 for name in active_metric_names:
-                    for candidate in _RAGAS_KEY_MAP.get(name, [name]):
-                        if candidate in df.columns:
-                            col_to_name[candidate] = name
-                            break
+                    matched_col = _find_ragas_key(name, df.columns)
+                    if matched_col:
+                        col_to_name[matched_col] = name
 
                 if not col_to_name:
                     logger.warning(
@@ -626,8 +646,11 @@ class RAGASEvaluator:
                 try:
                     n_samples = len(questions) if questions else 0
                     per_sample = [{} for _ in range(n_samples)]
+                    available_keys = list(result.keys()) if hasattr(result, "keys") and callable(result.keys) else []
                     for name in active_metric_names:
-                        for candidate in _RAGAS_KEY_MAP.get(name, [name]):
+                        matched_key = _find_ragas_key(name, available_keys)
+                        keys_to_try = [matched_key] if matched_key else _RAGAS_KEY_MAP.get(name, [name])
+                        for candidate in keys_to_try:
                             try:
                                 vals = result[candidate]
                                 if isinstance(vals, list) and len(vals) == n_samples:

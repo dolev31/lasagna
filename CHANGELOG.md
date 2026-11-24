@@ -144,6 +144,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   written decision, checked by `tests/test_compose_nofile_policy.py`: Milvus
   holds at its default (measured), OpenSearch waits for its measurement, and
   a new backend cannot inherit the default unnoticed.
+- **`factual_correctness` and `noise_sensitivity` are reported (#115).** The
+  evaluation harness requested `factual_correctness` and `noise_sensitivity`
+  from RAGAS, but both were dropped from results because RAGAS returns metrics
+  with a mode as `name(mode=...)` (e.g. `factual_correctness(mode=f1)` and
+  `noise_sensitivity(mode=relevant)`) while the key lookup looked only for the
+  exact base name. The lookup now matches mode-suffixed keys for any metric.
+  Earlier results never contained these metrics, so comparisons with results
+  from earlier versions cannot use them, and the metrics version is now 1.9.
 
 ## [0.3.0] - 2026-11-07
 
@@ -674,11 +682,11 @@ queries). Checkpoints from 0.1.0a1 do not resume.
 
 Each is removed in 0.2.0.
 
-| Old | New |
-| --- | --- |
-| `lasagna benchmark compare` | `lasagna results compare` |
-| `lasagna benchmark leaderboard` | `lasagna results leaderboard` |
-| `lasagna results interaction --bootstrap` | `--resamples` |
+| Old                                                                           | New                                       |
+| ----------------------------------------------------------------------------- | ----------------------------------------- |
+| `lasagna benchmark compare`                                                   | `lasagna results compare`                 |
+| `lasagna benchmark leaderboard`                                               | `lasagna results leaderboard`             |
+| `lasagna results interaction --bootstrap`                                     | `--resamples`                             |
 | `from lasagna import <name>`, for the 56 names dropped from `lasagna.__all__` | the module the `DeprecationWarning` names |
 
 The unversioned `/api/config/knowledge` routes are for the configurator page;
