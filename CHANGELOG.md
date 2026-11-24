@@ -17,6 +17,61 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   benchmark is counted for the corpus and named in the bundle as a
   `contextual_retrieval` fallback, which `lasagna results validate --strict`
   refuses (#49).
+- **A reasoning model can generate (#114).** The harness's generator and every
+  loop asked for at most 1000 output tokens, and nothing raised it, so a
+  reasoning model's answer could come back empty, and a task failed with "could
+  not be generated" and no reason. `llm_max_tokens` (`RAG_LLM_MAX_TOKENS`, 1000
+  by default) is now the limit of every `get_llm` call that names none, the run
+  metadata records it, and a sweep arm cannot set it (every arm shares it). A
+  task's error says how many replies came back empty at their limit. In
+  `generation_only` mode an empty answer counts as failed (`generations_failed`;
+  past a tenth the task fails), as it already did live. To an OpenAI-compatible
+  provider (`ollama` without the `local` extra, `vllm`, `together` and the
+  others) the limit now goes as `max_tokens`: Ollama's `/v1` ignores the
+  `max_completion_tokens` that LangChain sends, so there an answer, and the
+  ingestion calls (contextual retrieval, RAPTOR, graph extraction), had no limit
+  at all and now have this one. A reasoning model there that answered before
+  can now stop at 1000 and fail its task until `RAG_LLM_MAX_TOKENS` is raised.
+  Their LLM cache entries miss once, as the request changed.
+- **An offline run no longer crashes in its judge (#117).** In
+  `generation_only` mode (`offline` before) the judge ran inside the event
+  loop, so RAGAS re-entered that loop through `nest_asyncio`, which could stop
+  the whole run with `IndexError: pop from an empty deque`. The judge now runs
+  in a thread, as it does on the live path; its spend still counts as the
+  judge's.
+- **`kilt/triviaqa` loads (#101).** The Hub's KILT publishes TriviaQA
+  (`triviaqa_support_only`) with its answers and support but without the
+  questions, so the benchmark never loaded. It now takes each row's question
+  from `mandarjoshi/trivia_qa` (`rc.wikipedia.nocontext`) by id, with both
+  datasets pinned, before sampling. Every row matches: 5,359 in `validation`
+  and 61,844 in `train`. KILT keeps its test answers hidden, so run it with
+  `--split validation`.
+- **A `speed`-profile arm that turns on a retrieval stage now runs it on the
+  generation track (#98).** Under `speed`, the generation track ran every
+  non-agentic arm at the `fast` tier, which turns off HyDE, reranking, hybrid
+  search, MMR, context reordering and hierarchical retrieval, so an arm that
+  turned one of them on answered from the control's passages. Such an arm now
+  runs its generation track at the `standard` tier, as its retrieval track
+  already did, and its generation numbers change. A plain `speed` arm keeps
+  `fast` and its numbers, and an arm that sets `enable_query_routing` or
+  `routing_default_tier` itself keeps its own routing. `system.routing_tiers`
+  records the tier each track ran on.
+- **A reasoning model can judge.** Qwen3, the DeepSeek-R1 distills and gpt-oss
+  reason before they answer, and RAGAS's limit of 1024 output tokens cut their
+  judgements off, so a generation run with one as judge failed with "judge
+  produced no usable scores" and no reason. `RAG_EVAL_JUDGE_MAX_TOKENS` raises
+  the limit, and the run metadata records it. A reply cut off is counted in the
+  log, and in the task's error when a metric is left with no score.
+  `RAG_EVAL_JUDGE_EXTRA_BODY` adds fields to every judge request, such as
+  `{"chat_template_kwargs": {"enable_thinking": false}}`, which turns Qwen3's
+  reasoning off on vLLM (`{"reasoning_effort": "none"}` on Ollama): with it on,
+  Qwen3-8B on vLLM sometimes answered `{}`. The check before answers are
+  written says the judge answered, cut off or with JSON that does not fit,
+  instead of blaming its credentials. Unset, the judge's requests are
+  unchanged. In `rag_overrides`, `docling_max_tokens`,
+  `query2doc_max_tokens` and `chunk_tokenizer` are no longer recorded as
+  `<redacted>`, so `--resume` tells their values apart, and a credential key
+  inside a JSON setting is hidden at any depth, not only at the top (#111).
 - **A generation experiment checks its judge before the first answer is written.**
   `Experiment._run` and the CLI (`lasagna benchmark run`, `lasagna benchmark experiment`)
   now validate the RAGAS judge once before corpus ingestion, checkpoint clearing, or
@@ -30,7 +85,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   explicit session `agent_temperature` values now reach every reasoning and
   chunk-refinement call, and adaptive complexity classification and CRAG
   document grading remain deterministic at `0.0`.
-- **Four benchmarks load again, and a fifth says why it cannot.** `datasets`
+- **Four benchmarks load again.** `datasets`
   5, the version the release pins, refuses a Hub repository named without its
   owner, and since 4.0 it no longer runs loading scripts. `triviaqa`,
   `hotpotqa` and `kilt/nq` named `trivia_qa`, `hotpot_qa` and `kilt_tasks`,
@@ -40,9 +95,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   comparability keys do not change. FEVER loads the Hub's parquet conversion
   of its script, pinned to the commit that was checked, one split at a time,
   online or from the local cache. A dataset that does not load now says why,
-  instead of naming a split. `kilt/triviaqa` has never loaded: the Hub's KILT
-  has no `triviaqa` config, and the `triviaqa_support_only` it has carries no
-  questions. It now says so; the `triviaqa` benchmark has the questions.
+  instead of naming a split.
 - **An agentic arm under `speed` runs its loop.** `pipeline.query` forces the
   agentic tier for an arm that names an agentic pipeline, and the router
   dropped any forced tier whenever a profile turned query routing off. Under

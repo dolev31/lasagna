@@ -88,4 +88,5 @@ def test_six_tasks_say_it_once_and_record_it(stubbed, tmp_path):
     assert results.experiment_config["sampling"]["judge"] == {
         "model": JUDGE,
         "sampling": "provider-default",
+        "max_tokens": 1024,
     }

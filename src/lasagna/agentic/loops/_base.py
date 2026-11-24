@@ -275,7 +275,9 @@ class LoopRun:
             if not text.strip():
                 logger.warning(
                     f"[{self.method}] the model answered nothing, with its stop sequences "
-                    f"and without: a reasoning model may have spent its max_tokens reasoning"
+                    f"and without: a reasoning model may have spent its output-token limit "
+                    f"reasoning (RAG_LLM_MAX_TOKENS raises it; at agent_temperature 0 such "
+                    f"a model can also reason to any limit)"
                 )
         return cut_at(text, stop)
 

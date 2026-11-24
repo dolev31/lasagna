@@ -586,7 +586,7 @@ answer with the configured LLM, under `RAG_CHAT_TIMEOUT` (120 s), and
 | `stream` | `false` | Answer as server-sent `chat.completion.chunk` events. The last carries `finish_reason`, `citations` and `degraded_stages`; then `data: [DONE]`. |
 | `stream_options` | none | `{"include_usage": true}` adds a chunk with no choices and the token usage before `[DONE]`. |
 | `temperature` | `0.0` | Passed to the configured LLM (one per server, set by `OPENAI_API_KEY`, `OLLAMA_BASE_URL` and `MODEL_NAME`). |
-| `max_tokens`, `max_completion_tokens` | `1000` | The answer's length limit, under either name. |
+| `max_tokens`, `max_completion_tokens` | `llm_max_tokens` (1000 unless set) | The answer's length limit, under either name. |
 | `top_k` | `5` | Passages to retrieve (Lasagna's own; `extra_body` in the OpenAI SDKs). |
 | `document_ids` | none | Search only these documents (Lasagna's own). |
 

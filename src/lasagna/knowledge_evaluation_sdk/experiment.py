@@ -154,6 +154,7 @@ from lasagna.core.strict import (  # noqa: E402
     ContextPresentation,
     lost_in_the_middle,
     observe_reranking,
+    observe_routing,
     present_context_order,
 )
 
@@ -383,7 +384,40 @@ def _add_citation_scores(
         logger.warning(
             f"citation metrics: the judge scored {scored} of {len(cited)} citing answers"
         )
-    return None if scored else "judge produced no usable scores for citation_recall"
+    if scored:
+        return None
+    from .ragas_evaluator import cut_off_note
+
+    return _no_usable_scores(["citation_recall"], cut_off_note(judge))
+
+
+def _no_usable_scores(metrics: List[str], cut_off_note: str = "") -> str:
+    """The task's error when the judge scored none of ``metrics``, with why when known."""
+    message = "judge produced no usable scores for " + ", ".join(metrics)
+    return f"{message}: {cut_off_note}" if cut_off_note else message
+
+
+def _generation_failure(failed: int, total: int, cut_off: int, detail: str = "") -> str:
+    """The task's error when too many answers came back empty, with the cut-offs among them.
+
+    ``cut_off`` counts the replies that came back empty at their output-token
+    limit while the answers were made (#114): a reasoning model can spend the
+    limit before it answers, and the error then says so instead of only "could
+    not be generated". The generator's and the loops' limit is ``llm_max_tokens``.
+    """
+    message = f"{failed} of {total} answers could not be generated"
+    if detail:
+        message += f" ({detail})"
+    if cut_off:
+        from lasagna.providers.llm_provider import default_max_tokens
+
+        replies = "reply" if cut_off == 1 else "replies"
+        message += (
+            f"; {cut_off} LLM {replies} came back empty at their output-token limit, which "
+            f"a reasoning model can spend before it answers (the generator's and the "
+            f"loops' limit is {default_max_tokens()}: raise RAG_LLM_MAX_TOKENS)"
+        )
+    return message
 
 
 def _per_query_costs(rows: List[Dict[str, Any]]) -> Dict[str, float]:
@@ -1330,6 +1364,12 @@ def _known_override_keys() -> set:
 _COMPONENT_SETTING_KEYS = frozenset({"ensemble_reranker_models", "ensemble_reranker_weights"})
 
 
+#: Settings every arm shares, read from the environment by the process, not
+#: from an arm's overrides; an arm setting one would run the control's value
+#: under its own name.
+_PROCESS_SETTINGS = {"llm_max_tokens": "RAG_LLM_MAX_TOKENS"}
+
+
 def _check_override_keys(pipeline_configs: List[Dict[str, Any]]) -> None:
     """Refuse an arm setting a key nothing reads, before any corpus is ingested.
 
@@ -1339,6 +1379,13 @@ def _check_override_keys(pipeline_configs: List[Dict[str, Any]]) -> None:
     """
     known = _known_override_keys()
     for pc in pipeline_configs:
+        shared = sorted(set(pc.get("overrides") or {}) & set(_PROCESS_SETTINGS))
+        if shared:
+            names = ", ".join(_PROCESS_SETTINGS[k] for k in shared)
+            raise ValueError(
+                f"Arm {pc.get('name')!r} sets {', '.join(shared)}, which every arm shares: "
+                f"set {names} in the environment instead."
+            )
         unknown = sorted(set(pc.get("overrides") or {}) - known)
         if not unknown:
             continue
@@ -1532,6 +1579,41 @@ def _fix_retrieval_routing(task_config: Dict[str, Any]) -> None:
     task_config["use_agentic_rag"] = False
     task_config["agentic_pipeline"] = "legacy_react"
     task_config["routing_default_tier"] = "standard"
+
+
+_FAST_TIER_DISABLED_FEATURES = (
+    "enable_hyde",
+    "enable_reranking",
+    "enable_hybrid_search",
+    "enable_mmr",
+    "enable_context_reordering",
+    "enable_hierarchical",
+)
+
+
+def _fix_generation_routing(
+    gen_config: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None
+) -> None:
+    """Upgrade speed's fast tier to standard only when an arm enables a fast-disabled stage.
+
+    The ``speed`` profile sets ``enable_query_routing=False`` and
+    ``routing_default_tier="fast"``, which triggers ``_FAST_OVERRIDES`` in
+    ``QueryRouter`` and silently disables HyDE, reranking, hybrid search, MMR,
+    context reordering, and hierarchical retrieval. A plain ``speed`` arm
+    keeps ``"fast"`` so its existing routing and metrics are preserved; an arm
+    that explicitly enables one of those six features (without explicitly
+    setting ``enable_query_routing`` or ``routing_default_tier``) is promoted
+    to ``"standard"`` so the enabled stage executes.
+    """
+    arm_overrides = overrides or {}
+    if "routing_default_tier" in arm_overrides or "enable_query_routing" in arm_overrides:
+        return
+    if (
+        not gen_config.get("enable_query_routing", True)
+        and str(gen_config.get("routing_default_tier", "standard")).lower() == "fast"
+        and any(gen_config.get(key) for key in _FAST_TIER_DISABLED_FEATURES)
+    ):
+        gen_config["routing_default_tier"] = "standard"
 
 
 def _context_order(gen_config: Any) -> Dict[str, str]:
@@ -2953,9 +3035,37 @@ def _sampling_record() -> Dict[str, Any]:
         "generator": {
             "model": generator,
             "sampling": sampling_label(generator, platform) if generator else None,
+            "max_tokens": _generator_limit_for_record(),
         },
-        "judge": {"model": judge, "sampling": sampling_label(judge, _judge_platform())},
+        "judge": {
+            "model": judge,
+            "sampling": sampling_label(judge, _judge_platform()),
+            "max_tokens": _judge_limit_for_record(),
+        },
     }
+
+
+def _generator_limit_for_record() -> Optional[int]:
+    """The generator's output-token limit (``llm_max_tokens``), for the run metadata.
+
+    None if the settings cannot be read; the run itself then stops on them.
+    """
+    from lasagna.providers.llm_provider import default_max_tokens
+
+    try:
+        return default_max_tokens()
+    except ValueError:
+        return None
+
+
+def _judge_limit_for_record() -> Optional[int]:
+    """The judge's output-token limit, for the run metadata; None if the setting is unreadable."""
+    from .ragas_evaluator import RAGAS_JUDGE_MAX_TOKENS, judge_max_tokens
+
+    try:
+        return judge_max_tokens() or RAGAS_JUDGE_MAX_TOKENS
+    except ValueError:
+        return None
 
 
 def _sampling_notes() -> List[str]:
@@ -3056,8 +3166,33 @@ def _build_judge_llm(model_name: Optional[str] = None, *, _require: bool = False
         from lasagna.utils.llm_cache import cache_openai_client
         from lasagna.utils.token_usage import EVAL, instrument_openai_client
 
+        from .ragas_evaluator import (
+            CUT_OFF_ATTR,
+            RAGAS_JUDGE_MAX_TOKENS,
+            count_cut_off_replies,
+            judge_extra_body,
+            judge_max_tokens,
+        )
+
+        # Unset, RAGAS's own limit applies and the request is the one RAGAS
+        # sends. A reasoning judge needs more, as its reasoning counts against
+        # it, or its reasoning turned off through the extra body.
+        max_tokens = judge_max_tokens()
+        extra_body = judge_extra_body()
+        settings: Dict[str, Any] = {}
+        if max_tokens:
+            settings["max_tokens"] = max_tokens
+        if extra_body:
+            settings["extra_body"] = extra_body
         client = instrument_openai_client(cache_openai_client(OpenAI(**client_kwargs)), EVAL)
-        judge = llm_factory(resolved_model, client=pin_openai_client(client, _JUDGE_TEMPERATURE))
+        cut_off = count_cut_off_replies(client, max_tokens or RAGAS_JUDGE_MAX_TOKENS)
+        judge = llm_factory(
+            resolved_model, client=pin_openai_client(client, _JUDGE_TEMPERATURE), **settings
+        )
+        # Counting must never break the judge: an object that takes no new
+        # attribute is a judge whose cut-offs go uncounted.
+        with contextlib.suppress(Exception):
+            setattr(judge, CUT_OFF_ATTR, cut_off)
         logger.info(f"RAGAS judge using model: {resolved_model}")
         return judge
     except Exception as exc:
@@ -3143,6 +3278,7 @@ def _check_judge_llm(model_name: Optional[str] = None) -> None:
     class _JudgeProbe(BaseModel):
         ok: bool
 
+    judge = None
     try:
         judge = _build_judge_llm(resolved_model, _require=True)
         if judge is None:
@@ -3151,7 +3287,23 @@ def _check_judge_llm(model_name: Optional[str] = None) -> None:
             )
         judge.generate('Reply with {"ok": true}.', _JudgeProbe)
     except Exception as exc:
+        from .ragas_evaluator import cut_off_note
+
+        # It answered: a reasoning judge spent the limit thinking. Not a
+        # credentials problem, so not the advice below.
+        note = cut_off_note(judge)
+        if note:
+            raise RuntimeError(f"Judge LLM ({resolved_model}) answered, but {note}.") from None
         root = exc.__cause__ if exc.__cause__ is not None else exc
+        if type(root).__name__ in ("ValidationError", "JSONDecodeError"):
+            # It answered, with JSON that does not fit (Qwen3 reasoning on
+            # vLLM sometimes sends `{}`): not a credentials problem either.
+            detail = _redact_secret(str(root), api_key)
+            raise RuntimeError(
+                f"Judge LLM ({resolved_model}) answered, but not with the JSON it was asked "
+                f"for: {detail}. A reasoning model can answer that way: turn its reasoning "
+                f"off for the judge with RAG_EVAL_JUDGE_EXTRA_BODY (docs/configuration.md)."
+            ) from None
         exc_names = (
             f"{type(exc).__name__}/{type(root).__name__}" if root is not exc else type(exc).__name__
         )
@@ -3579,6 +3731,10 @@ async def _eval_offline(
                             prompt,
                         )
                     answer = response.content if hasattr(response, "content") else str(response)
+                if not (answer or "").strip():
+                    # Nothing came back (a reasoning model can spend its whole
+                    # limit reasoning): a failed answer, as on the live path.
+                    _offline_failed_generations += 1
                 per_sample_latencies.append((time.monotonic() - q_start) * 1000)
             except Exception as exc:
                 # The gold context used to stand in as the answer here, which a
@@ -3620,15 +3776,23 @@ async def _eval_offline(
         # The judge's own spend, kept separate from the system's. It is often
         # the larger of the two, and reporting one total lets an expensive
         # judge masquerade as an expensive pipeline.
-        if _ans_idx:
+        #
+        # In a thread, as on the live path: RAGAS's evaluate is synchronous,
+        # and on this loop it would apply nest_asyncio and run its jobs here,
+        # which can pop from an empty ready queue and stop the whole run
+        # (#117). The meter is entered in the thread, where the calls happen.
+        def _judge_in_thread():
             with eval_meter, eval_meter.scope(EVAL):
-                detailed = evaluator.evaluate_detailed(
+                return evaluator.evaluate_detailed(
                     questions=[questions[i] for i in _ans_idx],
                     answers=[answers[i] for i in _ans_idx],
                     contexts=[contexts[i] for i in _ans_idx],
                     ground_truths=[ground_truths[i] for i in _ans_idx],
                     metrics=eval_metrics,
                 )
+
+        if _ans_idx:
+            detailed = await asyncio.to_thread(_judge_in_thread)
             metrics = dict(detailed.aggregate)
         # One row per sample, in sample order; the judge's rows go to the
         # answerable samples they scored.
@@ -3740,7 +3904,7 @@ async def _eval_offline(
     _offline_failures: List[str] = []
     if getattr(detailed, "failed_metrics", None):
         _offline_failures.append(
-            "judge produced no usable scores for " + ", ".join(detailed.failed_metrics)
+            _no_usable_scores(detailed.failed_metrics, getattr(detailed, "cut_off_note", ""))
         )
     if _citation_failure:
         _offline_failures.append(_citation_failure)
@@ -3748,8 +3912,12 @@ async def _eval_offline(
         result.metrics["generations_failed"] = float(_offline_failed_generations)
         if _offline_failed_generations / len(eval_samples) > _MAX_FAILED_GENERATION_RATE:
             _offline_failures.append(
-                f"{_offline_failed_generations} of {len(eval_samples)} answers could not be "
-                f"generated (failed, or no generator configured)"
+                _generation_failure(
+                    _offline_failed_generations,
+                    len(eval_samples),
+                    sum(u.cut_off for u in per_sample_usage),
+                    "failed, or no generator configured",
+                )
             )
     result.error = "; ".join(_offline_failures) or None
     result.compute_latency_stats()
@@ -4944,7 +5112,12 @@ async def _eval_live(
 
     # Save config for generation path — includes task overrides + embedding fixes,
     # but NOT the IR-specific overrides that disable agentic routing.
+    # Keep `gen_config` as the arm's configured values for `system["stages"]`
+    # and derive `gen_exec_config` for runtime search so promoting an arm that
+    # enables a fast-disabled stage to `standard` does not alter stage digests.
     gen_config = dict(pipeline._config)
+    gen_exec_config = dict(gen_config)
+    _fix_generation_routing(gen_exec_config, task.config_overrides)
 
     # Live-mode fix 2 (IR only): Disable agentic/comprehensive routing.
     # The agentic pipeline runs multi-hop retrieval + LLM synthesis. For IR
@@ -4997,6 +5170,9 @@ async def _eval_live(
     # What fell back while each track's queries ran (#50).
     _ir_degraded = _DegradedTally()
     _gen_degraded = _DegradedTally()
+    # Effective runtime routing tiers executed per track (#98).
+    _ir_routing_tiers: Dict[str, int] = {}
+    _gen_routing_tiers: Dict[str, int] = {}
 
     # The cutoff the IR metrics are reported at. Was hard-coded to 10 in six
     # places, so NDCG@100 and Recall@1000 -- the cutoffs much of the retrieval
@@ -5075,6 +5251,7 @@ async def _eval_live(
                 sample_meter,
                 sample_meter.scope(SYSTEM),
                 observe_reranking() as moved,
+                observe_routing() as _ir_tiers,
                 _ir_degraded.query(),
             ):
                 search_results = await asyncio.to_thread(
@@ -5084,6 +5261,8 @@ async def _eval_live(
                     shared_session_id,
                     task_config,
                 )
+            for _tier in _ir_tiers:
+                _ir_routing_tiers[_tier] = _ir_routing_tiers.get(_tier, 0) + 1
             query_latency_ms = (time.monotonic() - query_start) * 1000
 
             # Extract doc IDs from search results.
@@ -5319,6 +5498,7 @@ async def _eval_live(
                             gen_meter,
                             gen_meter.scope(SYSTEM),
                             present_context_order() as _presented,
+                            observe_routing() as _gen_tiers,
                             _gen_degraded.query(),
                         ):
                             search_results = await asyncio.wait_for(
@@ -5327,10 +5507,12 @@ async def _eval_live(
                                     gen_sample.question,
                                     10,
                                     shared_session_id,
-                                    gen_config,
+                                    gen_exec_config,
                                 ),
                                 timeout=300,  # 5 min
                             )
+                        for _tier in _gen_tiers:
+                            _gen_routing_tiers[_tier] = _gen_routing_tiers.get(_tier, 0) + 1
                     except asyncio.TimeoutError:
                         logger.warning(
                             f"Query timed out after 5 min for sample "
@@ -5673,8 +5855,10 @@ async def _eval_live(
                     )
                     if getattr(regen_result, "failed_metrics", None):
                         _eval_failures.append(
-                            "judge produced no usable scores for "
-                            + ", ".join(regen_result.failed_metrics)
+                            _no_usable_scores(
+                                regen_result.failed_metrics,
+                                getattr(regen_result, "cut_off_note", ""),
+                            )
                         )
                     # Store aggregate scores (prefix with _regen when agentic
                     # answers are also available, otherwise use plain names).
@@ -5866,7 +6050,9 @@ async def _eval_live(
         # a tenth means the generation metrics describe the outage, not the system.
         if _failed_generations / _n_generations > _MAX_FAILED_GENERATION_RATE:
             _eval_failures.append(
-                f"{_failed_generations} of {_n_generations} answers could not be generated"
+                _generation_failure(
+                    _failed_generations, _n_generations, gen_meter.usage(SYSTEM).cut_off
+                )
             )
 
     _system = _ran_system(
@@ -5939,6 +6125,13 @@ async def _eval_live(
         ]
     except Exception as exc:  # the manifest must never cost a result
         logger.warning(f"Could not record the stage manifest: {exc}")
+    _routing_tiers = {
+        track: dict(sorted(counts.items()))
+        for track, counts in (("retrieval", _ir_routing_tiers), ("generation", _gen_routing_tiers))
+        if counts
+    }
+    if _routing_tiers:
+        _system["routing_tiers"] = _routing_tiers
     if _context_free:
         # Read by the reports, which say why this arm has no faithfulness.
         _system["generator_context"] = "none"
