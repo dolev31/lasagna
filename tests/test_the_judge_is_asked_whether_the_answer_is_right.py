@@ -90,3 +90,10 @@ def test_agentic_runs_get_a_canonical_score_for_every_judged_metric():
     apply_canonical_metric_mapping(rows, metrics, base_keys=["factual_correctness"])
     assert [r["factual_correctness"] for r in rows] == [0.6, 0.4]
     assert metrics["factual_correctness"] == pytest.approx(0.5)
+
+
+def test_ragas_mode_metric_key_is_extracted():
+    """RAGAS mode metrics still contribute to the canonical score."""
+    assert ragas_mod._extract_score(
+        {"factual_correctness(mode=f1)": [0.25, 0.75]}, "factual_correctness"
+    ) == pytest.approx(0.5)
