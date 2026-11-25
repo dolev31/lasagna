@@ -88,7 +88,11 @@ _RAGAS_KEY_MAP = {
     "faithfulness": ["faithfulness"],
     "answer_relevancy": ["answer_relevancy", "answer_relevance"],
     "context_recall": ["context_recall", "llm_context_recall"],
-    "factual_correctness": ["factual_correctness"],
+    "factual_correctness": [
+        "factual_correctness",
+        # RAGAS 0.4.3 names the default F1 mode explicitly.
+        "factual_correctness(mode=f1)",
+    ],
     "context_precision": [
         "context_precision",
         "llm_context_precision_with_reference",
