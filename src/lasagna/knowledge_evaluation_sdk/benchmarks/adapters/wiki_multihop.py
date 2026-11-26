@@ -33,7 +33,7 @@ class WikiMultiHopAdapter(BaseBenchmarkAdapter):
 
     def load(
         self,
-        split: str = "test",
+        split: str = "validation",
         n_samples: Optional[int] = None,
         seed: int = 42,
         cache_dir: Optional[str] = None,

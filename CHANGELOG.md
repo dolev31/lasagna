@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`wiki_multihop` loads from the XanhHo mirror with correct split mapping.** The
+  dataset now uses `hf_data_files` with `dev`, `train`, and `test` parquet files,
+  pinned to the resolved commit, and `hf_revision` so provenance is recorded.
+  Internal split names (`validation`) map to the mirror's `dev` split via
+  `split_mapping`, matching the convention used by `2wikimultihopqa`. The default
+  split is `"validation"` (not `"test"`) so ``load_benchmark("wiki_multihop")``
+  loads from the development split without specifying an argument. Added to
+  the pinned revisions set.
+
 - Contextual enrichment, graph extraction and RAPTOR call the configured LLM
   provider, Ollama included, through one helper (`get_ingest_llm`). Each built
   an OpenAI client of its own, so with only `OLLAMA_BASE_URL` set a

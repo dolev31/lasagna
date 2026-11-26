@@ -309,9 +309,17 @@ _BENCHMARKS: Dict[str, Dict[str, Any]] = {
         "format": "musique",
     },
     "wiki_multihop": {
-        "hf_dataset": "varun-v-rao/2WikiMultiHopQA",
+        "hf_dataset": "xanhho/2WikiMultihopQA",
+        "hf_revision": "612bc5039a457880d9e7d84c3b0a4cf154b70e4f",  # pragma: allowlist secret
+        "hf_data_files": {
+            split: f"{split}.parquet"
+            for split in ("dev", "train", "test")
+        },
         "description": "2WikiMultiHopQA: multi-hop reasoning over two Wikipedia articles",
         "format": "wiki_multihop",
+        "split_mapping": {
+            "validation": "dev",
+        },
     },
     "multihop_rag": {
         "hf_dataset": "yixuantt/MultiHopRAG",
@@ -383,7 +391,7 @@ def list_benchmarks() -> Dict[str, str]:
 
 def load_benchmark(
     name: str,
-    split: str = "test",
+    split: str = "validation",
     n_samples: Optional[int] = None,
     cache_dir: Optional[str] = None,
     seed: int = 42,
@@ -400,8 +408,9 @@ def load_benchmark(
 
     Args:
         name: Benchmark name (e.g., ``"beir/nfcorpus"``, ``"squad_v2"``).
-            Use ``list_benchmarks()`` to see available options.
-        split: Dataset split — ``"test"``, ``"train"``, or ``"validation"``.
+            Use ``list_benchmarks()`` to see available benchmarks.
+        split: Dataset split — ``"train"``, ``"validation"``, or
+            ``"test"``. Defaults to ``"validation"``.
         n_samples: Optional limit on number of samples. When set, a
             deterministic random sample is drawn (seeded by ``seed``).
         cache_dir: Directory for cached datasets. Defaults to
@@ -456,6 +465,15 @@ def load_benchmark(
     # every later run read train judgements believing they were test.
     actual_split = split
 
+    # Split mapping for datasets where internal split names differ from
+    # the HuggingFace parquet file names (wiki_multihop: validation -> dev).
+    resolve_split = split
+    if fmt == "wiki_multihop" and "split_mapping" in info:
+        mapping = info["split_mapping"]
+        resolve_split = mapping.get(split, split)
+        if resolve_split != split:
+            actual_split = resolve_split
+
     # BEIR datasets with qrels: load queries + relevance judgments separately
     if fmt == "beir" and "hf_qrels" in info:
         import random
@@ -509,9 +527,19 @@ def load_benchmark(
             return load_dataset(hf_name, split=which, **load_kwargs)
 
         try:
-            ds = _load_split(split)
-            actual_split = split
+            ds = _load_split(resolve_split)
+            actual_split = resolve_split
         except (ValueError, KeyError) as exc:
+            # For wiki_multihop with hf_data_files, the error is about an
+            # unknown file name — let the data_files key check below handle it.
+            if fmt == "wiki_multihop" and data_files:
+                if resolve_split not in data_files:
+                    available = sorted(data_files)
+                    raise ValueError(
+                        f"Split '{split}' mapped to '{resolve_split}', "
+                        f"which is not in the dataset files. Available: "
+                        f"{', '.join(available)}"
+                    ) from exc
             # Substituting a split changes what the number means -- `train`
             # numbers reported as `test` are not comparable to anyone else's,
             # and the cache stores the result under the *requested* split's key,
